@@ -61,6 +61,9 @@ def test_builder_namespace_logical_operator_is_builder_ready(tmp_path: Path, mon
     assert pm_dispatch._node_is_builder_ready({"logical_operator": "builder.fix"})
     assert pm_dispatch._node_is_builder_ready({"logical_operator": "builder.implementation"})
     assert not pm_dispatch._node_is_builder_ready({"logical_operator": "eval.review"})
+    assert not pm_dispatch._node_is_builder_ready({"role": "evaluator"})
+    assert not pm_dispatch._node_is_builder_ready({"target_role": "planner"})
+    assert not pm_dispatch._node_is_builder_ready({"handoff_to": "pm"})
 
 
 def test_node_builder_objective_requires_canonical_handoff(tmp_path: Path, monkeypatch):
@@ -74,3 +77,12 @@ def test_node_builder_objective_requires_canonical_handoff(tmp_path: Path, monke
     assert "canonical handoff" in objective
     assert "sprint-test.N1-handoff.md" in objective
     assert ".pm-result.md" in objective
+
+
+def test_bare_capsule_id_without_task_type_does_not_trigger_capsule_submit(tmp_path: Path, monkeypatch):
+    pm_dispatch = _load_pm_dispatch(tmp_path, monkeypatch)
+
+    assert pm_dispatch._capsule_submit_metadata({"capability_capsule_id": "cap.flashmlx-performance-debugger"}) == {}
+    assert pm_dispatch._capsule_submit_metadata(
+        {"capability_capsule_id": "cap.flashmlx-performance-debugger", "dispatch_task_type": "PERFORMANCE_REGRESSION"}
+    )["dispatch_task_type"] == "PERFORMANCE_REGRESSION"

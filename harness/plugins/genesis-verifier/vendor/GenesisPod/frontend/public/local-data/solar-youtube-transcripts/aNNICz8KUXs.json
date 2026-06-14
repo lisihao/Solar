@@ -1,0 +1,499 @@
+{
+  "videoId": "aNNICz8KUXs",
+  "title": "SREcon26 Americas - How We Built Protosockets to Go Beyond HTTP and gRPC",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 23613,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Good morning everyone. Uh I'm Pratik.\nI'm a software engineer at Figma. I work\nfor the infrastructure team mostly on\ntheir caching and database\ninfrastructure. Um this talk is about my\ntime at Momento which was last year. I\nmoved to Figma last year from Momento.\nUh and I'm going to talk about how we\nbuilt protosockets uh to go beyond HTTP\nand gRPC. Previous to Momento, I also\nworked at AWS on their marketplace uh\ndata platform team and the Dynamo DB\ncontrol plane team. Um in the spirit of\nScoin, I would like to say I'm a firm\nbeliever in reliability is like oxygen.\nYou only realize once it's absent. Um so\nhaving said that, I'll just kick off. So\nif you all don't know about Momento\nmuch, Momento is uh series A smallest\nstartup. Uh they are a caching and a\npopsup platform. So if you want to like\nyou know use a cache from your mobile\ndevice from your web device or from your\nwithin your servers um it provides you\nwith KV uh KV store to do that. This is\na very high level initial architecture\ncircard 2023 2024 that I have here uh\nwhere as a client you use momentos SDK\nyou make a request that goes over the\nNLB it hits one of the internal routers\num let's say it's a get request or a set\nrequest to very simple KV APIs um the\nrouter would you know do some parsing of\nthat request and send it to the storage\nservers the storage servers either store\nthe request or send you back the\nresponse based based on that um\nparticular command that you send.\nThere's a control plane. The control\nplane uh is what we like to call as the\nbrain of the system. It is responsible\nfor uh sending metadata to routers. So\nfor example, when you create a resource,\nthe control plane is the one that has\nall the state. It knows which partitions\nu your resource or cache has, how many\npartitions, uh which storage servers it\nbelongs to. So it sends all of that\nmetadata information down to the\nrouters. It also does the health check\nand provisioning of the storage servers.\nSo if you have read the GFS paper from\n2000, this seems very familiar in my\nexperience over the last you know not a\nlot 10-ish years. I've seen most\ndistributed systems starts falling into\nthis particular pattern of a stateful\ncontrol plane a stateless router layer\nand then your actual storage layer or\nsandbox layer for compute um like that.\nSo yeah um this was the initial highle\narchitecture. Um before I talk about\nlike any of the performance stuff, I\nwould like to call out what we used as\nour benchmark setup. For the actual\nbenchmark itself, we use RPC PF from\nTwitter. Uh it was written back in\nTwitter. Twitter had like a huge caching\ninfrastructure back in the days where it\nwas called Twitter. Um\nwe we use this library. It's currently\nowned by IOP systems. It's another\nstartup um that that operates this\nlibrary now. So our client was a 4XL,\nwhich is like 16 cores. We want a fat\nclient so that it's not the bottleneck\nwhen you're doing benchmarks. The router\nwas a 2XL which is like around 8 cores.\nYour storage servers with two cores. Um\nthe our workloads were with an item size\nof a kilobyte uh with a readr ratio of 1\nis to1. So you have 50 gets and 50 sets\nfor example.\nUm okay so going back to the initial\narchitecture we were historically a gRPC\nshop. So every request from the SDK to\nthe router all the way to the storage\nthe control plane talking to these\ncomponents all happened over gRPC. Um\nwhen we ran our benchmarks on this\nparticular architecture we saw around\n20,000 operations per second with P39\nless than 5 milliseconds. So this is the\nway we usually benchmark caching\nworkloads. At my time at Figma currently\ntoo, previously at Momento, previous to\nthat, uh we always kept a ceiling for\nwhat the latencies our clients or\ncustomers desire and we see how much\nthroughput we can extract out of our\nservers uh as that baseline latency. So\n20,000 operations per second. Um is that\ngood? Is that bad? How many of you think\nit's bad?\nWell, it's it's kind of underwhelming,\nright? Like and how do you know it's\nbad? Like so what we did, we we stripped\nout the routers. We saw okay let's let's\ntry to hit the storage servers directly.\nSure you're you have a router you have a\nconnection pooling layer it it's going\nto add some overhead but what exactly is\nthat overhead? So we stripped off the\nright routers we directly pointed our\nRPC puff client from to to the storage\nservers to see what what they can do. Uh\nand that came out to like 200,000\noperations per second. So you really\nit's it's an order of magnitude less\nwhen you add uh add a new component\nwhich is kind of underwhelming. Like\nit's it's sure you have overhead but not\nnot an order of magnitude. Um so where\ndoes this overhead come from? Before you\noptimize anything, you got to see like\nyou got to measure and and see where\nwhere your system kind of breaks. Um so\ngRPC itself uh it has a network overhead\nover the wire. So there's a bite on the\nwire tax u with your HC2 HTTP2 frames,\nthe gRPC headers, the actual protobuff\nenvelope that you're sending as a part\nof the request. Um apart from this\noverhead or most more importantly you\npay a CPU tax um you know you have these\ngRPC state machines interceptors error\nhandling all of the all of those things\nthat makes the framework beautiful um\nthat makes the framework as stable and\ngood as is but at the same time you're\nalso paying an additional cost for it.\num that cost results in added latency\nfor your clients or for your customers,\nless throughput for your internal\nservers, which direct directly impacts\nyour bottom line. So now let's say you\nhave a big customer and you have to\nsupport a million operations per second\nbased on the numbers I told you before,\nyou need like 50 routing servers itself,\nwhich you know it might cost around\nhundreds of thousand somewhere around\n$100,000 in in the AWS world. Um it's\nlike a ballpark number that I'm just\nthrowing out here. Um so if if you're\nbuilding SAS, if you're building\ninfrastructure as a service, your bottom\nline impacts your bottom line matters a\nlot. You have to reduce the cost or\nreduce the server so that you get more\nmargins for your business so that your\nbusiness is actually profitable and\nyou're not spending like a ton of\nmoney. Sorry about that language.\nUm okay. So before any particular manual\nor you know uh before reinventing any\nkind of wheel um to get more performance\nfrom your servers uh gRPC has its own\nstreaming um library. So for example in\nthe previous slides that I showed every\nrequest you send as a client translates\nto one HTTP2 or gRPC request for the\nrouter one HTTP2 or gRPC request for\nyour storage servers. So why not let's\nlet's open one long live stream and send\nthose requests over that. Um what you do\nwith that is you reduce your per request\noverhead. Uh you're still paying your\nper stream overhead but with on one\nHTTP2 stream you're sending all your\nrequests. Um so that did result in lower\nnetwork overhead. It did result in lower\nCPU overhead. uh and we did see a 20 to\n30% throughput boost um by just\nswitching from gRPC unary to gRPC\nstreaming. So that amounted to around\n25,000 operations per second from 20,000\noperations per second. So around a 20%\nthroughput boost.\nUm there is a downside when it comes to\nsome of these streaming libraries. your\nimplementation becomes a bit more\ncomplex.\nI don't know if I can say that with\ncloud code anymore, but who knows? Like\nit's it's still a little more complex\ncompared to when you're uh dealing with\nunary libraries.\nOkay, before I show this slide actually.\nYeah. Okay. Um so this is uh yeah before\nI dive into this, Momento is primarily\non Rust. Rust is one of the high\nperformance languages that's um used by\na lot of new database and and\nperformance companies these days over\ntraditional languages like C++ but I\nshouldn't say traditional but yeah old\nlanguages like C++ or C. Um so this is\nhow the Rust gRPC stack looks like the\nasynchronous Rust gRPC stack looks like.\nYou have gRPC at the top you have H2. H2\nis um asyncrust's HTTP2 library that's\nbuilt on top of TCP t it uses MIO as a\nas an as a library over Unix. So if\nyou're familiar with system calls like\nread, write, open, mio gives you a\nfriendly abstraction over those system\ncalls so that you don't have to deal\nwith them u yourselves. uh mio\ninternally uses gipc which is the Unix\nlibrary and then finally you have the\nhardware abstraction layer at the bottom\nwhere you're actually you know using\nassembly to talk to your hardware\ncomponents. Um now you can see the\nheading of this particular GitHub issue\nthat says library does not scale with\nmultiple cores. Um so we once we started\nand this this is still open. Uh once we\nonce we started digging into why we're\nseeing like such less performance even\nwith the streaming ecosystem uh we ran\ninto this issue and uh we we saw that we\nstarted doing experiments and or\nmeasuring different things and the one\nthing that helped us the most were flame\ngraphs. So flame graphs are basically\nthe width that you see here that\nindicates how much time every function\nuh how much time every function consumes\nand the height that you're seeing here\nis basically the depth of your call\nstack. Um so it just basically lets you\nvisualize how much time your you know\nsystem is actually spending on different\nparts or or different components.\nUm so going back to this particular\nslide um we were seeing\na lot of task starvation. Now what does\nthat mean by task starvation? I I I mean\nthat every request that the client sends\nthat reaches the routers they were all\nblocking on shared state. Whenever you\nhave shared state you need to\nsynchronize the shared state to avoid\ncorruption. And each of these requests\nwere going and blocking on a particular\nlock or mutex behind that shared state.\nUm when when requests block they park\nthemselves on the kernel for almost\nhundreds of microsconds. Uh and one and\nthey can only make progress once the\nkernel actually wakes them up. So that\ndirectly impacts your throughput and\nlatencies for the client side\nwhich is what we saw in this flame\ngraphs. But uh this is not the direct\nflame graph. We unfortunately did not\nhave that from one from what we tested\nbut we did not see like a giant with\nsaying lock contended on a particular\nrequest. It was not very easy to spot it\ndirectly. We had to literally using\nbuttons and eyes click through every\nindividual frame. So if you click on an\nindividual frame it will expand out and\nwithin them we saw these log contended\nor mutx parks sprinkled all over the\nflame graph. Um so even in the streaming\nworld even in the streaming world every\nwhen you're using gRPC streaming\nthe shared buffer is across streams. So\nit's possible that your runtime threads\nare actually blocking for every request\nthat is coming in the router. So you\nhave six OS runtime threads every\nrequest comes in. It's possible one is\nworking on it and five threads are\nblocked on that shared buffer. Um and\nthat's that was our hypothesis like That\nthat was the only thing that was making\nsense especially with that open GitHub\nissue that also we had that this\nparticular shared state or this\nparticular mutx on this shared state um\nin the H2 library was causing this you\nknow throughput drag or the latency drag\nfor for our clients and for our servers.\nso this was one of the libraries that my\nmentor at that time and I we were\nworking on you know there's a GitHub\nlink uh KVC/protosocket.\nUm so we pulled it out from from like a\npet project and we like okay let's let's\ntry this in in our systems and how let's\nsee what it does. So protocet is a\nnon-blocking birectional message\nstreaming connection. You just need to\nprovide your serializer and d serializer\nfor your messages um and you can stream\nto and from TCP servers. There is no\nwrapper like there is no HTTP2 or gRPC,\nno websockets. You just depend on TCP\nand your serialization strategy. Uh the\ndependencies are very trim. It just uses\nTokyo which is again asynchronous Rust\nuh runtime. Um and there is minimal\nsynchronization points. There is no\nshared state connection between\ndifferent streams of connections. Every\nconnection has its own individual buffer\nand isolated state. You can use multiple\nencoding formats. You can use JSON. You\ncan use protobuff as as you like. Um it\ndoesn't have too much opinions. If you\nwant to create an ordered stream over\nTCP, reinvent HTTP. You're free to do\nthat. If you want unordered non-blocking\nstreams, reinvent UDP, you're free to do\nthat. Um so we just pulled out this\nlibrary and started experimenting it\nwith um on on our servers. Um again,\nlike just just some more uh information\nabout protockets.\nSo what it does is now we get rid of\nthose two additional layers that I was\nspeaking about previously. Now you're\ndirectly on the TCP land. You don't have\nthe overhead that's associated with\ngRPC. You don't have the overhead that's\nassociated with H2 that is uh the HTTP\nHTTP2 library that we were dealing with.\nso after this we\nstarted seeing I'll come I'll come to\nthe numbers but um we started seeing\nalmost 60 to 70,000 requests per second\nor operations per second on on our\nrouters which is almost a 3x boost that\nwe were getting before uh with with gRPC\nstreaming or gRPC unary u which is which\nis what I've written here. Um this is\nthe final architecture. Now\nbefore we initially we only had\nprotosocket between our internal router\nand storage servers. We did not expose\nit expose it to the outside clients\nbecause that's just easier. Uh you're\nwithin an AWS VPC. You have in you're in\ncontrol of your own servers. You can\nchange the protocol however you like.\nBut before you open it to the world,\nthere are much more considerations that\nwe need to think about. Um so this gave\nus 70,000 operations per second uh with\nour 5 millconds baseline.\nNow after this is after I sort of left\nthe company but in the last few months\nuh they have been experimenting with\nopening protosocket to the client SDK as\nwell. Um right now it's only available\non the Rust SDK. So if you go to like\nmomento rust SDK you can actually see um\nprotosocket being used to talk to the\nrouters directly. Um so how does this\nwork? I'm just going to drink a little\nwater.\nSo when you open it to a client now your\nclient SDK the first thing it does is it\ntalks to your control plane to discover\nall the routers. This is over plain\nHTTP. Um it refreshes every 30 seconds\nto make sure it has um the latest state\nof of of the world. um once it has\ndiscovered all the routers it bypasses\nthe NLB and starts talking to the\nrouters directly. How do you\nauthenticate? How do you authorize?\nRight? Like that's probably the first\nquestion that might be coming to your\nmind. Um talking to the control plane\nitself is over Z authent. So you have\nlike it's over HTTP. So you have like\njust a basic authentication that's\nhappening over there. When you're\ntalking to the routers from your client\nover the public internet, the first\nmessage that you send over protosocket\ncontains your jot token. So the way you\nauthenticate in momento you have a\nself-contained jot token that controls\nboth o and oz. So the first message or\nthe first frame that you're sending over\nprotosocket uh will contain that\nauthorization token and the routers will\nuse that to authorize. Then over the\nsame connection um your messages starts\nflowing and uh the router interacts with\nthe storage servers again over\nprotosocket um and sends back the\nresponse. These arrows should be\nbirectional here. Um kind of it should\nbe shouldn't be single direction. While\nI'm talking now I realize that um\nafter opening to the client we still\nseeing 70,000 operations per second but\nnow a PHP9's dropped from 5 milliseconds\nto less than 3 milliseconds. We probably\ncould have like gotten a more throughput\nboost but we wanted like that additional\nlatency benefits that we're seeing um by\nopening it to the client. So this is the\narchitecture how it looks like today. Uh\nthere are 20 different client SDKs that\nmomento has. This is only baked into\nRust and I think Golang right now. Uh\nbut in the future we're planning to use\nforeign function interfaces so that all\nof these different languages can\ndirectly talk to the Rust client and we\ndon't have to reinvent the wheel in\nevery different client. Again, as I\nsaid, implementation for for the team\nitself becomes a little more complex\nwhen you're dealing with these custom\nprotocols. Not not for you as a\ncustomer, but for the internal team\nwho's actually managing these services.\nOkay, so the numbers recap. Uh, we\nstarted with gRPC unary 20,000 requests\nper second. Then we went to streaming\n25,000 requests per second. We went to\nprotosocket only between the internal\nsystems between the router and the\nstorage servers at 70,000 operations per\nsecond. And then we open it with the\nclient. We still got more than 70,000\noperations per second, but more\nimportantly, we saw a huge uh latency\nwin in that almost 60% at P39s.\nOkay, so coming to trade-offs, um I\nthink I've mentioned more complex\nimplementation a couple of times as as a\nsystems team. If you're trying to build\nthis on your own, if you're trying to\nbuild these protocols, if you're letting\ngo of HTTP or all the nice things that\ngRPC and STP have, you'll have to deal\nwith like more complex implementations\nand possibly reinvent some of the things\nthat they already provide, but also let\ngo of the things that you feel is\nredundant and not required for your\nparticular system or your particular\nworkloads that you're running. Um, HTTP\nhas better interoperability.\nUh, load balancers, proxies, firewalls,\nthey're all aware of HTTP. So, this\nwon't be trivial to open it to customers\nbehind corporate proxies. You can still\nuse it within your internal service, but\nonce you go outside to the public\ninternet, it becomes a little tricky.\nUm, the tools are all HTTP aware. So you\nknow logs, metrics on my dashboards, um\nyou again have to do more much more work\nto get all those things back that you\nwere previously sort of getting for free\nwhen you were over HTTP.\nUm so some of the key takeaways uh\nmeasure then optimize um you know a lot\nof times we fall into a trap of let's\nstart optimizing without like just\nseeing um what the problem is. Measuring\ncan take different forms. We should we\nshould be looking beyond traditional\nlogs and metrics. uh using tools like\nflame graphs. There are a lot more uh\nBrendan Greg is one of uh my favorite\npeople in this in this in this world of\nuh performance tools. Um so you can you\nknow refer refer a lot of his books and\nblogs and articles to see which is the\nright tool for the right thing that\nyou're trying to optimize. Um\ncommunity-maintained ecosystem needs\nmore love. Like one of the things when\nyou're using languages like Rust is most\nof the things are community maintained.\nSo you can't like just trust them\nblindly. You have to see what uh\npitfalls they have like we figured out\nwith that particular shed state\ncontention that we were running into uh\nin the HTTP2 library.\nBut standard library is also not uh\nalways the best either. I didn't have\ntoo much time. I could have uh because\nthat would have taken a talk in itself.\nBut we actually also initially rewrote\nthe standard library mutx or the lock uh\nwith our own mutx uh which just used to\nspin faster. It was a spin lock. It used\nto spin faster. Um, and we got 10 to 15%\nboost with that too. Uh, but not so much\nafter we moved to gRPC streaming. So, we\njust got rid of that entirely and\nstarted playing around with protockets.\nUm, finally, when do you use this? I\nthink these undertakings are only worth\nit if it impacts your bottom line. As I\nmentioned initially, uh, now with 20,000\nto 70,000, that million operations per\nsecond workload, we can do with 20\nservers instead of 50 servers. So that's\n60% savings directly for your company's\nrevenue, which directly impacts your\ncompany's profits. Um, if you don't care\nabout every single milliseconds, if\nyou're on the application layer,\nprobably not worth it, right? Uh, but if\nyou're building a SAS service, if you're\nbuilding a performance sensitive\nservice, it it it might turn out to be\nworth it depending on uh what your\ncustomer's workloads are and what your\ncurrent uh revenue numbers look like.\nThis is my personal experience when I uh\neven though I was before momento I did\nwork on database teams but I was mostly\non the control plane layer after that on\nthe data platform team. I was closer to\napplications product teams between the\ninfrastructure but I was not necessarily\ncloser to the metal and I was craving\nthat. So I moved to Momento to go closer\nto the metal and see how ID it actually\nworks. And I went into this huge rabbit\nhole of where do I start? Like this is\nthis stuff is so hard like where where\ndo I start? And I kept moving between um\nlike abstraction. So this is like the\nRust programming language. Then you have\nasync aait or the asynchronous IO within\nRust. Then you have your Linux which\ngives you the system calls that these\nasynchronous frameworks are built upon.\nThen you have the hardware and you\nprobably might just open your, you know,\ncomputer and see what's going on inside.\nBut I I I did not go that far. I um I\nwish when I started 10 years back in\ndistributed systems, I first opened an\noperating system book to figure out or\nto just recap how an operating system\nactually works because a lot of the\nchallenges that you will solve with one\nsingle Linux server or single OS sort of\ntranslates to when you're dealing with\nmultiple machines. Um\nso some of the resources that helped me\nthese are all free they're all open\nsource you don't have to pay for any of\nthem um OEP book it helped me a lot it's\noperating system in three easy pieces it\nwas 15 years I went to school so you\nknow this book helped me a lot um the\nsecond is atomics by Marabos it's again\na free book by Marabos she's\nexceptionally well written um even if\nyou're not from Rust background I would\nsay 60% of the book would still help you\nunderstand how locks and things work\nbecause you she makes you implement them\nfrom scratch and by giving you very\ngranular detail and very beginner\nfriendly too. Uh Brendan Greg is one of\nthe sort of gurus in performance. His\nblogs and books are always very\nvaluable. Um and the last one I this is\nthe MIT 6.824 distributed systems\ncourse. After you go through the OS\nstuff, you can start looking into this\none. Um, I really like this course\nbecause it gives you 15 foundational\npapers and I feel like most of the\nthings that we work in the system space\nin day-to-day land sort of fall in those\n15 papers somewhere or the other. You\ncan easily create a mental model um of\nhow these systems work just by having\nsome traditional or conventional\nknowledge about how previous systems\nwere built. Um just as an\nacknowledgement this yeah this is the my\nmentor and that's the founder of C\nmomento just thanking them for the\nopportunity that they gave for me to\ncome here and talk about uh proto\nsockets.\nYeah, that's it for me. I know I'm a\nlittle early, but yeah.",
+  "segments": [
+    {
+      "text": "Good morning everyone. Uh I'm Pratik. I'm a software engineer at Figma. I work for the infrastructure team mostly on their caching and database infrastructure. Um this talk is about my time at Momento which was last year. I",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "moved to Figma last year from Momento. Uh and I'm going to talk about how we built protosockets uh to go beyond HTTP and gRPC. Previous to Momento, I also worked at AWS on their marketplace uh data platform team and the Dynamo DB",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "control plane team. Um in the spirit of Scoin, I would like to say I'm a firm believer in reliability is like oxygen. You only realize once it's absent. Um so having said that, I'll just kick off. So if you all don't know about Momento",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "much, Momento is uh series A smallest startup. Uh they are a caching and a popsup platform. So if you want to like you know use a cache from your mobile device from your web device or from your within your servers um it provides you",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "with KV uh KV store to do that. This is a very high level initial architecture circard 2023 2024 that I have here uh where as a client you use momentos SDK you make a request that goes over the NLB it hits one of the internal routers",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "um let's say it's a get request or a set request to very simple KV APIs um the router would you know do some parsing of that request and send it to the storage servers the storage servers either store the request or send you back the",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "response based based on that um particular command that you send. There's a control plane. The control plane uh is what we like to call as the brain of the system. It is responsible for uh sending metadata to routers. So",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "for example, when you create a resource, the control plane is the one that has all the state. It knows which partitions u your resource or cache has, how many partitions, uh which storage servers it belongs to. So it sends all of that",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "metadata information down to the routers. It also does the health check and provisioning of the storage servers. So if you have read the GFS paper from 2000, this seems very familiar in my experience over the last you know not a",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "lot 10-ish years. I've seen most distributed systems starts falling into this particular pattern of a stateful control plane a stateless router layer and then your actual storage layer or sandbox layer for compute um like that.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "So yeah um this was the initial highle architecture. Um before I talk about like any of the performance stuff, I would like to call out what we used as our benchmark setup. For the actual benchmark itself, we use RPC PF from Twitter. Uh it was written back in",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "Twitter. Twitter had like a huge caching infrastructure back in the days where it was called Twitter. Um we we use this library. It's currently owned by IOP systems. It's another startup um that that operates this library now. So our client was a 4XL,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "which is like 16 cores. We want a fat client so that it's not the bottleneck when you're doing benchmarks. The router was a 2XL which is like around 8 cores. Your storage servers with two cores. Um the our workloads were with an item size",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "of a kilobyte uh with a readr ratio of 1 is to1. So you have 50 gets and 50 sets for example. Um okay so going back to the initial architecture we were historically a gRPC shop. So every request from the SDK to the router all the way to the storage",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "the control plane talking to these components all happened over gRPC. Um when we ran our benchmarks on this particular architecture we saw around 20,000 operations per second with P39 less than 5 milliseconds. So this is the way we usually benchmark caching",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "workloads. At my time at Figma currently too, previously at Momento, previous to that, uh we always kept a ceiling for what the latencies our clients or customers desire and we see how much throughput we can extract out of our",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "servers uh as that baseline latency. So 20,000 operations per second. Um is that good? Is that bad? How many of you think it's bad? Well, it's it's kind of underwhelming, right? Like and how do you know it's bad? Like so what we did, we we stripped",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "out the routers. We saw okay let's let's try to hit the storage servers directly. Sure you're you have a router you have a connection pooling layer it it's going to add some overhead but what exactly is that overhead? So we stripped off the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "right routers we directly pointed our RPC puff client from to to the storage servers to see what what they can do. Uh and that came out to like 200,000 operations per second. So you really it's it's an order of magnitude less",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "when you add uh add a new component which is kind of underwhelming. Like it's it's sure you have overhead but not not an order of magnitude. Um so where does this overhead come from? Before you optimize anything, you got to see like",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "you got to measure and and see where where your system kind of breaks. Um so gRPC itself uh it has a network overhead over the wire. So there's a bite on the wire tax u with your HC2 HTTP2 frames, the gRPC headers, the actual protobuff",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "envelope that you're sending as a part of the request. Um apart from this overhead or most more importantly you pay a CPU tax um you know you have these gRPC state machines interceptors error handling all of the all of those things",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "that makes the framework beautiful um that makes the framework as stable and good as is but at the same time you're also paying an additional cost for it. um that cost results in added latency for your clients or for your customers,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "less throughput for your internal servers, which direct directly impacts your bottom line. So now let's say you have a big customer and you have to support a million operations per second based on the numbers I told you before,",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "you need like 50 routing servers itself, which you know it might cost around hundreds of thousand somewhere around $100,000 in in the AWS world. Um it's like a ballpark number that I'm just throwing out here. Um so if if you're building SAS, if you're building",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "infrastructure as a service, your bottom line impacts your bottom line matters a lot. You have to reduce the cost or reduce the server so that you get more margins for your business so that your business is actually profitable and",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "you're not spending like a ton of money. Sorry about that language. Um okay. So before any particular manual or you know uh before reinventing any kind of wheel um to get more performance from your servers uh gRPC has its own",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "streaming um library. So for example in the previous slides that I showed every request you send as a client translates to one HTTP2 or gRPC request for the router one HTTP2 or gRPC request for your storage servers. So why not let's",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "let's open one long live stream and send those requests over that. Um what you do with that is you reduce your per request overhead. Uh you're still paying your per stream overhead but with on one HTTP2 stream you're sending all your",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "requests. Um so that did result in lower network overhead. It did result in lower CPU overhead. uh and we did see a 20 to 30% throughput boost um by just switching from gRPC unary to gRPC streaming. So that amounted to around",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "25,000 operations per second from 20,000 operations per second. So around a 20% throughput boost. Um there is a downside when it comes to some of these streaming libraries. your implementation becomes a bit more complex. I don't know if I can say that with",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "cloud code anymore, but who knows? Like it's it's still a little more complex compared to when you're uh dealing with unary libraries. Okay, before I show this slide actually. Yeah. Okay. Um so this is uh yeah before I dive into this, Momento is primarily",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "on Rust. Rust is one of the high performance languages that's um used by a lot of new database and and performance companies these days over traditional languages like C++ but I shouldn't say traditional but yeah old languages like C++ or C. Um so this is",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "how the Rust gRPC stack looks like the asynchronous Rust gRPC stack looks like. You have gRPC at the top you have H2. H2 is um asyncrust's HTTP2 library that's built on top of TCP t it uses MIO as a as an as a library over Unix. So if",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "you're familiar with system calls like read, write, open, mio gives you a friendly abstraction over those system calls so that you don't have to deal with them u yourselves. uh mio internally uses gipc which is the Unix library and then finally you have the",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "hardware abstraction layer at the bottom where you're actually you know using assembly to talk to your hardware components. Um now you can see the heading of this particular GitHub issue that says library does not scale with",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "multiple cores. Um so we once we started and this this is still open. Uh once we once we started digging into why we're seeing like such less performance even with the streaming ecosystem uh we ran into this issue and uh we we saw that we",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "started doing experiments and or measuring different things and the one thing that helped us the most were flame graphs. So flame graphs are basically the width that you see here that indicates how much time every function",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "uh how much time every function consumes and the height that you're seeing here is basically the depth of your call stack. Um so it just basically lets you visualize how much time your you know system is actually spending on different",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "parts or or different components. Um so going back to this particular slide um we were seeing a lot of task starvation. Now what does that mean by task starvation? I I I mean that every request that the client sends that reaches the routers they were all",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "blocking on shared state. Whenever you have shared state you need to synchronize the shared state to avoid corruption. And each of these requests were going and blocking on a particular lock or mutex behind that shared state.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "Um when when requests block they park themselves on the kernel for almost hundreds of microsconds. Uh and one and they can only make progress once the kernel actually wakes them up. So that directly impacts your throughput and latencies for the client side",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "which is what we saw in this flame graphs. But uh this is not the direct flame graph. We unfortunately did not have that from one from what we tested but we did not see like a giant with saying lock contended on a particular",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "request. It was not very easy to spot it directly. We had to literally using buttons and eyes click through every individual frame. So if you click on an individual frame it will expand out and within them we saw these log contended",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "or mutx parks sprinkled all over the flame graph. Um so even in the streaming world even in the streaming world every when you're using gRPC streaming the shared buffer is across streams. So it's possible that your runtime threads",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "are actually blocking for every request that is coming in the router. So you have six OS runtime threads every request comes in. It's possible one is working on it and five threads are blocked on that shared buffer. Um and",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "that's that was our hypothesis like That that was the only thing that was making sense especially with that open GitHub issue that also we had that this particular shared state or this particular mutx on this shared state um",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "in the H2 library was causing this you know throughput drag or the latency drag for for our clients and for our servers. so this was one of the libraries that my mentor at that time and I we were working on you know there's a GitHub link uh KVC/protosocket.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "Um so we pulled it out from from like a pet project and we like okay let's let's try this in in our systems and how let's see what it does. So protocet is a non-blocking birectional message streaming connection. You just need to",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "provide your serializer and d serializer for your messages um and you can stream to and from TCP servers. There is no wrapper like there is no HTTP2 or gRPC, no websockets. You just depend on TCP and your serialization strategy. Uh the",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "dependencies are very trim. It just uses Tokyo which is again asynchronous Rust uh runtime. Um and there is minimal synchronization points. There is no shared state connection between different streams of connections. Every",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "connection has its own individual buffer and isolated state. You can use multiple encoding formats. You can use JSON. You can use protobuff as as you like. Um it doesn't have too much opinions. If you want to create an ordered stream over",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "TCP, reinvent HTTP. You're free to do that. If you want unordered non-blocking streams, reinvent UDP, you're free to do that. Um so we just pulled out this library and started experimenting it with um on on our servers. Um again,",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "like just just some more uh information about protockets. So what it does is now we get rid of those two additional layers that I was speaking about previously. Now you're directly on the TCP land. You don't have the overhead that's associated with",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "gRPC. You don't have the overhead that's associated with H2 that is uh the HTTP HTTP2 library that we were dealing with. so after this we started seeing I'll come I'll come to the numbers but um we started seeing almost 60 to 70,000 requests per second",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "or operations per second on on our routers which is almost a 3x boost that we were getting before uh with with gRPC streaming or gRPC unary u which is which is what I've written here. Um this is the final architecture. Now before we initially we only had",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "protosocket between our internal router and storage servers. We did not expose it expose it to the outside clients because that's just easier. Uh you're within an AWS VPC. You have in you're in control of your own servers. You can",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "change the protocol however you like. But before you open it to the world, there are much more considerations that we need to think about. Um so this gave us 70,000 operations per second uh with our 5 millconds baseline. Now after this is after I sort of left",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "the company but in the last few months uh they have been experimenting with opening protosocket to the client SDK as well. Um right now it's only available on the Rust SDK. So if you go to like momento rust SDK you can actually see um",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "protosocket being used to talk to the routers directly. Um so how does this work? I'm just going to drink a little water. So when you open it to a client now your client SDK the first thing it does is it talks to your control plane to discover",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "all the routers. This is over plain HTTP. Um it refreshes every 30 seconds to make sure it has um the latest state of of of the world. um once it has discovered all the routers it bypasses the NLB and starts talking to the routers directly. How do you",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "authenticate? How do you authorize? Right? Like that's probably the first question that might be coming to your mind. Um talking to the control plane itself is over Z authent. So you have like it's over HTTP. So you have like just a basic authentication that's",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "happening over there. When you're talking to the routers from your client over the public internet, the first message that you send over protosocket contains your jot token. So the way you authenticate in momento you have a",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "self-contained jot token that controls both o and oz. So the first message or the first frame that you're sending over protosocket uh will contain that authorization token and the routers will use that to authorize. Then over the",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "same connection um your messages starts flowing and uh the router interacts with the storage servers again over protosocket um and sends back the response. These arrows should be birectional here. Um kind of it should be shouldn't be single direction. While",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "I'm talking now I realize that um after opening to the client we still seeing 70,000 operations per second but now a PHP9's dropped from 5 milliseconds to less than 3 milliseconds. We probably could have like gotten a more throughput",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "boost but we wanted like that additional latency benefits that we're seeing um by opening it to the client. So this is the architecture how it looks like today. Uh there are 20 different client SDKs that momento has. This is only baked into",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "Rust and I think Golang right now. Uh but in the future we're planning to use foreign function interfaces so that all of these different languages can directly talk to the Rust client and we don't have to reinvent the wheel in",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "every different client. Again, as I said, implementation for for the team itself becomes a little more complex when you're dealing with these custom protocols. Not not for you as a customer, but for the internal team who's actually managing these services.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "Okay, so the numbers recap. Uh, we started with gRPC unary 20,000 requests per second. Then we went to streaming 25,000 requests per second. We went to protosocket only between the internal systems between the router and the",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "storage servers at 70,000 operations per second. And then we open it with the client. We still got more than 70,000 operations per second, but more importantly, we saw a huge uh latency win in that almost 60% at P39s. Okay, so coming to trade-offs, um I",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "think I've mentioned more complex implementation a couple of times as as a systems team. If you're trying to build this on your own, if you're trying to build these protocols, if you're letting go of HTTP or all the nice things that",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "gRPC and STP have, you'll have to deal with like more complex implementations and possibly reinvent some of the things that they already provide, but also let go of the things that you feel is redundant and not required for your",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "particular system or your particular workloads that you're running. Um, HTTP has better interoperability. Uh, load balancers, proxies, firewalls, they're all aware of HTTP. So, this won't be trivial to open it to customers",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "behind corporate proxies. You can still use it within your internal service, but once you go outside to the public internet, it becomes a little tricky. Um, the tools are all HTTP aware. So you know logs, metrics on my dashboards, um",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "you again have to do more much more work to get all those things back that you were previously sort of getting for free when you were over HTTP. Um so some of the key takeaways uh measure then optimize um you know a lot of times we fall into a trap of let's",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "start optimizing without like just seeing um what the problem is. Measuring can take different forms. We should we should be looking beyond traditional logs and metrics. uh using tools like flame graphs. There are a lot more uh",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "Brendan Greg is one of uh my favorite people in this in this in this world of uh performance tools. Um so you can you know refer refer a lot of his books and blogs and articles to see which is the right tool for the right thing that",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "you're trying to optimize. Um community-maintained ecosystem needs more love. Like one of the things when you're using languages like Rust is most of the things are community maintained. So you can't like just trust them blindly. You have to see what uh",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "pitfalls they have like we figured out with that particular shed state contention that we were running into uh in the HTTP2 library. But standard library is also not uh always the best either. I didn't have too much time. I could have uh because",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "that would have taken a talk in itself. But we actually also initially rewrote the standard library mutx or the lock uh with our own mutx uh which just used to spin faster. It was a spin lock. It used to spin faster. Um, and we got 10 to 15%",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "boost with that too. Uh, but not so much after we moved to gRPC streaming. So, we just got rid of that entirely and started playing around with protockets. Um, finally, when do you use this? I think these undertakings are only worth",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "it if it impacts your bottom line. As I mentioned initially, uh, now with 20,000 to 70,000, that million operations per second workload, we can do with 20 servers instead of 50 servers. So that's 60% savings directly for your company's",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "revenue, which directly impacts your company's profits. Um, if you don't care about every single milliseconds, if you're on the application layer, probably not worth it, right? Uh, but if you're building a SAS service, if you're",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "building a performance sensitive service, it it it might turn out to be worth it depending on uh what your customer's workloads are and what your current uh revenue numbers look like. This is my personal experience when I uh",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "even though I was before momento I did work on database teams but I was mostly on the control plane layer after that on the data platform team. I was closer to applications product teams between the infrastructure but I was not necessarily",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "closer to the metal and I was craving that. So I moved to Momento to go closer to the metal and see how ID it actually works. And I went into this huge rabbit hole of where do I start? Like this is this stuff is so hard like where where",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "do I start? And I kept moving between um like abstraction. So this is like the Rust programming language. Then you have async aait or the asynchronous IO within Rust. Then you have your Linux which gives you the system calls that these",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "asynchronous frameworks are built upon. Then you have the hardware and you probably might just open your, you know, computer and see what's going on inside. But I I I did not go that far. I um I wish when I started 10 years back in",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "distributed systems, I first opened an operating system book to figure out or to just recap how an operating system actually works because a lot of the challenges that you will solve with one single Linux server or single OS sort of",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "translates to when you're dealing with multiple machines. Um so some of the resources that helped me these are all free they're all open source you don't have to pay for any of them um OEP book it helped me a lot it's operating system in three easy pieces it",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "was 15 years I went to school so you know this book helped me a lot um the second is atomics by Marabos it's again a free book by Marabos she's exceptionally well written um even if you're not from Rust background I would",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "say 60% of the book would still help you understand how locks and things work because you she makes you implement them from scratch and by giving you very granular detail and very beginner friendly too. Uh Brendan Greg is one of",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "the sort of gurus in performance. His blogs and books are always very valuable. Um and the last one I this is the MIT 6.824 distributed systems course. After you go through the OS stuff, you can start looking into this one. Um, I really like this course",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "because it gives you 15 foundational papers and I feel like most of the things that we work in the system space in day-to-day land sort of fall in those 15 papers somewhere or the other. You can easily create a mental model um of",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "how these systems work just by having some traditional or conventional knowledge about how previous systems were built. Um just as an acknowledgement this yeah this is the my mentor and that's the founder of C momento just thanking them for the",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "opportunity that they gave for me to come here and talk about uh proto sockets. Yeah, that's it for me. I know I'm a little early, but yeah.",
+      "start": 576,
+      "duration": 6
+    }
+  ]
+}

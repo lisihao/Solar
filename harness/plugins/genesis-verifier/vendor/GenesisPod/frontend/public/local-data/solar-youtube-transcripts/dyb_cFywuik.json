@@ -1,0 +1,1064 @@
+{
+  "videoId": "dyb_cFywuik",
+  "title": "Lecture 15 - PCA and ICA | Stanford CS229: Machine Learning Andrew Ng - Autumn 2018",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 54545,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So what I'd like to\ndo today is continue\nour discussion of unsupervised\nlearning algorithm.\nAnd in particular, we'll talk\nabout PCA-- principal components\nanalysis, really one of\nthe old, classic learning\nalgorithms that I still\nuse every now and then.\nThere's one application\nI'm using that uses this.\nI do use this.\nAnd then, also ICA--\nindependent components analysis.\nOne of the most interesting\nthings about PCA,\nprincipal components\nanalysis, is\nthat while it's useful in some\ncontexts, I see a lot of people\nuse it when they really\nshould not be applying PCA.\nSo, today, I will\nalso try to give\nsome suggestions and some\nadvice on when to use it,\nbut also when to not\nbother using PCA.\nSo, last week, on Wednesday,\nyou saw the factor analysis\nalgorithm, which is a way to\ntake very high-dimensional data\nthat maybe lies on a\nlower-dimensional subspace\nand tries to model that as a\nvery high-dimensional Gaussian\nthat spans a low-dimensional\nsubspace of a very\nhigh-dimensional space.\nAnd that was a\nprobabilistic method, right?\nSo for factor\nanalysis, you wound up\nbuilding a model P of x for\nthe density of x in this very\nhigh-dimensional space.\nWe had the example of maybe a\n100-dimensional data with 30\nexamples.\nNow, what you see today,\nprincipal components analysis,\nis an algorithm that\nis not probabilistic.\nIt does not model P of x.\nBut that allows you to\nnonetheless figure out,\nif the data lives in a low\ndimensional subspace, what\nis that subspace\nand how to reduce\nthe dimension of the data.\nSo, let's start with\na specific example.\nActually, I'm still trying to--\nis this better?\nThen when it goes to the\nPowerPoint, I'll switch--\nswitch lighting.\nOK.\nSo, let's start\nwith the example.\nWe're still using\nunsupervised learning.\nAnd so as usual, you have an\nunlabeled data set like this.\nAnd what we'd like to do is\nreduce the dimension from n\ndimensions to\nmaybe k dimensions,\nwhere k is maybe\nmuch less than n.\nAnd so, for example, let's\nsay that you have a data set.\nLet's say that you run a school.\nAnd in the same month,\nfor whatever reason,\nthe school for young\nchildren wound up\nmeasuring the children's\nheight in centimeters\nand also the height in inches.\nAnd so, you may have a data\nset that looks like this.\nAnd because of round off\nto the nearest centimeter\nor round off to\nthe nearest inch,\nthe data is almost perfectly\ncorrelated, but not completely\ncorrelated.\nBut this data set, even though\nyou have two-dimensional data--\nso in this case, n equals 2--\nthis is really a kind of 1D\ndata but living in 2D, right?\nBecause these are\nboth measurements\nof length with the\nheight of this school\nchildren in your school.\nAnd so, what we will do is\ncome up with an algorithm--\nPCA-- that will figure out that\nthat diagonal arrow is really\nthe dimension on\nwhich the data varies.\nIt'll be the principal axis\nof variation of the data.\nChildren can be tall or\nshort, whether it's measured\nin inches or centimeters.\nAnd that's just a little bit\nof noise in the orthogonal\ndimension, in the 90-degree.\nOrthogonal means at\n90 degrees, right?\nSo the orthogonal dimension\nto this principal axis\nof variation.\nAnd what you can do is take\nthe data and project it onto\nthe principal axis of variation,\nso that you can turn your 2D\ndata into a\none-dimensional data,\nand that one-dimensional\nis a cleaned up,\nless noisy version of what\nis the height of these school\nchildren.\nOK?\nNow, this example is a little\nbit contrived or a little bit\nfar because inches and\ncentimeters is basically\nthe same thing.\nIt's really the length.\nA slightly different\nexample would\nbe if you have some variables.\nLet's say that you're\nrunning a factory,\nand you have two\nvibration sensors or maybe\ntwo different parts\nof the machine.\nSo you can have a\nvibration sensor 1\nand a different sensor 2\non a big factory machine\neither shaking.\nAnd you can have two\nsensors maybe made\nby two different manufacturers\non two different parts\nof the machine.\nAnd again, the\nnoise may be bigger,\nbut maybe you think, well,\nboth of these sensors\nare just measuring how much\nis this machine shaking,\nbecause you want to do\npreventive maintenance.\nActually, it turns out that\nbefore your washing machine\nat home breaks--\nbefore it faults-- often,\nthe pattern of how it shakes\nwill change.\nAnd so having vibration\nsensors can help\nyou do preventive maintenance.\nBut having two different\nsensors might let you-- again,\nyou might want to reduce the\ndata from two dimensions down\nto one dimension.\nAnd maybe just one last example.\nFor a while, for\nquite some time,\nI was working with helicopter\npilots here at Stanford.\nSo we're flying\nautonomous helicopters.\nAnd if you think\nthat on the x-axis,\nlet's say you measure\na pilot skill.\nYou'll have some tests on\nhow skilled are the pilots.\nAnd on the vertical axis,\nyou measure pilot enjoyment--\nhow much they enjoy\nflying the helicopters.\nSo these are two\ndifferent things,\nbut you might hypothesize\nthat what really\nmatters is some measure\nof the pilot aptitude--\nhow good an RC pilot are they?\nGood pilots maybe enjoy flying\nmore, and they're more skilled.\nWhat is their\naptitude or something?\nThen PCA is a way to take\nyour two-dimensional data\nand try to project it\ndown to one dimensions\nand end up with a\none-dimensional data set\ninstead.\nAll of these examples are\nreally low dimensional.\nIn practice, you\nvery rarely use PCA\nto reduce a two-dimensional\ndata set to one dimensions.\nIn fact, the typical numbers\nmay be more like that,\nabout 10,000\ndimensional data set.\nYou may reduce it to 100\ndimensions or 1,000 dimensions,\nbut going from 2 to 1\nis just really small.\nPeople don't do\nthis in practice.\nBut because of the constraints\nof two-dimensional whiteboard,\nI'm going to use this.\nBut in practice, the\nnumbers look more like this.\nSo, let's talk about\nhow you would actually\nimplement something to reduce\nthe dimension of the data.\nBefore running PCA,\ncommon pre-processing\nis to zero out the mean\nand standard deviation.\nOK.\nSo before running PCA--\nactually, before running many\nsupervised learning algorithms,\nI guess you do this.\nIt makes gradient\ndescent behave better.\nSo you compute the\nmean, subtract the mean\nfrom every example, and\nthen compute the variance\nof each feature j, and\ndivide by the square root\nof the variance or divide\nby the standard deviation.\nOr if you want, well, you\ncould put a square root\nof the variance, right?\nSo now, each of your features\nhas mean 0 and variance 1.\nSo standardize\nthe variance to 1.\nOK?\nNow, let's see how we\nwould implement PCA.\nAll right.\nSo we have two\nfeatures, x1 and x2.\nAnd it looks like the principal\naxis of variation looks a bit\nlike the 45-degree line.\nAnd the mean and\nvariance of these\nmay be close enough-- roughly 0.\nOK?\nSo, let's take a\nlook at what it means\nto define the principal axis\nof variation of this data.\nIt looks like that is\na pretty good candidate\nfor a one-dimensional\nsubspace onto which to project\nthis two-dimensional data.\nYou want to reduce the\ndata from 2D to 1D.\nIt looks like that green line\nis a pretty good direction\nonto which to project the data.\nAnd one way that this is a--\nnow, in contrast, it\nlooks like this red line\nis a really bad way,\nreally bad dimension\nonto which to project the data.\nThe red line is almost\nthe worst possible choice\nfor what you think is the\nprincipal axis of variation.\nSo, what is the difference\nbetween the red line\nand the green line?\nHere's one difference.\nIf you take each cross\nand you project it\nusing orthogonal projection--\northogonal projection means that\nthis little green line segment\nand that long green\nline are at 90 degrees,\nso projected in the shortest\ndistance to the green line.\nIf you look at all of these\nprojection distances, all\nof these distances between the\npoint and this long green line,\ntheir sum of squared\ndistances is quite small.\nSo the sum of squared distances\nbetween the blue crosses\nand the green dots\nis quite small.\nBut in contrast, if you\nhave to project this\nonto any other line,\nsuch as the red line,\nthen the sum of\nsquared distances\nbetween the blue crosses and\nthe red dots is really large.\nSo, for PCA, what\nwe'd like to do\nis to find the direction\nof that green line\nso that when you project\nyour training examples--\nthe blue crosses-- we\nproject these blue crosses\nonto this green line that you\nminimize the sum of squares\nof the projection distances.\nThat would be one possible\nway to define PCA.\nAnd in fact, it turns out\nthat there are multiple ways\nto derive PCA.\nAnd what I want to do\ntoday is actually use\na slightly different but\nequivalent definition of PCA.\nAnd the equivalence--\nyou actually\nget to work hard and prove\nyourself in the homework.\nThere's another way\nto look at PCA--\nwe'll go through this\nback again in a second--\nwhich is, if you look\nat the green dots,\nit looks like the green\ndots are spread apart very\nfar from each other.\nRight?\nBut if you look at\nthe red dots, it\nlooks like the red dots are\nreally clustered together.\nSo, if you'd like\nto preserve as much\nof the variability of\nthe data as possible,\na second possible\nintuition behind PCA\nis you want to find a line onto\nwhich to project your data,\nso that the data still\nremains as spread apart as\nfar as possible.\nIt turns out, both\nof these intuitions\nthat I just described\nare actually\nmathematically equivalent.\nI'm going to use the second one\ntoday to derive PCA in lecture,\nand then you can actually\nuse the first one\nin the homework to show\nthat these two are actually\nequivalent.\nSo, let's see.\nWhat we'd like to do is find\nthe direction of the green line.\nAnd in particular, we'd like\nto find a unit vector u that\npoints in that direction.\nSo to specify the\ngreen line, you\nneed to specify a\nunit vector specifying\nthe direction of green line.\nSo what we'd like to do\nis find the direction of u\nin order to specify that\ndirection onto which that you\nwant to project the data.\nSo, if the length of a\nvector-- this L2 norm.\nSo if the L2 norm of a\nvector is equal to 1,\nthen the length of the\nprojection of x(i) onto u\nis u transpose x(i).\nOK?\nIf this is u and this is\nx, then this length here\nis u transpose x(i), right?\nSo in PCA, we're going to\nchoose a vector u to maximize.\nSo what we're going\nto do is maximize\nthe spread of the green dots.\nAnd so, we're going\nto maximize sum\nover your m training examples\nof x(i) transpose u squared.\nLet me just put\na 1 over m there.\nAnd you're going\nto maximize this\nover all the choices of u, where\nthe length of u is equal to 1.\nSo this notation maximize\nover all vectors u,\ncolon, length of u is equal\nto 1 over m sum over training\nsets of the square of the\nmagnitude of the projections.\nSo in other words, another\nway to describe this\nis you want to maximize the\nsum of this length squared\nplus the sum of\nthis length squared\nplus the sum of\nthis length squared,\nand so on, summed over your\nfive training examples.\nSo, let's expand this out.\nThis term you're maximizing\nover is equal to that.\nu transpose x i transpose u.\nAnd I guess, by linearity,\nyou could pull out\nu transpose and u.\nSo this is u transpose 1 over m.\nOK?\nLet me just take this matrix\nand call this matrix sigma.\nOne of the unfortunate things\nabout this notation is sigma,\nthe covariance matrix\nsymbol is the same\nas the summation symbol.\nBut hopefully, it'll\nbe clear from context.\nAnd so what we would like\nto do is max u norm of u\nequals 1 u transpose sigma u.\nOK?\nAnd it turns out that the way\nto solve for the value of u that\nmaximizes this is that u is\nthe principal eigenvector\nof the matrix sigma, I guess.\nOh, and sigma\nhere-- the way we've\ndefined it is it is the\ncovariance matrix of the data\nafter you've set mean\nto 0 and standardize it.\nThis matrix sigma is the\ncovariance matrix of the data.\nAnd so this means that the\nprincipal axes of variation\nis the principal\neigenvector vector of sigma.\nOh, let me just check.\nHow many of you have seen\neigenvectors and eigenvalues\nbefore?\nWow, cool.\nOK, great.\nMost of you.\nAll right, good.\nI won't spend too much\ntime on this then.\nYeah, let me just give a real\nquick explanation for why\nthis is the eigenvector.\nAnd so, just recall,\nif Au equals lambda u,\nthen u is an eigenvector of A,\nand lambda is the eigenvalue.\nAnd the way you show that\nthis is correspondence--\nactually, how many are familiar\nwith the method of Lagrange\nmultipliers?\nOK, less of you.\nAll right.\nAnd so if you're\nfamiliar with the method\nof Lagrange multipliers,\nwhich you don't have to be,\none way to go from\nthis problem to show\nthat it is that is, if your goal\nis to maximize u transpose u\nsigma subject to norm\nof u equals 1, then--\nto solve a constraint\noptimization problem like that,\nyou form a Lagrangian, which\nis how you solve a constraint\noptimization problems.\nSo this constraint is\nu transpose u equals 1.\nAnd then take derivatives with\nrespect to u of the Lagrangian,\nwhich is sigma u\nminus lambda u, which\nis set to 0, which is why you\nget that sigma u equals lambda\nAnd thus, u must\nbe an eigenvector\nof the covariance matrix sigma.\nOK?\nIf you didn't get that,\ndon't worry about it.\nIf you're familiar with method\nof constructing Lagrangian\nand solve constraint\noptimization problems,\nwhere you want to maximize this\nsubject to this constraint,\nthen this is how you show that\nthis is equivalent to that.\nBut if you didn't understand\nthe details, it's OK.\nAll right.\nSo, to summarize,\nwhat we found here\nis that, if you want to choose\na one-dimensional subspace\nwith which to\napproximate your data x,\nchoose the dimension of that\none-dimensional subspace\nto be given by the\nprincipal eigenvector\nof the covariance matrix\nsigma of the data.\nOK?\nOh, and let's see.\nThe intuition\nabout why the two--\nlet's see.\nI gave two intuitions.\nOne is maximize the\nspread of the green dots.\nThat's what we just\nworked through.\nThe other is minimize\nthe squared distances\nbetween the blue crosses\nand the green dots.\nAnd it turns out,\nthese are equivalent,\nsorted by Pythagoras\ntheorem, where if you\nlook at this triangle--\nagain, the full details,\ndon't worry about it.\nYou'll see the full details\nin the in the homework.\nWe can prove for yourself why\nthese two ways of deriving PCA\ngive you the same answer.\nAnd I think, actually,\nmany years ago, there\nwas a paper that proved\nthat there is something\nlike eleven equivalent\nways to derive PCA,\nand these are two of them.\nAll right.\nSo, in a more\ngeneral case, if you\nwish to project the\ndata to k dimensions,\nthen set u1, u2,\nu3 to be the top k\neigenvectors of the\ncovariance matrix sigma\nand with lambda 1,\nlambda 2, and so on,\nup to lambda k as the\ncorresponding eigenvectors\nor eigenvalues.\nSo in other words,\nlet's say you have--\nlet's use the new board.\nAll right.\nSo, let's say you have a\nvery high-dimensional data.\nSay 1,000.\nWell, 1,000 is not\nthat high these days.\nBut let's say you have a\n1,000-dimensional data and you\nwant to reduce the\ndimension from 1,000 to 10.\nThen you would\ncompute u1 up to uk.\nSay k equals 10.\nAnd then, you would have\na new representation\nof the data, where instead\nof x(i), you can now\nrepresent it using\n10 numbers, which\nare given by u1 transpose\nx(i), u2 transpose x(i), up\nto u10 transpose x(i).\nAnd so now, instead of using\n1,000 numbers to represent\na training example, you're now\nusing 10 numbers to represent\nthe training example.\nAnd in the example we had\nearlier about children's height\nin centimeters and inches,\nyou'd be reducing it\nfrom two dimensions\nto one dimension.\nAnd so now, for each\nchild in your data set,\nyou would have just\none number that\nis a slightly cleaned\nup estimate of there\nof the height of the child.\nAnd if you want to--\nright.\nAnd let me just call this--\nyeah.\nLet me call this--\nactually.\nLet me call this my i as\nthe new representation.\nIf you ever want to\ngo back from y to x,\nit turns out that x(i) is\napproximately y(i)1 times u1\nplus y(i)2 times u2 plus dot,\ndot, dot, plus y(i)k times uk.\nSo, you've taken\nyour 1,000 numbers,\nyour 1,000-dimensional\ndata, and compressed it\nto a 10-dimensional\nrepresentation.\nIf you ever want to uncompress\nyour data and go back from this\nlow-dimensional representation\nup to this 1,000-dimensional\nrepresentation, this is how you\nmap from your 10 numbers-- y1,\ny2, up to yk--\nback up to a\n1,000-dimensional subspace.\nAnd what this formula\ndoes is it actually\ntells you the position\nof these projections.\nAll of these decompressed\nrepresentations will live\nin a 10-dimensional subspace,\nbut these are 10 dimensional\npoints in\n1,000-dimensional space.\nThey're all these\n1,000-dimensional vectors.\nSo these would be in Rn.\nOK, cool.\nSo, this is how\nyou implement PCA.\nI'm going to go into\nsome practicalities\nand some applications\na little bit.\nQuestions.\nHow do we go know [INAUDIBLE]?\nIs it just by life or\njust go through it?\nHow do you choose k?\nNo.\nSo you say you pick the top k.\nOh, I see.\n[INAUDIBLE]\nI see.\nRight.\nSo, each eigenvector, ui is\npaired with an eigenvalue lambda\nI. So you pick the--\neigenvectors correspond to\nthe biggest eigenvalues.\nAnd then the other question\nis, how do you decide\nhow many eigenvectors to keep?\nLet me come back to\nthat in a second.\nIf you use a off-the-shelf\nPCA software or off-the-shelf\neigenvector solver--\na NumPy or something--\nmost implementations will\nreturn the eigenvectors\nsorted in decreasing\nvalue corresponding\nto their eigenvalues as well.\nSo you just take the top k.\nAny questions?\nYeah.\nWhy would you do pre-processing?\nOh.\nWhy do pre-processing?\nOh, thank you.\nYeah.\nSo, it turns out that\nthis is what goes wrong\nif you don't subtract the mean\nand standardize the variance.\nIt turns out that if your\ndata kind of lives out here,\nand you don't subtract off\nthe mean, it turns out that--\nactually, let say your\ndata look like that.\nIf your data lives\nout there, then it\nturns out that PCA\nwill choose that\nas a principal\naxis of variation.\nWhereas if you\nsubtract off the mean,\nthen your data is\nlined up like that,\nand it'll choose that as\nmaybe a much better choice.\nSo that's why we\nsubtract out the mean.\nAnd why you standardize the\nvariance is because if your axes\nare very different-- maybe this\nis now centimeters and this is\nnow kilometers--\nthen your data will\nlook like that,\nand PCA will just\nchoose that direction.\nSo that's why it's a\npre-processing step.\nOK.\nOK, cool.\nYeah.\nDo you [INAUDIBLE]?\nSay that again.\n[INAUDIBLE] maybe yi.\nHow do you view eigenvectors?\nLet's see.\nSo, let's use the\nchildren's height example.\nSo, in that case, x(i) is\nin R2 and y is in R. Right?\nSo you've now compressed\neach child's height,\nwhich is previously\nrepresentative with two numbers\ninto a single number.\nAnd if your goal is to run a\nlearning algorithm to predict\nsomething about children,\nwhether how good are they\nat basketball is a\nfunction of the height,\nyou can then use this\nas the input feature\nto predict what's the chance\nof their basketball skill\nor something.\nAnd the mapping of\nthe reverse direction\nis now that you have a--\nif you want to map your data\nback to this space of x1 and x2,\nthat formula helps you\nmap back from R1 to R2.\nBut it turns out that if you\ntake the different children's\nheight and map\nthem back, they'll\nall lie on a straight\nline like that.\nIs this y(i) reduced to\nthe green dot-something?\nSo y(i) u1 transpose x(i).\nAnd so, if this is the vector--\nlet me think.\nYes.\nActually, basically, yes.\nIn 1D, if you have an example\nlike that and if this is\nthe vector u, then\nthis length is y(i).\nI guess yes.\nIt's the magnitude of\nthe projection of x\nonto each of the eigenvectors.\nOK.\nAll right.\nCool.\nSo, some applications of PCA.\nAnd then I'm going to talk\nabout both good applications\nand bad applications.\nYou know what?\nI think I want to\nuse the display.\nAll right.\nSo one good application\nof PCA is visualization.\nAnd so, in particular, if you\nhave very high-dimensional data,\nthen you can use PCA to project\nyour data from n-dimensional\nto 2D or 3D.\nAnd maybe you have some ways to\nvisualize 4D data if you have\ntime and animation or something.\nLet me see.\nAll right.\nCool.\nSo one of the most interesting\napplications of PCA is seen here\nat Stanford was, there was a\nStanford student-- still is,\nI guess--\nwho is working on sticking\nelectrodes into monkeys brains\nand modeling how the state\nof the monkey's brain\nevolves when the monkey is\nplanning a task to use his hand\nto reach out to touch a target.\nHe has, I guess, a batch of\nmonkeys or a flock of monkeys--\nI'm not sure how\nyou count monkeys--\nwith electrodes stuck\non their brain measuring\nlittle impulses of electricity.\nAnd what he did was--\nall right, cool.\nAnd what he did was\ntrained the monkeys\nto carry out reaching tasks,\nwhere there'd be a square that\nappears on a touch\nscreen, and it'd\nbe the monkey's job\nto reach out and tap\nhis finger on the location\nof this little square\nbasically on a touch screen.\nAnd if it successfully\ntaps the square,\nthen it gets a reward--\nit gets a squirt of juice\ninto his mouth.\nAnd so, what they\ndid, what his lab did,\nwas measure a lot of electric\nimpulses in the monkey's brain.\nBut if you have 50 electrodes,\nthen you get this 50-dimensional\ntime series.\nSo you measure the amount\nof electricity in--\nsimplifying a little bit--\nlet's say in 50 different points\nin the monkey's brain.\nAnd you now have this\n50-dimensional data,\nwhich is very hard to visualize\nbecause you can't plot data\nin 50D.\nSo, one of Krishna's\nstudents actually\ntook CS229 several years\nback, quite a few years ago,\nand learned about\nPCA from this class\nand wound up using PCA to\nreduce the dimension of the data\nfrom 50 to 3.\nAnd the fascinating result\nwas that they could now\nvisualize how the monkey\nis thinking and planning\nas it readies its\nbrain and its arm\nfor the task of reaching out\nto tap a target on a screen.\nAnd so, this one ended\nup being a very--\nwhat is it?\nThis wound up being\na breakthrough result\nin neuroscience because you\ncan now really visualize\nhow a monkey readies its\nbrain, readies its arm,\nthink through how\nthat reaches arm.\nAnd then when the monkey\nis sent the go signal-- go,\nmonkey-- then you can actually\nsee the state of the monkey's\nbrain change as it's reaching\nout to tap the target\nto get this juice reward.\nI thought this is a great\nexample because this\nis a Stanford example.\nBut whenever you have very\nhigh dimensional-- oh.\nSo you could actually\nsee in a 2D or 3D space\nthe monkey's brain is there.\nIt's just waiting,\nwaiting, waiting.\nYou show the target.\nThen it goes, it's planning.\nThen just waiting, waiting.\nThen you say go, and then\nthe monkey's brain moves.\nSo you can actually plot-- this\nwould be y1 and y2, I guess--\nthe trajectory of how the state\nof this 50-dimensional state\nof the monkey's brain evolves.\nYou can actually see\nthe brain transition\nthrough different states as\nit goes through this task.\nSo, whenever you have very\nhigh-dimensional data--\nhigher than 2D or 3D--\nPCA can help you.\nMaybe it can help you\nwith visualizing the data.\nSome other\napplications of PCA is\ncompression for learning\nalgorithms efficiency.\nSo, let's see.\nIt turns out that most of\nyour high-dimensional data\nlies on a\nlow-dimensional subspace.\nIt's just a fact of life.\nIf you have a\n10,000-dimensional data set,\nthere's a pretty good chance\nthat your 10,000-dimensional\ndata set actually is quite\nwell approximated by a much\nlower-dimensional subspace.\nMaybe a 1,000-dimensional\nsubspace or something.\nAnd it turns out that\nif you feed x(i), say,\n10,000 dimensions to\na learning algorithm,\nlike a support vector machine,\nthen you're carrying around\nthese 10,000-dimensional\nexamples throughout your whole\ntraining process.\nBut if you can compress\nyour data to this y(i)\nrepresentation, which is\nthis 1,000-dimensional,\nthen your memory bandwidth,\nyour network bandwidth,\nyour computational speed--\nyou can run your\nlearning algorithm\non a much lower-dimensional\nset of data,\nand it may be much\nmore efficient.\nOne other pretty good\napplication of PCA\nis, for computational\nefficiency,\nyou want to lower the\ndimension of your data\nbefore you feed it into some\nexpensive learning algorithm.\nI've done this.\nI've done this a few times.\nNow, let me mention some\nslightly more questionable\napplications of PCA.\nAnd people still do\nthis a bit, but again--\nwell, I'll just mention them.\nQuestionable doesn't\nmean bad, it's\njust that it's questionable.\nOne way is to\nreduce overfitting.\nSo one thing you might think is\nPCA is a way to reduce my data\nfrom 10,000 dimensions\nto 1,000 dimensions.\nSo if you're using, say,\nlogistic regression,\nmaybe logistic regression on\n1,000D is less likely to overfit\nthan logistic\nregression on a 10,000D.\nThis is one of those\nthings, where if you try it,\nI think it works half the\ntime, it fails half the time.\nBut what happened over the years\nwas enough people tried it.\nAnd because it\nworked half the time,\nthat half-of-the-time\npeople published papers.\nAnd then, the other\nhalf of the time, it\nfails-- there's\nnothing to publish.\nAnd so I think over\nsome number of years,\nthere wound up being\nsome number of papers,\nwhere people use this to reduce\noverfitting, and it works.\nBut this is one of\nthose techniques\nthat I think works\nas often as it fails.\nJust in my experience.\nAnd so I tend not to use PCA\nto reduce number of features\nfor the purpose of\nreducing overfitting.\nI would use\nregularization instead.\nThat's what I would do.\nAnd then, there's actually one\nother slightly questionable--\nthis one is not one\nof those techniques.\nYou use PCA.\nIt sometimes works,\nsometimes fails.\nI don't think it works\nmore often than it fails,\nbut because it\nsometimes works, people\nwill publish papers on this.\nSo I just don't recommend this.\nIt's outlier detection.\nActually, let me just\ntalk about matching.\nSo, there was one theory--\nall right.\nSo, in the very early\ndays of face recognition--\nI'll just make this concrete--\nhow do you look at two pictures\nand see if two pictures are\nof the same person?\nI guess, now, we have\nlaptops and smartphones that\nunlock using your face.\nBut in the early days\nof face recognition,\nhow do you tell if two\npictures are of the same face?\nSo there was this theory that\ngiven two pictures of two faces,\nyou could measure the Euclidean\ndistance in the pixel space.\nSo the original data\nis just a pixel values\nof the two pictures.\nSo one thing you could do\nis measure these pixel value\ndifferences.\nBut there was a\ntheory that if you\nreduce the dimension of the\ndata and measure the distance\nin this reduced\ndimension subspace,\nmaybe cleaning up\nsome of the noise.\nSo to tell if i and j\nare the same person,\njust look at the sum of\nsquares pixel distances\nto see how different\nthese two pictures are.\nBut maybe if you go from a\n10,000-dimensional space--\nif your picture is\na 100 by 100 pixels,\nthen that is 10,000\ngrayscale values.\nSo this has a\n10,000 eigenvectors.\nIf you use PCA to reduce\nit to say 1,000 dimensions,\nmaybe that will reduce the\ndimension of your subspace.\nYou can now measure distance in\nthis slightly cleaned-up data.\nSo unfortunately, this is\none of those results that--\nagain, I personally\nwould not do this.\nBut sometimes, if you\ndo this, you get lucky\nand it works a\nlittle bit better,\nbut this is not a\nreliable result.\nSo hardly anyone\ndoes this anymore.\nYou sometimes still see\npeople use this method.\nAnd sometimes they get lucky,\nand it kind of helps a bit,\nbut this is not how I would\ntend to use PCA, I guess.\nSo there are actually early\nphase detection systems.\nThere's actually a\nwell-known result\ncalled eigenfaces, in which you\nrun PCA on this face data set.\nAnd then you plot the\neigenvectors u as an image.\nSo the eigenvectors u is a\n10,000-dimensional vector.\nSo it's 100 by 100 pixels,\nthen the dimension of x as well\nas the dimension of u\nis 10,000 dimensions.\nAnd you can plot\nthe eigenvectors u,\nand you get pictures like this.\nYeah, we used to tell\nourselves stories like that.\nGee, it looks like this\npicture on the upper left\nis whether the\nface is illuminated\non the left or the right.\nAnd this is how much does\nthis person have a beard.\nWe used to tell ourselves\nstories like that,\nbut I think we learned that\nthese results are at least as\nmuch a product of the\nresearcher's imagination\nas an actual phenomenon.\nSo I would just discourage.\nIt turns out that individual\neigenvectors are very noisy.\nSo whenever I run PCA,\nI tend not to look\nat any single eigenvector.\nBecause it turns out that\nindividual eigenvectors\nare very noisy.\nAnd human interpretation\nis like, oh, yeah.\nIt looks like eigenvector 5 is\nthis person wearing glasses.\nThose are often more\nthe researchers'\nimaginations rather\nthan reliable result\nthat you see in the data.\nOK?\nYeah.\nAnd so there are\nthings like this.\nInput this phase, and these\nare the most similar phases.\nAnd sometimes, this works\nbetter if you use eigenfaces,\nbut this is not a good method.\nI tend not to use\nthis method anymore.\nOK?\nAll right.\nOK.\nSo, PCA is a useful technique.\nI am using it for one project\nright now at Landing AI,\nbut don't always use it.\nAnd let me just give\nyou one rule of thumb.\nBefore using PCA, consider just\nusing the original data x(i).\nActually, what I've\nseen in past years\nis in some CS229 project\nproposals as well.\nStudents will say I\nwant to build a system.\nAnd as part of the system,\nI'm going to take the x(i)\nand reduce it to some\nlow-dimensional y(i),\nand it will do\nsomething with y(i).\nThis visualization\ndoes great, because you\ncan't visualize higher than\ntwo- or three- or maybe\nfour-dimensional data.\nBut before having a component\nin your learning algorithm that\nreduces the dimension\nof your data from, say,\n10,000 to 1,000 dimensions,\njust see if you could just use\nyour original data x(i)\nand see how well that does.\nUnless you need to speed it up,\nor reduce the memory footprint,\nor something, consider--\nso before you submit the\nclass project report that\nuses PCA as part\nof your project,\njust ask yourself how\nwould the algorithm\ndo if you were to not\neven use PCA and make sure\nthat you're not adding in a\nPCA as part of your algorithm\nunnecessarily.\nAnd this is a little bit like--\nwe talked about premature\nstatistical optimization,\nwhere sometimes\npeople build a system\nwith a lot of\ncomplicated modules.\nAnd so just consider\nnot doing this.\nBut I think the good reason\nis to use PCA visualization\nor if you need to compress\nyour data in order\nto drive more efficiency.\nOK?\nQuestion?\nIs there a minimum\namount of dimensions\nbefore you should consider PCA?\nOh.\nIs there a minimum\nnumber of dimensions\nbefore you should consider PCA?\nNot really.\nEven if you--\n2 to 1 is really extreme, but\nif you have an application where\nyou have 2D data but you\nreally need to half your memory\nrequirements because you get a\nvery large volume of data per\nsecond, maybe you could do it.\nYeah, at the back.\nWhen would you use PCA and when\nwould you use factor analysis?\nGreat question.\nWhen would you use PCA?\nWhen would you use\nfactor analysis?\nLet me get to that in a second.\nAnything else?\nAll right.\nOh.\nYeah.\nIf you use PCA, doesn't\nthat mean you also\nhave to find the eigenvalues or\nthe eigenvectors of your test\ndata?\nThinking of the\nlower-dimensional space\nand then [INAUDIBLE].\nOh, sure.\nSo train and test, right?\nWould you find the\neigenvectors of test data?\nThe answer is actually no.\nSo what you do is, if you\nhave a training set-- let's\nsay you want to use PCA\nto compress your data.\nWhat you would do is take\nyour training set, run PCA\non your training set, and\nthen your eigenvectors\nare fixed forever.\nYou would not find a different\nset of eigenvectors on your test\nset.\nYou just always\nuse the same ui's\nthat you found in\nyour training set\nand use that same\nset of eigenvectors\ncomputed on the training\nset to map your test\ndata to a low-dimensional space.\nFor those of you familiar\nwith linear algebra,\nit turns out that\nthe vectors ui--\nlet's say u1 up to u10 are\n1,000-dimensional vectors.\nIn this case, we reduce\nfrom 1,000 to 10D.\nIt turns out that these 10--\nI'm going to switch into\nlinear algebra terminology, OK?\nSo if you don't understand\nwhat I say, it's OK.\nBut it turns out that these\n10 vectors form a basis\nfor a 10-dimensional subspace\nin this 1,000-dimensional space.\nAnd what you're doing is\nprojecting the data onto\na 10-dimensional subspace-- a\n10D subspace that is spanned\nby this orthogonal basis.\nAnd then you're using 10 numbers\nto represent your 1,000D data\nin terms of their projections\nonto this 10-dimensional\nsubspace.\nAnd it turns out\nthat eigenvectors\nare orthogonal to each other\nbecause sigma is symmetric.\nSymmetric matrices have\northogonal eigenvectors.\nSigma is symmetric,\npositive definite.\nSo sigma has orthogonal\neigenvectors.\nMeaning that all these youths\nare at 90 degrees to each other,\nwhich is why this is\nactually an orthogonal basis.\nAnd there's one degeneracy case\nin case of repeated eigenvalues,\nbut you should choose\nui to be orthogonal,\nwhich most linear\nalgebra solvers will.\nOK?\nAll right.\nIf you don't understand what\nI said, I lost 60 seconds,\nit's OK.\nActually, how many of you\nunderstood what I just said?\nWow.\nOK.\nWow.\nOK, that's great.\nI love you guys.\nAll right.\nSo, the question--\nwhen do you use PC,\nand when do you use\nfactor analysis?\nSo, what I'd like to do is take\nthe four unsupervised learning\nalgorithms we talked about and\nput them into this framework.\nAnd so, some of the\nalgorithms we talked about\nwould model P of x, model\nwhat's the density of x.\nAnd one reason you might want\nto do that is anomaly detection.\nSo, some of the\nalgorithms we talked about\nwere density\nestimation algorithms.\nAnd some of the\nalgorithms we talked about\nwere non-probabilistic.\nAnd then some of the\nalgorithms talked about\nassumes that the data lives\non a low-dimensional subspace\nof a very\nhigh-dimensional space.\nAnd some of the algorithms\nwe've talked about\nassume the data lives in\nclusters or maybe clumps.\nClumps is not a formal\nterm in machine learning.\nAnd so, PCA falls\nin that category.\nIt's not a\nprobabilistic algorithm.\nThere's no reference to P of x.\nAnd it models the data\nas living approximately\non a low-dimensional subspace\nof a high-dimensional space.\nAnd then, let's see.\nActually, what\nshould go in here?\nWhat do you think right here?\nSo if you think your data lives\nin a low-dimensional subspace\nand you want to model P of\nx, what's the algorithm?\nFactor analysis.\nCool.\nAwesome.\nCool.\nHow about here?\nNon-probabilistic in your\ndata lives in clusters?\nK-means.\nAwesome.\nAnd then here?\nYeah.\nEM?\nYeah.\nI would say mixtures\nof Gaussians.\nThis one-- this is not\nthe perfect answer,\nbecause mixtures of Gaussians\nworks in lots of scenarios\nwhere your data isn't\nquite in clusters as well.\nOh, and EM is a technique\nfor density estimation.\nSo EM works whenever you\nhave a model for P of x, z,\nwhere z is latent or unobserved,\nand you want to model P of x.\nThat's the category of\nproblems that EM applies to,\nwhich is why we use\nEM for everything\nin this first column--\nfor both factor analysis\nand for the mixture\nof Gaussians model.\nYeah.\nCan z be continuous\nlike progressions do?\nOh.\nCan z be continuous?\nYes, z can be.\nIn factor analysis,\nz is Gaussian.\nIn mixture of Gaussian,\nz was discrete.\nAnd so, the other way to\nthink about these algorithms\nis the non-probabilistic\nalgorithms,\nsome of the applications include\ncompression and sometimes\na visualization.\nSo the human understanding\nof data, right?\nSo we talked about PCA as\na visualization to reduce\nyour data to 2D or\n3D to visualize.\nRemember, we talked\nabout K-means\nas a mechanism for\nmarket segmentation.\nYou have a database\nof customers.\nYou want to group your\ncustomers into four groups\nto develop different\nmarketing campaigns\nfor your different\nfour market segments.\nSo that's a way for you to\nreduce the data into four\nclusters, so that maybe\nyour marketing team can\nlook at the four market segments\nand do something about them.\nI've also seen people\ntake genomic sequences--\ntake genomic data and\nuse that to cluster genes\ninto a few different\ndiscrete clusters\nto try to understand\nif there are\na few different types of genes.\nSo clustering algorithms like\nK-means help us take the world\nand sort it into a small\nnumber of categories\nto help us better\nunderstand them.\nRight?\nAnd in fact, I think the whole\nphylogenetic tree-- all of life,\nI guess--\ncluster into animal kingdom,\nplant kingdom, and so on.\nThat's an attempt to\ncluster all of life\nonto a number of discrete\ncategories as well.\nQuestion?\nWhy did you say\nclusters centroids\nof K-means interpretable but not\nthe principal components of PCA?\nOh.\nWhy do you consider\nthe cluster centroids\nof K-means interpretable\nbut not the PCA components?\nSo if you have a relatively\nsmall number of K-means\nclusters, you just look at\nthem and say, oh, look, this\nlooks like the animal\nkingdom of a living\nthing, that looks like\na plant kingdom, that\nlooks like whatever.\nIt turns out that the position\nof individual eigenvectors\nare numerically unstable.\nActually, maybe\nhere's an example.\nLet's say you have a 3D data but\nit lives roughly on a 2D plane.\nSo this is actually 3D data\nwith a little bit of fuzz off\nthe surface of the whiteboard.\nIt turns out that--\nmaybe you get that as u1, u2,\nand u3 points out of the board.\nBut with very\nsmall perturbations\nto the numerical precision--\na very small perturbation\nof the data-- you\nmight easily get\na different orthogonal\nbasis, which\nis why, from a\nstatistical point of view,\nthe exact orientation of the\neigenvectors is very unstable.\nAs it is very noisy.\nYou just change one\ntraining example,\nchange something in the\nfifth decimal place,\nand the eigenvectors can\nchange significantly.\nSo that's why I think--\nif you look at\nindividual eigenvectors\nand try to interpret\nthem, they're\noften hallucinations or\noften the imaginations\nof the researcher.\nWhat turns out to be stable is a\nsubspace spanned by the first K\neigenvectors.\nIt turns out that if you\nlook at the subspace spanned\nby the first K eigenvectors,\nthe subspace is quite stable,\nbut the individual\neigenvectors are not.\nSo yeah.\nHow am I doing on time?\nAll right.\nGo ahead.\nIs it possible to give a\nprobabilistic interpretation\nto PCA in terms of delivery?\nYes.\nIs it possible to a\nprobabilistic interpretation\nof PCA?\nYes.\nIt turns out there's\nanother algorithm called\nPPCA-- probabilistic PCA.\nThat kind of does that.\nYeah.\nAll right.\nOne last question.\nNo?\nOK.\nCool.\nOh.\nAll right.\nJust last two questions.\nCan PCA overfit?\nWhat does that look like?\nOh, that's interesting.\nCan PCA overfit?\nRarely.\nI guess, one way for PCA to\noverfit would be if you have\n10,000-dimensional subspace.\nExcuse me.\n10,000 examples with\n1,000-dimensional subspace\nbut only 1,000 examples.\nSo it would be a bit strange.\nSo, what PCA is trying to do is\nfind a K-dimensional subspace\nthat captures the\nvariations of the data.\nSo I guess if k and your\nnumber of training examples, m,\nwas too similar, it\nwouldn't do a very good job.\nYeah.\nOne last question.\nQuestion about subspace.\nIs it quite stable?\nIs that what able them to do\nrotation to the PCA components?\nAnd if yes, how do you think\nof the orthogonal rotation\nversus a weak rotation, where\nthey don't have a problem?\nHang on.\nWhat I think of orthogonal\nrotation as subspace?\nSo first, you should\npretty much always--\nI would never use non-orthogonal\nbases for the vectors u.\nJust make sure they\nuse orthogonal.\nIt'd be very unusual to not\nbe orthogonal to each other.\nSo the vectors u\nshould always be\nan orthogonal basis for your\nsubspace you're mapping to.\nAnd what happens in practice\nis-- by this example,\nI did not mean that you would\ndo this rotation on purpose.\nYou wouldn't do that.\nWhat I meant was if you have\ntwo different people collect\nslightly different data on\nslightly different days,\njust by chance, the basis\ncould rotate significantly,\nbut you wouldn't actually\ndo this manually.\nWhat you do is run PCA once, and\nthen you just get some basis,\nand then you would\njust use that.\nAnd this was meant\nto be an illustration\njust by chance or just by luck.\nIf your lab mate had data\nset that was very, very\nslightly different, they might\nget a totally different basis,\nbut you wouldn't make this\nrotation by hand on purpose.\nOK?\nAll right.\nCool.\nSo, there's one last\nquestion just now\nthat I promised to answer--\nI'll answer this\nonly briefly-- which\nis, how many principal\ncomponents do you keep?\nSo what is the value of k?\nSo it turns out that there's\na metric you can compute,\nwhich is compute the\neigenvectors lambda 1\nup to lambda k divided by the\nsum of all of the lambdas.\nAnd so it turns out\nthat if this is,\nlet's say, 0.9,\nthen sometimes you\nsee people say that\nthis retained 90%\nof the variance of the data.\nSo if you ever see someone write\na paper that uses PCA and they\nsay, we use PCA to reduce the\ndimension from 10,000 to 1,000\ndimensions, and this\n1,000-dimensional subspace\nretains 90% of the\nvariance of the data,\nthen that's what this means.\nI don't want to go deeply\ninto exactly what this\nmeans, but this is just--\nlet's see.\nSo a data set with\nno variance is\na data set where every\nexample is equal to 0.\nSo variance in the\ndata means how much\ndoes the data vary compared to\nif every example was exactly\nthe zero vector.\nAnd it turns out that\nwhere we start off\nderiving PCA in\nterms of maximizing\nthe variance-- project\nthe data on the subspace\nto maximize the variance in the\nprojections-- so this is roughly\nhow much of the\nsignal did you keep\nand how much do you throw away.\nAnd so, often, the\nnumbers you often see--\nyou see people use PCA\nto retain 90% or 95%.\nMaybe 98% or 99% of the\nvariance of the data.\nYou see, this range of\nnumbers is quite common,\nand it's not at all unusual.\nIf you have a very\nhigh-dimensional data set,\nto be able to compress your data\nset maybe 10x and still retain\n95% of the variance of\nthe data, basically,\nkeep 95% of the signal in your\ntraining set while having maybe\na 10x reduction in\nyour data set size.\nOK?\nAll right.\nI'm actually debating\nhow far to go into ICA.\nAll right.\nActually, let's do this.\nThe second thing\nI want to do-- we\nscheduled this for\ntoday and Wednesday.\nI think I'll just make a start\non setting up the ICA problem,\nbut then we'll end\nup doing most of it\non Wednesday instead of today.\nSo, PCA finds the principal\ncomponents of the data.\nICA finds the independent axes\nof variations of the data.\nLet's see.\nAll right.\nThis thing woke me up.\nIn order to motivate ICA--\nactually, what you get to\ndo in one of the homework\nproblems is implement\nan algorithm that solves\nthe cocktail party problem.\nSo, here's the\ncocktail party problem.\nIf you go to a\nparty, and there are\na lot of people\nstanding around talking.\nYou've been to those parties,\nwhere there's so many people\ntalking, you can barely\nhear your own voice.\nSo these are people talking.\nAnd what we're going to\ndo in this cocktail party\nis put a couple\nmicrophones here.\nAnd so, speaker 1's voice\nwill go to both microphones.\nBoth microphones will\npick up speaker 1.\nAnd speaker 2's voice will also\nbe carried to both microphones.\nBut what you find is\nthat each microphone\ncaptures an overlapping\ncombination of the two speakers\nvoices.\nAnd so what ICA will do is--\nremember, in unsupervised\nlearning, you have some data.\nYou're going to give the data\nto the algorithm and say,\nhey, algorithm, figure out\nwhat's in this data for me.\nAnd so what you will be\nable to implement with ICA\nis to take the audio recordings\nfrom both microphones,\nand feed your two microphone\nrecordings to the ICA algorithm\nand say, hey, IC algorithm.\nHere's some unlabeled data.\nFigure out some stuff for me.\nAnd what ICA will do is figure\nout that this audio data is best\nexplained in terms of there\nbeing two different speakers\nand separate out the\nvoices of the two speakers.\nSo, let me do a demo.\nAnd in fact, in the\nhomework problem--\nI'm going to do a demo\nwith two speakers.\nIn the homework\nproblem, we'll ask\nyou to implement ICA for\nfive speakers in five\noverlapping voices.\nSo I should play this audio.\n1, 2, 3, 4, 5, 6, 7, 8, 9, 10.\nAll right.\nThat was microphone 1.\nNot the most interesting\ncocktail party\nwith two speakers.\nOne, two, three, four, five,\nsix, seven, eight, nine, ten.\nAll right.\nAnd so, when you feed\nthis data to ICA,\nit will recognize\nthat the underlying\nstructure behind this\ndata is not subspaces,\nit's not clusters.\nThe two audio recordings\nwere generated\nby two independent speakers\nthat were speaking independently\nof each other.\nAnd they'll separate out the\nsources into the following.\nOne, two, three, four, five,\nsix, seven, eight, nine, ten.\nThat's the first source\nthat ICA extracts.\nHere's the second one.\n[SPEAKING SPANISH]\nAll right.\nSo that was one example.\nLet me just play for you\naudio from another example.\nOne, two, three, four, five,\nsix, seven, eight, nine, ten.\nAll right.\nSo the poor guy's gone home\nfrom the cocktail party.\nNow he's sitting in a\nroom talking to his radio.\nHere's the second.\nOne, two, three, four, five,\nsix, seven, eight, nine, ten.\nAnd when you run this through\nICA, this is what it gets.\nThis example-- these\nare real examples.\nThis is real audio recorded\nin a physical room.\nAnd so the results\naren't perfect,\nbut this gives you a\nsense of what ICA can do.\nOne, two, three, four, five,\nsix, seven, eight, nine, ten.\nIt got rid most of\nthe music so you\ncan hear the accounting much\nmore clearly than in each\nof the original clips.\nAnd then here's the second one.\nAnd so what you will\nsee a little bit today\nand then more on\nWednesday is how\nyou can implement an\nalgorithm in order to do that.\nAll right.\nOh, and homework\nproblem will give you\ndata with five\noverlapping voices\nand ask you to separate out not\ntwo but five overlapping voices.\nSo in ICA, we're going to assume\nthat the data was generated\nthrough some set of sources.\nS in Rn, where you\nhave n speakers.\nSo you have two speakers--\nS is in R2.\nYou have five speakers--\nS is in R5.\nSo, s(i)j is equal to the\nsignal from speaker j at time i.\nAnd how does sound work?\nIf you look at oscilloscope\nrecordings of sound\nor some laptop applications\nthat can plot sound,\nthis is what sound looks like.\nLet's say this is speaker 1.\nThen sound looks these\nperiodic functions like these.\nSorry, not really periodic.\nThis is time.\nAnd what a microphone does is\nrecords very minute variations\nin air pressure.\nThose are the numbers\nstored in your computer\nwhen you have an\naudio recording.\nSo over time, sound is\ncaptured by a microphone\nby capturing tiny increases\nand decreases in air pressure.\nAnd that's how your\near works as well.\nThe way you're\nhearing my voice is--\nmy voice, or the microphones,\nor the audio system is creating,\nor the speaker system is\ncreating very rapid changes\nin air pressure.\nAnd those air pressures\nare transmitted to your ear\nthrough the air,\nand then your ear\nmeasures these very rapid\nchanges in air pressure,\nand your brain then\ninterprets the sound.\nSo, at time t, this height\nis s(t)1 if that's speaker 1.\nRight?\nAnd speaker 2 looks like this.\nAt the same time t, the height\nof this is S(t) subscript 2.\nOK?\nAnd a perfect sine\nwave like this-- this\nis what a tuning\nfork sounds like.\nIt's like a pure\ntone saying, ting.\nIf you have a tuning fork.\nSo I guess speaker 2 is not a\nvery interesting speaker either.\nYeah, question.\nDo you require the recordings\nto be aligned in time?\nDo you require the\nrecording to be aligned?\nYes, we do require that\nmicrophone 1 and microphone 2\nbe time stamped consistently.\nYeah.\nAnd so, in ICA, we observe\nx(i) equals A of S(i).\nOK.\nSo if you have two speakers\nand two microphones,\nthen what you observe\nis each microphone\ncaptures a linear combination\nof the speaker sources.\nYou have two people\ntalking and sound adds.\nAnd so each microphone\nrecords a linear combination\ncaptured by this mixing matrix\nA of the speaker sources.\nAnd so x(i)j j is the recording\nof microphone j at time i.\nAnd so j will range\nfrom 1 through n.\nSo to take this equation and\njust write down an equivalent\nway, this is at x(i)j is\nequal to sum over k Ajk S(i)k.\nRight?\nSo at time i, microphone j\ngets this linear combination\nof the k speakers.\nOK?\nAnd the goal is to find the\nmatrix W defined as A inverse,\nso that you can recover\nthe sources from Wx(i).\nOK?\nAnd why the ICA algorithms\ngo is is given just the data\nx to find the matrix W that\nlets you go back to recover\nthe original sources S.\nAnd the notation is\nthat the matrix W--\nI'm going to write as follows.\nI'm going to write the rows\nof W using this lowercase.\nAnd so the original\nsource i is equal to Wi\ntranspose x for every time i.\nYou can take x multiplied by\nthe columns of this, right?\nMultiplied by the rows of\nthe matrix W, which is y.\nThe rows of W allow you to\nrecover the original sources.\nOK?\nAll right.\nOne last quick thing on\nPowerPoint and then we'll break.\nSo why is ICA even possible?\nGiven this overlapping\nset of voices,\nwhy is it even possible to\nrecover the original data?\nSo here's a visualization for\nwhy ICA might be possible.\nSo I'm realizing I need to plan\none minute ahead or something,\nbecause that's how long this\nthing takes to takes a warm up.\nSo, it turns out that--\nthis is one figure to show\nwhy ICA may be possible.\nLet's say that the\nspeakers' sources--\nat each instant in\ntime, each speaker\nis emitting a random number\nbetween minus 1 and plus 1.\nSo if we were to plot\ntwo sources-- notice,\nthe axes here are S1 and S2--\nthe speaker histogram of the\nspeakers' voices would look like\nthis, if only you had access to\nthe sources, which you don't.\nYou only observe the\naxes, not the S's.\nAnd what the axes are\nis taking this data set\nand mapping it through\na linear combination\nby that mixing matrix\nA. And so the data\nyou will get looks like this,\ndistribution-- of x1 and x2.\nAnd your job is to\nfind an unmixing matrix\nW that lets you go back from\nthis parallelogram shape\nto something like this, where\nS1 and S2 are independent.\nNow, there are two\nsources of ambiguity here.\nFirst is you don't know which\none is S1 and which one is S2.\nIf speaker 1 was the person\nand speaker 2 was the radio,\nthere's no way that ICA could\nhave known that one was a human\nand two was a radio rather\nthan the other way around-- one\nwas a radio, two was a person.\nSo there's one source of\nambiguity for ICA is the access\nambiguity.\nYou don't know which is S1,\nwhich is S2, which is S3,\nbut that's OK.\nYou can still recover\nthe sources, just maybe\nin some random sorted order.\nThe second source of\nambiguity is sign ambiguity.\nYou don't know which is\nplus S1 and minus S1, right?\nSo if you were to\ntake this rectangle\nand flip it horizontally\nor flip it vertically,\nit still looks like\nthe same rectangle.\nAt least at this\nlevel of abstraction,\nyou may end up\nrecovering negative of S\nrather than positive\nof S. Fortunately,\nit turns out that when you run\nICA, if you take an audio clip,\nand you take the\nnegative of it, and you\nplay that through a speaker,\nit sounds pretty much the same.\nAnd so, it turns\nout that for ICA,\neven if you end up recovering\nnegative of the sound source,\nif you play that\nthrough the speaker,\nit'll sound the\nsame to your ear.\nAnd technically,\nsound can only add.\nSo technically, there\nare versions of ICA.\nBecause sound doesn't\nactually subtract, right?\nThere's some versions of ICA\nthat put some additional sign\nconstraints on A and W\nbecause sound adds and it\ndoesn't subtract, but in\npractice, it doesn't matter.\nSo in practice, whether you\nplay the sound x, or the sound\nS, or the negative of\nthat, it'll sound the same.\nSo in most applications,\nwe're quite\nhappy recovering either the\npositive or the negative.\nIt's not a big deal.\nYeah.\n[INAUDIBLE]\nOh.\nWhat's the subscript on S?\nOh, I see.\nSorry.\nYes, this should be a j.\nYes.\n[INAUDIBLE]\nOh.\nThis is W. And then, when\nI was saying W times x,\nI would add W times x.\nYeah, thanks.\nIs it not necessary that\nthe number of speakers\nbecomes equal to the\nnumber of microphones?\nSure.\nYeah.\nSo is it necessarily the number\nbecomes equal to the number\nof microphones?\nFor now, for the initial\ndevelopment of the algorithm,\nlet's just say yes, and we'll\ncome back and address this\nat the end of Wednesday.\nAll right.\nI think we're running\na little bit late.\nI think we can take\nmore questions,\nbut I'm just going\nto break on time.\nSo let's break.\nThis is the ICA problem setup.\nAnd on Wednesday, we'll go\nthrough how you actually\nimplement this.\nOK?",
+  "segments": [
+    {
+      "text": "So what I'd like to do today is continue our discussion of unsupervised learning algorithm. And in particular, we'll talk about PCA-- principal components analysis, really one of the old, classic learning algorithms that I still use every now and then.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "There's one application I'm using that uses this. I do use this. And then, also ICA-- independent components analysis. One of the most interesting things about PCA, principal components analysis, is that while it's useful in some",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "contexts, I see a lot of people use it when they really should not be applying PCA. So, today, I will also try to give some suggestions and some advice on when to use it, but also when to not bother using PCA. So, last week, on Wednesday,",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "you saw the factor analysis algorithm, which is a way to take very high-dimensional data that maybe lies on a lower-dimensional subspace and tries to model that as a very high-dimensional Gaussian that spans a low-dimensional subspace of a very",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "high-dimensional space. And that was a probabilistic method, right? So for factor analysis, you wound up building a model P of x for the density of x in this very high-dimensional space. We had the example of maybe a 100-dimensional data with 30 examples.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "Now, what you see today, principal components analysis, is an algorithm that is not probabilistic. It does not model P of x. But that allows you to nonetheless figure out, if the data lives in a low dimensional subspace, what is that subspace and how to reduce",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "the dimension of the data. So, let's start with a specific example. Actually, I'm still trying to-- is this better? Then when it goes to the PowerPoint, I'll switch-- switch lighting. OK. So, let's start with the example. We're still using",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "unsupervised learning. And so as usual, you have an unlabeled data set like this. And what we'd like to do is reduce the dimension from n dimensions to maybe k dimensions, where k is maybe much less than n. And so, for example, let's",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "say that you have a data set. Let's say that you run a school. And in the same month, for whatever reason, the school for young children wound up measuring the children's height in centimeters and also the height in inches. And so, you may have a data",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "set that looks like this. And because of round off to the nearest centimeter or round off to the nearest inch, the data is almost perfectly correlated, but not completely correlated. But this data set, even though you have two-dimensional data--",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "so in this case, n equals 2-- this is really a kind of 1D data but living in 2D, right? Because these are both measurements of length with the height of this school children in your school. And so, what we will do is come up with an algorithm--",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "PCA-- that will figure out that that diagonal arrow is really the dimension on which the data varies. It'll be the principal axis of variation of the data. Children can be tall or short, whether it's measured in inches or centimeters.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "And that's just a little bit of noise in the orthogonal dimension, in the 90-degree. Orthogonal means at 90 degrees, right? So the orthogonal dimension to this principal axis of variation. And what you can do is take the data and project it onto",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "the principal axis of variation, so that you can turn your 2D data into a one-dimensional data, and that one-dimensional is a cleaned up, less noisy version of what is the height of these school children. OK? Now, this example is a little",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "bit contrived or a little bit far because inches and centimeters is basically the same thing. It's really the length. A slightly different example would be if you have some variables. Let's say that you're running a factory, and you have two",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "vibration sensors or maybe two different parts of the machine. So you can have a vibration sensor 1 and a different sensor 2 on a big factory machine either shaking. And you can have two sensors maybe made by two different manufacturers on two different parts",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "of the machine. And again, the noise may be bigger, but maybe you think, well, both of these sensors are just measuring how much is this machine shaking, because you want to do preventive maintenance. Actually, it turns out that before your washing machine",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "at home breaks-- before it faults-- often, the pattern of how it shakes will change. And so having vibration sensors can help you do preventive maintenance. But having two different sensors might let you-- again, you might want to reduce the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "data from two dimensions down to one dimension. And maybe just one last example. For a while, for quite some time, I was working with helicopter pilots here at Stanford. So we're flying autonomous helicopters. And if you think that on the x-axis,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "let's say you measure a pilot skill. You'll have some tests on how skilled are the pilots. And on the vertical axis, you measure pilot enjoyment-- how much they enjoy flying the helicopters. So these are two different things, but you might hypothesize",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "that what really matters is some measure of the pilot aptitude-- how good an RC pilot are they? Good pilots maybe enjoy flying more, and they're more skilled. What is their aptitude or something? Then PCA is a way to take your two-dimensional data",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "and try to project it down to one dimensions and end up with a one-dimensional data set instead. All of these examples are really low dimensional. In practice, you very rarely use PCA to reduce a two-dimensional data set to one dimensions.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "In fact, the typical numbers may be more like that, about 10,000 dimensional data set. You may reduce it to 100 dimensions or 1,000 dimensions, but going from 2 to 1 is just really small. People don't do this in practice. But because of the constraints",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "of two-dimensional whiteboard, I'm going to use this. But in practice, the numbers look more like this. So, let's talk about how you would actually implement something to reduce the dimension of the data. Before running PCA, common pre-processing",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "is to zero out the mean and standard deviation. OK. So before running PCA-- actually, before running many supervised learning algorithms, I guess you do this. It makes gradient descent behave better. So you compute the mean, subtract the mean",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "from every example, and then compute the variance of each feature j, and divide by the square root of the variance or divide by the standard deviation. Or if you want, well, you could put a square root of the variance, right? So now, each of your features",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "has mean 0 and variance 1. So standardize the variance to 1. OK? Now, let's see how we would implement PCA. All right. So we have two features, x1 and x2. And it looks like the principal axis of variation looks a bit like the 45-degree line. And the mean and",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "variance of these may be close enough-- roughly 0. OK? So, let's take a look at what it means to define the principal axis of variation of this data. It looks like that is a pretty good candidate for a one-dimensional subspace onto which to project",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "this two-dimensional data. You want to reduce the data from 2D to 1D. It looks like that green line is a pretty good direction onto which to project the data. And one way that this is a-- now, in contrast, it looks like this red line is a really bad way,",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "really bad dimension onto which to project the data. The red line is almost the worst possible choice for what you think is the principal axis of variation. So, what is the difference between the red line and the green line? Here's one difference.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "If you take each cross and you project it using orthogonal projection-- orthogonal projection means that this little green line segment and that long green line are at 90 degrees, so projected in the shortest distance to the green line.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "If you look at all of these projection distances, all of these distances between the point and this long green line, their sum of squared distances is quite small. So the sum of squared distances between the blue crosses and the green dots is quite small.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "But in contrast, if you have to project this onto any other line, such as the red line, then the sum of squared distances between the blue crosses and the red dots is really large. So, for PCA, what we'd like to do is to find the direction of that green line",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "so that when you project your training examples-- the blue crosses-- we project these blue crosses onto this green line that you minimize the sum of squares of the projection distances. That would be one possible way to define PCA. And in fact, it turns out",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "that there are multiple ways to derive PCA. And what I want to do today is actually use a slightly different but equivalent definition of PCA. And the equivalence-- you actually get to work hard and prove yourself in the homework. There's another way",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "to look at PCA-- we'll go through this back again in a second-- which is, if you look at the green dots, it looks like the green dots are spread apart very far from each other. Right? But if you look at the red dots, it looks like the red dots are",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "really clustered together. So, if you'd like to preserve as much of the variability of the data as possible, a second possible intuition behind PCA is you want to find a line onto which to project your data, so that the data still remains as spread apart as",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "far as possible. It turns out, both of these intuitions that I just described are actually mathematically equivalent. I'm going to use the second one today to derive PCA in lecture, and then you can actually use the first one in the homework to show",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "that these two are actually equivalent. So, let's see. What we'd like to do is find the direction of the green line. And in particular, we'd like to find a unit vector u that points in that direction. So to specify the green line, you need to specify a",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "unit vector specifying the direction of green line. So what we'd like to do is find the direction of u in order to specify that direction onto which that you want to project the data. So, if the length of a vector-- this L2 norm. So if the L2 norm of a",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "vector is equal to 1, then the length of the projection of x(i) onto u is u transpose x(i). OK? If this is u and this is x, then this length here is u transpose x(i), right? So in PCA, we're going to choose a vector u to maximize. So what we're going",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "to do is maximize the spread of the green dots. And so, we're going to maximize sum over your m training examples of x(i) transpose u squared. Let me just put a 1 over m there. And you're going to maximize this over all the choices of u, where",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "the length of u is equal to 1. So this notation maximize over all vectors u, colon, length of u is equal to 1 over m sum over training sets of the square of the magnitude of the projections. So in other words, another way to describe this",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "is you want to maximize the sum of this length squared plus the sum of this length squared plus the sum of this length squared, and so on, summed over your five training examples. So, let's expand this out. This term you're maximizing over is equal to that.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "u transpose x i transpose u. And I guess, by linearity, you could pull out u transpose and u. So this is u transpose 1 over m. OK? Let me just take this matrix and call this matrix sigma. One of the unfortunate things about this notation is sigma,",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "the covariance matrix symbol is the same as the summation symbol. But hopefully, it'll be clear from context. And so what we would like to do is max u norm of u equals 1 u transpose sigma u. OK? And it turns out that the way to solve for the value of u that",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "maximizes this is that u is the principal eigenvector of the matrix sigma, I guess. Oh, and sigma here-- the way we've defined it is it is the covariance matrix of the data after you've set mean to 0 and standardize it. This matrix sigma is the",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "covariance matrix of the data. And so this means that the principal axes of variation is the principal eigenvector vector of sigma. Oh, let me just check. How many of you have seen eigenvectors and eigenvalues before? Wow, cool. OK, great. Most of you.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "All right, good. I won't spend too much time on this then. Yeah, let me just give a real quick explanation for why this is the eigenvector. And so, just recall, if Au equals lambda u, then u is an eigenvector of A, and lambda is the eigenvalue.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "And the way you show that this is correspondence-- actually, how many are familiar with the method of Lagrange multipliers? OK, less of you. All right. And so if you're familiar with the method of Lagrange multipliers, which you don't have to be,",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "one way to go from this problem to show that it is that is, if your goal is to maximize u transpose u sigma subject to norm of u equals 1, then-- to solve a constraint optimization problem like that, you form a Lagrangian, which is how you solve a constraint",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "optimization problems. So this constraint is u transpose u equals 1. And then take derivatives with respect to u of the Lagrangian, which is sigma u minus lambda u, which is set to 0, which is why you get that sigma u equals lambda And thus, u must",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "be an eigenvector of the covariance matrix sigma. OK? If you didn't get that, don't worry about it. If you're familiar with method of constructing Lagrangian and solve constraint optimization problems, where you want to maximize this",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "subject to this constraint, then this is how you show that this is equivalent to that. But if you didn't understand the details, it's OK. All right. So, to summarize, what we found here is that, if you want to choose a one-dimensional subspace with which to",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "approximate your data x, choose the dimension of that one-dimensional subspace to be given by the principal eigenvector of the covariance matrix sigma of the data. OK? Oh, and let's see. The intuition about why the two-- let's see. I gave two intuitions.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "One is maximize the spread of the green dots. That's what we just worked through. The other is minimize the squared distances between the blue crosses and the green dots. And it turns out, these are equivalent, sorted by Pythagoras theorem, where if you",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "look at this triangle-- again, the full details, don't worry about it. You'll see the full details in the in the homework. We can prove for yourself why these two ways of deriving PCA give you the same answer. And I think, actually, many years ago, there",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "was a paper that proved that there is something like eleven equivalent ways to derive PCA, and these are two of them. All right. So, in a more general case, if you wish to project the data to k dimensions, then set u1, u2, u3 to be the top k",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "eigenvectors of the covariance matrix sigma and with lambda 1, lambda 2, and so on, up to lambda k as the corresponding eigenvectors or eigenvalues. So in other words, let's say you have-- let's use the new board. All right. So, let's say you have a",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "very high-dimensional data. Say 1,000. Well, 1,000 is not that high these days. But let's say you have a 1,000-dimensional data and you want to reduce the dimension from 1,000 to 10. Then you would compute u1 up to uk. Say k equals 10. And then, you would have",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "a new representation of the data, where instead of x(i), you can now represent it using 10 numbers, which are given by u1 transpose x(i), u2 transpose x(i), up to u10 transpose x(i). And so now, instead of using 1,000 numbers to represent",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "a training example, you're now using 10 numbers to represent the training example. And in the example we had earlier about children's height in centimeters and inches, you'd be reducing it from two dimensions to one dimension. And so now, for each",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "child in your data set, you would have just one number that is a slightly cleaned up estimate of there of the height of the child. And if you want to-- right. And let me just call this-- yeah. Let me call this-- actually. Let me call this my i as",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "the new representation. If you ever want to go back from y to x, it turns out that x(i) is approximately y(i)1 times u1 plus y(i)2 times u2 plus dot, dot, dot, plus y(i)k times uk. So, you've taken your 1,000 numbers, your 1,000-dimensional",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "data, and compressed it to a 10-dimensional representation. If you ever want to uncompress your data and go back from this low-dimensional representation up to this 1,000-dimensional representation, this is how you map from your 10 numbers-- y1, y2, up to yk--",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "back up to a 1,000-dimensional subspace. And what this formula does is it actually tells you the position of these projections. All of these decompressed representations will live in a 10-dimensional subspace, but these are 10 dimensional points in",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "1,000-dimensional space. They're all these 1,000-dimensional vectors. So these would be in Rn. OK, cool. So, this is how you implement PCA. I'm going to go into some practicalities and some applications a little bit. Questions. How do we go know [INAUDIBLE]?",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "Is it just by life or just go through it? How do you choose k? No. So you say you pick the top k. Oh, I see. [INAUDIBLE] I see. Right. So, each eigenvector, ui is paired with an eigenvalue lambda I. So you pick the-- eigenvectors correspond to",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "the biggest eigenvalues. And then the other question is, how do you decide how many eigenvectors to keep? Let me come back to that in a second. If you use a off-the-shelf PCA software or off-the-shelf eigenvector solver-- a NumPy or something--",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "most implementations will return the eigenvectors sorted in decreasing value corresponding to their eigenvalues as well. So you just take the top k. Any questions? Yeah. Why would you do pre-processing? Oh. Why do pre-processing? Oh, thank you. Yeah.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "So, it turns out that this is what goes wrong if you don't subtract the mean and standardize the variance. It turns out that if your data kind of lives out here, and you don't subtract off the mean, it turns out that-- actually, let say your",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "data look like that. If your data lives out there, then it turns out that PCA will choose that as a principal axis of variation. Whereas if you subtract off the mean, then your data is lined up like that, and it'll choose that as maybe a much better choice.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "So that's why we subtract out the mean. And why you standardize the variance is because if your axes are very different-- maybe this is now centimeters and this is now kilometers-- then your data will look like that, and PCA will just choose that direction.",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "So that's why it's a pre-processing step. OK. OK, cool. Yeah. Do you [INAUDIBLE]? Say that again. [INAUDIBLE] maybe yi. How do you view eigenvectors? Let's see. So, let's use the children's height example. So, in that case, x(i) is in R2 and y is in R. Right?",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So you've now compressed each child's height, which is previously representative with two numbers into a single number. And if your goal is to run a learning algorithm to predict something about children, whether how good are they at basketball is a",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "function of the height, you can then use this as the input feature to predict what's the chance of their basketball skill or something. And the mapping of the reverse direction is now that you have a-- if you want to map your data",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "back to this space of x1 and x2, that formula helps you map back from R1 to R2. But it turns out that if you take the different children's height and map them back, they'll all lie on a straight line like that. Is this y(i) reduced to the green dot-something?",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "So y(i) u1 transpose x(i). And so, if this is the vector-- let me think. Yes. Actually, basically, yes. In 1D, if you have an example like that and if this is the vector u, then this length is y(i). I guess yes. It's the magnitude of the projection of x",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "onto each of the eigenvectors. OK. All right. Cool. So, some applications of PCA. And then I'm going to talk about both good applications and bad applications. You know what? I think I want to use the display. All right. So one good application",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "of PCA is visualization. And so, in particular, if you have very high-dimensional data, then you can use PCA to project your data from n-dimensional to 2D or 3D. And maybe you have some ways to visualize 4D data if you have time and animation or something.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "Let me see. All right. Cool. So one of the most interesting applications of PCA is seen here at Stanford was, there was a Stanford student-- still is, I guess-- who is working on sticking electrodes into monkeys brains and modeling how the state",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "of the monkey's brain evolves when the monkey is planning a task to use his hand to reach out to touch a target. He has, I guess, a batch of monkeys or a flock of monkeys-- I'm not sure how you count monkeys-- with electrodes stuck on their brain measuring",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "little impulses of electricity. And what he did was-- all right, cool. And what he did was trained the monkeys to carry out reaching tasks, where there'd be a square that appears on a touch screen, and it'd be the monkey's job to reach out and tap",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "his finger on the location of this little square basically on a touch screen. And if it successfully taps the square, then it gets a reward-- it gets a squirt of juice into his mouth. And so, what they did, what his lab did, was measure a lot of electric",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "impulses in the monkey's brain. But if you have 50 electrodes, then you get this 50-dimensional time series. So you measure the amount of electricity in-- simplifying a little bit-- let's say in 50 different points in the monkey's brain. And you now have this",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "50-dimensional data, which is very hard to visualize because you can't plot data in 50D. So, one of Krishna's students actually took CS229 several years back, quite a few years ago, and learned about PCA from this class and wound up using PCA to",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "reduce the dimension of the data from 50 to 3. And the fascinating result was that they could now visualize how the monkey is thinking and planning as it readies its brain and its arm for the task of reaching out to tap a target on a screen.",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "And so, this one ended up being a very-- what is it? This wound up being a breakthrough result in neuroscience because you can now really visualize how a monkey readies its brain, readies its arm, think through how that reaches arm. And then when the monkey",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "is sent the go signal-- go, monkey-- then you can actually see the state of the monkey's brain change as it's reaching out to tap the target to get this juice reward. I thought this is a great example because this is a Stanford example.",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "But whenever you have very high dimensional-- oh. So you could actually see in a 2D or 3D space the monkey's brain is there. It's just waiting, waiting, waiting. You show the target. Then it goes, it's planning. Then just waiting, waiting.",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "Then you say go, and then the monkey's brain moves. So you can actually plot-- this would be y1 and y2, I guess-- the trajectory of how the state of this 50-dimensional state of the monkey's brain evolves. You can actually see the brain transition",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "through different states as it goes through this task. So, whenever you have very high-dimensional data-- higher than 2D or 3D-- PCA can help you. Maybe it can help you with visualizing the data. Some other applications of PCA is compression for learning",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "algorithms efficiency. So, let's see. It turns out that most of your high-dimensional data lies on a low-dimensional subspace. It's just a fact of life. If you have a 10,000-dimensional data set, there's a pretty good chance that your 10,000-dimensional",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "data set actually is quite well approximated by a much lower-dimensional subspace. Maybe a 1,000-dimensional subspace or something. And it turns out that if you feed x(i), say, 10,000 dimensions to a learning algorithm, like a support vector machine,",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "then you're carrying around these 10,000-dimensional examples throughout your whole training process. But if you can compress your data to this y(i) representation, which is this 1,000-dimensional, then your memory bandwidth, your network bandwidth,",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "your computational speed-- you can run your learning algorithm on a much lower-dimensional set of data, and it may be much more efficient. One other pretty good application of PCA is, for computational efficiency, you want to lower the dimension of your data",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "before you feed it into some expensive learning algorithm. I've done this. I've done this a few times. Now, let me mention some slightly more questionable applications of PCA. And people still do this a bit, but again-- well, I'll just mention them.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "Questionable doesn't mean bad, it's just that it's questionable. One way is to reduce overfitting. So one thing you might think is PCA is a way to reduce my data from 10,000 dimensions to 1,000 dimensions. So if you're using, say, logistic regression,",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "maybe logistic regression on 1,000D is less likely to overfit than logistic regression on a 10,000D. This is one of those things, where if you try it, I think it works half the time, it fails half the time. But what happened over the years",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "was enough people tried it. And because it worked half the time, that half-of-the-time people published papers. And then, the other half of the time, it fails-- there's nothing to publish. And so I think over some number of years, there wound up being",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "some number of papers, where people use this to reduce overfitting, and it works. But this is one of those techniques that I think works as often as it fails. Just in my experience. And so I tend not to use PCA to reduce number of features for the purpose of",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "reducing overfitting. I would use regularization instead. That's what I would do. And then, there's actually one other slightly questionable-- this one is not one of those techniques. You use PCA. It sometimes works, sometimes fails. I don't think it works",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "more often than it fails, but because it sometimes works, people will publish papers on this. So I just don't recommend this. It's outlier detection. Actually, let me just talk about matching. So, there was one theory-- all right. So, in the very early",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "days of face recognition-- I'll just make this concrete-- how do you look at two pictures and see if two pictures are of the same person? I guess, now, we have laptops and smartphones that unlock using your face. But in the early days of face recognition,",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "how do you tell if two pictures are of the same face? So there was this theory that given two pictures of two faces, you could measure the Euclidean distance in the pixel space. So the original data is just a pixel values of the two pictures.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "So one thing you could do is measure these pixel value differences. But there was a theory that if you reduce the dimension of the data and measure the distance in this reduced dimension subspace, maybe cleaning up some of the noise. So to tell if i and j",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "are the same person, just look at the sum of squares pixel distances to see how different these two pictures are. But maybe if you go from a 10,000-dimensional space-- if your picture is a 100 by 100 pixels, then that is 10,000 grayscale values. So this has a",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "10,000 eigenvectors. If you use PCA to reduce it to say 1,000 dimensions, maybe that will reduce the dimension of your subspace. You can now measure distance in this slightly cleaned-up data. So unfortunately, this is one of those results that--",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "again, I personally would not do this. But sometimes, if you do this, you get lucky and it works a little bit better, but this is not a reliable result. So hardly anyone does this anymore. You sometimes still see people use this method.",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "And sometimes they get lucky, and it kind of helps a bit, but this is not how I would tend to use PCA, I guess. So there are actually early phase detection systems. There's actually a well-known result called eigenfaces, in which you",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "run PCA on this face data set. And then you plot the eigenvectors u as an image. So the eigenvectors u is a 10,000-dimensional vector. So it's 100 by 100 pixels, then the dimension of x as well as the dimension of u is 10,000 dimensions. And you can plot",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "the eigenvectors u, and you get pictures like this. Yeah, we used to tell ourselves stories like that. Gee, it looks like this picture on the upper left is whether the face is illuminated on the left or the right. And this is how much does",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "this person have a beard. We used to tell ourselves stories like that, but I think we learned that these results are at least as much a product of the researcher's imagination as an actual phenomenon. So I would just discourage. It turns out that individual",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "eigenvectors are very noisy. So whenever I run PCA, I tend not to look at any single eigenvector. Because it turns out that individual eigenvectors are very noisy. And human interpretation is like, oh, yeah. It looks like eigenvector 5 is",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "this person wearing glasses. Those are often more the researchers' imaginations rather than reliable result that you see in the data. OK? Yeah. And so there are things like this. Input this phase, and these are the most similar phases.",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "And sometimes, this works better if you use eigenfaces, but this is not a good method. I tend not to use this method anymore. OK? All right. OK. So, PCA is a useful technique. I am using it for one project right now at Landing AI, but don't always use it.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "And let me just give you one rule of thumb. Before using PCA, consider just using the original data x(i). Actually, what I've seen in past years is in some CS229 project proposals as well. Students will say I want to build a system. And as part of the system,",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to take the x(i) and reduce it to some low-dimensional y(i), and it will do something with y(i). This visualization does great, because you can't visualize higher than two- or three- or maybe four-dimensional data. But before having a component",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "in your learning algorithm that reduces the dimension of your data from, say, 10,000 to 1,000 dimensions, just see if you could just use your original data x(i) and see how well that does. Unless you need to speed it up, or reduce the memory footprint,",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "or something, consider-- so before you submit the class project report that uses PCA as part of your project, just ask yourself how would the algorithm do if you were to not even use PCA and make sure that you're not adding in a PCA as part of your algorithm",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "unnecessarily. And this is a little bit like-- we talked about premature statistical optimization, where sometimes people build a system with a lot of complicated modules. And so just consider not doing this. But I think the good reason",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "is to use PCA visualization or if you need to compress your data in order to drive more efficiency. OK? Question? Is there a minimum amount of dimensions before you should consider PCA? Oh. Is there a minimum number of dimensions",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "before you should consider PCA? Not really. Even if you-- 2 to 1 is really extreme, but if you have an application where you have 2D data but you really need to half your memory requirements because you get a very large volume of data per",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "second, maybe you could do it. Yeah, at the back. When would you use PCA and when would you use factor analysis? Great question. When would you use PCA? When would you use factor analysis? Let me get to that in a second. Anything else? All right. Oh. Yeah.",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "If you use PCA, doesn't that mean you also have to find the eigenvalues or the eigenvectors of your test data? Thinking of the lower-dimensional space and then [INAUDIBLE]. Oh, sure. So train and test, right? Would you find the eigenvectors of test data?",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "The answer is actually no. So what you do is, if you have a training set-- let's say you want to use PCA to compress your data. What you would do is take your training set, run PCA on your training set, and then your eigenvectors are fixed forever.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "You would not find a different set of eigenvectors on your test set. You just always use the same ui's that you found in your training set and use that same set of eigenvectors computed on the training set to map your test data to a low-dimensional space.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "For those of you familiar with linear algebra, it turns out that the vectors ui-- let's say u1 up to u10 are 1,000-dimensional vectors. In this case, we reduce from 1,000 to 10D. It turns out that these 10-- I'm going to switch into",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "linear algebra terminology, OK? So if you don't understand what I say, it's OK. But it turns out that these 10 vectors form a basis for a 10-dimensional subspace in this 1,000-dimensional space. And what you're doing is projecting the data onto",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "a 10-dimensional subspace-- a 10D subspace that is spanned by this orthogonal basis. And then you're using 10 numbers to represent your 1,000D data in terms of their projections onto this 10-dimensional subspace. And it turns out that eigenvectors",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "are orthogonal to each other because sigma is symmetric. Symmetric matrices have orthogonal eigenvectors. Sigma is symmetric, positive definite. So sigma has orthogonal eigenvectors. Meaning that all these youths are at 90 degrees to each other,",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "which is why this is actually an orthogonal basis. And there's one degeneracy case in case of repeated eigenvalues, but you should choose ui to be orthogonal, which most linear algebra solvers will. OK? All right. If you don't understand what",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "I said, I lost 60 seconds, it's OK. Actually, how many of you understood what I just said? Wow. OK. Wow. OK, that's great. I love you guys. All right. So, the question-- when do you use PC, and when do you use factor analysis? So, what I'd like to do is take",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "the four unsupervised learning algorithms we talked about and put them into this framework. And so, some of the algorithms we talked about would model P of x, model what's the density of x. And one reason you might want to do that is anomaly detection.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "So, some of the algorithms we talked about were density estimation algorithms. And some of the algorithms we talked about were non-probabilistic. And then some of the algorithms talked about assumes that the data lives on a low-dimensional subspace of a very",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "high-dimensional space. And some of the algorithms we've talked about assume the data lives in clusters or maybe clumps. Clumps is not a formal term in machine learning. And so, PCA falls in that category. It's not a probabilistic algorithm.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "There's no reference to P of x. And it models the data as living approximately on a low-dimensional subspace of a high-dimensional space. And then, let's see. Actually, what should go in here? What do you think right here? So if you think your data lives",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "in a low-dimensional subspace and you want to model P of x, what's the algorithm? Factor analysis. Cool. Awesome. Cool. How about here? Non-probabilistic in your data lives in clusters? K-means. Awesome. And then here? Yeah. EM? Yeah. I would say mixtures",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "of Gaussians. This one-- this is not the perfect answer, because mixtures of Gaussians works in lots of scenarios where your data isn't quite in clusters as well. Oh, and EM is a technique for density estimation. So EM works whenever you",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "have a model for P of x, z, where z is latent or unobserved, and you want to model P of x. That's the category of problems that EM applies to, which is why we use EM for everything in this first column-- for both factor analysis and for the mixture",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "of Gaussians model. Yeah. Can z be continuous like progressions do? Oh. Can z be continuous? Yes, z can be. In factor analysis, z is Gaussian. In mixture of Gaussian, z was discrete. And so, the other way to think about these algorithms",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "is the non-probabilistic algorithms, some of the applications include compression and sometimes a visualization. So the human understanding of data, right? So we talked about PCA as a visualization to reduce your data to 2D or 3D to visualize.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "Remember, we talked about K-means as a mechanism for market segmentation. You have a database of customers. You want to group your customers into four groups to develop different marketing campaigns for your different four market segments.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "So that's a way for you to reduce the data into four clusters, so that maybe your marketing team can look at the four market segments and do something about them. I've also seen people take genomic sequences-- take genomic data and use that to cluster genes",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "into a few different discrete clusters to try to understand if there are a few different types of genes. So clustering algorithms like K-means help us take the world and sort it into a small number of categories to help us better understand them. Right?",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "And in fact, I think the whole phylogenetic tree-- all of life, I guess-- cluster into animal kingdom, plant kingdom, and so on. That's an attempt to cluster all of life onto a number of discrete categories as well. Question? Why did you say clusters centroids",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "of K-means interpretable but not the principal components of PCA? Oh. Why do you consider the cluster centroids of K-means interpretable but not the PCA components? So if you have a relatively small number of K-means clusters, you just look at",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "them and say, oh, look, this looks like the animal kingdom of a living thing, that looks like a plant kingdom, that looks like whatever. It turns out that the position of individual eigenvectors are numerically unstable. Actually, maybe here's an example.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "Let's say you have a 3D data but it lives roughly on a 2D plane. So this is actually 3D data with a little bit of fuzz off the surface of the whiteboard. It turns out that-- maybe you get that as u1, u2, and u3 points out of the board. But with very",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "small perturbations to the numerical precision-- a very small perturbation of the data-- you might easily get a different orthogonal basis, which is why, from a statistical point of view, the exact orientation of the eigenvectors is very unstable.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "As it is very noisy. You just change one training example, change something in the fifth decimal place, and the eigenvectors can change significantly. So that's why I think-- if you look at individual eigenvectors and try to interpret them, they're",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "often hallucinations or often the imaginations of the researcher. What turns out to be stable is a subspace spanned by the first K eigenvectors. It turns out that if you look at the subspace spanned by the first K eigenvectors, the subspace is quite stable,",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "but the individual eigenvectors are not. So yeah. How am I doing on time? All right. Go ahead. Is it possible to give a probabilistic interpretation to PCA in terms of delivery? Yes. Is it possible to a probabilistic interpretation of PCA? Yes.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "It turns out there's another algorithm called PPCA-- probabilistic PCA. That kind of does that. Yeah. All right. One last question. No? OK. Cool. Oh. All right. Just last two questions. Can PCA overfit? What does that look like? Oh, that's interesting.",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "Can PCA overfit? Rarely. I guess, one way for PCA to overfit would be if you have 10,000-dimensional subspace. Excuse me. 10,000 examples with 1,000-dimensional subspace but only 1,000 examples. So it would be a bit strange. So, what PCA is trying to do is",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "find a K-dimensional subspace that captures the variations of the data. So I guess if k and your number of training examples, m, was too similar, it wouldn't do a very good job. Yeah. One last question. Question about subspace. Is it quite stable?",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "Is that what able them to do rotation to the PCA components? And if yes, how do you think of the orthogonal rotation versus a weak rotation, where they don't have a problem? Hang on. What I think of orthogonal rotation as subspace? So first, you should",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "pretty much always-- I would never use non-orthogonal bases for the vectors u. Just make sure they use orthogonal. It'd be very unusual to not be orthogonal to each other. So the vectors u should always be an orthogonal basis for your",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "subspace you're mapping to. And what happens in practice is-- by this example, I did not mean that you would do this rotation on purpose. You wouldn't do that. What I meant was if you have two different people collect slightly different data on",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "slightly different days, just by chance, the basis could rotate significantly, but you wouldn't actually do this manually. What you do is run PCA once, and then you just get some basis, and then you would just use that. And this was meant to be an illustration",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "just by chance or just by luck. If your lab mate had data set that was very, very slightly different, they might get a totally different basis, but you wouldn't make this rotation by hand on purpose. OK? All right. Cool. So, there's one last question just now",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "that I promised to answer-- I'll answer this only briefly-- which is, how many principal components do you keep? So what is the value of k? So it turns out that there's a metric you can compute, which is compute the eigenvectors lambda 1",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "up to lambda k divided by the sum of all of the lambdas. And so it turns out that if this is, let's say, 0.9, then sometimes you see people say that this retained 90% of the variance of the data. So if you ever see someone write a paper that uses PCA and they",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "say, we use PCA to reduce the dimension from 10,000 to 1,000 dimensions, and this 1,000-dimensional subspace retains 90% of the variance of the data, then that's what this means. I don't want to go deeply into exactly what this means, but this is just--",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "let's see. So a data set with no variance is a data set where every example is equal to 0. So variance in the data means how much does the data vary compared to if every example was exactly the zero vector. And it turns out that where we start off",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "deriving PCA in terms of maximizing the variance-- project the data on the subspace to maximize the variance in the projections-- so this is roughly how much of the signal did you keep and how much do you throw away. And so, often, the numbers you often see--",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "you see people use PCA to retain 90% or 95%. Maybe 98% or 99% of the variance of the data. You see, this range of numbers is quite common, and it's not at all unusual. If you have a very high-dimensional data set, to be able to compress your data",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "set maybe 10x and still retain 95% of the variance of the data, basically, keep 95% of the signal in your training set while having maybe a 10x reduction in your data set size. OK? All right. I'm actually debating how far to go into ICA. All right.",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "Actually, let's do this. The second thing I want to do-- we scheduled this for today and Wednesday. I think I'll just make a start on setting up the ICA problem, but then we'll end up doing most of it on Wednesday instead of today. So, PCA finds the principal",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "components of the data. ICA finds the independent axes of variations of the data. Let's see. All right. This thing woke me up. In order to motivate ICA-- actually, what you get to do in one of the homework problems is implement an algorithm that solves",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "the cocktail party problem. So, here's the cocktail party problem. If you go to a party, and there are a lot of people standing around talking. You've been to those parties, where there's so many people talking, you can barely hear your own voice.",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "So these are people talking. And what we're going to do in this cocktail party is put a couple microphones here. And so, speaker 1's voice will go to both microphones. Both microphones will pick up speaker 1. And speaker 2's voice will also",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "be carried to both microphones. But what you find is that each microphone captures an overlapping combination of the two speakers voices. And so what ICA will do is-- remember, in unsupervised learning, you have some data. You're going to give the data",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "to the algorithm and say, hey, algorithm, figure out what's in this data for me. And so what you will be able to implement with ICA is to take the audio recordings from both microphones, and feed your two microphone recordings to the ICA algorithm",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "and say, hey, IC algorithm. Here's some unlabeled data. Figure out some stuff for me. And what ICA will do is figure out that this audio data is best explained in terms of there being two different speakers and separate out the voices of the two speakers.",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "So, let me do a demo. And in fact, in the homework problem-- I'm going to do a demo with two speakers. In the homework problem, we'll ask you to implement ICA for five speakers in five overlapping voices. So I should play this audio.",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "1, 2, 3, 4, 5, 6, 7, 8, 9, 10. All right. That was microphone 1. Not the most interesting cocktail party with two speakers. One, two, three, four, five, six, seven, eight, nine, ten. All right. And so, when you feed this data to ICA, it will recognize",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "that the underlying structure behind this data is not subspaces, it's not clusters. The two audio recordings were generated by two independent speakers that were speaking independently of each other. And they'll separate out the sources into the following.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "One, two, three, four, five, six, seven, eight, nine, ten. That's the first source that ICA extracts. Here's the second one. [SPEAKING SPANISH] All right. So that was one example. Let me just play for you audio from another example.",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "One, two, three, four, five, six, seven, eight, nine, ten. All right. So the poor guy's gone home from the cocktail party. Now he's sitting in a room talking to his radio. Here's the second. One, two, three, four, five, six, seven, eight, nine, ten.",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "And when you run this through ICA, this is what it gets. This example-- these are real examples. This is real audio recorded in a physical room. And so the results aren't perfect, but this gives you a sense of what ICA can do. One, two, three, four, five,",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "six, seven, eight, nine, ten. It got rid most of the music so you can hear the accounting much more clearly than in each of the original clips. And then here's the second one. And so what you will see a little bit today and then more on Wednesday is how",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "you can implement an algorithm in order to do that. All right. Oh, and homework problem will give you data with five overlapping voices and ask you to separate out not two but five overlapping voices. So in ICA, we're going to assume",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "that the data was generated through some set of sources. S in Rn, where you have n speakers. So you have two speakers-- S is in R2. You have five speakers-- S is in R5. So, s(i)j is equal to the signal from speaker j at time i. And how does sound work?",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "If you look at oscilloscope recordings of sound or some laptop applications that can plot sound, this is what sound looks like. Let's say this is speaker 1. Then sound looks these periodic functions like these. Sorry, not really periodic. This is time.",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "And what a microphone does is records very minute variations in air pressure. Those are the numbers stored in your computer when you have an audio recording. So over time, sound is captured by a microphone by capturing tiny increases",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "and decreases in air pressure. And that's how your ear works as well. The way you're hearing my voice is-- my voice, or the microphones, or the audio system is creating, or the speaker system is creating very rapid changes in air pressure.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "And those air pressures are transmitted to your ear through the air, and then your ear measures these very rapid changes in air pressure, and your brain then interprets the sound. So, at time t, this height is s(t)1 if that's speaker 1. Right?",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "And speaker 2 looks like this. At the same time t, the height of this is S(t) subscript 2. OK? And a perfect sine wave like this-- this is what a tuning fork sounds like. It's like a pure tone saying, ting. If you have a tuning fork.",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "So I guess speaker 2 is not a very interesting speaker either. Yeah, question. Do you require the recordings to be aligned in time? Do you require the recording to be aligned? Yes, we do require that microphone 1 and microphone 2 be time stamped consistently.",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. And so, in ICA, we observe x(i) equals A of S(i). OK. So if you have two speakers and two microphones, then what you observe is each microphone captures a linear combination of the speaker sources. You have two people talking and sound adds.",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "And so each microphone records a linear combination captured by this mixing matrix A of the speaker sources. And so x(i)j j is the recording of microphone j at time i. And so j will range from 1 through n. So to take this equation and",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "just write down an equivalent way, this is at x(i)j is equal to sum over k Ajk S(i)k. Right? So at time i, microphone j gets this linear combination of the k speakers. OK? And the goal is to find the matrix W defined as A inverse, so that you can recover",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "the sources from Wx(i). OK? And why the ICA algorithms go is is given just the data x to find the matrix W that lets you go back to recover the original sources S. And the notation is that the matrix W-- I'm going to write as follows.",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to write the rows of W using this lowercase. And so the original source i is equal to Wi transpose x for every time i. You can take x multiplied by the columns of this, right? Multiplied by the rows of the matrix W, which is y.",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "The rows of W allow you to recover the original sources. OK? All right. One last quick thing on PowerPoint and then we'll break. So why is ICA even possible? Given this overlapping set of voices, why is it even possible to recover the original data?",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "So here's a visualization for why ICA might be possible. So I'm realizing I need to plan one minute ahead or something, because that's how long this thing takes to takes a warm up. So, it turns out that-- this is one figure to show why ICA may be possible.",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "Let's say that the speakers' sources-- at each instant in time, each speaker is emitting a random number between minus 1 and plus 1. So if we were to plot two sources-- notice, the axes here are S1 and S2-- the speaker histogram of the",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "speakers' voices would look like this, if only you had access to the sources, which you don't. You only observe the axes, not the S's. And what the axes are is taking this data set and mapping it through a linear combination by that mixing matrix",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "A. And so the data you will get looks like this, distribution-- of x1 and x2. And your job is to find an unmixing matrix W that lets you go back from this parallelogram shape to something like this, where S1 and S2 are independent. Now, there are two",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "sources of ambiguity here. First is you don't know which one is S1 and which one is S2. If speaker 1 was the person and speaker 2 was the radio, there's no way that ICA could have known that one was a human and two was a radio rather",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "than the other way around-- one was a radio, two was a person. So there's one source of ambiguity for ICA is the access ambiguity. You don't know which is S1, which is S2, which is S3, but that's OK. You can still recover the sources, just maybe",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "in some random sorted order. The second source of ambiguity is sign ambiguity. You don't know which is plus S1 and minus S1, right? So if you were to take this rectangle and flip it horizontally or flip it vertically, it still looks like the same rectangle.",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "At least at this level of abstraction, you may end up recovering negative of S rather than positive of S. Fortunately, it turns out that when you run ICA, if you take an audio clip, and you take the negative of it, and you play that through a speaker,",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "it sounds pretty much the same. And so, it turns out that for ICA, even if you end up recovering negative of the sound source, if you play that through the speaker, it'll sound the same to your ear. And technically, sound can only add. So technically, there",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "are versions of ICA. Because sound doesn't actually subtract, right? There's some versions of ICA that put some additional sign constraints on A and W because sound adds and it doesn't subtract, but in practice, it doesn't matter. So in practice, whether you",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "play the sound x, or the sound S, or the negative of that, it'll sound the same. So in most applications, we're quite happy recovering either the positive or the negative. It's not a big deal. Yeah. [INAUDIBLE] Oh. What's the subscript on S? Oh, I see. Sorry.",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "Yes, this should be a j. Yes. [INAUDIBLE] Oh. This is W. And then, when I was saying W times x, I would add W times x. Yeah, thanks. Is it not necessary that the number of speakers becomes equal to the number of microphones? Sure. Yeah.",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "So is it necessarily the number becomes equal to the number of microphones? For now, for the initial development of the algorithm, let's just say yes, and we'll come back and address this at the end of Wednesday. All right. I think we're running",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "a little bit late. I think we can take more questions, but I'm just going to break on time. So let's break. This is the ICA problem setup. And on Wednesday, we'll go through how you actually implement this. OK?",
+      "start": 1254,
+      "duration": 6
+    }
+  ]
+}

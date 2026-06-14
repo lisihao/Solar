@@ -1,0 +1,754 @@
+{
+  "videoId": "oPWsr1EgswE",
+  "title": "SREcon26 Americas - The Zero Trust Odyssey: Our Journey to Modernize Internal Access",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 36308,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thank you everyone for joining us for\nthe first presentation of the day. Uh my\ncolleague Nathan and I, we're here from\nReddit and we're here to talk about how\nwe redid our internal access aka zero\ntrust while still preserving the\nprinciples of reliability, availability,\nuh and security. We have a lot of\ncontent to go through. So we'll be uh\nstill be able to take some questions at\nthe end.\nUm to get started like at our scale\nspeed is very important and so is\nlimiting how much we spend. Uh we'll\ntalk through some of the things on like\nwhat challenges\nhad did we have to overcome and how did\nwe convince our exxs to go in this\ndirection because no one likes to spend\nmoney on a shiny new shiny tool. Um we\nmostly saw this as a user experience\nenhancement for developers uh which\ntranslates to like better productivity\nand more output. Um sure we got some\nreliability and security uh advantages\nas well but the biggest selling point\nwas UX.\nUm so previously uh we had a lot of duct\ntape together solutions that were set up\neven before we joined Reddit. Um, and as\nyou know the good old piece of wisdom,\nif something is working long enough, do\nnot touch it. Uh, and that's how it\nworked for a long time. And we had a\nbunch of like legacy intra network uh\nproxies which were running old ooth 2\npatterns and proxies which you can\nbarely find on GitHub. Um, we were\nrunning a bunch of bastion hosts which\nwere not maintained for several years\nand they were just like out there in the\nwild. U we also had like a fairly new\npre- tunnel VPN setup which was\ninitially for internal use case but it\nwas repurposed to be like the VPN for uh\ndevelopers to be an entry point into the\ninternal network and all of this was\nmultiplied by 25 times because we had\nall these different AWS accounts which\nmeans like we have these stacks and we\nhave to figure out okay how do we clone\nthe same setup in all the different\naccounts and make sure they are in sync\nand we had a lot of uh challenges around\nsession management because when we log\nin via Google and OIDC See, we get a\ndifferent session. When we log in via\nocta or IDP, we get a different session.\nWhen we log in via SSH, we get a\ndifferent session. And what that means\nis that um when there is a breach or say\nwe had like an MFA user who got uh there\nwas an M MFA fishing incident, it was\nhard to figure out how do we terminate\nall the sessions at once. Um so this\nreally shined the light and like got\nkind of our executives uh to to figure\nout to understand that hey we need to\ninvest in security because we had a uh\nin the big breach in 2023 which you know\nwe've shared notes on how we responded\nto it. Um but the lesson here is if\nthere's a breach it's bad but never let\na good good breach go bad go waste and\nthat was certainly like uh what we were\ngoing to do.\nUm you can have one of the best teams uh\nand best set of engineers but designing\nsomething without a clear set of\nrequirements is a path to failure. Um we\nwanted consensus among our uh\ninfrastructure security and developer\nteams and uh make sure that we agree on\nwhat we want to solve for. U obviously\nwe wanted to like collapse tens of\nfingers and genix proxies bastions and\nVPN down and VPNs into a single\noperational bit. uh but we also wanted\nto make sure like we're addressing the\nuh the device security and uh policy\nangle of this aka zero trust because it\nwas new for us and while we had a very\nsupportive CISO we want to make sure we\nunderstand what we're getting into.\nUm essentially what we were looking for\nis uh making sure that any vis like we\nhave sufficient logging because uh\npreviously we had all these different\nflows for logging different web apps,\ndifferent SSH logs and it was very hard\nto do any kind of correlation. Um\nbiggest driver was user experience like\nfolks in Europe had to wait tens of\nminutes to push Docker images which\nmeant like it was a frustrating\nexperience and it uh led to like a lot\nof waiting time even to like you know\npush uh certain images. Uh and lastly,\nwe wanted a better way of accessing\nservices via the CLI. Um like even if\nyou do not have a web browser, we want\nto make sure there's some kind of\nauthorization around. But we a big fan\nof building things ourselves. We did\nlike a build versus buy decision and we\nlearned it the hard way that okay,\ntrying to build your own VPN tool is\nprobably not the best idea. Um we ended\nup going with Cloudflare, but a bunch of\nthese bits apply to any tool that we\ncould have gone with. Over to Nathan.\n>> Sure. So let's talk about how we\narchitected this entire initiative. The\nfirst step was figuring out how we\nwanted to handle DNS. We had a bunch of\ninternal services and we needed a clean\nway for users to access them. We went\nwith partial CNAME resolution keeping\neverything in Route 53 but pointing it\ninto Cloudflare so it could handle the\nrouting on the back end. And that raised\nthe question of public versus private\nDNS. Since Cloudflare needs things to be\npublicly resolvable, we had to move in\nthat direction. And that does weaken the\nwhole security through obscurity model a\nbit. But we decided that we were okay\nwith that trade-off. The harder problem\nwas replication. How do we avoid making\ndevelopers manage DNS in multiple\nplaces? And we solve that with external\nDNS. It watches Kubernetes resources and\nautomatically creates the records. So\ndevelopers don't really have to think\nabout DNS at all.\nThis is what that actually looks like um\nend to end there. So starting with the\nuser, the request first hits Route 53,\nwhich is still mastering all of our DNS\nrecords. And instead of pointing\ndirectly at an ingress or service, we're\ncreating a CNAME. This is that partial\nCNAME resolution over to Cloudflare.\nOnce the request gets into Cloudflare,\nit resolves to an Argo tunnel. And that\nmapping tells Cloudflare which specific\ntunnel and really which Kubernetes\ncluster it should route to. From there,\ntraffic comes out of the tunnel inside\nthe cluster and it just follows the\nnormal Kubernetes routing. So, at that\npoint, we're back to standard ingress\nand service-based routing.\nOn the right side is how we actually\nmake this work operationally. Instead of\nhaving people manually create DNS\nrecords, we rely on external DNS. So,\nrather than targeting an ingress\ndirectly, external DNS creates a CNAME\nrecord and we set the target to the\nCloudflare host name. That's what ties\neverything together. The end result is\ndevelopers don't really have to think\nabout any of this. They define their\nservice, add this annotation, and DNS\njust shows up and routes correctly\nthrough Cloudflare into their cluster.\nSo con conceptually it looks complex,\nbut in practice it collapses down to\nCNAME into Cloudflare tunnel into the\ncluster and then normal Kubernetes\nrouting.\nOne of the big wins here was that we\ncould keep managing everything in Route\n53 without doing a full lift and shift\nof our DNS. We didn't have to\nreplplatform subdomains or change how\nteams were already working. We just\nlayered Cloudflare on top of what we\nalready had. The more interesting\nproblem ended up being wildard\nresolution. Historically, we had a\nnumber of wildcard fallbacks in place\nand they worked really well at the time,\nbut they were also easy to abuse. people\ncould skip proper setup and just rely on\nthe wild card to route traffic to their\nservice. In a Cloudflare world, we\nwanted to move away from that. Instead\nof using wild cards as a convenience, we\nshifted to using them as a safety net\nduring the migration. So, the wild card\nstill exists, but now it effectively\nacts as a fallback or even a bit of a\nblack hole for anything that isn't\nconfigured correctly. That way we can\nensure services are actually defined and\nrouted the way they're supposed to be\ninstead of relying on implicit behavior.\nSo this is how that bit plays out in\npractice. At the top you've got a vanity\ndomain, something simple and\nuserfriendly\nthat routes directly into a Cloudflare\naccess application.\nSimilarly for standard internal\nservices, you've got your internet\ningress domain that also maps cleanly\ninto a Cloudflare app. These are the\nhappy paths. They're explicitly defined,\nintentionally configured, and they're\nrouted through Cloudflare as expected.\nThen at the bottom, you have the\nWildcard fallback. For that, we created\na dedicated Cloudflare application that\nhandles any unmatched Wildcard traffic.\nThis catches anything that wasn't\nproperly set up. From there, all these\npaths converge. So, you have the\nCloudflare app to the tunnel to the\ninternal load balancer to the backend\nservice. One thing we did run into here\nis that Cloudflare can be a bit rough\nwhen handling mismatches between wild\ncard non- wildcard routes, especially\nfrom a userfacing error perspective.\nWe'll talk a bit more about that later.\nBut overall, this approach works well.\nIt gave us confidence during the\nmigration that we weren't going to um\nsilently miss anything routing something\nu and it also pushed people towards the\ncorrect explicit setup.\nAnother piece we had to figure out\nduring the migration was how we wanted\nto handle resolver policies. We knew\npretty early on that our engineers on\nthe internal network still needed access\nto AWS private zones. There are plenty\nof services that are only configured\nprivately and never exposed publicly. So\nthe way we solved this was routing\npolicies that are based on the domain\npatterns. For example, if a domain if a\ndomain matches something like\nstar.dev.domain,\ndomain, we route that request to a\nspecific AWS account or VPC and resolve\nit there. Under the hood, that just\npoints to the AWS VPC resolver, the\n10.xy.2\naddress, which is the built-in DNS\nresolver for the environment. And we\nended up creating around 20 to 25 of\nthese mappings for different accounts\nand legacy clusters.\nThis made things really simple for\nusers. If you're on the internal\nnetwork, you can resolve private DNS\nwithout needing to publish anything to\nCloudflare or manage records in multiple\nplaces. A lot of this hinges on the\ntunnel cer mapping. Each tunnel is\nassociated with the specific citer block\nand that tells Cloudflare where to send\nthe DNS request so it knows which AWS\nenvironment should actually resolve it.\nNow, this worked really well, but in\nsome cases it actually worked too well.\nThere were certain systems where we\ndidn't want this behavior. One example\nis the Kubernetes API server. Those\nendpoints are static and private. We\ndon't want any dynamic DNS behavior or\nunexpected routing here. Another example\nare internal systems like CI or secret\nplatforms inside the cluster. Services\ncan talk to them. um they talk directly\nbut for humans we want to go through a\nCloudflare app so that we get proper\nauthentication logging and security\ncontrols. So in those cases we added\nmore specific resolver policies.\nEssentially if you're a human coming\nfrom the internal network your DNS\nrequest resolves differently. It points\nyou to the Cloudflare app instead of the\ninternal 10.x address. This gave us a\nlot of flexibility. We didn't have to\nlift and shift the entire system or we\nwork DNS everywhere. We could just\ncontrol how resolution happens depending\non who you are and where you're coming\nfrom. So the resolver policies became a\nway to split traffic cleanly where we\nhave private DNS for systems and\nCloudflare for humans.\nCloud for tunnels were actually one of\nthe easier parts of the migration at\nleast conceptually.\nCloudflare gives you a pretty\nstraightforward example of how to deploy\na tunnel. The challenge is it's not very\nopinionated about how you should run\nthis in a real environment, especially\nin Kubernetes. So we had to figure out\nour own deployment model. We run Cloudfl\nin each Kubernetes cluster or in some\ncases on bespoke EC2 and handle it like\nany other service. We give it a couple\nof replicas, pull secrets from vault and\nmanage scaling like we would anything\nelse. The trickier part was mapping\ntunnels to cider blocks. Each tunnel\nneeds to be associated with a specific\nnetwork range so Cloudflare knows where\nto route traffic. Some of that setup was\nmanual or terraform driven. And there\nwas a bit of friction getting everything\nregistered correctly between Cloudflare\nand our internal systems.\nOnce that mapping was in place, the\ntunnel registered secret and vault\neverything just worked. We did hit some\nself-inflicted pain here around cider\noverlaps. For example, we had collisions\nbetween dev and test environments which\nmade routing a bit ambiguous. We ended\nup leaning on V-Net style isolation to\nsolve that which works but isn't the\nmost developer friendly experience.\nAnother challenge came from moving off\nEC2-based infrastructure.\nPreviously things like our internet\nproxy lived on EC2 instances with very\nexplicit security group rules. When we\nmoved to Kubernetes, Klebler D could run\non any node. So we had to revisit all\nthose assumptions. That meant going back\nthrough security groups and making sure\nnodes could actually reach everything\nthey needed to. Nothing fundamentally\nhard, just a lot of careful validation.\nFinally, we had to figure out scaling.\nUh the guidance here um was that roughly\nthe guidance was that it should be based\nroughly on the connection counts around\ntens of thousands per tunnel. And that's\nfine for most environments, but our dev\nenvironment is a bit unique. We run\nessentially one namespace per developer.\nAnd with thousands of developers and a\nlot of concurrent connections, um it\nbecame a bit of a challenge there. So we\nended up scaling based on metrics like\nconcurrent requests per tunnel using HPA\nand Keta to keep things responsive and\nthat was probably the most interesting\nscaling challenge in this part of the\nsystem. So overall it was easy to get\nstarted but the real work was in the\nnetwork mapping security alignment and\nscaling for high connection\nenvironments.\nAnd then finally we had the big question\nsplit tunnel versus full tunnel the\nclassic security debate and how do we\nwant to architect this in the end we\nwent with split tunneling and I know\nsome people here are probably a little\nnervous from security standpoint by that\nstatement but for us the key factor was\nthe human change element. Did we have\nthe appetite as an organization to make\nsweeping changes to endpoints and\nnetwork behavior and the answer was no.\nWe were already disrupting network\nflows. Asking teams to adjust their\nservices. Adding full tunnel on top of\nthat would have meant even more\ndisruption with very little gain. And\nsplit tunneling allows us to focus just\non the internal domains we cared about.\nRemember before this, we really had\nnothing. Our old pre-tunnel VPN only\nexisted for internal address spaces. So\nsure, it was a bit of a copout there,\nbut it made the migration process a lot\neasier. we could focus on infrastructure\nrather than wrestling with endpoints at\nthe same time.\nWe did run into a few challenges when we\ntried prototyping full tunnel. People\ncomplained that Airdrop wasn't working\nor Bluetooth devices at home stopped\nfunctioning and we ran into network\nconflicts. Lots of internal network\noverlap with our 10.x cider block. Um\nconvincing people to change their home\nnetworks just wasn't realistic. So split\ntunnel let us avoid all that headache.\nThe last piece and probably the most\ninteresting was telemetry around octa\nIDP calls. Two years ago we didn't have\nthe security data capabilities that we\nhave now and full tunnel would have\nmeant losing critical signal about where\npeople were logging in from. Split\ntunneling let us preserve that\nvisibility while keeping the deployment\nmanageable. At the end of the day it was\na rationale.\nIt was a rational decision there and we\nasked ourselves what can we actually\nhandle? Split tunneling was the answer.\nThis is another bit of a chart here. Um,\nand it's important because it shows the\noverall architecture of what Reddit's\nenvironment looks like with Cloudflare\nWarp and Zero Trust deployed. The\ndiagram u it shows the full flow from\nthe user device all the way through the\nCloudflare backbone to our internal\nservices. And you can see how traffic\nmoves through warp on the user's device.\nIt gets validated via density providers\nlike Cloudflare Octa and it's routed\nappropriately either to approved cloud\nservices, predefined Cloudflare apps or\nour internal Reddit environment via\ntunnels. You'll also notice how sis how\nthe system handles things like malicious\nDNS requests or unapproved cloud\nservices. they get blocked at the\ngateway and on the user side it works\nfor both browsers and CLI tools without\nSL decryption. So HTTPS is going to stay\nwrapped end to end.\nIt's a good real world example of what a\nwarp plus zero trust deployment looks\nlike in a customer environment. And I'll\npause here briefly in case anyone's\ncatching up on their phones and then\nI'll hand it over to Prateique who's\ngoing to walk through how we automated\nmost of this setup.\nAll right. So, we did a proof of\nconcept. It worked great in our test and\ndevelopment environments. But the\nquestion was, will it work when 2,000\npeople are using it? Will it work when\nwe need to add a number of applications\nevery day, every week? Will it work when\nwe connect to like multiple Kubernetes\nclusters? And there were a bunch of\nchallenges that we faced in terms of\nplatform. Um we're a decent sized\norganization and we do not allow folks\nto make unilateral unreviewed changes uh\ndirectly on the console which means if\nyou need a new tunnel on an application\nyou do not create a ticket or ask for\nit. Uh you simply make the changes\ndirectly in code it gets reviewed by\nsomeone who approves it or you know\nrequests changes um and that's how it\nworks. We relied on using Terapform\nresources uh with Atlantis runners. Um\nso the Atlantis runners are front of it.\nThey can plan and apply the changes. Um\nand that's how it works. The challenge\nwas that we didn't know how to structure\nit. Um there was no guide on hey this is\nthe layout, this is the recommended way\nof setting up the blueprints, how you\nset up the applications, the policies\nand the tunnels. Um so we played around\na bit. We did some trial and error to\nfigure out what works for what works\nbest for us. Um, we ended up having a\nsingle blueprint for each AWS account\nand it turned out to work fine because\nit allowed us it gave us the freedom to\nmake changes without worrying about any\nother stuff in a different account uh\nbreaking while making the change. One of\nthe interesting gotchas that we\nencountered was u initially applications\nhad policies which were unique. So each\napplication says hey this allows these\nset of teams or these set of people to\naccess this application. Midway through\nthis journey, Cloudfare changed how this\nworks and instead of unique policies,\nthey switched to reusable policies,\nwhich by the way is a great feature. But\nthere was some like sharp edges that,\nyou know, we had to work around with and\nthen there was some lagard apps that\nwere already migrated. So, we had to\nmake sure they're also syn synchronized.\nAgain,\nwe mentioned uh optimizations of the\ntunnels and Nathan kind of hinted on uh\non that a little bit. Most of the\nscaling for cloud fraternals was very\nstraightforward like you know we\ngenerally had like 30 connection we\nmaxed it to have 30,000 connections at a\ntime. So we went with like aggressive\nscaling. So if you see connections going\nbeyond a certain number just scaled to\nmore pods and that worked for most of\nour environments. Uh the challenge was\nthat in our dev environments there were\nso many multiple sessions that new pods\nkept getting created every 10 to 15\nminutes. And what that uh led to was the\nsessions of these developers kept\nrestarting which ended up like\ndisrupting their way uh disrupting\ndisrupting their work and and a lot of\nfrustration. So the gotcha there was we\ndecided okay let's not be as aggressive\nlet's limit the pods and maybe scale\nthem vertically instead of scaling them\nhorizontally.\nUh next um so this was also the time\nwhen we were scaling at Kubernetes\ninfrastructure while this migration was\ngoing on in the new age infrastructure\num we were starting to treat Kubernetes\nclusters as cattle. So what that means\nis they are spun up at will and they are\ntoned down at will. Um and then what\nthat means is someone in the\ninfrastructure team spins up a new\nKubernetes cluster. they cannot wait for\nus to manually create the tunnel, create\na mapping of the cluster routes, create\npros in the cluster, add all the\nrelevant configuration. Um, which is why\nwe switched to a model where we where we\nwere using more and more Kubernetes\noperators instead of just Terraform or\nother infrastructure automation. And for\ncontext, you know, for those who are not\nas familiar with Kubernetes operators,\nwhile both Terraform and Kubernetes\noperators are declarative, um, operators\nallow for self-healing. Um with\nTerraform you have a state file and you\nreach the desired state once you run the\nTerapform apply operation. With uh\noperators they operate as a finite state\nmachine. Um think of operators as like\nthermostats. You set the temperature and\nit synchronizes continuously to make\nsure the room meets your desired state.\nWhat it also means is if someone were to\nlike manually change a configuration or\ndelete something uh in say you know\naccidentally the operator will bring\nback the state to the desired state\nbecause it's performing continuous\nsynchronizations\nand also it can be ex uh triggered by\nexternal states. So it can watch certain\nactions happening uh and based on that\nit can trigger a bunch of logical\noperations which means it does not have\nto wait for someone to manually apply\nteraphor\noperators are typically written in\nGolang. Um and while they require\nsignificantly higher engineering e\nefforts uh they paid off rich dividends\nbecause we've already tripled the amount\nof resources that we deployed via\noperators compared to like what we were\ndeploying previously manually. uh and\nthere's been no intervention from us. Um\nfor context, uh Oculus is the name of\nthe SDK that we open sourced and I've\nincluded a link uh to the blog post as\nwell. Uh but essentially what Oculus is\ndoes is it allows folks like me to just\nfocus on writing the reconciliation\nlogic uh rather than worry about\nworrying about how will the operator\ntalk to the Kubernetes API server.\nThe first operator that we built was the\nCF tunnel operator. It's basically just\nwatching for new Kubernetes clusters\nthat keep coming up and in turn it sets\nup tunnel pods in the cluster. It goes\ninto the Cloudflare back end, sets up a\ntunnel object there. It creates the\nroute configuration for those objects,\nadd some secrets and a bunch of other\nrelevant configuration. Um, our legacy\ninfrastructure had about 15 to 20\nclusters uh which would spin up through\nTerraform or some manual assistance. Our\nnew stack has 25 plus clusters and all\nof them have tunnel configuration set up\nautomatically without any human touch.\nThe second operator that we built was\nthe CF uh app operator. So for context\nwhile migrating our legacy\ninfrastructure we moved around 200\napplications. It was very painful doing\nthem one by one but we did that because\nwe didn't want to disrupt our developers\nand make sure people understand what's\ngoing on. Um, but we realized like we're\ngoing to have a huge number of apps and\nasking developers to rely on Terraform\nis not great because while we do have\nmodules and it's relatively easy to\ncreate those terapform modules, most\ndevelopers don't know how to work with\nTerraform. Um, in fact, we did like a\ndeveloper survey through which we found\nout that every time we ask developers to\ngo outside their service repo, that's a\nhigh friction point and it decreases\ndeveloper velocity. So we developed\nanother operator which we call the CF\napp operator. What it enables is um as\nthe end result is the developer is\nsimply adding a couple of Golang methods\nin their service repo and uh in turn our\ngenerators automatically translate those\nmethods into YAML manifest similar to\nlike a Kubernetes pod or a deployment.\nUm and then the operator is continuously\nwatching for these objects. Anytime it\nsees a new object, it goes into the back\nend, configures the application bits on\nthe Cloudflare side, the network\nplumbing such as creating the DNS um\nname, uh mapping the tunnel to a\nparticular uh application um and uh\nattaching the relevant policies uh for\nthat particular application.\nAnd what this enabled was like we also\nadded support for doing this on multiple\nclusters which are still tied to a\nsingle application because that's the\nstate of the stack that we are moving\ntowards and this has been like a huge UX\nimprovement because um one\ndevelopers can look at the app object in\nKubernetes look at the status and figure\nout are there any errors what is it\nfailing on or you know did it just\nsucceed and because this these operators\nare built with guardrails We just allow\ndevelopers to put the objects in their\nservice repo which means they're not\nwaiting on us for any kind of uh code\nreviews which you know used to routinely\ntake at least a day or two at the\nminimum.\nSo moving on to rollout and\noperationalization and as you can\nimagine a big project like this didn't\nit didn't happen overnight. There were a\nlot of teams involved. It took multiple\nquarters and this was also one of our\nfirst partnerships between our security\norganization and our internal IT\norganization. We had were people working\nthrough like different word streams and\nfiguring out who was tackling what.\nStarting on the IT side um we already\ntalked about like managing DNS records.\nThere was a lot of interest in being\nable to block certain traffic. There are\nsketchy websites, there are fishing\nwebsites, there are brand new AI AI\nsites and who knows what data they are\nuh getting from you. And we wanted the\nability to block these requests going\nthere. And it became easy to use gateway\npolicies to do this.\nVPNs, you know, ideally should also\nallow you to pick a random country in\nthe world and egress your traffic from\nthere so that it looks like, you know,\nyou're maybe dialing from uh London or\nGermany or Australia. And while this was\nnot natively available uh within the\nsolution that we were using uh we ended\nup using um egress uh rules such that we\nwould force traffic going out a certain\ndestination um and we were using virtual\nnetworks to replicate the experience.\nAnother approach that we had uh to take\nhere was how do we get the clients into\nall the devices. It was pretty clear\nearly in our journey that okay we are\ngoing to push and manage these clients\ninto all the managed devices and uh we\ndecided to like proactive proactively\nroll this out to all um redd devices so\nthat as a user you don't have to think\nof it it's the client just magically\nappears and works um and you don't have\nto think twice\num and there was finally this was a big\nmigration there was a lot of FUD there\nwas a lot of confusion developers\nweren't wondering like will my apps\nbreak, will my workflows break? How can\nI take advantage of this? And we\naddressed this with a lot of\ncommunications. Um we had people\npresenting at the company all hands. We\nsent out multiple emails, reminders to\ndifferent audiences with a set of like\nFAQs on what uh what they should\nanticipate, what what kind of workflows\nwill be changing. Uh mostly in style in\nthe in the style of like FAQ uh updates.\nUm, we also put a lot of time into\nrunbooks and generally, you know, you\navoid documentation when you're trying\nto move fast. But we made sure that our\nrunbooks are up to date because if\nanyone wants to figure out what's going\non, they can look at the runbooks and\nsee, okay, this is what the change is\nbeing made and or if they want to figure\nout how do I use the tools, how do I get\nto the sites, uh, I I need to\nin terms of security, we kind of already\ntalked about the tunnel architecture per\naccount, so I won't go very deep, but\ninfrastructure is code. Um that allowed\nus to codify the foundational bits of\nthe configuration uh into code and this\ngave visibility to developers like who\ngenerally aren't giving you know console\naccess and it also allowed us to track\nthe many changes that were going on\ncontinuously amongst the different teams\nthat were working on it. Having a paper\ntrail to be able to go back and see okay\nthis is the state file this is the\nchange that was made on this date and\ncoincides with the change in behavior\nthat was super useful.\nin our old um engine X environment, we\nwere using a bunch bunch of like we were\ninjecting custom headers for some core\nstuff. Um and in order to replicate this\nbehavior, we were using um custom\nworkers on the Cloudflare side that\nwould apply to all routes and you know\nin turn inject these headers.\nOne of my favorite things about well\nplanned migrations is that you get to\nactually nuke the legacy infrastructure.\nWe were very clear from the start that\nif we could not turn down the older\nstack, it means our migration is\nincomplete and having two disparate\ninfrastructure stacks would be far worse\nthan having a single legacy stack.\nObviously, there were a lot of\nconsiderations for each layer uh to\nensure we had migrated everything and\nturning out these components without\ncausing um any incidents. On the\npre-tunnel VPN side, we wanted to ensure\nwe still have some of the authorization\nbits preserved. Uh we previously\nmentioned that each of our applications\nhad their own policy. Um but this was\ndone like we were pushing octa groups to\nCloudflare and there are a few ways on\nhow we could do this. Either we could\nhave these decisions at the VPN layer or\nat the O layer or at the app layer. Uh\nin the end we decided to just have\napplications handle authorization\nbecause not all applications would be\nable to uh ingest the data coming in uh\nfrom the VPN layer and frankly a lot of\ninternal applications did not require\ntoo many fine grain um OC policies.\nOn the SSH side we generally focused on\nremoving our bastions. Um that was one\nof the ancillary goals of this\nmigration. We previously had one bastion\nin each of our account and that was like\nthe SSH entry point into all our systems\nand all EC2 nodes but having dozens of\nbastions it's it's a bit of a mess and\nit's basically an entry point from the\npublic internet and we knew that we\ncould do better. Um so as part of this\nwe tore down almost all of the bastions\nthat we had. people are now connecting\nto any nodes via cloudflare tunnels and\nthen those tunnels directly give give\nthem access to the specific nodes. The\ngood thing is that we know that the\ntunnels just work. We don't have to\nadditionally maintain those pions. Uh\nwe're not worried about any kind of\nother operational overhead and it also\nsimplifies offboarding workflows if we\nhad to terminate someone's access.\nOn the internet side um as I said we did\nthis migration proxy by proxy. Um it was\na lot of it was a lot easier to limit\nthe blast radius that way uh because\ndoing it just uh one app at a time or\ntrying to do it all would be very\nchallenging but that also made it easy\nto distribute the work. One person would\nbe assigned one particular proxy and\nthen they would access the engine X\naccess logs, figure out what apps are\nare being accessed, have they migrated\nto Cloudflare and uh as a part of this\neffort we spend a lot of time cleaning\nup DNS records as well. Um and Nathan\nkind of hinted on our situation with the\nDNS infrastructure. There were a bunch\nof times when we had public records\nwhich should have been private or there\nwere private records which should have\nbeen public. Uh so it just took slightly\nlonger than what we anticipated but once\nyou get through a first dozen you kind\nof know the drill and you understand\nokay what are the things uh that you\nneed to fix. Um we also added some web\nhooks. So that was some special logic.\nUm so there might be a use case where a\nGitHub ax a GitHub app has to access\nyour service and you're not able to\ninject custom headers. So we ended up by\nbypassing those um bypassing o for those\nvery specific endpoints. um you you lose\na lot of visibility, you you lose some\naudit functionality there, but it was\neasy and very simple to work it out and\nit's still not open to the wide\ninternet.\nUm speaking about observability, as I\nmentioned like observability was a\ncritical focus for our migration. uh we\naimed to improve it not just like\nmaintain what we had and like previously\nwe were manually tailing enginex logs uh\nwhich was a pattern which you know we\nwanted to improve our our solution was a\ncentralized log collection strategy. We\nleveraged the log for log push feature\nto send all relevant logs to cribble and\nthat gave us control over retention as\nwell as where these logs are routed to\nin our environment.\nCrucially, we fed these logs to our SIM,\nwhich is uh built on on top of BigQuery.\nAnd that meant that the security team\ncan analyze cloud cloudflat logs side by\nside with other tons of security audit\nlogs using familiar tools. This unified\napproach allowed us to uh define\nreal-time um alerting rules and flag\nsuspicious activities immediately.\nUm here's a fun incident that I want to\nquickly bring up like one Friday morning\nwe simp we panicked because there were a\nbunch of tunnel infrastructure which\nsuddenly went down and we investigated\nand found out that uh tunnel rules were\nsuddenly getting deleted and uh after\ninvestigating we found out that okay\nthis was happening because remember the\nCF tunnel operator that we built uh that\nwas we we shipped the feature on\nThursday night to also clean up um\nconfiguration objects which were created\npreviously. So when a Kubernetes cluster\nis torn down, the tunnel object also\ngets torn down. And there was a bug in\nthe API due to which it returned all\nroute objects and it ended up deleting\nall the uh tunnel routes. Uh thankfully\nour investment into the terraform uh did\npay off and we were able to like re\nreinstall all the tunnel objects just\nthrough the terraform change as well as\nreverting the change on the operator and\ngetting back uh the status that we had.\nUm and don't worry, we didn't fire the\nengineer who shipped that code. We just\nsend him to conference to give talks and\nremind people that testing is important.\nUm so yeah, please don't test your code\nin production like you know how we did.\nUm in the name of speech sometimes you\nforget that but it's important to add\nunit tests um and you know other bits\nthere.\nSo we're at time here so I'm just going\nto quickly breeze through this here. Um,\nno migration's complete without taking a\nstep back and looking at what we learned\nhere. So, I just want to touch on a few\nquick points here. Um, one was\nbasically we would have taken a few\ndifferent steps here if we were doing\nthis fresh. First, we would have spent\num some more time standardizing up\nfront. Second, we would have tried to\nensure better uniformity across\nenvironments to have fewer exceptions.\nUm it would have just overall made our\nlife easier. And then finally um\nlike Pritique was saying infrastructure\nas code was a big benefit here and we\nwould absolutely invest more there. But\nto wrap it up here and we're at time so\nI'll leave this up here. You can take\nphoto here but hopefully you learned\nsomething new here and we have a few\nminutes here for questions. So thank you\nvery much everyone.",
+  "segments": [
+    {
+      "text": "Thank you everyone for joining us for the first presentation of the day. Uh my colleague Nathan and I, we're here from Reddit and we're here to talk about how we redid our internal access aka zero trust while still preserving the",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "principles of reliability, availability, uh and security. We have a lot of content to go through. So we'll be uh still be able to take some questions at the end. Um to get started like at our scale speed is very important and so is",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "limiting how much we spend. Uh we'll talk through some of the things on like what challenges had did we have to overcome and how did we convince our exxs to go in this direction because no one likes to spend money on a shiny new shiny tool. Um we",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "mostly saw this as a user experience enhancement for developers uh which translates to like better productivity and more output. Um sure we got some reliability and security uh advantages as well but the biggest selling point was UX.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Um so previously uh we had a lot of duct tape together solutions that were set up even before we joined Reddit. Um, and as you know the good old piece of wisdom, if something is working long enough, do not touch it. Uh, and that's how it",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "worked for a long time. And we had a bunch of like legacy intra network uh proxies which were running old ooth 2 patterns and proxies which you can barely find on GitHub. Um, we were running a bunch of bastion hosts which were not maintained for several years",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "and they were just like out there in the wild. U we also had like a fairly new pre- tunnel VPN setup which was initially for internal use case but it was repurposed to be like the VPN for uh developers to be an entry point into the",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "internal network and all of this was multiplied by 25 times because we had all these different AWS accounts which means like we have these stacks and we have to figure out okay how do we clone the same setup in all the different",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "accounts and make sure they are in sync and we had a lot of uh challenges around session management because when we log in via Google and OIDC See, we get a different session. When we log in via octa or IDP, we get a different session.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "When we log in via SSH, we get a different session. And what that means is that um when there is a breach or say we had like an MFA user who got uh there was an M MFA fishing incident, it was hard to figure out how do we terminate",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "all the sessions at once. Um so this really shined the light and like got kind of our executives uh to to figure out to understand that hey we need to invest in security because we had a uh in the big breach in 2023 which you know",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "we've shared notes on how we responded to it. Um but the lesson here is if there's a breach it's bad but never let a good good breach go bad go waste and that was certainly like uh what we were going to do. Um you can have one of the best teams uh",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "and best set of engineers but designing something without a clear set of requirements is a path to failure. Um we wanted consensus among our uh infrastructure security and developer teams and uh make sure that we agree on what we want to solve for. U obviously",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "we wanted to like collapse tens of fingers and genix proxies bastions and VPN down and VPNs into a single operational bit. uh but we also wanted to make sure like we're addressing the uh the device security and uh policy angle of this aka zero trust because it",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "was new for us and while we had a very supportive CISO we want to make sure we understand what we're getting into. Um essentially what we were looking for is uh making sure that any vis like we have sufficient logging because uh",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "previously we had all these different flows for logging different web apps, different SSH logs and it was very hard to do any kind of correlation. Um biggest driver was user experience like folks in Europe had to wait tens of",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "minutes to push Docker images which meant like it was a frustrating experience and it uh led to like a lot of waiting time even to like you know push uh certain images. Uh and lastly, we wanted a better way of accessing services via the CLI. Um like even if",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "you do not have a web browser, we want to make sure there's some kind of authorization around. But we a big fan of building things ourselves. We did like a build versus buy decision and we learned it the hard way that okay, trying to build your own VPN tool is",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "probably not the best idea. Um we ended up going with Cloudflare, but a bunch of these bits apply to any tool that we could have gone with. Over to Nathan. >> Sure. So let's talk about how we architected this entire initiative. The",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "first step was figuring out how we wanted to handle DNS. We had a bunch of internal services and we needed a clean way for users to access them. We went with partial CNAME resolution keeping everything in Route 53 but pointing it",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "into Cloudflare so it could handle the routing on the back end. And that raised the question of public versus private DNS. Since Cloudflare needs things to be publicly resolvable, we had to move in that direction. And that does weaken the",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "whole security through obscurity model a bit. But we decided that we were okay with that trade-off. The harder problem was replication. How do we avoid making developers manage DNS in multiple places? And we solve that with external",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "DNS. It watches Kubernetes resources and automatically creates the records. So developers don't really have to think about DNS at all. This is what that actually looks like um end to end there. So starting with the user, the request first hits Route 53,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "which is still mastering all of our DNS records. And instead of pointing directly at an ingress or service, we're creating a CNAME. This is that partial CNAME resolution over to Cloudflare. Once the request gets into Cloudflare,",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "it resolves to an Argo tunnel. And that mapping tells Cloudflare which specific tunnel and really which Kubernetes cluster it should route to. From there, traffic comes out of the tunnel inside the cluster and it just follows the",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "normal Kubernetes routing. So, at that point, we're back to standard ingress and service-based routing. On the right side is how we actually make this work operationally. Instead of having people manually create DNS records, we rely on external DNS. So,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "rather than targeting an ingress directly, external DNS creates a CNAME record and we set the target to the Cloudflare host name. That's what ties everything together. The end result is developers don't really have to think about any of this. They define their",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "service, add this annotation, and DNS just shows up and routes correctly through Cloudflare into their cluster. So con conceptually it looks complex, but in practice it collapses down to CNAME into Cloudflare tunnel into the cluster and then normal Kubernetes",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "routing. One of the big wins here was that we could keep managing everything in Route 53 without doing a full lift and shift of our DNS. We didn't have to replplatform subdomains or change how teams were already working. We just",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "layered Cloudflare on top of what we already had. The more interesting problem ended up being wildard resolution. Historically, we had a number of wildcard fallbacks in place and they worked really well at the time, but they were also easy to abuse. people",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "could skip proper setup and just rely on the wild card to route traffic to their service. In a Cloudflare world, we wanted to move away from that. Instead of using wild cards as a convenience, we shifted to using them as a safety net",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "during the migration. So, the wild card still exists, but now it effectively acts as a fallback or even a bit of a black hole for anything that isn't configured correctly. That way we can ensure services are actually defined and",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "routed the way they're supposed to be instead of relying on implicit behavior. So this is how that bit plays out in practice. At the top you've got a vanity domain, something simple and userfriendly that routes directly into a Cloudflare access application.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "Similarly for standard internal services, you've got your internet ingress domain that also maps cleanly into a Cloudflare app. These are the happy paths. They're explicitly defined, intentionally configured, and they're routed through Cloudflare as expected.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "Then at the bottom, you have the Wildcard fallback. For that, we created a dedicated Cloudflare application that handles any unmatched Wildcard traffic. This catches anything that wasn't properly set up. From there, all these paths converge. So, you have the",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "Cloudflare app to the tunnel to the internal load balancer to the backend service. One thing we did run into here is that Cloudflare can be a bit rough when handling mismatches between wild card non- wildcard routes, especially",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "from a userfacing error perspective. We'll talk a bit more about that later. But overall, this approach works well. It gave us confidence during the migration that we weren't going to um silently miss anything routing something",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "u and it also pushed people towards the correct explicit setup. Another piece we had to figure out during the migration was how we wanted to handle resolver policies. We knew pretty early on that our engineers on the internal network still needed access",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "to AWS private zones. There are plenty of services that are only configured privately and never exposed publicly. So the way we solved this was routing policies that are based on the domain patterns. For example, if a domain if a domain matches something like",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "star.dev.domain, domain, we route that request to a specific AWS account or VPC and resolve it there. Under the hood, that just points to the AWS VPC resolver, the 10.xy.2 address, which is the built-in DNS resolver for the environment. And we",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "ended up creating around 20 to 25 of these mappings for different accounts and legacy clusters. This made things really simple for users. If you're on the internal network, you can resolve private DNS without needing to publish anything to",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "Cloudflare or manage records in multiple places. A lot of this hinges on the tunnel cer mapping. Each tunnel is associated with the specific citer block and that tells Cloudflare where to send the DNS request so it knows which AWS",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "environment should actually resolve it. Now, this worked really well, but in some cases it actually worked too well. There were certain systems where we didn't want this behavior. One example is the Kubernetes API server. Those",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "endpoints are static and private. We don't want any dynamic DNS behavior or unexpected routing here. Another example are internal systems like CI or secret platforms inside the cluster. Services can talk to them. um they talk directly",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "but for humans we want to go through a Cloudflare app so that we get proper authentication logging and security controls. So in those cases we added more specific resolver policies. Essentially if you're a human coming from the internal network your DNS",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "request resolves differently. It points you to the Cloudflare app instead of the internal 10.x address. This gave us a lot of flexibility. We didn't have to lift and shift the entire system or we work DNS everywhere. We could just",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "control how resolution happens depending on who you are and where you're coming from. So the resolver policies became a way to split traffic cleanly where we have private DNS for systems and Cloudflare for humans. Cloud for tunnels were actually one of",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "the easier parts of the migration at least conceptually. Cloudflare gives you a pretty straightforward example of how to deploy a tunnel. The challenge is it's not very opinionated about how you should run this in a real environment, especially",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "in Kubernetes. So we had to figure out our own deployment model. We run Cloudfl in each Kubernetes cluster or in some cases on bespoke EC2 and handle it like any other service. We give it a couple of replicas, pull secrets from vault and",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "manage scaling like we would anything else. The trickier part was mapping tunnels to cider blocks. Each tunnel needs to be associated with a specific network range so Cloudflare knows where to route traffic. Some of that setup was",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "manual or terraform driven. And there was a bit of friction getting everything registered correctly between Cloudflare and our internal systems. Once that mapping was in place, the tunnel registered secret and vault everything just worked. We did hit some",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "self-inflicted pain here around cider overlaps. For example, we had collisions between dev and test environments which made routing a bit ambiguous. We ended up leaning on V-Net style isolation to solve that which works but isn't the",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "most developer friendly experience. Another challenge came from moving off EC2-based infrastructure. Previously things like our internet proxy lived on EC2 instances with very explicit security group rules. When we moved to Kubernetes, Klebler D could run",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "on any node. So we had to revisit all those assumptions. That meant going back through security groups and making sure nodes could actually reach everything they needed to. Nothing fundamentally hard, just a lot of careful validation.",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "Finally, we had to figure out scaling. Uh the guidance here um was that roughly the guidance was that it should be based roughly on the connection counts around tens of thousands per tunnel. And that's fine for most environments, but our dev",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "environment is a bit unique. We run essentially one namespace per developer. And with thousands of developers and a lot of concurrent connections, um it became a bit of a challenge there. So we ended up scaling based on metrics like",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "concurrent requests per tunnel using HPA and Keta to keep things responsive and that was probably the most interesting scaling challenge in this part of the system. So overall it was easy to get started but the real work was in the",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "network mapping security alignment and scaling for high connection environments. And then finally we had the big question split tunnel versus full tunnel the classic security debate and how do we want to architect this in the end we",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "went with split tunneling and I know some people here are probably a little nervous from security standpoint by that statement but for us the key factor was the human change element. Did we have the appetite as an organization to make",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "sweeping changes to endpoints and network behavior and the answer was no. We were already disrupting network flows. Asking teams to adjust their services. Adding full tunnel on top of that would have meant even more disruption with very little gain. And",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "split tunneling allows us to focus just on the internal domains we cared about. Remember before this, we really had nothing. Our old pre-tunnel VPN only existed for internal address spaces. So sure, it was a bit of a copout there,",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "but it made the migration process a lot easier. we could focus on infrastructure rather than wrestling with endpoints at the same time. We did run into a few challenges when we tried prototyping full tunnel. People complained that Airdrop wasn't working",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "or Bluetooth devices at home stopped functioning and we ran into network conflicts. Lots of internal network overlap with our 10.x cider block. Um convincing people to change their home networks just wasn't realistic. So split",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "tunnel let us avoid all that headache. The last piece and probably the most interesting was telemetry around octa IDP calls. Two years ago we didn't have the security data capabilities that we have now and full tunnel would have",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "meant losing critical signal about where people were logging in from. Split tunneling let us preserve that visibility while keeping the deployment manageable. At the end of the day it was a rationale. It was a rational decision there and we",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "asked ourselves what can we actually handle? Split tunneling was the answer. This is another bit of a chart here. Um, and it's important because it shows the overall architecture of what Reddit's environment looks like with Cloudflare",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "Warp and Zero Trust deployed. The diagram u it shows the full flow from the user device all the way through the Cloudflare backbone to our internal services. And you can see how traffic moves through warp on the user's device.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "It gets validated via density providers like Cloudflare Octa and it's routed appropriately either to approved cloud services, predefined Cloudflare apps or our internal Reddit environment via tunnels. You'll also notice how sis how",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "the system handles things like malicious DNS requests or unapproved cloud services. they get blocked at the gateway and on the user side it works for both browsers and CLI tools without SL decryption. So HTTPS is going to stay wrapped end to end.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "It's a good real world example of what a warp plus zero trust deployment looks like in a customer environment. And I'll pause here briefly in case anyone's catching up on their phones and then I'll hand it over to Prateique who's",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "going to walk through how we automated most of this setup. All right. So, we did a proof of concept. It worked great in our test and development environments. But the question was, will it work when 2,000 people are using it? Will it work when",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "we need to add a number of applications every day, every week? Will it work when we connect to like multiple Kubernetes clusters? And there were a bunch of challenges that we faced in terms of platform. Um we're a decent sized",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "organization and we do not allow folks to make unilateral unreviewed changes uh directly on the console which means if you need a new tunnel on an application you do not create a ticket or ask for it. Uh you simply make the changes",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "directly in code it gets reviewed by someone who approves it or you know requests changes um and that's how it works. We relied on using Terapform resources uh with Atlantis runners. Um so the Atlantis runners are front of it.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "They can plan and apply the changes. Um and that's how it works. The challenge was that we didn't know how to structure it. Um there was no guide on hey this is the layout, this is the recommended way of setting up the blueprints, how you",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "set up the applications, the policies and the tunnels. Um so we played around a bit. We did some trial and error to figure out what works for what works best for us. Um, we ended up having a single blueprint for each AWS account",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "and it turned out to work fine because it allowed us it gave us the freedom to make changes without worrying about any other stuff in a different account uh breaking while making the change. One of the interesting gotchas that we",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "encountered was u initially applications had policies which were unique. So each application says hey this allows these set of teams or these set of people to access this application. Midway through this journey, Cloudfare changed how this",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "works and instead of unique policies, they switched to reusable policies, which by the way is a great feature. But there was some like sharp edges that, you know, we had to work around with and then there was some lagard apps that",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "were already migrated. So, we had to make sure they're also syn synchronized. Again, we mentioned uh optimizations of the tunnels and Nathan kind of hinted on uh on that a little bit. Most of the scaling for cloud fraternals was very",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "straightforward like you know we generally had like 30 connection we maxed it to have 30,000 connections at a time. So we went with like aggressive scaling. So if you see connections going beyond a certain number just scaled to",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "more pods and that worked for most of our environments. Uh the challenge was that in our dev environments there were so many multiple sessions that new pods kept getting created every 10 to 15 minutes. And what that uh led to was the",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "sessions of these developers kept restarting which ended up like disrupting their way uh disrupting disrupting their work and and a lot of frustration. So the gotcha there was we decided okay let's not be as aggressive let's limit the pods and maybe scale",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "them vertically instead of scaling them horizontally. Uh next um so this was also the time when we were scaling at Kubernetes infrastructure while this migration was going on in the new age infrastructure um we were starting to treat Kubernetes",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "clusters as cattle. So what that means is they are spun up at will and they are toned down at will. Um and then what that means is someone in the infrastructure team spins up a new Kubernetes cluster. they cannot wait for",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "us to manually create the tunnel, create a mapping of the cluster routes, create pros in the cluster, add all the relevant configuration. Um, which is why we switched to a model where we where we were using more and more Kubernetes",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "operators instead of just Terraform or other infrastructure automation. And for context, you know, for those who are not as familiar with Kubernetes operators, while both Terraform and Kubernetes operators are declarative, um, operators",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "allow for self-healing. Um with Terraform you have a state file and you reach the desired state once you run the Terapform apply operation. With uh operators they operate as a finite state machine. Um think of operators as like",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "thermostats. You set the temperature and it synchronizes continuously to make sure the room meets your desired state. What it also means is if someone were to like manually change a configuration or delete something uh in say you know",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "accidentally the operator will bring back the state to the desired state because it's performing continuous synchronizations and also it can be ex uh triggered by external states. So it can watch certain actions happening uh and based on that",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "it can trigger a bunch of logical operations which means it does not have to wait for someone to manually apply teraphor operators are typically written in Golang. Um and while they require significantly higher engineering e",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "efforts uh they paid off rich dividends because we've already tripled the amount of resources that we deployed via operators compared to like what we were deploying previously manually. uh and there's been no intervention from us. Um",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "for context, uh Oculus is the name of the SDK that we open sourced and I've included a link uh to the blog post as well. Uh but essentially what Oculus is does is it allows folks like me to just focus on writing the reconciliation",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "logic uh rather than worry about worrying about how will the operator talk to the Kubernetes API server. The first operator that we built was the CF tunnel operator. It's basically just watching for new Kubernetes clusters",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "that keep coming up and in turn it sets up tunnel pods in the cluster. It goes into the Cloudflare back end, sets up a tunnel object there. It creates the route configuration for those objects, add some secrets and a bunch of other",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "relevant configuration. Um, our legacy infrastructure had about 15 to 20 clusters uh which would spin up through Terraform or some manual assistance. Our new stack has 25 plus clusters and all of them have tunnel configuration set up",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "automatically without any human touch. The second operator that we built was the CF uh app operator. So for context while migrating our legacy infrastructure we moved around 200 applications. It was very painful doing them one by one but we did that because",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "we didn't want to disrupt our developers and make sure people understand what's going on. Um, but we realized like we're going to have a huge number of apps and asking developers to rely on Terraform is not great because while we do have",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "modules and it's relatively easy to create those terapform modules, most developers don't know how to work with Terraform. Um, in fact, we did like a developer survey through which we found out that every time we ask developers to",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "go outside their service repo, that's a high friction point and it decreases developer velocity. So we developed another operator which we call the CF app operator. What it enables is um as the end result is the developer is",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "simply adding a couple of Golang methods in their service repo and uh in turn our generators automatically translate those methods into YAML manifest similar to like a Kubernetes pod or a deployment. Um and then the operator is continuously",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "watching for these objects. Anytime it sees a new object, it goes into the back end, configures the application bits on the Cloudflare side, the network plumbing such as creating the DNS um name, uh mapping the tunnel to a particular uh application um and uh",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "attaching the relevant policies uh for that particular application. And what this enabled was like we also added support for doing this on multiple clusters which are still tied to a single application because that's the state of the stack that we are moving",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "towards and this has been like a huge UX improvement because um one developers can look at the app object in Kubernetes look at the status and figure out are there any errors what is it failing on or you know did it just",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "succeed and because this these operators are built with guardrails We just allow developers to put the objects in their service repo which means they're not waiting on us for any kind of uh code reviews which you know used to routinely",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "take at least a day or two at the minimum. So moving on to rollout and operationalization and as you can imagine a big project like this didn't it didn't happen overnight. There were a lot of teams involved. It took multiple",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "quarters and this was also one of our first partnerships between our security organization and our internal IT organization. We had were people working through like different word streams and figuring out who was tackling what.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "Starting on the IT side um we already talked about like managing DNS records. There was a lot of interest in being able to block certain traffic. There are sketchy websites, there are fishing websites, there are brand new AI AI",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "sites and who knows what data they are uh getting from you. And we wanted the ability to block these requests going there. And it became easy to use gateway policies to do this. VPNs, you know, ideally should also allow you to pick a random country in",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "the world and egress your traffic from there so that it looks like, you know, you're maybe dialing from uh London or Germany or Australia. And while this was not natively available uh within the solution that we were using uh we ended",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "up using um egress uh rules such that we would force traffic going out a certain destination um and we were using virtual networks to replicate the experience. Another approach that we had uh to take here was how do we get the clients into",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "all the devices. It was pretty clear early in our journey that okay we are going to push and manage these clients into all the managed devices and uh we decided to like proactive proactively roll this out to all um redd devices so",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "that as a user you don't have to think of it it's the client just magically appears and works um and you don't have to think twice um and there was finally this was a big migration there was a lot of FUD there was a lot of confusion developers",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "weren't wondering like will my apps break, will my workflows break? How can I take advantage of this? And we addressed this with a lot of communications. Um we had people presenting at the company all hands. We sent out multiple emails, reminders to",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "different audiences with a set of like FAQs on what uh what they should anticipate, what what kind of workflows will be changing. Uh mostly in style in the in the style of like FAQ uh updates. Um, we also put a lot of time into",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "runbooks and generally, you know, you avoid documentation when you're trying to move fast. But we made sure that our runbooks are up to date because if anyone wants to figure out what's going on, they can look at the runbooks and",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "see, okay, this is what the change is being made and or if they want to figure out how do I use the tools, how do I get to the sites, uh, I I need to in terms of security, we kind of already talked about the tunnel architecture per",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "account, so I won't go very deep, but infrastructure is code. Um that allowed us to codify the foundational bits of the configuration uh into code and this gave visibility to developers like who generally aren't giving you know console",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "access and it also allowed us to track the many changes that were going on continuously amongst the different teams that were working on it. Having a paper trail to be able to go back and see okay this is the state file this is the",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "change that was made on this date and coincides with the change in behavior that was super useful. in our old um engine X environment, we were using a bunch bunch of like we were injecting custom headers for some core stuff. Um and in order to replicate this",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "behavior, we were using um custom workers on the Cloudflare side that would apply to all routes and you know in turn inject these headers. One of my favorite things about well planned migrations is that you get to actually nuke the legacy infrastructure.",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "We were very clear from the start that if we could not turn down the older stack, it means our migration is incomplete and having two disparate infrastructure stacks would be far worse than having a single legacy stack. Obviously, there were a lot of",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "considerations for each layer uh to ensure we had migrated everything and turning out these components without causing um any incidents. On the pre-tunnel VPN side, we wanted to ensure we still have some of the authorization bits preserved. Uh we previously",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "mentioned that each of our applications had their own policy. Um but this was done like we were pushing octa groups to Cloudflare and there are a few ways on how we could do this. Either we could have these decisions at the VPN layer or",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "at the O layer or at the app layer. Uh in the end we decided to just have applications handle authorization because not all applications would be able to uh ingest the data coming in uh from the VPN layer and frankly a lot of",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "internal applications did not require too many fine grain um OC policies. On the SSH side we generally focused on removing our bastions. Um that was one of the ancillary goals of this migration. We previously had one bastion",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "in each of our account and that was like the SSH entry point into all our systems and all EC2 nodes but having dozens of bastions it's it's a bit of a mess and it's basically an entry point from the public internet and we knew that we",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "could do better. Um so as part of this we tore down almost all of the bastions that we had. people are now connecting to any nodes via cloudflare tunnels and then those tunnels directly give give them access to the specific nodes. The",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "good thing is that we know that the tunnels just work. We don't have to additionally maintain those pions. Uh we're not worried about any kind of other operational overhead and it also simplifies offboarding workflows if we had to terminate someone's access.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "On the internet side um as I said we did this migration proxy by proxy. Um it was a lot of it was a lot easier to limit the blast radius that way uh because doing it just uh one app at a time or trying to do it all would be very",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "challenging but that also made it easy to distribute the work. One person would be assigned one particular proxy and then they would access the engine X access logs, figure out what apps are are being accessed, have they migrated",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "to Cloudflare and uh as a part of this effort we spend a lot of time cleaning up DNS records as well. Um and Nathan kind of hinted on our situation with the DNS infrastructure. There were a bunch of times when we had public records",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "which should have been private or there were private records which should have been public. Uh so it just took slightly longer than what we anticipated but once you get through a first dozen you kind of know the drill and you understand",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "okay what are the things uh that you need to fix. Um we also added some web hooks. So that was some special logic. Um so there might be a use case where a GitHub ax a GitHub app has to access your service and you're not able to",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "inject custom headers. So we ended up by bypassing those um bypassing o for those very specific endpoints. um you you lose a lot of visibility, you you lose some audit functionality there, but it was easy and very simple to work it out and",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "it's still not open to the wide internet. Um speaking about observability, as I mentioned like observability was a critical focus for our migration. uh we aimed to improve it not just like maintain what we had and like previously",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "we were manually tailing enginex logs uh which was a pattern which you know we wanted to improve our our solution was a centralized log collection strategy. We leveraged the log for log push feature to send all relevant logs to cribble and",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "that gave us control over retention as well as where these logs are routed to in our environment. Crucially, we fed these logs to our SIM, which is uh built on on top of BigQuery. And that meant that the security team can analyze cloud cloudflat logs side by",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "side with other tons of security audit logs using familiar tools. This unified approach allowed us to uh define real-time um alerting rules and flag suspicious activities immediately. Um here's a fun incident that I want to",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "quickly bring up like one Friday morning we simp we panicked because there were a bunch of tunnel infrastructure which suddenly went down and we investigated and found out that uh tunnel rules were suddenly getting deleted and uh after",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "investigating we found out that okay this was happening because remember the CF tunnel operator that we built uh that was we we shipped the feature on Thursday night to also clean up um configuration objects which were created",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "previously. So when a Kubernetes cluster is torn down, the tunnel object also gets torn down. And there was a bug in the API due to which it returned all route objects and it ended up deleting all the uh tunnel routes. Uh thankfully",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "our investment into the terraform uh did pay off and we were able to like re reinstall all the tunnel objects just through the terraform change as well as reverting the change on the operator and getting back uh the status that we had.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "Um and don't worry, we didn't fire the engineer who shipped that code. We just send him to conference to give talks and remind people that testing is important. Um so yeah, please don't test your code in production like you know how we did.",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "Um in the name of speech sometimes you forget that but it's important to add unit tests um and you know other bits there. So we're at time here so I'm just going to quickly breeze through this here. Um, no migration's complete without taking a",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "step back and looking at what we learned here. So, I just want to touch on a few quick points here. Um, one was basically we would have taken a few different steps here if we were doing this fresh. First, we would have spent um some more time standardizing up",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "front. Second, we would have tried to ensure better uniformity across environments to have fewer exceptions. Um it would have just overall made our life easier. And then finally um like Pritique was saying infrastructure as code was a big benefit here and we",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "would absolutely invest more there. But to wrap it up here and we're at time so I'll leave this up here. You can take photo here but hopefully you learned something new here and we have a few minutes here for questions. So thank you very much everyone.",
+      "start": 882,
+      "duration": 6
+    }
+  ]
+}

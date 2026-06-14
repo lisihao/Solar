@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar.local/schemas/access-path-decision.schema.json",
+  "title": "Solar Access Path Decision",
+  "description": "Decision payload produced by AccessPathOptimizer. Records which access path was selected, why, and the fallback chain. Decision trace is written to Evidence Ledger as kind=access_path_decision. Attempt Ledger is NOT the audit source for access decisions.",
+  "type": "object",
+  "required": ["schema_version", "decision", "rationale", "fallback_chain", "input_signals"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "solar.access_path_decision.v1"
+    },
+    "task_ref": {
+      "type": "string",
+      "description": "Stable task id from optimizer compiler task envelope."
+    },
+    "capsule_ref": {
+      "type": "string",
+      "description": "Capsule id from Capsule Registry, including access_contract and mode.supports."
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "terminal_direct_api",
+        "terminal_explore_api",
+        "mcp_adapter",
+        "browser_fallback",
+        "hybrid_min_browser"
+      ],
+      "description": "Selected access path. Fallback priority is terminal-first: terminal_direct_api > terminal_explore_api > mcp_adapter > hybrid_min_browser > browser_fallback."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Human-readable decision reason using input signals. Must reference which signals drove the decision."
+    },
+    "fallback_chain": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "terminal_direct_api",
+          "terminal_explore_api",
+          "mcp_adapter",
+          "hybrid_min_browser",
+          "browser_fallback"
+        ]
+      },
+      "description": "Ordered fallback list. Never promotes MCP/browser above terminal when terminal is viable."
+    },
+    "input_signals": {
+      "type": "object",
+      "description": "Signals used to make the decision. All values come from task envelope, capsule registry, platform profile, or policy — no hardcoded data.",
+      "required": ["api_completeness", "mcp_tool_schema_coverage", "need_rendered_state", "session_bound_workflow"],
+      "additionalProperties": false,
+      "properties": {
+        "api_completeness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Float 0..1, derived from declared API coverage probe."
+        },
+        "mcp_tool_schema_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Float 0..1, MCP adapter field coverage only."
+        },
+        "need_rendered_state": {
+          "type": "boolean",
+          "description": "True only when rendered UI state is required."
+        },
+        "session_bound_workflow": {
+          "type": "boolean",
+          "description": "True when auth/session cookie workflow cannot be represented by API."
+        },
+        "arbitrary_payload_discovery": {
+          "type": "boolean",
+          "description": "True when unknown fields or payload discovery is required."
+        },
+        "browser_as_min_fallback": {
+          "type": "boolean",
+          "description": "Must be true before browser fallback can be selected (policy gate)."
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Evidence Ledger references for probes and policy checks."
+    },
+    "policy_denials": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason_code"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "enum": [
+              "terminal_direct_api",
+              "terminal_explore_api",
+              "mcp_adapter",
+              "hybrid_min_browser",
+              "browser_fallback"
+            ]
+          },
+          "reason_code": {
+            "type": "string",
+            "description": "Machine-readable denial reason. e.g. policy_forbidden, capsule_forbidden, insufficient_api_coverage."
+          }
+        }
+      },
+      "description": "Any rejected paths and reason codes."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this decision was made."
+    }
+  }
+}

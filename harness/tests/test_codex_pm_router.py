@@ -66,6 +66,9 @@ def test_browser_agent_operator_request_is_standard_implementation_not_research(
     assert payload["dag_variant"] == "standard"
     node_ids = [node["id"] for node in payload["compiled_artifacts"]["task_dag"]["nodes"]]
     assert node_ids[:4] == ["S1", "S2", "S3", "S4"]
+    validation = router.validate_compiled_package(payload)
+    assert validation["ok"] is True
+    assert not any("task_graph_ready_width_below_min" in error for error in validation["errors"])
 
 
 def test_convergence_request_uses_parallel_spec_dag():
@@ -121,7 +124,7 @@ def test_code_understanding_request_rewrites_standard_graph_goals():
     router = _load_router()
     payload = router.build_pm_intake(
         "为这个仓库生成 knowledge graph、architecture map 和 onboarding artifacts。",
-        repo_context=["/Users/lisihao/Solar"],
+        repo_context=["${SOLAR_REPO}"],
         sprint_id="sprint-test",
         target_system="solar-harness",
     )
@@ -144,7 +147,7 @@ def test_code_understanding_request_rewrites_research_graph_goals():
     payload = router.build_pm_intake(
         "结合仓库和这些论文，输出代码库理解、architecture map、onboarding 和 knowledge graph。",
         papers=["paper-a"],
-        repo_context=["/Users/lisihao/Solar"],
+        repo_context=["${SOLAR_REPO}"],
         sprint_id="sprint-test",
         target_system="solar-harness",
     )

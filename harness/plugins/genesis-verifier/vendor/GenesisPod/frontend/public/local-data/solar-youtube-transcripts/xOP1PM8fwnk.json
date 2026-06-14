@@ -1,0 +1,974 @@
+{
+  "videoId": "xOP1PM8fwnk",
+  "title": "Building Generative Image & Video models at Scale - Sander Dieleman, Google DeepMind",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 47470,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Cool.\nI'm going to get started.\nThat sounds all right. Okay, I can I can\nhear myself. Okay, great.\nUh thanks for coming everyone. I'm\nSander. I'm a research scientist at\nGoogle DeepMind. I've been there for\nover a decade now.\nUh I'm on the generative media team. So,\nwe work on models like VEO and\nNanoBanana.\nAnd I want to this talk is kind of a bit\nof a behind-the-scenes perspective on\nlike\neverything that goes into training these\nmodels at scale.\nUm and so it's going to be focused on\ndiffusion models because that's sort of\nthe\nmodeling paradigm that at least nowadays\npeople tend to use for generating\naudio-visual data, which is a bit\ndifferent from the language modeling\nsituation where we primarily rely on\nauto-regression, although of course not\nexclusively these days.\nUm so yeah, I have\nthis kind of a whirlwind tour of\neverything that goes into it. So, I have\neight sections, which is quite a lot to\nget through.\nThey're not all equally long. They I\nhave more to say about some things than\nothers. So, I have more to say about the\nmodeling and the and the sampling side\nof things, for example. But I'll just\ntry to\ncover a little bit of everything and\nthen hopefully leave enough time for\nquestions as well. At the end\nabout any of these things. So,\ntopics I want to cover are data\ncuration,\nrepresentation also because you don't\nnecessarily just shove pixels into a\ntransformer, right? You might use a more\nadvanced representation to sort of\nsimplify things. Modeling is going to be\nsort of about the core mechanism behind\ndiffusion models. I just like to explain\nthat\nin an intuitive way and I think that's\nthat's kind of useful to understand why\nthese models are able to work as well as\nthey do for for audio-visual data\ngeneration.\nWe'll talk a little bit about\narchitecture as well like the the core\nneural network architecture that's\nthat's behind all this.\nAnd then very briefly some things about\ntraining at scale. I'll talk a bit more\nabout sampling as well because diffusion\nmodels have sort of a very flexible\nsampling regime like there's there's\nthere's sort of more stuff you can do\nwith diffusion models than you can do\nwith auto-regressive models. So, I'll\ntalk a little bit about that.\nI'll talk about distillation which in\nthe context of diffusion is not so much\nabout making the model smaller but more\nabout reducing the number of steps that\nyou need to get a good sample. And then\nfinally talk about control like the\nvarious control signals that we want to\nuse to actually make the models do our\nbidding and make it make them do what we\nwant them to do.\nAll right. Before I start with that, I\nhave a blog.\nYou don't have to remember all these\nindividual URLs. Just go to sander.ai.\nYou can find all my blog posts there.\nThey're mostly about diffusion these\ndays but in general I like to talk about\nsort of the the intuition behind how\ngenerative models actually work.\nCool.\nSo, let's talk a little bit about data\nfirst.\nI think it's really important to\nemphasize\njust how important data curation is in\ntraining these these large-scale models.\nIt's really really essential for\nhigh-quality results. And like for me\ncoming from a research background, it's\nactually something like when I was doing\nmy PhD, it's not something that's\nincentivized. You're not incentivized to\nlook at your data because you're\nactually incentivized to use a\npredefined data set that everyone else\nuses so that you can compare your\nresults to the state of the art.\nAnd so that's sort of something that we\nare sort of collectively having to\nunlearn in this era cuz you really just\nhave to look at your data to the point\nwhere I think time spent on improving\nthe data is sometimes a better\ninvestment of that time than actually\nsort of trying to tweak the model and\ntrying to make it optimize it better or\nthings like that. I think this is still\nsort of an\neven even today is still sort of an\nunderrated aspect of training these\nmodels.\nWell, yeah, I'm\nI'm I'm not going to say too much more\nabout that because\nthis it's a topic that you won't find a\nlot of publications on and it's also a\ntopic that\nI won't be able to share a lot of\ndetails on because obviously it's it's\nalso part of the secret sauce of what\nmakes the models good.\nSo, let's talk about representation\nnext. So, the sort of typical digital\nrepresentation of audio-visual data oh,\nsorry, of visual data I should say is\npixels, right? Grids of pixels. You get\na 2D grid for images, you get a 3D pixel\ngrid for for video.\nAnd you could actually just shove that\ninto a diffusion model as is and that's\nwhat we did at the start and when\ndiffusion sort of\nstarted being a thing, that's what\npeople were doing. We were sort of\ndirectly training on pixels and it\nworked remarkably well. But that's not\nactually what people do nowadays because\nonce you sort of start scaling up the\nthe size of the objects that you're\nmodeling like the resolution or the\nduration in the case of video, these\npixel tensors in memory get very very\nlarge. Right? You you have like Okay,\nlet's let's say you have\na 1080p video, right? 30 seconds of\n1080p video at 30 FPS. We're talking\nmany like several gigabytes of of data,\nright? To store that in memory. That's\nthat's one training example. So, that's\njust not feasible. So, what we ended up\ndoing is we actually use compressed\nrepresentations, right?\nBut we're not just going to use sort of\npre-existing compressed representations.\nYou know, there's there's many sort of\nlike video codecs out there.\nYou know, there's the JPEG standard for\nfor images. We tend not to use those\nrepresentations because those are really\nfocused on making things small and in\nthe process they actually obscure the\nstructure of the data to a degree that\ngenerative modeling becomes really hard.\nSo, what typically happens in this\ncontext is we actually learn our own\ncompressor. We and and we do that based\non auto-encoders. So, this is like the\nthe top\nthe top row on this slide is basically a\nneural network that consists of an\nencoder and a decoder.\nAnd the task of this neural network is\njust like reproduce your input, right?\nYou put an image in, you want to the\nsame image out. But then you're sort of\nforcing it through a bottleneck in the\nmiddle and that bottleneck is going to\nlearn what what's typically called a\nlatent representation. So, it's like a\nmore compact\nrepresentation\nof the data.\nAnd that is then the representation that\nwe're actually going to use as a basis\nfor\nlike for training our diffusion models.\nSo, in the second stage we take these\nlatent representations, we extract them\nfrom our inputs. I I usually use images\nas examples because obviously that's\neasier to show on a slide but you can\nimagine this is a video as well. It's\nit's basically the the exact same\nprocedure. So,\nwe extract the latent representations\nand then we train on top of that a\ngenerative model which could actually be\nan auto-regressive model or a diffusion\nmodel.\nSort of doesn't really matter but people\nhave found in general for audio-visual\ndata\ndiffusion sort of has the edge in terms\nbeing able to get good results with\ncertain parameter budget. So, that's\nwhat we mostly tend to use nowadays.\nAnd then once you train your your\ngenerative model in latent space, of\ncourse, once if you sample from that\nmodel, you're going to get a sample in\nlatent space.\nSo, it's a compressed sample. So, you\nstill want to use the decoder that you\ntrained before to bring that back to\npixel space\nas well.\nAnd so what does that actually look like\nin practice? So, I have this sort of\nconcrete example here and this is\nactually I think these dimensions sort\nof correspond to what the auto-encoder\nin the original stable diffusion model\ndoes. So, stable diffusion is also a\nlatent diffusion model.\nLet's say you have like an an RGB image,\n256 by 256 pixels. If you represent that\nas a as a 3D tensor on the left, so\nthese are the dimensions that you get.\nAnd then when we extract our latent\nrepresentation with our encoder, so one\nthing that's worth noticing is it still\nhas the same spatial structure. It still\nhas the same topology but the resolution\nis greatly reduced, right? So, now we\nhave 32 by 32 latent grid and we sort of\ncompensate for that reduction by adding\na few extra channels so that we can\nencode some of the information that\nwould get lost if you were to just\nresize the image, right? If you just\ntake the original image and resize it to\n32 by 32, you lose a lot of high\nfrequency detail. And these latent\nrepresentations sort of try to hold on\nto that a little bit by adding by using\nthese extra channels\nto encode that information. Of course,\nit's still lossy compression because if\nyou look at the total sort of tensor\nsize of the latents versus the original\nimage, it's still much much smaller,\nright? And that's the key idea. That's\nthe point. You want to make this smaller\nand especially for video also where you\nhave this extra time dimension, you have\neven more redundancy, right? You can\nyou're often able to reduce the size of\nthese tensors that you have to work with\nby by two orders of magnitude. And\nthat's the difference between like being\nable to fit your data in memory and and\njust not being able to do anything at\nall, right?\nBut so one thing to to note about these\ncompression mechanisms is they're\nactually sort of\nslightly more primitive than sort of the\nyou know, like the H.265 or like the\nother sort of codecs that people tend to\nuse these days. And that's actually by\ndesign cuz\nyou kind of want to preserve a lot of\nthe topological structure of the\noriginal pixel representation because\nour neural network architectures that we\nuse to build these models, they kind of\nrely on the structure being present,\nright? They have these strong inductive\nbiases. And so we we end up with these\nlatent representations that are still\nthat still have the same grid structure\nas the original pixels but sort of at a\nat a more coarse-grained scale, right?\nAnd and the image that I'm showing here\nis actually from a paper called EQ-VAE.\nIt's a paper about like improving the\ntraining of these auto-encoders. And\nthey did a really nice thing. They sort\nof tried to visualize the latent space\nby taking the principal components of\nthe across the latent channels and then\nmapping that onto RGB so that you can\nactually visualize what these are. And\nyou can kind of see looking at these\nlatent visualizations, you can still\ntell what animal is in the image, right?\nSo, the latents are not really making\nabstraction of any semantic content of\nthe image. They're they're basically\njust sort of abstracting the local\ntexture and very fine-grained structure,\nright? That's sort of the information\nthat's sort of compressed and that's\nremoved to some degree. And everything\nelse is just preserved as in the\noriginal pixel space. And that's that's\nkind of by design.\nAll right. So, once we have our latent\nrepresentation, we can start doing some\ngenerative modeling. I've already\nmentioned you could do that either with\nauto-regression or with diffusion. With\nauto-regression you sort of have to turn\neverything into a sequence and then you\npredict the sequence step by step. It's\na very natural thing to do for language\nwhich is already kind of sequence\nstructured. Slightly less natural\nnatural to do for an image, right? Cuz\nan image is sort of a 2D pixel grid. So\nyou have to sort of decide an arbitrary\nsequence order in which to generate the\npixels.\ndiffusion is kind of a different\napproach to achieving a very similar\nthing, which is sort of this iterative\nrefinement, right? You generate\nsomething not in one go, but step by\nstep. And diffusion does that in a\nslightly different way, which is by\nfirst defining a corruption process,\nsort of destroying information in the\nimage or in the video by adding noise\ngradually, so adding more and more\nnoise, and then you learn a denoiser\nmodel that tries to remove that noise.\nUm and then you can use that denoiser,\nas well as we'll show, you can use that\ndenoiser to generate images or video\nstep by step.\nSo,\nyeah, just to visualize what that looks\nlike. So, I have an example image here\non the left. If you gradually add more\nand more Gaussian noise to that image,\none thing to note is that eventually,\nwhen you add a lot of noise, you can't\nsee the image anymore, right? So, it's\nsort of destroyed all the structure. But\nsort of in the intermediate stages, you\ncan see that if I add a little bit of\nnoise, it's sort of removing the detail,\nright? Cuz for example, you might not be\nable to make out the whiskers anymore of\nthis bunny, but you can still see the\nsilhouette. So, you can still tell that\nit's a bunny, right? So, you're sort of\nlosing fine-grained detail\ninitially, but not the global structure.\nAnd only when you add more noise, that\nglobal structure also starts to fade.\nSo, that's the corruption process, and\nthen I'm going to try and explain to you\nhow we can use a denoiser that tries to\nreverse this process to do generative\nmodeling, right? So, sort of an\nintuitive view of how diffusion models\nactually do this. So, I I like to do\nthis with with a 2D diagram. So, images\nare and video are actually\nhigh-dimensional objects, right? They\nhave If you sort of flatten an image\ninto a single vector, it's very\nhigh-dimensional. Um I'm going to reduce\nthat down to two dimensions so that I\ncan actually plot it on a slide. It's a\nslightly risky thing to do, like\ngeneralizing from low dimensions to high\ndimensions, but in this case, it's it's\nactually quite instructive. So, I'm\ngoing to try to explain how this\nbackward process in the in diffusion\nactually works. So, we start here with a\nclean image from our data set. So,\nthat's what I'm going to call X0.\nI put that in the bottom left corner on\nthe slide there.\nAnd\nthen I'm going to add some amount of\nnoise to it. So, I'm actually going to\nsort of simulate simulate this\ncorruption process and add some amount\nof noise to it, and then we end up in an\narbitrary\nstep of this corruption process. We're\ngoing to call that XT. T is like a time\nstep that's indexing the corruption\nprocess. And so that's a noisy version\nof our image in the top right corner.\nSo, what's going to happen in diffusion\nsampling is we're going to start from\nnoise, right? But I'm just going to sort\nof zoom in on a particular step in the\nprocess where we've sort of already\npartially denoised the image. So, we\nmight end up at something like XT, and\nthen I'm going to tell you like how does\nthe how does the process continue from\nthere?\nSo,\nthe first thing that our diffusion model\nis going to do, as I said, it's a\ndenoiser, right? So, it's going to try\nto predict a clean version of the image\ngiven the noisy version. Like it\nobserves the noisy version, that's all\nit gets, and then we ask the model\nwhere could this have come from, right?\nWhat image could have given rise to this\nparticular noisy observation?\nAnd that's actually an ill-posed problem\ncuz, as I just said, the noise actually\nremoves information, right? So, there's\nactually many different images that\ncould have given rise to this particular\nnoisy observation. And so what ends up\nhappening is the model just doesn't know\nwhich one to predict.\nAnd it has to make a single prediction,\nso it's just going to predict the\naverage of all of them. And that's\nwhy you get a blurry prediction out of a\ndiffusion model. Like if you just ask a\ndiffusion model to do a one-step\nprediction, you're going to get a very\nblurry image that looks sort of like\nthis. And the way to think about this is\nthat it's not predicting a particular\nimage per se, but rather it's sort of\npredicting a region of image space. What\nthe direction that we roughly want to go\nin. And so that's what I'm trying to\nvisualize here with these these circles\nis that there's sort of a region of\nimages that all potentially could have\ngiven rise to this noisy observation,\nand that's sort of roughly the direction\nthat we want to go in.\nAnd so how does sampling work then?\nWell, we we predict that direction, and\nthen we take a small step in that\ndirection. We don't make a big jump all\nthe way to\nour predicted X0 because obviously then\nwe would just end up with a blurry\nimage. That's not what we want. So,\nwe're only going to take a small step\nand then ask the model again, basically,\nright? You can compare this to how\noptimization of neural networks works,\nright? When you're doing optimization,\nof course that's happening in parameter\nspace. Here we're we're working in in\npixel space or in in latent space, but\nwhen you're doing optimization in\nparameter space, you're doing something\nvery similar. Like the optimizer gives\nyou an update direction. You don't want\nto take a step that's too large because\nactually this update direction is only\nvalid locally. And it's it's the exact\nsame thing here.\nUm one thing that's a bit different from\na typical optimization algorithm is that\nafter we've done this small denoising\nstep, in many diffusion sampling\nalgorithms, you actually add a little\nbit of the noise back. And this is this\nis new noise. This is not sort of like\nthe noise that you just removed, but you\njust add a little bit of new noise.\nObviously less than the amount that you\njust removed, right? Cuz otherwise you\nwouldn't make any progress. And the\nreason you do that is often to sort of\navoid accumulation of errors along the\nprocess. Because obviously this denoiser\nthat we've trained is a neural network,\nso its predictions are not perfect. So,\nit's going to make mistakes. And if you\nkeep feeding the network its own\nmistakes back,\nyou're going to go off the rails, right?\nAnd so what it turns out that this is\nactually a useful trick to\nto greatly reduce the risk of that. Like\nyou add a bit a little bit of new noise,\nand it sort of obscures the the mistakes\nthat the denoiser is making. Not all\ndiffusion sampling algorithms use this\ntrick, but many do.\nAnd then yeah, as I said, the process\njust repeats. So, we're now in a new\niterate. We're in XT - 1, which is\nbasically a slightly less slightly less\nnoisy version of the image cuz we've\npartially denoised it.\nAnd we're just going to ask our denoiser\nto make a new prediction, and that's\ngoing to be different this time, right?\nIt's still trying to predict where we\ncame from, but now it has a little bit\nmore information because there's less\nnoise in the image.\nSo, that corresponds to a new\nprediction, and that new prediction\ncorresponds to a smaller region\nof input space, right? And so that\nregion is going to just going to sort of\ncontinually shrink as we go along until\nit sort of collapses to a single point.\nAnd at that point, we've sampled\nan image\nfrom the distribution that we're trying\nto generate.\nUm yeah, so this kind of continues as I\nsaid, like sort of exactly the same\nprocedure. Denoise, add a little bit of\nnoise back.\nand so on and so on. And that's how you\nsample from a diffusion model.\nUm so, I want to now take a slightly\ndifferent perspective to try and explain\nwhy doing this particular thing works so\nwell for images and video.\nAnd for that, we're going to bring out\nFourier analysis. We're going to do\nfrequency analysis of what's actually\nhappening in a diffusion model. So, I\nhave here\nfour images from the ImageNet data set.\nAnd what I've done is I've taken their\nFourier transforms. And a Fourier\ntransform is a of an image is a 2D\nobject, right? An image is a 2D object,\nso you also get a 2D Fourier transform,\nand it's a complex-valued thing. So, I'm\ngoing to pull that apart into the\nmagnitude and the phase. So, the\nmagnitude is the middle row, and then\nthe phase is the bottom row. The phase\nis kind of\nhard to work with. We're going to ignore\nthat for now. We're just going to look\nat the magnitude spectrum.\nAnd then to make this even more\nconvenient, we're going to summarize the\nmagnitude spectrum into a 1D plot. And\nwe're going to do that by radial\naveraging. So, we're just going to sort\nof take these radial slices and and sort\num see what they are and then just\naverage them all together.\nAnd if you do that and you plot that on\na log-log plot,\nhere's what you get for these images.\nSo, what's very interesting about this,\nI think, is they look\nlike straight lines, right? And this is\na log-log plot. So, if you're familiar\nwith scaling laws in language models,\nthis says power law, right? There is a\npower law relationship\nin these spectra. And this is sort of a\nnatural phenomenon with with images and\nalso with video. Like if you if you take\na photo, you calculate the spectrum,\nyou'll typically get this this power law\nrelationship between the\nthe frequencies and then the\ncorresponding\npower or energy of those frequencies.\nSo, what does that mean for diffusion?\nWell,\nif you add noise to an image,\nhere's what that looks like on the\nspectrum. So,\nthe spectrum of Gaussian noise is\nbasically such that it contains all\nfrequencies in in equal measure in\nexpectation,\nso it's sort of flat in the frequency\ndomain. So, you can see that here, like\nthis is this is a spectrum of actual\nGaussian noise,\nthis this blue line, right? So, you get\nsort of this this horizontal line. And\nthen for an image, you're going to get\nthis power law spectrum, so you get this\ndownward sloping line.\nNow, if I add both of them together, if\nI add the noise to the image, I can\nagain calculate the spectrum, and what\nyou get then is the green line. So, you\ncan kind of see that it's following the\nimage spectrum up to the point where the\nnoise starts to drown it out, right? And\nthen it just follows the noise spectrum.\nSo, what does that mean concretely for\nour corruption process? It means that\nthe more noise you add, the more of the\nhigh frequency components you're\nstarting to obscure, right? So, add a\nlittle bit of noise, you only obscure\nthe highest frequency components. If you\nadd a bit more noise, then you're\nactually obscuring more of the lower and\nlower frequency components until\neventually, if you add a lot of noise,\nyou're obscuring all the frequency\ncomponents in the signal, and and\nthey're they're completely\nindistinguishable.\nUm and so that observation, I've sort of\nsummarized that myself as diffusion is\nbasically spectral autoregression,\nright? Because it's essentially allowing\nyou to generate images from coarse to\nfine, right? You start with the low\nfrequencies, and then you gradually add\nhigher and higher frequencies, and that\ncorresponds to coarse-grained features\nand fine-grained features.\nBut of course, yeah, this it's it's it's\nit's an approximation, right? It's not\nthe same as hard autoregression, but it\nis sort of in in principle, it's it's\ndoing a very similar thing, just in a in\na representation space that makes more\nsense for for image generation, where\nyou can sort of go coarse to fine, which\ntypically means that you can sort of\nsketch out the semantics of your image\nbefore you add all the details, which is\na very natural way\nto do image generation. And it also\nmeans that when we train these models,\nwe can actually put more weight on the\nfrequencies on the on the on the scales\nthat matter more uh uh perceptually. And\nthat's a that's a very important aspect\nof this as well.\nAll right. So, uh let me now talk a\nlittle bit about network architectures\nuh for these denoisers. Like it's a it's\nthe network itself is very simple,\nright? It's just doing denoising. You\nfeed in a noisy image and you ask it\nlike what is the what is the clean\nversion of this image?\nUh and so people initially started using\nU-Nets for this. So, U-Nets are\nconvolutional neural networks\nuh that are sort of designed I they were\noriginally designed for for for things\nlike image segmentation, uh but you can\nalso use them for any sort of image uh\nrestoration task or whatever. Anything\nwhere the where the output dimension is\nthe same as the input dimension,\nbasically.\nUm and yeah, they worked they worked\nreally well for for this particular use\ncase as well. So, people sort of adopted\nthem. Early stable diffusion models are\nare U-Net based as well.\nUh but then people figured out actually\ncan we use a transformer for this? Um\nand the answer is yes, of course you\ncan. Um\nthere's uh you know, you you you\nobviously don't use the sort of exact\nrecipe that you would use for a large\nlanguage model. Uh you don't use a\ncausal mask, for example, because you're\nnot going to you know, it it's okay for\nattention to be fully bidirectional in\nthis context. So, it's actually slightly\nmore expressive than than a typical LLM\ntransformer.\nUh but yeah, it works it works just fine\nwith transformers. And because we've\nlearned so much about how to scale\ntransformers from the LLM side, it just\nmakes practical sense to also use this\nuh for diffusion models cuz we can reuse\na lot of that knowledge.\nUm one more architectural aspect that I\nwant to talk about in the context of\nvideo generation is sort of the tension\nbetween autoregression and uh diffusion.\nSo, you can train a fully autoregressive\nvideo model, but it would mean that you\nhave to take the sort of height times\nwidth times time cube and then flatten\nit out into a sequence, right? And then\ngenerate a token by token.\nYou can also treat this whole uh 3D\nvolume of the video, this 3D pixel\nvolume, as a thing that you just jointly\nnoise and denoise. And that's what most\nmodern uh video generation models do.\nSo, they're sort of adding noise across\nthe whole um\ntime dimension as well as the spatial\ndimensions.\nUm that works pretty well, but there's\nactually uh it's it's not a dichotomy.\nLike it's not a binary choice.\nThere's actually an intermediate uh sort\nof uh setup where you do autoregression\nin time, so you generate frame by frame,\nbut you use uh diffusion to generate\neach of the frames. And that's actually\na really nice sort of hybrid setup for\nfor many applications, um\nespecially when you don't want to do\nthings like real-time video generation,\nfor example. You kind of have to do\nautoregression in time, right? So, like\nuh Genie is a good example of sort of\nthis this uh this compromise.\nUm cool. All right. I'll I'll talk very\nbriefly about sort of what goes into\nactually training a model. Like it's,\nyou know, we we we scale these things\nup, right? More parameters is better. Um\nI would say\nthey're probably not at the scale where\nlarge language models are today. And\nthere's they tend to still be a a little\nbit smaller. Uh I'll also uh explain a\nlittle bit why that might be.\nUh but, you know, we still scale them to\nto to reasonable sizes. And so, it's\nit's very important to figure out how to\ndo parallelism and and sharding across\nmany chips.\nUm so, up to a certain scale you can\nrely on data parallelism, right? Just\nsplit up your batch across many chips uh\nfor training. But at some point you just\nneed to go into model parallelism as\nwell. So, you actually need to start\nsort of spreading your model across uh\ndifferent chips.\nUm we tend to use JAX to build these\nmodels. JAX has some really good tooling\nto that sort of does that for you,\nright? So, you you can uh you can use\nJAX or Pjit to basically ask it to, you\nknow,\nto shard the model in a way that's going\nto be uh ideally close to optimal. And\nit sort of automatically minimizes\ncommunication between the chips for you.\nSo, you don't have to do that manually.\nCool. Uh yeah, I think that's that's all\nI'll say about that for now. I'll move\non to sampling cuz I want to talk a\nlittle bit more about sort of this\ncontrast between stochastic and\ndeterministic sampling. So,\nI already mentioned that some of these\nalgorithms add a little bit of noise\nback after every step. Other algorithms\ndo not. This has different tradeoffs. Um\nwe'll talk about distillation a bit\nlater. In that context, it's actually\nreally useful to have a deterministic\nsampling algorithm cuz you sort of have\na one-to-one mapping between initial\nnoise and and uh samples from your uh\ndata distribution.\nUm but so as I said, stochastic\nalgorithms can be a bit more robust uh\nto accumulation of errors. So, there's\nlike interesting tradeoffs there.\nUh the main thing I want to talk about\nin the context of sampling is this idea\nof guidance, right? This is something um\nit's commonly associated with diffusion\nmodels, but you can actually also do it\nfor autoregression autoregressive\nmodels. It just seems to work\nexceptionally well for uh diffusion\nmodels specifically. So, what guidance\nenables you to do is sort of tradeoff\nsample quality for diversity. So, if you\ncrank up what's called the guidance\nscale, if you crank up this\nhyperparameter,\num diversity of your samples is going to\ngreatly reduce. They're going to start\nlooking more alike.\nUh but the quality is going to is going\nto massively improve to the point where\nthese models are punching well above\ntheir weight. And this is what I what I\nwas saying earlier, why these models why\nI think these diffusion models tend to\nstill be a bit smaller than their sort\nof LLM counterpart is that they have\nthis very powerful trick that really\nallows them to to punch above their\nweight.\nI'll show you some examples in a bit.\nBut first I want to explain what\nguidance actually does. So, I'm going to\ngo back to this diagram that I had\nbefore and I'm going to show you how\nguidance actually modifies the the\nsampling procedure.\nSo, we're going to start the exact same\nway. We're just going to uh try and\npredict where we came from.\nIt's going to be a blurry prediction,\nbut now we're going to make a second\nprediction as well because we're going\nto have trained our model with a\nconditioning signal.\nSo, this could be a text prompt, for\nexample, and we can basically the model\nby giving it a text prompt and also\nwithout a text prompt. So, if this the\nprediction is it the prediction without\nthe text prompt, then I can make another\nprediction with the text prompt.\nAnd typically what's going to happen is\nthat's going to be a slightly less\nblurry prediction because obviously the\nnumber of images that this noisy\nobservation could have come from is\ngreatly restricted by what's described\nin the prompt, right?\nIf the if the prompt says this is an\nimage of a of a of a rabbit and it gives\nyou some details and stuff, then\nobviously you you know a bit more about\nwhat the original image might have been.\nSo, there's a difference between these\ntwo predictions. And it's precisely that\ndifference that we're interested in. So,\nwe're going to call this um\ndelta.\nAnd and we're going to basically amplify\nthis. We're going to say, \"Okay, if this\nis the delta between not having the\nprompt and having the prompt, what if we\njust\nuh scale this up?\" And then we we say\nthis is our new direction that we're\ngoing to actually denoise in.\nIt turns out this is super powerful. It\nseems like it seems almost childish.\nLike it seems so simple, but actually\nthere's sort of like a a Bayesian\nreasoning type thing behind this that\nmakes this work really well.\nand then um yeah, so this is basically\nthe only change that we make to the\nsampling algorithm. So, everything else\nproceeds as normal. Again, we might add\na little bit of noise back. And then we\njust take uh the steps as normal. So,\nyou do need to do two model evaluations\nper step, but you get uh a a huge\nincrease in sort of\nsample quality from that. In fact, let\nme show you. So, um\nSo, this is a comparison of some samples\nfrom a model\nuh without guidance and with guidance.\nUm this is from a 2021 paper. So,\npositively ancient uh in AI, right? Cuz\nthings move pretty fast. Uh but this is\none of the last sort of papers where\nthey trained diffusion models at scale\nwhere they actually showed a difference\nbetween not using guidance and using\nguidance. After this paper, everyone\njust always uses guidance. Like nobody\never turns it off anymore cuz it's so\nessential to getting good samples from\nthese models. And the differences as you\ncan see here are sort of uh you can see\nthat reduction in the diversity, right?\nLike from the from the left to the\nright, you can see the samples from\nuh uh from on the right are actually\nmuch less diverse, but also individually\nthey're much higher quality with respect\nto the prompt. And so, you get this\ntradeoff. And if you only want one\nsample, why would you even care about\ndiversity, right? So, you can sort of\nuse this or you can even\nuh you know, reintroduce diversity in\ndifferent ways if you wanted to.\nUh but yeah, basically uh guidance is\nsort of a a no-brainer these days. So,\neveryone just always leaves it on. And I\nthink a lot of people would be surprised\nat how bad today's models are if you\ntake guidance away. Like just if you use\nthem\nas they are.\nAnother example here from the same\npaper. So, this is a GLIDE paper from\nOpenAI, uh one of the first sort of uh\npixel space diffusion models at scale.\nCool. Right. Let me talk briefly about\ndistillation. Uh so, sort of to speed up\nuh the sampling procedure, what we're\ngoing to try is we're not going to try\nand make the the model smaller, which is\nusually what distillation refers to in\nthe context of large language models,\nbut here what we're actually going to\ntry and do is uh reduce the number of\nsteps that we require. So, uh sampling\nfrom a diffusion model, you could say is\nsort of tracing out this nonlinear path\nthrough input space, right? I've showed\nyou a few steps before. Now here I'm\nsort of trying to interpolate that path\nwith this dashed red line. I'm sort of\ntrying to show like this is the\ntrajectory that we might follow through\ninput space during sampling. And that's\na nonlinear trajectory. Uh and what a\ndiffusion model does is sort of gives\nyou at each point on the trajectory it\ngives you the direction that you should\nmove in next, right? So, it it predicts\na tangent to this path, basically.\nUm and then a question that arises is,\n\"Okay, once we know what this path is,\nespecially if if we have like a\ndeterministic sampling algorithm,\nthere's like one path between a\nparticular noise sample and a particular\ndata point. Once we know that path,\num why are we predicting the tangent to\nthis path? Why can't we just predict\nwhere we're going to end up?\" Right?\nJust like where we are, let's just try\nto predict where this path is going to\nend up when all the noise is gone. And\nthen we can just sample in one step,\nright? And this is exactly what\nconsistency models do. So, you can take\na diffusion model and then distill it\ninto a consistency model. And this is\njust one of the many ways that people\nhave developed uh to reduce the number\nof steps that are required to sample\nfrom diffusion models. Now, in practice\nwhen you just try to do this\nuh and try to sample in one step from a\nconsistency model, it usually won't work\nthat well. And it's it's mostly because\nlike you're you're asking uh the neural\nnetwork to do in a single pass what it\ndid before in like 50 passes or\nsomething like that, right? So, like\nthat's a tall order. So, usually that's\nnot going to work super well out of the\nbox.\nUm but so one one uh\ntradeoff that you can sort of make is\nyou can basically say, \"I'm going to do\nconsistency modeling but only for like\ncertain intervals of my sampling path so\nthat I can still sample in like maybe\nthree steps and maybe then I'm going to\nget better results. This is just one of\nthe one of the many ways\nto achieve this but I just wanted to\nkind of show this\nintuitively what this is actually doing.\nAll right, let's talk briefly about\ncontrol. This is the last thing I want\nto talk about. So these models only are\nas useful as our ability to actually\ninfluence at sort of a semantically\nsemantically high level\nwhat they actually produce, right? And\nso there's a canonical way that we've\nbeen doing this with these models is to\ngive them a text prompt. Like you give\nthem a text prompt and then that\ndescribes what the image should look\nlike, what the video should look like.\nThat's great. That works pretty well.\nBut more and more we're starting to see\nthat people want more than that, right?\nThey don't just want to try to\nThat's my slide. They don't just want to\ntry and um\nIs this on my side or is this\nOh, it's back. Awesome. Yeah.\nThey don't just want to try and describe\neverything in in in great detail in in\nlanguage. They you want to be able to do\nreference based generation for example.\nYou want to you know, you want to be\nable to generate a video and put\nyourself in it, right? And you're not\ngoing to do that by describing what you\nlook like in intricate detail. You're\ngoing to do that by taking a photo or a\nshort video of yourself and then\nconditioning the model on that. So we\nwant these other types of conditioning\nsignals as well. In video generation\nspecifically you might want to sort of\nexplicitly control camera motion, the\nspeed of events happening like the\nspecific timing of events. That's not\nsomething that you should sort of try to\nshoehorn into a textual representation,\nright? So you need sort of more advanced\nconditioning signals. And then a big\nquestion that arises is\nwhen should we introduce these\nconditioning signals to the model?\nCuz often you don't have this kind of\nconditioning information for most of\nyour pre-training data set. So it can\nactually be quite useful to do that in\npost-training. Pre-train the model with\nwith just the text prompts and then\nmaybe add some of these extra\nconditioning signals in a post-training\nphase.\nAnd of course other things we can do in\npost-training are like preference tuning\nbased on based on human evaluations like\nusing reinforcement learning or a direct\npreference optimization.\nAll right.\nThat was sort of a whirlwind overview of\nall eight of these things. I am going to\nstop there so we have some time for\nquestions. All right.\nThank you very much for listening.\nThat's part of it. I mean I think part\nof it is the probably the post-training\nrecipe\nthat tends to sort of make these models\na lot more opinionated. I like to think\nof post-training as sort of\ntaking like pre-training sort of models\nthe distribution of images let's say and\nthen post-training is more about like\nwhich sliver of that distribution am I\nactually interested in and that's a very\nopinionated type of thing. So that's\nplaying a big role in that. I think\nthere's specific effects that you can\nobserve that are easily attributed to\nguidance like if you get images that are\nthat look sort of very saturated that's\nusually a sign that the guidance scale\nis too high, right? It's it's like\nbecause the guidance scale is sort of\namplifying this um\nthis difference between the\nunconditional and the conditional\nprediction but it's doing that at every\nnoise level and so\nif you do that at depending on which\nnoise level you're sort of manipulating\nthis this direction at you sort of get\nthese different effects. So what people\nhave often started doing is like varying\nthe the scale of the guidance across the\nsampling procedure. Like it often\nthere's a there's a paper that says it's\nactually best to not do guidance at the\nvery start and at the very end but you\nshould sort of ramp it up in the middle\nand that tends to give you the best sort\nof trade-off.\nBut yeah, it's definitely playing a role\nbut I think probably a bigger role in\nthat is played by the post-training.\nYeah.\nYes.\nHi. Um how would you do this guidance or\nlike us conditional sampling for\ntext diffusion? Let's say. Um it you\ncould use exactly the same procedure\num provided that you have you know, you\nhave a sort of\na prompt that you\nthat you're giving the model, right? You\ncan you can treat that prompt as a\nconditioning signal and then you could\napply guidance to that. How well that's\ngoing to work is is sort of an open\nquestion. Like it it clearly is\napplicable to the setting as well. But I\nthink\ntypically what we found is that guidance\ntends to work best when there is sort of\na bit of a semantic gap between the\nthing that you're guiding with and the\nthing that you're generating. And so\nthat's why it works so exceptionally\nwell with this sort of prompting setup.\nLike if you guide on a text prompt, text\nprompt tends to capture sort of the high\nlevel semantics of what's in an image\nand and that seems to be like a really\ngood way to sort of steer the model in a\nsort of semantic space so to speak. But\nif you're if you're guiding like this is\nyou have the same problem in image\ngeneration. Like if you do guidance on\nlike let's say you provide a\nsegmentation mask and you want the model\nto fill in this the the the different\nparts of the segmentation mask, right?\nActually guidance will work a lot less\nwell for that because it's sort of a low\nlevel conditioning signal that's sort of\nat the same level of abstraction as the\nthe pixels that you're trying to\ngenerate. It seems like guidance just\nworks better when you have that gap. I\nthink that's also why people don't\ntypically use it as much for language\nmodels\neven though it's perfectly applicable to\nautoregressive models as well.\nUm over there.\nHi. You mentioned JAX is better suited\nfor model sharding and parallelism.\nIs there any particular reason for that\nespecially compared to PyTorch? Um\nokay.\nI have to caveat my answer with the fact\nthat I've been at Google for over a\ndecade. You know, PyTorch didn't exist\nwhen I joined Google, right? So I've\nnever had a lot of hands-on experience\nwith with PyTorch. I think JAX JAX is\njust kind of designed with that in mind\nfrom from the get-go because you know,\nwe've we've had TPUs for a while at\nGoogle and it was really just um\nI think conceived to try and make make\nthat as easy as possible, right? To to\nto make using TPUs as easy as possible.\nAnd with TPUs like you very rarely use\njust one chip, right? You kind of want\nto take advantage of the fact that they\nhave the this really fast interconnect\nand sort of scale up\npretty quickly. So yeah, I think it was\nsort of designed with this in mind from\nthe get-go but you know, PyTorch can do\nthese things as well, right? It's not\nit's not unique to JAX.\nThank you for your presentation. If you\nslow down the process of denoising and\nnoising, do you get better images or\nSlow down as in take more steps?\n>> Yes, take take more steps. Up to a\npoint. Yeah. Cuz it as I said you're\nsort of you're approximating this\nnon-linear path through input space,\nright? So you're and you're\napproximating that by taking finite\nsteps. So that means you're actually\napproximating that with sort of a\na piecewise linear path through input\nspace, right? And so the more that path\nthat piecewise linear path starts to\ndeviate from your true non-linear\npathway the worse your samples are going\nto get. But there is obviously a limit\nand and there's also been a lot of\nresearch on like how can we train\ndiffusion models or like models like\nthis that actually produce straighter\npaths from the get-go so that you can\nactually get a more accurate\napproximation with fewer steps. This is\nsomething called rectified flow reflow\nthat that sort of tries to dig into\nthis. So yeah, so up to a point is is\nthe answer. Yeah.\nI I was wondering if you could maybe\ntalk a little bit more about how you\ncould get these other types of control\nsignals in for like a special camera\nmovement. Is this something that you\nwould do like with a simulator or\nsomething where you can like actually\ncontrol all the parameters or like how\nwould\n>> That's a very good question. Um I\nWell, obviously I can't comment on what\nwe actually do. I can sort of speculate.\nI That's actually like I don't actually\nknow the details about this because the\nteam at this point is quite large and\nlike there's like people working\nspecifically on what we call\ncapabilities you know, like endowing the\nmodel with this ability to for example\nbe conditioned on on on a camera control\nsignal and things like that. I'm not\nactually actively involved in that part\nof the work. But yeah, it's like it's\nit's very um\nas I said it's sort of like it's quite\nimportant to have these conditioning\nsignals that are sort of semantically\nabstract. So you kind of have to find\nthe right representation that makes the\nmost sense\nto condition a model on. I think also\nwhat's very important is\nyour sort of you know, if you if if if\nyour model is a transformer, you\nactually have quite a few ways to insert\nconditioning information. Like you could\nadd a bunch of extra tokens. That's one\nway to do it. Sometimes you might rather\nsort of broadcast the conditioning\ninformation to all the tokens. Like for\nexample, if we if we the the the noise\nlevel input that we give to the\ndiffusion model like to tell it how much\nnoise there is in it. We're going to\ntypically broadcast that to all the\ntokens. We're not going to just add a a\nsingle token for that.\nAnd that's that's that's and then\nthere's\nI think there's like a third way that\npeople have started doing conditioning.\nBut yeah, this these are these are all\nthings that you have to think about when\nyou sort of try to figure out how to\nintroduce a new conditioning signal.\nYeah.\nI think we have time for maybe one more.\nThanks for the really really nice talk.\nJust to understand in the denoising\npart, if you didn't add that error in\neach step, would it be fully\ndeterministic?\nYes. Okay. Yeah. So there's there's\nbasically when when you once you have a\ndenoiser, there's sort of two different\ntypes of generative models that you can\nconstruct. One of them is stochastic,\nand the other is fully deterministic,\nright? And it it it's kind of a magical\nuh feat. Like, I still don't really\nbelieve that this works, but it really\ndoes.\nUh so, you can kind of Yeah, you can\nhave a deterministic model. And as I\nsaid, this can be useful in many\napplications. Like, especially if you\nwant to sort of go both ways. Like, if\nyou want to go from your data\ndistribution to your noise distribution\nand back, it's really useful. And then\nalso, for many distillation techniques,\nit's a requirement for the teacher to be\ndeterministic.\nSo, that's the case with these\nconsistency models, for example.\nyou need you need a\ndeterministic sampling algorithm to\nstart from. Yeah. Thanks.\nCheers. All right. Thank you, everyone.\nUm I have a longer version of this talk\non YouTube. Like, if you want a bit more\ndetail uh for some of these sections, uh\nyou can check that out as well. Cool.\nThank you.",
+  "segments": [
+    {
+      "text": "Cool. I'm going to get started. That sounds all right. Okay, I can I can hear myself. Okay, great. Uh thanks for coming everyone. I'm Sander. I'm a research scientist at Google DeepMind. I've been there for over a decade now.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Uh I'm on the generative media team. So, we work on models like VEO and NanoBanana. And I want to this talk is kind of a bit of a behind-the-scenes perspective on like everything that goes into training these models at scale.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "Um and so it's going to be focused on diffusion models because that's sort of the modeling paradigm that at least nowadays people tend to use for generating audio-visual data, which is a bit different from the language modeling",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "situation where we primarily rely on auto-regression, although of course not exclusively these days. Um so yeah, I have this kind of a whirlwind tour of everything that goes into it. So, I have eight sections, which is quite a lot to get through.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "They're not all equally long. They I have more to say about some things than others. So, I have more to say about the modeling and the and the sampling side of things, for example. But I'll just try to cover a little bit of everything and",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "then hopefully leave enough time for questions as well. At the end about any of these things. So, topics I want to cover are data curation, representation also because you don't necessarily just shove pixels into a transformer, right? You might use a more",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "advanced representation to sort of simplify things. Modeling is going to be sort of about the core mechanism behind diffusion models. I just like to explain that in an intuitive way and I think that's that's kind of useful to understand why",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "these models are able to work as well as they do for for audio-visual data generation. We'll talk a little bit about architecture as well like the the core neural network architecture that's that's behind all this. And then very briefly some things about",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "training at scale. I'll talk a bit more about sampling as well because diffusion models have sort of a very flexible sampling regime like there's there's there's sort of more stuff you can do with diffusion models than you can do",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "with auto-regressive models. So, I'll talk a little bit about that. I'll talk about distillation which in the context of diffusion is not so much about making the model smaller but more about reducing the number of steps that",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "you need to get a good sample. And then finally talk about control like the various control signals that we want to use to actually make the models do our bidding and make it make them do what we want them to do. All right. Before I start with that, I",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "have a blog. You don't have to remember all these individual URLs. Just go to sander.ai. You can find all my blog posts there. They're mostly about diffusion these days but in general I like to talk about sort of the the intuition behind how",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "generative models actually work. Cool. So, let's talk a little bit about data first. I think it's really important to emphasize just how important data curation is in training these these large-scale models. It's really really essential for",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "high-quality results. And like for me coming from a research background, it's actually something like when I was doing my PhD, it's not something that's incentivized. You're not incentivized to look at your data because you're actually incentivized to use a",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "predefined data set that everyone else uses so that you can compare your results to the state of the art. And so that's sort of something that we are sort of collectively having to unlearn in this era cuz you really just have to look at your data to the point",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "where I think time spent on improving the data is sometimes a better investment of that time than actually sort of trying to tweak the model and trying to make it optimize it better or things like that. I think this is still sort of an",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "even even today is still sort of an underrated aspect of training these models. Well, yeah, I'm I'm I'm not going to say too much more about that because this it's a topic that you won't find a lot of publications on and it's also a topic that",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "I won't be able to share a lot of details on because obviously it's it's also part of the secret sauce of what makes the models good. So, let's talk about representation next. So, the sort of typical digital representation of audio-visual data oh,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "sorry, of visual data I should say is pixels, right? Grids of pixels. You get a 2D grid for images, you get a 3D pixel grid for for video. And you could actually just shove that into a diffusion model as is and that's what we did at the start and when",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "diffusion sort of started being a thing, that's what people were doing. We were sort of directly training on pixels and it worked remarkably well. But that's not actually what people do nowadays because once you sort of start scaling up the",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "the size of the objects that you're modeling like the resolution or the duration in the case of video, these pixel tensors in memory get very very large. Right? You you have like Okay, let's let's say you have a 1080p video, right? 30 seconds of",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "1080p video at 30 FPS. We're talking many like several gigabytes of of data, right? To store that in memory. That's that's one training example. So, that's just not feasible. So, what we ended up doing is we actually use compressed representations, right?",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "But we're not just going to use sort of pre-existing compressed representations. You know, there's there's many sort of like video codecs out there. You know, there's the JPEG standard for for images. We tend not to use those",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "representations because those are really focused on making things small and in the process they actually obscure the structure of the data to a degree that generative modeling becomes really hard. So, what typically happens in this",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "context is we actually learn our own compressor. We and and we do that based on auto-encoders. So, this is like the the top the top row on this slide is basically a neural network that consists of an encoder and a decoder.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "And the task of this neural network is just like reproduce your input, right? You put an image in, you want to the same image out. But then you're sort of forcing it through a bottleneck in the middle and that bottleneck is going to",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "learn what what's typically called a latent representation. So, it's like a more compact representation of the data. And that is then the representation that we're actually going to use as a basis for like for training our diffusion models.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "So, in the second stage we take these latent representations, we extract them from our inputs. I I usually use images as examples because obviously that's easier to show on a slide but you can imagine this is a video as well. It's",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "it's basically the the exact same procedure. So, we extract the latent representations and then we train on top of that a generative model which could actually be an auto-regressive model or a diffusion model. Sort of doesn't really matter but people",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "have found in general for audio-visual data diffusion sort of has the edge in terms being able to get good results with certain parameter budget. So, that's what we mostly tend to use nowadays. And then once you train your your",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "generative model in latent space, of course, once if you sample from that model, you're going to get a sample in latent space. So, it's a compressed sample. So, you still want to use the decoder that you trained before to bring that back to pixel space",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "as well. And so what does that actually look like in practice? So, I have this sort of concrete example here and this is actually I think these dimensions sort of correspond to what the auto-encoder in the original stable diffusion model",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "does. So, stable diffusion is also a latent diffusion model. Let's say you have like an an RGB image, 256 by 256 pixels. If you represent that as a as a 3D tensor on the left, so these are the dimensions that you get. And then when we extract our latent",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "representation with our encoder, so one thing that's worth noticing is it still has the same spatial structure. It still has the same topology but the resolution is greatly reduced, right? So, now we have 32 by 32 latent grid and we sort of",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "compensate for that reduction by adding a few extra channels so that we can encode some of the information that would get lost if you were to just resize the image, right? If you just take the original image and resize it to 32 by 32, you lose a lot of high",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "frequency detail. And these latent representations sort of try to hold on to that a little bit by adding by using these extra channels to encode that information. Of course, it's still lossy compression because if you look at the total sort of tensor",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "size of the latents versus the original image, it's still much much smaller, right? And that's the key idea. That's the point. You want to make this smaller and especially for video also where you have this extra time dimension, you have",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "even more redundancy, right? You can you're often able to reduce the size of these tensors that you have to work with by by two orders of magnitude. And that's the difference between like being able to fit your data in memory and and",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "just not being able to do anything at all, right? But so one thing to to note about these compression mechanisms is they're actually sort of slightly more primitive than sort of the you know, like the H.265 or like the other sort of codecs that people tend to",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "use these days. And that's actually by design cuz you kind of want to preserve a lot of the topological structure of the original pixel representation because our neural network architectures that we use to build these models, they kind of",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "rely on the structure being present, right? They have these strong inductive biases. And so we we end up with these latent representations that are still that still have the same grid structure as the original pixels but sort of at a",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "at a more coarse-grained scale, right? And and the image that I'm showing here is actually from a paper called EQ-VAE. It's a paper about like improving the training of these auto-encoders. And they did a really nice thing. They sort",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "of tried to visualize the latent space by taking the principal components of the across the latent channels and then mapping that onto RGB so that you can actually visualize what these are. And you can kind of see looking at these",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "latent visualizations, you can still tell what animal is in the image, right? So, the latents are not really making abstraction of any semantic content of the image. They're they're basically just sort of abstracting the local",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "texture and very fine-grained structure, right? That's sort of the information that's sort of compressed and that's removed to some degree. And everything else is just preserved as in the original pixel space. And that's that's kind of by design.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "All right. So, once we have our latent representation, we can start doing some generative modeling. I've already mentioned you could do that either with auto-regression or with diffusion. With auto-regression you sort of have to turn",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "everything into a sequence and then you predict the sequence step by step. It's a very natural thing to do for language which is already kind of sequence structured. Slightly less natural natural to do for an image, right? Cuz",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "an image is sort of a 2D pixel grid. So you have to sort of decide an arbitrary sequence order in which to generate the pixels. diffusion is kind of a different approach to achieving a very similar thing, which is sort of this iterative",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "refinement, right? You generate something not in one go, but step by step. And diffusion does that in a slightly different way, which is by first defining a corruption process, sort of destroying information in the image or in the video by adding noise",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "gradually, so adding more and more noise, and then you learn a denoiser model that tries to remove that noise. Um and then you can use that denoiser, as well as we'll show, you can use that denoiser to generate images or video step by step. So,",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "yeah, just to visualize what that looks like. So, I have an example image here on the left. If you gradually add more and more Gaussian noise to that image, one thing to note is that eventually, when you add a lot of noise, you can't",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "see the image anymore, right? So, it's sort of destroyed all the structure. But sort of in the intermediate stages, you can see that if I add a little bit of noise, it's sort of removing the detail, right? Cuz for example, you might not be",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "able to make out the whiskers anymore of this bunny, but you can still see the silhouette. So, you can still tell that it's a bunny, right? So, you're sort of losing fine-grained detail initially, but not the global structure.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "And only when you add more noise, that global structure also starts to fade. So, that's the corruption process, and then I'm going to try and explain to you how we can use a denoiser that tries to reverse this process to do generative",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "modeling, right? So, sort of an intuitive view of how diffusion models actually do this. So, I I like to do this with with a 2D diagram. So, images are and video are actually high-dimensional objects, right? They have If you sort of flatten an image",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "into a single vector, it's very high-dimensional. Um I'm going to reduce that down to two dimensions so that I can actually plot it on a slide. It's a slightly risky thing to do, like generalizing from low dimensions to high",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "dimensions, but in this case, it's it's actually quite instructive. So, I'm going to try to explain how this backward process in the in diffusion actually works. So, we start here with a clean image from our data set. So, that's what I'm going to call X0.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "I put that in the bottom left corner on the slide there. And then I'm going to add some amount of noise to it. So, I'm actually going to sort of simulate simulate this corruption process and add some amount of noise to it, and then we end up in an arbitrary",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "step of this corruption process. We're going to call that XT. T is like a time step that's indexing the corruption process. And so that's a noisy version of our image in the top right corner. So, what's going to happen in diffusion",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "sampling is we're going to start from noise, right? But I'm just going to sort of zoom in on a particular step in the process where we've sort of already partially denoised the image. So, we might end up at something like XT, and",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "then I'm going to tell you like how does the how does the process continue from there? So, the first thing that our diffusion model is going to do, as I said, it's a denoiser, right? So, it's going to try to predict a clean version of the image",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "given the noisy version. Like it observes the noisy version, that's all it gets, and then we ask the model where could this have come from, right? What image could have given rise to this particular noisy observation? And that's actually an ill-posed problem",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "cuz, as I just said, the noise actually removes information, right? So, there's actually many different images that could have given rise to this particular noisy observation. And so what ends up happening is the model just doesn't know which one to predict.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "And it has to make a single prediction, so it's just going to predict the average of all of them. And that's why you get a blurry prediction out of a diffusion model. Like if you just ask a diffusion model to do a one-step",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "prediction, you're going to get a very blurry image that looks sort of like this. And the way to think about this is that it's not predicting a particular image per se, but rather it's sort of predicting a region of image space. What",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "the direction that we roughly want to go in. And so that's what I'm trying to visualize here with these these circles is that there's sort of a region of images that all potentially could have given rise to this noisy observation,",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "and that's sort of roughly the direction that we want to go in. And so how does sampling work then? Well, we we predict that direction, and then we take a small step in that direction. We don't make a big jump all the way to",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "our predicted X0 because obviously then we would just end up with a blurry image. That's not what we want. So, we're only going to take a small step and then ask the model again, basically, right? You can compare this to how",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "optimization of neural networks works, right? When you're doing optimization, of course that's happening in parameter space. Here we're we're working in in pixel space or in in latent space, but when you're doing optimization in",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "parameter space, you're doing something very similar. Like the optimizer gives you an update direction. You don't want to take a step that's too large because actually this update direction is only valid locally. And it's it's the exact same thing here.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "Um one thing that's a bit different from a typical optimization algorithm is that after we've done this small denoising step, in many diffusion sampling algorithms, you actually add a little bit of the noise back. And this is this",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "is new noise. This is not sort of like the noise that you just removed, but you just add a little bit of new noise. Obviously less than the amount that you just removed, right? Cuz otherwise you wouldn't make any progress. And the",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "reason you do that is often to sort of avoid accumulation of errors along the process. Because obviously this denoiser that we've trained is a neural network, so its predictions are not perfect. So, it's going to make mistakes. And if you",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "keep feeding the network its own mistakes back, you're going to go off the rails, right? And so what it turns out that this is actually a useful trick to to greatly reduce the risk of that. Like you add a bit a little bit of new noise,",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "and it sort of obscures the the mistakes that the denoiser is making. Not all diffusion sampling algorithms use this trick, but many do. And then yeah, as I said, the process just repeats. So, we're now in a new iterate. We're in XT - 1, which is",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "basically a slightly less slightly less noisy version of the image cuz we've partially denoised it. And we're just going to ask our denoiser to make a new prediction, and that's going to be different this time, right? It's still trying to predict where we",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "came from, but now it has a little bit more information because there's less noise in the image. So, that corresponds to a new prediction, and that new prediction corresponds to a smaller region of input space, right? And so that",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "region is going to just going to sort of continually shrink as we go along until it sort of collapses to a single point. And at that point, we've sampled an image from the distribution that we're trying to generate. Um yeah, so this kind of continues as I",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "said, like sort of exactly the same procedure. Denoise, add a little bit of noise back. and so on and so on. And that's how you sample from a diffusion model. Um so, I want to now take a slightly different perspective to try and explain",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "why doing this particular thing works so well for images and video. And for that, we're going to bring out Fourier analysis. We're going to do frequency analysis of what's actually happening in a diffusion model. So, I have here",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "four images from the ImageNet data set. And what I've done is I've taken their Fourier transforms. And a Fourier transform is a of an image is a 2D object, right? An image is a 2D object, so you also get a 2D Fourier transform,",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "and it's a complex-valued thing. So, I'm going to pull that apart into the magnitude and the phase. So, the magnitude is the middle row, and then the phase is the bottom row. The phase is kind of hard to work with. We're going to ignore",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "that for now. We're just going to look at the magnitude spectrum. And then to make this even more convenient, we're going to summarize the magnitude spectrum into a 1D plot. And we're going to do that by radial averaging. So, we're just going to sort",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "of take these radial slices and and sort um see what they are and then just average them all together. And if you do that and you plot that on a log-log plot, here's what you get for these images. So, what's very interesting about this, I think, is they look",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "like straight lines, right? And this is a log-log plot. So, if you're familiar with scaling laws in language models, this says power law, right? There is a power law relationship in these spectra. And this is sort of a natural phenomenon with with images and",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "also with video. Like if you if you take a photo, you calculate the spectrum, you'll typically get this this power law relationship between the the frequencies and then the corresponding power or energy of those frequencies.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "So, what does that mean for diffusion? Well, if you add noise to an image, here's what that looks like on the spectrum. So, the spectrum of Gaussian noise is basically such that it contains all frequencies in in equal measure in expectation,",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "so it's sort of flat in the frequency domain. So, you can see that here, like this is this is a spectrum of actual Gaussian noise, this this blue line, right? So, you get sort of this this horizontal line. And then for an image, you're going to get",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "this power law spectrum, so you get this downward sloping line. Now, if I add both of them together, if I add the noise to the image, I can again calculate the spectrum, and what you get then is the green line. So, you can kind of see that it's following the",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "image spectrum up to the point where the noise starts to drown it out, right? And then it just follows the noise spectrum. So, what does that mean concretely for our corruption process? It means that the more noise you add, the more of the",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "high frequency components you're starting to obscure, right? So, add a little bit of noise, you only obscure the highest frequency components. If you add a bit more noise, then you're actually obscuring more of the lower and lower frequency components until",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "eventually, if you add a lot of noise, you're obscuring all the frequency components in the signal, and and they're they're completely indistinguishable. Um and so that observation, I've sort of summarized that myself as diffusion is",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "basically spectral autoregression, right? Because it's essentially allowing you to generate images from coarse to fine, right? You start with the low frequencies, and then you gradually add higher and higher frequencies, and that",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "corresponds to coarse-grained features and fine-grained features. But of course, yeah, this it's it's it's it's an approximation, right? It's not the same as hard autoregression, but it is sort of in in principle, it's it's",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "doing a very similar thing, just in a in a representation space that makes more sense for for image generation, where you can sort of go coarse to fine, which typically means that you can sort of sketch out the semantics of your image",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "before you add all the details, which is a very natural way to do image generation. And it also means that when we train these models, we can actually put more weight on the frequencies on the on the on the scales that matter more uh uh perceptually. And",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "that's a that's a very important aspect of this as well. All right. So, uh let me now talk a little bit about network architectures uh for these denoisers. Like it's a it's the network itself is very simple, right? It's just doing denoising. You",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "feed in a noisy image and you ask it like what is the what is the clean version of this image? Uh and so people initially started using U-Nets for this. So, U-Nets are convolutional neural networks uh that are sort of designed I they were",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "originally designed for for for things like image segmentation, uh but you can also use them for any sort of image uh restoration task or whatever. Anything where the where the output dimension is the same as the input dimension, basically.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "Um and yeah, they worked they worked really well for for this particular use case as well. So, people sort of adopted them. Early stable diffusion models are are U-Net based as well. Uh but then people figured out actually can we use a transformer for this? Um",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "and the answer is yes, of course you can. Um there's uh you know, you you you obviously don't use the sort of exact recipe that you would use for a large language model. Uh you don't use a causal mask, for example, because you're",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "not going to you know, it it's okay for attention to be fully bidirectional in this context. So, it's actually slightly more expressive than than a typical LLM transformer. Uh but yeah, it works it works just fine with transformers. And because we've",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "learned so much about how to scale transformers from the LLM side, it just makes practical sense to also use this uh for diffusion models cuz we can reuse a lot of that knowledge. Um one more architectural aspect that I want to talk about in the context of",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "video generation is sort of the tension between autoregression and uh diffusion. So, you can train a fully autoregressive video model, but it would mean that you have to take the sort of height times width times time cube and then flatten",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "it out into a sequence, right? And then generate a token by token. You can also treat this whole uh 3D volume of the video, this 3D pixel volume, as a thing that you just jointly noise and denoise. And that's what most modern uh video generation models do.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "So, they're sort of adding noise across the whole um time dimension as well as the spatial dimensions. Um that works pretty well, but there's actually uh it's it's not a dichotomy. Like it's not a binary choice. There's actually an intermediate uh sort",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "of uh setup where you do autoregression in time, so you generate frame by frame, but you use uh diffusion to generate each of the frames. And that's actually a really nice sort of hybrid setup for for many applications, um especially when you don't want to do",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "things like real-time video generation, for example. You kind of have to do autoregression in time, right? So, like uh Genie is a good example of sort of this this uh this compromise. Um cool. All right. I'll I'll talk very briefly about sort of what goes into",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "actually training a model. Like it's, you know, we we we scale these things up, right? More parameters is better. Um I would say they're probably not at the scale where large language models are today. And there's they tend to still be a a little",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "bit smaller. Uh I'll also uh explain a little bit why that might be. Uh but, you know, we still scale them to to to reasonable sizes. And so, it's it's very important to figure out how to do parallelism and and sharding across many chips.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "Um so, up to a certain scale you can rely on data parallelism, right? Just split up your batch across many chips uh for training. But at some point you just need to go into model parallelism as well. So, you actually need to start",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "sort of spreading your model across uh different chips. Um we tend to use JAX to build these models. JAX has some really good tooling to that sort of does that for you, right? So, you you can uh you can use JAX or Pjit to basically ask it to, you know,",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "to shard the model in a way that's going to be uh ideally close to optimal. And it sort of automatically minimizes communication between the chips for you. So, you don't have to do that manually. Cool. Uh yeah, I think that's that's all",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "I'll say about that for now. I'll move on to sampling cuz I want to talk a little bit more about sort of this contrast between stochastic and deterministic sampling. So, I already mentioned that some of these algorithms add a little bit of noise",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "back after every step. Other algorithms do not. This has different tradeoffs. Um we'll talk about distillation a bit later. In that context, it's actually really useful to have a deterministic sampling algorithm cuz you sort of have",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "a one-to-one mapping between initial noise and and uh samples from your uh data distribution. Um but so as I said, stochastic algorithms can be a bit more robust uh to accumulation of errors. So, there's like interesting tradeoffs there.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "Uh the main thing I want to talk about in the context of sampling is this idea of guidance, right? This is something um it's commonly associated with diffusion models, but you can actually also do it for autoregression autoregressive",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "models. It just seems to work exceptionally well for uh diffusion models specifically. So, what guidance enables you to do is sort of tradeoff sample quality for diversity. So, if you crank up what's called the guidance scale, if you crank up this",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "hyperparameter, um diversity of your samples is going to greatly reduce. They're going to start looking more alike. Uh but the quality is going to is going to massively improve to the point where these models are punching well above",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "their weight. And this is what I what I was saying earlier, why these models why I think these diffusion models tend to still be a bit smaller than their sort of LLM counterpart is that they have this very powerful trick that really",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "allows them to to punch above their weight. I'll show you some examples in a bit. But first I want to explain what guidance actually does. So, I'm going to go back to this diagram that I had before and I'm going to show you how",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "guidance actually modifies the the sampling procedure. So, we're going to start the exact same way. We're just going to uh try and predict where we came from. It's going to be a blurry prediction, but now we're going to make a second",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "prediction as well because we're going to have trained our model with a conditioning signal. So, this could be a text prompt, for example, and we can basically the model by giving it a text prompt and also without a text prompt. So, if this the",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "prediction is it the prediction without the text prompt, then I can make another prediction with the text prompt. And typically what's going to happen is that's going to be a slightly less blurry prediction because obviously the",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "number of images that this noisy observation could have come from is greatly restricted by what's described in the prompt, right? If the if the prompt says this is an image of a of a of a rabbit and it gives you some details and stuff, then",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "obviously you you know a bit more about what the original image might have been. So, there's a difference between these two predictions. And it's precisely that difference that we're interested in. So, we're going to call this um delta.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "And and we're going to basically amplify this. We're going to say, \"Okay, if this is the delta between not having the prompt and having the prompt, what if we just uh scale this up?\" And then we we say this is our new direction that we're",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "going to actually denoise in. It turns out this is super powerful. It seems like it seems almost childish. Like it seems so simple, but actually there's sort of like a a Bayesian reasoning type thing behind this that makes this work really well.",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "and then um yeah, so this is basically the only change that we make to the sampling algorithm. So, everything else proceeds as normal. Again, we might add a little bit of noise back. And then we just take uh the steps as normal. So,",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "you do need to do two model evaluations per step, but you get uh a a huge increase in sort of sample quality from that. In fact, let me show you. So, um So, this is a comparison of some samples from a model uh without guidance and with guidance.",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "Um this is from a 2021 paper. So, positively ancient uh in AI, right? Cuz things move pretty fast. Uh but this is one of the last sort of papers where they trained diffusion models at scale where they actually showed a difference",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "between not using guidance and using guidance. After this paper, everyone just always uses guidance. Like nobody ever turns it off anymore cuz it's so essential to getting good samples from these models. And the differences as you",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "can see here are sort of uh you can see that reduction in the diversity, right? Like from the from the left to the right, you can see the samples from uh uh from on the right are actually much less diverse, but also individually",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "they're much higher quality with respect to the prompt. And so, you get this tradeoff. And if you only want one sample, why would you even care about diversity, right? So, you can sort of use this or you can even uh you know, reintroduce diversity in",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "different ways if you wanted to. Uh but yeah, basically uh guidance is sort of a a no-brainer these days. So, everyone just always leaves it on. And I think a lot of people would be surprised at how bad today's models are if you",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "take guidance away. Like just if you use them as they are. Another example here from the same paper. So, this is a GLIDE paper from OpenAI, uh one of the first sort of uh pixel space diffusion models at scale. Cool. Right. Let me talk briefly about",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "distillation. Uh so, sort of to speed up uh the sampling procedure, what we're going to try is we're not going to try and make the the model smaller, which is usually what distillation refers to in the context of large language models,",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "but here what we're actually going to try and do is uh reduce the number of steps that we require. So, uh sampling from a diffusion model, you could say is sort of tracing out this nonlinear path through input space, right? I've showed",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "you a few steps before. Now here I'm sort of trying to interpolate that path with this dashed red line. I'm sort of trying to show like this is the trajectory that we might follow through input space during sampling. And that's",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "a nonlinear trajectory. Uh and what a diffusion model does is sort of gives you at each point on the trajectory it gives you the direction that you should move in next, right? So, it it predicts a tangent to this path, basically.",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "Um and then a question that arises is, \"Okay, once we know what this path is, especially if if we have like a deterministic sampling algorithm, there's like one path between a particular noise sample and a particular data point. Once we know that path,",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "um why are we predicting the tangent to this path? Why can't we just predict where we're going to end up?\" Right? Just like where we are, let's just try to predict where this path is going to end up when all the noise is gone. And",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "then we can just sample in one step, right? And this is exactly what consistency models do. So, you can take a diffusion model and then distill it into a consistency model. And this is just one of the many ways that people",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "have developed uh to reduce the number of steps that are required to sample from diffusion models. Now, in practice when you just try to do this uh and try to sample in one step from a consistency model, it usually won't work",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "that well. And it's it's mostly because like you're you're asking uh the neural network to do in a single pass what it did before in like 50 passes or something like that, right? So, like that's a tall order. So, usually that's",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "not going to work super well out of the box. Um but so one one uh tradeoff that you can sort of make is you can basically say, \"I'm going to do consistency modeling but only for like certain intervals of my sampling path so",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "that I can still sample in like maybe three steps and maybe then I'm going to get better results. This is just one of the one of the many ways to achieve this but I just wanted to kind of show this intuitively what this is actually doing.",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "All right, let's talk briefly about control. This is the last thing I want to talk about. So these models only are as useful as our ability to actually influence at sort of a semantically semantically high level what they actually produce, right? And",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "so there's a canonical way that we've been doing this with these models is to give them a text prompt. Like you give them a text prompt and then that describes what the image should look like, what the video should look like.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "That's great. That works pretty well. But more and more we're starting to see that people want more than that, right? They don't just want to try to That's my slide. They don't just want to try and um Is this on my side or is this Oh, it's back. Awesome. Yeah.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "They don't just want to try and describe everything in in in great detail in in language. They you want to be able to do reference based generation for example. You want to you know, you want to be able to generate a video and put",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "yourself in it, right? And you're not going to do that by describing what you look like in intricate detail. You're going to do that by taking a photo or a short video of yourself and then conditioning the model on that. So we",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "want these other types of conditioning signals as well. In video generation specifically you might want to sort of explicitly control camera motion, the speed of events happening like the specific timing of events. That's not",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "something that you should sort of try to shoehorn into a textual representation, right? So you need sort of more advanced conditioning signals. And then a big question that arises is when should we introduce these conditioning signals to the model?",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "Cuz often you don't have this kind of conditioning information for most of your pre-training data set. So it can actually be quite useful to do that in post-training. Pre-train the model with with just the text prompts and then maybe add some of these extra",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "conditioning signals in a post-training phase. And of course other things we can do in post-training are like preference tuning based on based on human evaluations like using reinforcement learning or a direct preference optimization. All right.",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "That was sort of a whirlwind overview of all eight of these things. I am going to stop there so we have some time for questions. All right. Thank you very much for listening. That's part of it. I mean I think part of it is the probably the post-training recipe",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "that tends to sort of make these models a lot more opinionated. I like to think of post-training as sort of taking like pre-training sort of models the distribution of images let's say and then post-training is more about like",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "which sliver of that distribution am I actually interested in and that's a very opinionated type of thing. So that's playing a big role in that. I think there's specific effects that you can observe that are easily attributed to",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "guidance like if you get images that are that look sort of very saturated that's usually a sign that the guidance scale is too high, right? It's it's like because the guidance scale is sort of amplifying this um this difference between the",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "unconditional and the conditional prediction but it's doing that at every noise level and so if you do that at depending on which noise level you're sort of manipulating this this direction at you sort of get these different effects. So what people",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "have often started doing is like varying the the scale of the guidance across the sampling procedure. Like it often there's a there's a paper that says it's actually best to not do guidance at the very start and at the very end but you",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "should sort of ramp it up in the middle and that tends to give you the best sort of trade-off. But yeah, it's definitely playing a role but I think probably a bigger role in that is played by the post-training. Yeah. Yes.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "Hi. Um how would you do this guidance or like us conditional sampling for text diffusion? Let's say. Um it you could use exactly the same procedure um provided that you have you know, you have a sort of a prompt that you",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "that you're giving the model, right? You can you can treat that prompt as a conditioning signal and then you could apply guidance to that. How well that's going to work is is sort of an open question. Like it it clearly is",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "applicable to the setting as well. But I think typically what we found is that guidance tends to work best when there is sort of a bit of a semantic gap between the thing that you're guiding with and the thing that you're generating. And so",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "that's why it works so exceptionally well with this sort of prompting setup. Like if you guide on a text prompt, text prompt tends to capture sort of the high level semantics of what's in an image and and that seems to be like a really",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "good way to sort of steer the model in a sort of semantic space so to speak. But if you're if you're guiding like this is you have the same problem in image generation. Like if you do guidance on like let's say you provide a",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "segmentation mask and you want the model to fill in this the the the different parts of the segmentation mask, right? Actually guidance will work a lot less well for that because it's sort of a low level conditioning signal that's sort of",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "at the same level of abstraction as the the pixels that you're trying to generate. It seems like guidance just works better when you have that gap. I think that's also why people don't typically use it as much for language models",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "even though it's perfectly applicable to autoregressive models as well. Um over there. Hi. You mentioned JAX is better suited for model sharding and parallelism. Is there any particular reason for that especially compared to PyTorch? Um okay.",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "I have to caveat my answer with the fact that I've been at Google for over a decade. You know, PyTorch didn't exist when I joined Google, right? So I've never had a lot of hands-on experience with with PyTorch. I think JAX JAX is",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "just kind of designed with that in mind from from the get-go because you know, we've we've had TPUs for a while at Google and it was really just um I think conceived to try and make make that as easy as possible, right? To to",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "to make using TPUs as easy as possible. And with TPUs like you very rarely use just one chip, right? You kind of want to take advantage of the fact that they have the this really fast interconnect and sort of scale up pretty quickly. So yeah, I think it was",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "sort of designed with this in mind from the get-go but you know, PyTorch can do these things as well, right? It's not it's not unique to JAX. Thank you for your presentation. If you slow down the process of denoising and noising, do you get better images or",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "Slow down as in take more steps? >> Yes, take take more steps. Up to a point. Yeah. Cuz it as I said you're sort of you're approximating this non-linear path through input space, right? So you're and you're approximating that by taking finite",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "steps. So that means you're actually approximating that with sort of a a piecewise linear path through input space, right? And so the more that path that piecewise linear path starts to deviate from your true non-linear pathway the worse your samples are going",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "to get. But there is obviously a limit and and there's also been a lot of research on like how can we train diffusion models or like models like this that actually produce straighter paths from the get-go so that you can actually get a more accurate",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "approximation with fewer steps. This is something called rectified flow reflow that that sort of tries to dig into this. So yeah, so up to a point is is the answer. Yeah. I I was wondering if you could maybe talk a little bit more about how you",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "could get these other types of control signals in for like a special camera movement. Is this something that you would do like with a simulator or something where you can like actually control all the parameters or like how would",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": ">> That's a very good question. Um I Well, obviously I can't comment on what we actually do. I can sort of speculate. I That's actually like I don't actually know the details about this because the team at this point is quite large and",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "like there's like people working specifically on what we call capabilities you know, like endowing the model with this ability to for example be conditioned on on on a camera control signal and things like that. I'm not actually actively involved in that part",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "of the work. But yeah, it's like it's it's very um as I said it's sort of like it's quite important to have these conditioning signals that are sort of semantically abstract. So you kind of have to find the right representation that makes the most sense",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "to condition a model on. I think also what's very important is your sort of you know, if you if if if your model is a transformer, you actually have quite a few ways to insert conditioning information. Like you could add a bunch of extra tokens. That's one",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "way to do it. Sometimes you might rather sort of broadcast the conditioning information to all the tokens. Like for example, if we if we the the the noise level input that we give to the diffusion model like to tell it how much",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "noise there is in it. We're going to typically broadcast that to all the tokens. We're not going to just add a a single token for that. And that's that's that's and then there's I think there's like a third way that people have started doing conditioning.",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "But yeah, this these are these are all things that you have to think about when you sort of try to figure out how to introduce a new conditioning signal. Yeah. I think we have time for maybe one more. Thanks for the really really nice talk.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "Just to understand in the denoising part, if you didn't add that error in each step, would it be fully deterministic? Yes. Okay. Yeah. So there's there's basically when when you once you have a denoiser, there's sort of two different",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "types of generative models that you can construct. One of them is stochastic, and the other is fully deterministic, right? And it it it's kind of a magical uh feat. Like, I still don't really believe that this works, but it really does.",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "Uh so, you can kind of Yeah, you can have a deterministic model. And as I said, this can be useful in many applications. Like, especially if you want to sort of go both ways. Like, if you want to go from your data distribution to your noise distribution",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "and back, it's really useful. And then also, for many distillation techniques, it's a requirement for the teacher to be deterministic. So, that's the case with these consistency models, for example. you need you need a deterministic sampling algorithm to",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "start from. Yeah. Thanks. Cheers. All right. Thank you, everyone. Um I have a longer version of this talk on YouTube. Like, if you want a bit more detail uh for some of these sections, uh you can check that out as well. Cool. Thank you.",
+      "start": 1146,
+      "duration": 6
+    }
+  ]
+}

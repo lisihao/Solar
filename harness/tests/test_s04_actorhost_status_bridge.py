@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "lib"
+TOOLS = ROOT / "tools"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
@@ -25,6 +26,7 @@ def _load_module(name: str, path: Path):
 
 mts = _load_module("multi_task_status", LIB / "multi_task_status.py")
 gnd = _load_module("graph_node_dispatcher", LIB / "graph_node_dispatcher.py")
+gnd_tools = _load_module("graph_node_dispatcher_tools", TOOLS / "graph_node_dispatcher.py")
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -147,6 +149,191 @@ def test_worker_discovery_surfaces_actorhost_fields(monkeypatch) -> None:
     assert workers[0]["actorhost"]["resolution_source"] == "actor_hosts"
 
 
+def test_operator_pool_virtual_workers_advertise_brokered_capabilities(monkeypatch) -> None:
+    monkeypatch.setattr(gnd, "_builder_operator_pool_available_count", lambda: 2)
+    monkeypatch.setenv("SOLAR_GRAPH_BUILDER_OPERATOR_POOL_SLOTS", "1")
+    monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: role == "evaluator")
+    monkeypatch.setattr(gnd, "_operator_pool_operator_available_for_role", lambda *_: False)
+
+    builder_workers = gnd._builder_operator_pool_workers(
+        worker_skills=["python"],
+        worker_capabilities=["python", "runtime-dag"],
+    )
+    evaluator_workers = gnd._evaluator_operator_pool_workers()
+
+    assert len(builder_workers) == 1
+    builder_match = builder_workers[0]["capability_match"]
+    assert builder_match["matched"] == ["python", "runtime-dag"]
+    assert builder_match["missing"] == []
+    assert builder_match["observed"] == ["python", "runtime-dag"]
+
+    assert len(evaluator_workers) == 1
+    evaluator_match = evaluator_workers[0]["capability_match"]
+    assert evaluator_match["matched"] == ["review", "testing"]
+    assert evaluator_match["missing"] == []
+    assert evaluator_match["observed"] == ["review", "testing"]
+
+
+def test_evaluator_pool_excludes_deepseek_advisor_from_final_sidecar_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: False)
+    monkeypatch.setattr(
+        gnd,
+        "_operator_pool_operator_available_for_role",
+        lambda operator_id, role: operator_id == "mini-reasonix-deepseek-v4-builder" and role == "evaluator",
+    )
+
+    evaluator_workers = gnd._evaluator_operator_pool_workers()
+
+    assert evaluator_workers == []
+
+
+def test_deepseek_advisory_policy_does_not_override_final_sidecar_guard(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    _write_json(
+        config_dir / "physical-operators.json",
+        {
+            "version": 1,
+            "operators": {
+                "mini-reasonix-deepseek-v4-builder": {
+                    "role": "advisor",
+                    "persona": "advisor",
+                    "profile": "deepseek-advisory",
+                    "policy": {
+                        "write_files": "eval_sidecar_only",
+                        "eval_sidecar_write": "allowed",
+                        "run_shell": "denied",
+                    },
+                    "builder_pool": {
+                        "enabled": False,
+                        "disabled_reason": "reasonix_no_verified_file_execution_surface",
+                    },
+                    "avoid_for": ["implementation", "code-edit", "repo-modification", "final-quality-gate"],
+                    "state": {"runtime_state": "cooldown"},
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+
+    assert gnd._operator_pool_operator_can_closeout_eval_sidecar("mini-reasonix-deepseek-v4-builder") is False
+
+
+def test_eval_sidecar_final_fallback_allows_codex_write_capable_operator(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    _write_json(
+        config_dir / "physical-operators.json",
+        {
+            "version": 1,
+            "operators": {
+                "mini-codex-gpt55-medium-builder-1": {
+                    "role": "builder",
+                    "persona": "builder",
+                    "roles": ["builder", "evaluator"],
+                    "policy": {
+                        "write_files": "allowed",
+                        "run_shell": "allowed",
+                    },
+                    "builder_pool": {"enabled": True},
+                    "avoid_for": ["bulk-extraction"],
+                    "state": {"runtime_state": "idle"},
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+
+    assert gnd._operator_pool_operator_can_closeout_eval_sidecar("mini-codex-gpt55-medium-builder-1") is True
+
+
+def test_evaluator_pool_prefers_gpt55_advisor_fallback_when_available(monkeypatch) -> None:
+    monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: False)
+    monkeypatch.setattr(
+        gnd,
+        "_operator_pool_operator_available_for_role",
+        lambda operator_id, role: operator_id == "mini-codex-gpt55-medium-builder-2" and role == "evaluator",
+    )
+
+    evaluator_workers = gnd._evaluator_operator_pool_workers()
+
+    assert len(evaluator_workers) == 1
+    assert evaluator_workers[0]["operator_id"] == "mini-codex-gpt55-medium-builder-2"
+    assert evaluator_workers[0]["models"] == ["gpt-5.5", "operator-pool"]
+
+
+def test_tools_eval_fallback_skips_deepseek_advisor_before_codex(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    _write_json(
+        config_dir / "physical-operators.json",
+        {
+            "version": 1,
+            "operators": {
+                "mini-reasonix-deepseek-v4-builder": {
+                    "role": "advisor",
+                    "persona": "advisor",
+                    "profile": "deepseek-advisory",
+                    "operator_class": "AdvisoryReview",
+                    "policy": {"write_files": "eval_sidecar_only", "eval_sidecar_write": "allowed"},
+                    "builder_pool": {
+                        "enabled": False,
+                        "disabled_reason": "reasonix_no_verified_file_execution_surface",
+                    },
+                    "avoid_for": ["implementation", "code-edit", "repo-modification", "final-quality-gate"],
+                    "state": {"runtime_state": "idle"},
+                },
+                "mini-codex-gpt55-medium-builder-1": {
+                    "role": "builder",
+                    "persona": "builder",
+                    "policy": {"write_files": "allowed", "run_shell": "allowed"},
+                    "builder_pool": {"enabled": True},
+                    "state": {"runtime_state": "idle"},
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(gnd_tools, "HARNESS_DIR", tmp_path)
+    monkeypatch.setenv(
+        "SOLAR_GRAPH_EVAL_ADVISOR_FALLBACK_OPERATORS",
+        "mini-reasonix-deepseek-v4-builder,mini-codex-gpt55-medium-builder-1",
+    )
+    monkeypatch.setattr(gnd_tools, "_operator_pool_role_available", lambda role: False)
+    monkeypatch.setattr(gnd_tools, "_operator_pool_operator_available_for_role", lambda *_: True)
+
+    workers = gnd_tools._evaluator_operator_pool_workers()
+
+    assert [worker["operator_id"] for worker in workers] == ["mini-codex-gpt55-medium-builder-1"]
+
+
+def test_operator_pool_operator_probe_uses_short_ttl_cache(monkeypatch, tmp_path: Path) -> None:
+    calls = []
+    operator_id = "mini-codex-gpt55-medium-builder-1"
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=0, stdout=f"[DRY-RUN] operator_id = {operator_id}")
+
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "_builder_operator_pool_enabled", lambda: True)
+    monkeypatch.setattr(gnd.subprocess, "run", fake_run)
+    monkeypatch.setenv("SOLAR_GRAPH_OPERATOR_POOL_PROBE_CACHE_SEC", "60")
+    monkeypatch.setenv("SOLAR_GRAPH_OPERATOR_POOL_PROBE_TIMEOUT_SEC", "0.5")
+    gnd._OPERATOR_POOL_ROLE_PROBE_CACHE.clear()
+
+    assert gnd._operator_pool_operator_available_for_role(operator_id, "evaluator") is True
+    assert gnd._operator_pool_operator_available_for_role(operator_id, "evaluator") is True
+
+    assert len(calls) == 1
+    assert calls[0][1]["timeout"] == 0.5
+
+
+def test_graph_queue_dispatch_role_normalizes_builder_aliases() -> None:
+    assert gnd._graph_queue_dispatch_role({}, {}, {"dispatch_role": "builder_main"}) == "builder"
+    assert gnd._graph_queue_dispatch_role({}, {}, {"dispatch_role": "builder-worker"}) == "builder"
+    assert gnd._graph_queue_dispatch_role({}, {"dispatch_role": "Implementation"}, {}) == "builder"
+
+
 def test_operator_pool_dispatch_result_surfaces_selected_actorhost(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
     monkeypatch.setattr(gnd, "SPRINTS_DIR", tmp_path / "sprints")
@@ -194,3 +381,52 @@ def test_operator_pool_dispatch_result_surfaces_selected_actorhost(monkeypatch, 
     assert result["host_type"] == "claude_code_session"
     assert result["lease_state"] == "idle"
     assert result["actorhost"]["resolution_source"] == "actor_hosts"
+
+
+def test_operator_pool_dispatch_honors_evaluator_graph_node_role(monkeypatch, tmp_path: Path) -> None:
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = list(cmd)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="task_id = pm-1\noperator = mini-codex-gpt55-medium-builder-1\ndispatch = dispatch.json\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", tmp_path / "sprints")
+    monkeypatch.setattr(gnd, "_builder_operator_pool_enabled", lambda: True)
+    monkeypatch.setattr(gnd.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        gnd,
+        "resolve_actorhost_status",
+        lambda **kw: {
+            "actor_id": kw.get("actor_id") or "mini-codex-gpt55-medium-builder-1",
+            "host_id": "mini",
+            "host_type": "claude_code_session",
+            "lease_state": "idle",
+            "capability_match": {"required": kw.get("required_capabilities", []), "matched": [], "missing": [], "observed": []},
+            "compat_fallback": False,
+            "compat_maps_to": None,
+            "resolution_source": "actor_hosts",
+            "canonical_host_type": True,
+        },
+    )
+
+    result = gnd._submit_builder_to_operator_pool(
+        item={"payload": {}},
+        payload={"assignment": {"dispatch_role": "evaluator"}},
+        sid="sprint-test",
+        node={"id": "E2", "role": "evaluator", "required_capabilities": ["code.review"]},
+        node_id="E2",
+        graph_path=str(tmp_path / "sprint-test.task_graph.json"),
+        pane="operator-pool:builder.0",
+        dispatch_id="dispatch-1",
+        dry_run=True,
+    )
+
+    assert result["ok"] is True
+    assert result["dispatch_mode"] == "operator_pool_evaluator"
+    assert captured["cmd"][captured["cmd"].index("--role") + 1] == "evaluator"
+    assert result["capability_match"]["matched"] == ["code.review"]

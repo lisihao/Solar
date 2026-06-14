@@ -94,6 +94,7 @@ def test_main_applies_success_cooldown(monkeypatch, tmp_path):
     monkeypatch.setenv("SOLAR_OPERATOR_ENVELOPE_JSON", str(envelope_path))
     monkeypatch.setenv("TASK_DIR", str(tmp_path / "task"))
     monkeypatch.setenv("SOLAR_NOTEBOOKLM_SUCCESS_COOLDOWN_SECONDS", "123")
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     monkeypatch.setattr(
         nlo,
         "run_notebooklm_request",
@@ -125,6 +126,7 @@ def test_main_applies_rate_limit_cooldown_on_failure(monkeypatch, tmp_path, caps
     monkeypatch.setenv("SOLAR_OPERATOR_ENVELOPE_JSON", str(envelope_path))
     monkeypatch.setenv("TASK_DIR", str(tmp_path / "task"))
     monkeypatch.setenv("SOLAR_NOTEBOOKLM_RATE_LIMIT_COOLDOWN_SECONDS", "321")
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
 
     def _boom(request_payload, task_dir=None):
         raise nlo.NotebookLMOperatorError("wrapper failed", combined_output="429 rate limit")
@@ -159,6 +161,7 @@ def test_main_applies_auth_expired_on_failure(monkeypatch, tmp_path):
     monkeypatch.setenv("SOLAR_OPERATOR_ENVELOPE_JSON", str(envelope_path))
     monkeypatch.setenv("TASK_DIR", str(tmp_path / "task"))
     monkeypatch.setenv("SOLAR_NOTEBOOKLM_AUTH_COOLDOWN_SECONDS", "777")
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
 
     def _boom(request_payload, task_dir=None):
         raise nlo.NotebookLMOperatorError("wrapper failed", combined_output="sign in required")

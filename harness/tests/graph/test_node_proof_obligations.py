@@ -187,6 +187,33 @@ class TestEvalPassAllowsPassed:
         )
         assert result["ok"] is True
         assert result["status"] == "passed"
+        assert result["mailbox_evidence_gate"]["required"] is False
+
+    def test_verdict_pass_with_mailbox_gate_blocks_missing_evidence(self, tmp_path, monkeypatch):
+        sid = "sprint-ac3-mailbox-gate-block"
+        graph_path = _setup_dispatcher_graph(tmp_path, monkeypatch, sid)
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        graph["nodes"][0]["gate"] = "G_EVIDENCE_VERDICT"
+        graph_path.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
+
+        eval_json = tmp_path / "sprints" / f"{sid}.N1-eval.json"
+        eval_json.write_text(json.dumps({
+            "node_id": "N1",
+            "verdict": "PASS",
+            "summary": "All ACs verified",
+        }))
+
+        result = gnd.node_verdict(
+            str(graph_path), "N1", "pass",
+            eval_json=str(eval_json),
+            dry_run=True,
+        )
+
+        assert result["ok"] is False
+        assert result["reason"] == "mailbox_evidence_gate_failed"
+        assert result["status"] == "blocked"
+        assert result["mailbox_evidence_gate"]["required"] is True
+        assert result["mailbox_evidence_gate"]["blocker_reason"] == "evidence_missing"
 
     def test_verdict_fail_does_not_require_eval_json(self, tmp_path, monkeypatch):
         sid = "sprint-ac3-fail"
@@ -195,10 +222,31 @@ class TestEvalPassAllowsPassed:
         result = gnd.node_verdict(
             str(graph_path), "N1", "fail",
             reason="test failure",
-            dry_run=True,
         )
         assert result["ok"] is True
         assert result["status"] == "failed"
+
+    def test_verdict_fail_clears_stale_eval_retry_state(self, tmp_path, monkeypatch):
+        sid = "sprint-ac3-fail-clears-retry"
+        graph_path = _setup_dispatcher_graph(tmp_path, monkeypatch, sid)
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        graph["nodes"][0]["eval_retry_reason"] = "eval_dispatch_send_failed"
+        graph["nodes"][0]["eval_retry_detail"] = {
+            "reason": "operator_pool_eval_submit_failed",
+        }
+        graph_path.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
+
+        result = gnd.node_verdict(
+            str(graph_path), "N1", "fail",
+            reason="test failure",
+        )
+
+        updated = json.loads(graph_path.read_text(encoding="utf-8"))
+        node = updated["nodes"][0]
+        assert result["ok"] is True
+        assert result["status"] == "failed"
+        assert "eval_retry_reason" not in node
+        assert "eval_retry_detail" not in node
 
     def test_assert_pass_mark_allowed_ok_with_eval(self, tmp_path, monkeypatch):
         monkeypatch.setattr(gs, "SPRINTS_DIR", tmp_path)
@@ -235,3 +283,200 @@ class TestEvalPassAllowsPassed:
         assert result["ok"] is True
         assert result["status"] == "passed"
         assert result["proof_gate"]["required"] is False
+
+    def test_node_verdict_dry_run_does_not_save_graph(self, tmp_path, monkeypatch):
+        sid = "sprint-ac3-dry-run-no-save"
+        graph_path = _setup_dispatcher_graph(tmp_path, monkeypatch, sid)
+        handoff = tmp_path / "sprints" / f"{sid}.N1-handoff.md"
+        handoff.write_text("# Handoff\n", encoding="utf-8")
+        eval_json = tmp_path / "sprints" / f"{sid}.N1-eval.json"
+        eval_json.write_text(json.dumps({"node_id": "N1", "verdict": "PASS"}), encoding="utf-8")
+
+        def fail_save(*args, **kwargs):
+            raise AssertionError("dry-run must not save graph")
+
+        monkeypatch.setattr(gnd, "save_graph", fail_save)
+
+        result = gnd.node_verdict(
+            str(graph_path), "N1", "pass",
+            eval_json=str(eval_json),
+            dry_run=True,
+        )
+
+        assert result["ok"] is True
+        assert result["status"] == "passed"
+        assert result["dry_run"] is True
+        assert result["downstream"]["skipped"] == "dry_run"
+
+    def test_proof_gate_accepts_standard_sidecar_artifacts(self, tmp_path, monkeypatch):
+        sid = "sprint-ac3-proof-sidecars"
+        graph_path = _setup_dispatcher_graph(tmp_path, monkeypatch, sid)
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        graph["nodes"][0]["proof_obligations"] = [
+            {
+                "kind": "postcondition",
+                "requirement": "output_present",
+                "field": "guard_decision",
+            },
+            {
+                "kind": "postcondition",
+                "requirement": "output_present",
+                "field": "resource_binding",
+            },
+            {
+                "kind": "pass_condition",
+                "requirement": "patch_diff exists",
+            },
+            {
+                "kind": "postcondition",
+                "requirement": "output_present",
+                "field": "bridged_artifact",
+            },
+        ]
+        graph_path.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
+
+        sprints = tmp_path / "sprints"
+        (sprints / f"{sid}.N1-handoff.md").write_text("# Handoff\n", encoding="utf-8")
+        eval_json = sprints / f"{sid}.N1-eval.json"
+        eval_json.write_text(
+            json.dumps(
+                {
+                    "node_id": "N1",
+                    "verdict": "PASS",
+                    "proof_checks": {
+                        "check.guard_decision_written": False,
+                        "check.resource_binding_written": False,
+                        "check.adapter_output_written": False,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (sprints / f"{sid}.N1-eval.md").write_text("# Eval\nPASS\n", encoding="utf-8")
+        (sprints / f"{sid}.N1-guard_decision.json").write_text("{}", encoding="utf-8")
+        (sprints / f"{sid}.N1-resource_binding.json").write_text("{}", encoding="utf-8")
+        (sprints / f"{sid}.N1-bridged_artifact.md").write_text("# Bridge\n", encoding="utf-8")
+        (sprints / f"{sid}.N1-patch_diff.md").write_text("# Patch\n", encoding="utf-8")
+
+        result = gnd.node_verdict(
+            str(graph_path), "N1", "pass",
+            eval_json=str(eval_json),
+            dry_run=True,
+        )
+
+        assert result["ok"] is True
+        assert result["status"] == "passed"
+        assert result["proof_gate"]["required"] is True
+        assert result["proof_gate"]["ok"] is True
+
+    def test_proof_gate_accepts_pipeline_hyphenated_sidecar_artifacts(self, tmp_path, monkeypatch):
+        sid = "sprint-ac3-proof-hyphen-sidecars"
+        graph_path = _setup_dispatcher_graph(tmp_path, monkeypatch, sid)
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        graph["nodes"][0]["proof_obligations"] = [
+            {
+                "kind": "postcondition",
+                "requirement": "output_present",
+                "field": "guard_decision",
+            },
+            {
+                "kind": "postcondition",
+                "requirement": "output_present",
+                "field": "resource_binding",
+            },
+            {
+                "kind": "pass_condition",
+                "requirement": "patch_diff exists",
+            },
+        ]
+        graph_path.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
+
+        sprints = tmp_path / "sprints"
+        (sprints / f"{sid}.N1-handoff.md").write_text("# Handoff\n", encoding="utf-8")
+        eval_json = sprints / f"{sid}.N1-eval.json"
+        eval_json.write_text(json.dumps({"node_id": "N1", "verdict": "PASS"}), encoding="utf-8")
+        (sprints / f"{sid}.N1-eval.md").write_text("# Eval\nPASS\n", encoding="utf-8")
+        (sprints / f"{sid}.N1-guard-decision.json").write_text("{}", encoding="utf-8")
+        (sprints / f"{sid}.N1-resource-binding.json").write_text("{}", encoding="utf-8")
+        (sprints / f"{sid}.N1-patch.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+        result = gnd.node_verdict(
+            str(graph_path), "N1", "pass",
+            eval_json=str(eval_json),
+            dry_run=True,
+        )
+
+        assert result["ok"] is True
+        assert result["proof_gate"]["required"] is True
+        assert result["proof_gate"]["ok"] is True
+
+    def test_review_node_uses_review_decision_validation_over_capsule_sidecars(
+        self, tmp_path, monkeypatch,
+    ):
+        sid = "sprint-review-closeout"
+        graph_path = _setup_dispatcher_graph(tmp_path, monkeypatch, sid)
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        node = graph["nodes"][0]
+        node.update(
+            {
+                "id": "S3",
+                "type": "review",
+                "validation": [
+                    {
+                        "kind": "artifact",
+                        "target": "review_decision.yaml",
+                        "required": True,
+                    }
+                ],
+                "write_scope": [
+                    f"sprints/{sid}.S3-review-decision.yaml",
+                    f"sprints/{sid}.S3-handoff.md",
+                    f"sprints/{sid}.S3-eval.md",
+                    f"sprints/{sid}.S3-eval.json",
+                ],
+                "capsule_plan_ir": {
+                    "proof_obligations": [
+                        {
+                            "kind": "postcondition",
+                            "requirement": "output_present",
+                            "field": "guard_decision",
+                        },
+                        {
+                            "kind": "postcondition",
+                            "requirement": "output_present",
+                            "field": "resource_binding",
+                        },
+                        {
+                            "kind": "postcondition",
+                            "requirement": "output_present",
+                            "field": "bridged_artifact",
+                        },
+                    ]
+                },
+            }
+        )
+        graph_path.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
+
+        sprints = tmp_path / "sprints"
+        eval_json = sprints / f"{sid}.S3-eval.json"
+        eval_json.write_text(json.dumps({"node_id": "S3", "verdict": "PASS"}), encoding="utf-8")
+        (sprints / f"{sid}.S3-eval.md").write_text("# Eval\nPASS\n", encoding="utf-8")
+        (sprints / f"{sid}.S3-handoff.md").write_text("# Handoff\n", encoding="utf-8")
+        (sprints / f"{sid}.S3-review-decision.yaml").write_text("verdict: PASS\n", encoding="utf-8")
+
+        result = gnd.node_verdict(
+            str(graph_path), "S3", "pass",
+            eval_json=str(eval_json),
+            dry_run=True,
+        )
+
+        assert result["ok"] is True
+        assert result["status"] == "passed"
+        assert result["proof_gate"]["required"] is True
+        assert result["proof_gate"]["ok"] is True
+        assert result["proof_gate"]["artifact_presence"]["review_decision"] is True
+        checked_requirements = {
+            item["requirement"] for item in result["proof_gate"]["checked"]
+        }
+        assert "review_decision exists" in checked_requirements
+        assert "guard_decision exists" not in checked_requirements

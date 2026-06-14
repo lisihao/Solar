@@ -1,0 +1,1589 @@
+{
+  "videoId": "UsB70Tf5zcE",
+  "title": "Training an LLM from Scratch, Locally — Angelos Perivolaropoulos, ElevenLabs",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 78609,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thank you very much for joining for this\nworkshop.\nUh this is going to be a hands-on\nworkshop. So, hopefully you can get your\nhands dirty doing some very interesting\nvery interesting project.\nto start with a little bit about myself.\nUh my name is Angelos. I lead the\nspeech-to-text team at Eleven Labs. I'm\na research engineer. So, I spend the\nmost of my time\ntraining new models, working on\ninference, and also I'm on the product\nside. So, I'm\nresponsible for unfortunately talking to\nclients sometimes, which I don't fully\nenjoy. I'm the kind of person that\nreally likes to go straight into\nresearch and do\ntrain models and make things that are\nset of the art and very powerful.\nCurrently, I'm working on training\nreal-time models for transcription.\nUh specifically for agents. And if you\nhave if you don't know already, we have\nthis scribe V2 model that my team\ntrained. It's currently the best\ntranscription model in the market in\nterms of like popular public benchmarks.\nUh so, if you have any any transcription\nuse cases, feel free to use it. I think\nit's quite good.\nUh now as part of the workshop itself,\nuh today we're going to be training an\nLLM from scratch. So, no pre-trained\nweights, no\nuh nothing that you can just grab online\nfrom like a Transformers library. We're\ngoing to work purely on torch and some\nlike very basic libraries. We could go a\nlevel below and not use torch, but I\ndon't want to to torture you that much.\nUh so, I think torch is like a good\nlevel and this will be like a good\nindication of how like actual like\nresearch engineers like in in big labs\nlike design their models and\nwhatever is further than that is more\nlike optimizations and making the scale\nbe better and bigger and improving for\nspecific use cases. So, this what you're\ngoing to be doing today\nis like pretty much like 80% of of the\nway there to to create like a model from\nscratch.\nif you can go on this uh QR code, uh\nyou're going to find this uh GitHub\nrepo.\nUh I'm going to switch\nto that now. I'll leave it for a little\nbit longer. Uh\nthere's you have two options. Uh one is\neither train the model locally in your\nlaptop. Like if you have like a 16 GB of\nmemory, you should be able to do it.\nIt's a small, very tiny model that you\ncan train fast. Uh if not, and I'm\nguessing because not many people have\noutlets, maybe a Google Colab would be a\nanother option. Uh Google Colab gives\nyou free GPUs\nthat you can use for for training such a\nsmall model.\nSo, either it will be your choice.\nUm well,\nI'm going to leave this on for a little\nbit longer.\nAnd then we can go in\nthe actual repo itself.\nUm so, to give you some idea of the\ninspiration of this um\nof this project, uh\nmy first exposure to to transformers and\nLLMs in general was through this\nvideo from from Andrej Karpathy, who was\none of the co-founders of of OpenAI.\nwhich was this code nanoGPT, and for me\nthat was like a very special project.\nThis is essentially like what inspires\nlike this this workshop as well. Uh\nit's a bit lower level than what we're\ngoing to be doing now. So, it goes a bit\ndeeper like into how you're using NumPy\nfor like a lot of calculations. But I\nthink it's a good uh blueprint that we\ncan follow for for us to be able to\ncreate a model from scratch.\nlet me\nput this to the screen.\nBut yeah, if you if you don't if you if\nyou if you don't know this project, I\nthink it's that's it's a great\nintroduction. If you do know this\nproject and you've trained the elements\nlike that before,\nthis might be like seem a bit simple for\nyou, but I think that there are ways we\ncan expand this workshop to towards\ndoing something that's\na little more of a competition, which I\nwould see I would like to see what you\ncan come up with.\nFor the specific\nFor the specific workshop, we're going\nto work with a very small model that's\nbased on the GP2 GPT-2 architecture.\nIt's a bit of an older architecture, but\nthe the the base the the fundamental\nparts of it are basically haven't\nchanged too much.\nAnd we're going to go over over those in\nin a bit.\nThe four building blocks you need to to\ntrain a model is First one is going to\nbe the tokenizer.\nAnd depending on what your use case is,\nyou'd want to use a different tokenizer\nfor that specific use case. If you want\nto train, for example, a very big model\nthat can that wants you want to generate\ntext for like multiple languages, you'll\nneed a huge tokenizer, which means\nyou're going to need a huge amount of\ndata as well to train it.\nBut for a for a smaller model,\na smaller tokenizer with with with\nsmaller embeddings is what would work\nbest and train the fastest when your\nwhen your data limited, which is what we\nare right now.\nNext will be a model architecture.\nTo be honest, like at most models like\nhave at least at at the at the period\nthat we're going to be working in were\nvery similar. Like in in they were just\ndecoder only\ncausal decoder only models that had a\nvery similar\nway of of using causal self-attention\nand the same like MLP layers and the\nsame like layer norms and all kind of\nstuff, which we'll we'll get we'll get\nto it.\nSo, if you know how to do this this like\nsmall models, it's very easy to go and\ndo the same process for like bigger like\nnewer models, but of course the newer\nmodels are going to be way more\nspecialized for longer context and\nessentially essentially being able to\nscale this train the they're architected\nin a way to be able to scale training to\nas many tokens as possible, which you\nwon't need in this case.\nAnd lastly it's the it's the training\nloop, which this is generally the most\nimportant part when you're training a\nnew model.\nLike if you check the difference between\nlike GPT-4, GPT-4o, and GPT-5 or even\neven if you go before that,\nwhat you'll see mostly that usually the\npre-training is very similar. It's the\nfine-tuning and post-training and\nessentially what you use with a with the\nsame base model or like very similar\nbase model.\nAnd the way you train it actually makes\na big difference in performances. And\nnow we see for example uh Gemini 3 comes\nout and then has this this this many\nthis good benchmarks and then 3.1 comes\nout that has like double the performance\nin some benchmarks, which is crazy. Like\nobviously it's very sim- the models are\nvery similar, but actually during\ntraining the train the the train the new\nmodel in smarter ways to improve\nperformance like\nvery substantially.\nNow as for the end and lastly of course\nthe inference part like that's going to\nbe very easy for us like because we're\njust it's going to be a small model that\ncan run everywhere.\nso like without that's going to be very\nsimple uh part of the the building\nblocks.\nUh then the prerequisites, any laptop\nwill do uh that has at least six 16 GB\nof RAM.\nYou can work with with with smaller\nlaptops as well, it'll just be a bit\nslower. Bigger laptops you can crank up\nthe batch sizes higher, so it will train\nfaster.\nUh Python 3.12 and I expect uh I expect\nthat most of you have like some idea of\nhow to write Python. Uh\nlike if you don't nothing is still quite\nyou can just copy paste things until\nsomething works or like ask for some\nhelp.\nUh this training can uses uh Apple\nSilicon, so the the MPS architect the\nMPS architecture, CUDA or CPU, so it can\nbasically support everything.\nUm and as for getting started, uh\nthis just makes things easier. Like I'm\nusing UV for this project. Uh so\nif you have your laptop out, you can\ninstall UV on your machine if you\nhaven't.\nUh it's it's quite straightforward and\nthere's no UV is quite simple. You can\njust um UV sync and it creates a virtual\nenvironment for you and makes your life\neasier.\nAnd we're going to write the code in a\nscratchpad\nor if you're using Google Colab, which\ndepends if you're into those very good,\nmaybe that's a better idea.\nif you just go to\nif you just go to and create a new um\nlet me actually create a new on a\nseparate one so we can\nwe can follow along.\nYeah.\nSo if you open Google Colab and you\ncreate a new um Colab project,\nyou can run this command\nwhich just installs the what we need,\nwhich is just torch, numpy, tqdm, and\ntick token. Tick token is mostly for\nfor testing things out.\nAnd yeah, we can move on to the first\npart of this um\nuh of this workshop, which is going to\nbe the tokenizer. As I mentioned, like\nthis is generally the first thing you\nthink about when you create a new a new\na new transform model is what tokenizer\nyou're using.\nI come from the voice world, so\nthis is where that that's the one of the\nmost important things. Like we think,\n\"Okay, we need to train this new TTS\nmodel\nand we're going to spend maybe 6 months\nthinking about the tokenizer, and then\nwe're going to spend 2 months on the\narchitecture.\" So that's that's like\ngenerally one of the most important\nthings of deciding\nhow to create a new transformer.\nFor those who don't know what a\ntokenizer is, like LLMs don't see text.\nThey they work with embeddings or like\nvectors.\nUh so we need like some kind of\nrepresentation of those vectors for the\nmodel to be able to process.\nUh what we're going to be using here is\na character level alignment.\nUh a character level tokenization,\nsorry.\nJust because it's it has the lowest\nnumber of possible tokens.\nin the in our case for on our uh data\nset is going to be only 65 embeddings\nessentially cuz there's the 65 different\ncharacters that will appear in the in\nour training data.\nAnd the way it works uh like this this\ngoing to be using the Shakespeare data\nset there's a few works of Shakespeare.\nIt's part of the\num it it it's part of the repo itself\nbut you can if you're using\num if you're using Colab there's going\nto be a link on how to download it on\nColab a little bit later.\nAnd essentially we're going to use this\nthis story library which basically just\nconverts\nwill be converting strings to integers\nand that these integers will then be\nturned to embeddings through the\nembedding layer when we train the the\nLLM. And it's a very very simple\nstraightforward tokenizer uses this\nenumerate\nuh function from\nfrom uh\nfrom Python and just then selects that\nspecific item that has selected with a\nuh this dictionary.\nSo yeah as I said before like we use\nwe use character level because it's much\neasier to train.\nbecause we have 65 65 uh\ntokens only it means that we\nthe bigram combinations will be like 65\n* 65 so 4,225 possible bigrams. Bigrams\nare essentially like when you have one\ntoken and then you predict the next\ntoken after it. And this concept of of\nof bigram is very is a very important\nconcept when when you're training\ntransformers cuz you want your model to\nsee as many possible bigrams as\npossible. So, if you have a model with\nlet's say 200,000 tokens,\nyou need 200,000 tokens squared at least\ndata to be able to to train like a\nfrom scratch in a in a in a in a very\ngood way.\nUh so, the or at least like this is the\nmagnitude that you're looking for. In\nour case, 4,000 bigrams is like very\ndoable. Like this this data set should\nbe included all bigrams like multiple\ntimes very likely.\nUm if we did try to train using a full\ntokenizer, this will never converge. We\ncan just be training it for hours and\nhours and then our model will never be\nable to to get good results.\nNow, the problem with with character\nlevel uh tokenizers is that they don't\nreally scale very well. Uh\nbecause the models they the way they\nwork is that they need to understand\ncorrelation between different tokens.\nUm so, you can very easily have a\ncorrelation saying \"The sky is blue.\"\nLike\nthese tokens combined together like make\na lot of sense.\nBut S K Y and then I S and then B L U E\nthat\nit's a bit harder for them for the model\nto be able to make like good\nto attend to these tokens in in in a\ngood way.\nUh so, this would this would work quite\nwell for our example.\nBut if you want like a very very good\nmodel, uh\none it will be expensive to train\nbecause of course like\nyou have to create like a ton of tokens\nwhen during inference and during\ntraining. Uh but also it will just never\nconverge to something good cuz the model\nthe the tokens combined don't make too\nmuch sense.\nUm so, that's our trade-off, but this is\na trade-off that we're willing to take\nbecause of course we're running a\na small model. But in the future if you\nwant to expand this to something better,\nif you want to train like a proper LLM\nand you're happy to train for like a\nweek or using bigger GPUs,\nuh using a proper tokenizer, that's used\nlike byte pair encoding is like the most\ncommon\nuh way of like doing tokenizers these\ndays,\nwhich essentially takes all\nYou can the way you would train a BP\ntokenizer is that you take all your\ntraining data and you define all common\npatterns\nand combine those common\nthose common like character patterns\ninto specific tokens that then you can\nreuse and the model can understand\nrelationships of.\nSo, the the way that this connects to\nthe model itself is we have this\nembedding table which is size vocab size\nand then it's what I said before, it\ntakes\na vector of integers and then returns\nuh sorry, a a list of integers integers\nand then returns\na list of vectors which is going to be\ntheir embeddings.\nand like like I said before, like\nthat's if we did use uh such a big\nsuch a big tokenizer, that would also be\nlike more than twice the size of our\nmodels cuz if you just multiply this,\nour uh\nembedding size is 384 for this model\nthat we're going to be training. So,\nthat's already\nlike 25,000 parameters and in that case\nlike if we used\nGP the tools vocab which is 50,000, that\nwould be 19 million parameters which is\nlike more than three times the model\nwhich wouldn't make sense in our case.\nUh so, now moving on to the next part of\nthis workshop which is going to be the\ntransformer itself.\nAnd as as I mentioned before like the\ntransformers, they have been kind of\ncommoditized now.\nThe way transformers work like there are\ndifferent labs that find different\noptimizations, but the optimizations\nlike in principle more about\nwe have this like\nbase like idea that works really well.\nHow can we make it\ntrain faster and like have bigger\ncontext and\nand people find ways that are more\noptimizations than than than necessarily\nreinventing the wheel. Uh for this at\nleast there are some of course hybrid\napproaches that are more complicated.\nUh so I'm I'm not going to go too deep\non how transformers work. Uh\nAnd also to prove a point that you don't\nnecessarily need to know in a very deep\nlevel how transformers work to to be\nable to train something like this.\nUh when I first like did this project\nmyself I didn't I had no clue how\ntransformers worked and\nI still didn't that much at the end of\nthe\nthe work the previous project I worked\non.\nBut it once the more you work on it and\nthe more you like you have motivation to\ncontinue pushing through you can\nunderstand all the different concepts\ntogether and how they\nthey they stack together and the reasons\nwhy they ended up the way they are.\nto go back to the big picture uh\ntransformers are\nare are using like these four different\nbuilding blocks.\nUh one is multi-head self-attention.\nattention is like what\nthe difference between that makes it\ntransformers different than other neural\nnetworks\nis that they can actually attend to\nprevious tokens and understand the\nrelationship between tokens that I was I\nwas mentioning before and that's where\nattention comes in.\nAnd of course the bigger your attention\nis the more the model understands those\nrelationships. And going back to what I\nsaid that's the what like big labs like\nGemini they're trying to do 1 million\ncontext and they're finding ways because\nif you just try to use a 1 million\ncontext for the for a model like this it\nwould just break very easily like the\nthe math wouldn't work.\nSo then that's when like the engineers\nfrom the researchers from Gemini found\nways to\nto make it work. And that's what that\nthat makes a difference but again\nfundamentally it's like the same the\nsame architecture.\nUh next one is the is the MLP\nuh or like the feed forward network uh\nwhich essentially takes this\ndifferent uh\nuh relationships between those tokens\nand\nwhile taking them\nwhile the the the relationship\nthemselves are uh\narranged all of the relationship between\nthe tokens themselves, it it combines\nthem together to\nto be able to generate the logits that\nwill then be uh so it's essentially kind\nof a\nit takes the context and then organizes\nit in ways that the model can then\ngenerate the logits and then generate\nthe tokens.\nI hope that was a decent explanation.\nAnd then you have the residual\nconnections which are basically there\nfor the model to\nto not have to reinvent itself after\nevery layer. Uh residual basically means\nthat every layer that that passes\nthrough the uh\ncuz as as as we'll talk about later\ntransformer is is is is built on\nmultiple different layers that we pass\nthrough the activations one after the\nother.\nAnd residuals are there so that each\nactivation doesn't completely uh\nrestart things from scratch. It just\nchanges them slightly. So it just takes\nthe previous input and makes a small and\nnot just small difference. The next\nlayer does the same and next layer does\nthe same and this will continue on. And\nthis way the model doesn't\nthe each layer doesn't make a huge\nchange on the inputs themselves\nuh and the model can be more stable\nduring training.\nAnd lastly with the layer normalization\nhas a very similar uh\nhas a very similar role in\nbeing able to\nthe the layer normalization is able is\nis allowing you\nto scale down those activations in ways\nthat\nthat allows that those activations not\nbe to not be exploding into very big\nvalues. So if one layer\nlike multiplies your activation by 10x,\nlet's say,\nthe layer norm is going to push it back\nback to like normal values, so it\ndoesn't go 10x 10x 10x, and then you can\nhave like\nmillions of values that started like 0.5\nand then end at 10 million.\nThat's what the layer norm is for.\nbut again, these are just the building\nblocks. You don't necessarily need to\nknow like why they're there and what the\nwhat the purpose of them is. Like you\nyou learn this as you start working on\nthese models more and understand\nhow does the why these decisions were\nmade. Cuz all of them are\nas like as I'm talking to you, of\ncourse, were done by\nWe have a certain idea. Oh, this didn't\nwork. So, let's add this to make it\nwork. Sorry, go ahead.\nAre you showing me some slides that we\nhaven't seen yet?\nOh, oops.\nYeah, I was showing.\nWhere is it?\nI apologize for that.\nYes. So,\nI I was I was going through the\ntokenization.\nUh that was the previous uh what what\nmy previous point.\nand that's if you if you can go back and\nyou'll have to go back through and forth\nthrough the slides when you're working\non your the model yourself, cuz you can\nyou have to like copy paste the the the\nparts or\nfigure them out yourself.\nBut it it was explaining why\nwe're going with character level\ntokenization and\nand what the other options we have.\nThen for the transformer, I will explain\nthe different in the big picture, the\ndifferent blocks of of architecture.\nUm and then now going to\nhow does this look like in code? Uh\ncuz all the things I described to you\nactually are very cool There's very\nlittle code you need to to to implement\nthem.\nUh first we start with\nthe basis of Sorry, go ahead.\nwhen it comes to code, does it apply\nand because\nat least in English, you know, you have\nwords, vocabularies kind of\nfixed.\nBut in Python, you have your own\nvariables and so on. So, how does\ntokenization\nwork in that setting?\nWhat would be a token?\nSorry.\nSo, in a programming language, of\ncourse, you have programming syntax,\nkeywords, but then you have also normal\nvariables, function names, and so on.\nSo, when it comes to tokenization, how\ndoes that work? So, yeah,\nas I mentioned to you before, uh\nwe're going to be using like a\ncharacter-level tokenizer because it's\ngoing to be easy for this project, but\nmost big labs, they don't use\ncharacter-level tokenization. They They\nuse what I was mentioning earlier, the\nBPE tokenizer or like\nbyte push\nEssentially, they they what they do is\nthat they You You look at your training\ndata. Let's say you have like this many\ntrillions of tokens, and your training\ndata is going to be including like code,\nas you mentioned yourself.\nUh and the way it works, it will just\nlook at common patterns. Uh so, if you\nhave like a lot of training data that is\nthat is code itself,\nit will it will see, and then it will\nrealize, \"Okay, for loops seem to be\nlike a good candidate for for that to be\na token.\" So, the for is going to be for\nsure a token. And then you might have\nsome like enumerate. Enumerate you Do\nyou see quite commonly in the\nin the training data, so that will be\nanother token. So, it will look at all\nthese different tokens, and then create\nthis tokenizer based on the common uh\nrelationship between them.\nUh of course, like maybe some languages\nthat are like maybe Pascal that might\nnot be very common in the language, so\nthis the keywords of Pascal might not be\nlike very common. Although, I do think\nthat there probably is like good\nrepresentation in the tokenizers, too.\nBut some other of those like crazy like\nwhite space-only like languages that\nthis these ones probably are not going\nto be work very well.\nMy question was more on the So, one\nthing is the keywords of the programming\nlanguage, but then you have your own\nvariable names.\nWhich are not common among different\nprograms.\n>> I I see that's what you mean. Making\nthem as tokens, I'm not sure how does\nthat help. So\nagain like there's no there's no\nspecific way there's no like human in\nthe loop in this process. It depends on\nyour training data that you use to train\nthis tokenizer.\nif your code like there's like foo and\nbar like that's like common variables\nthese were probably are going to be\ntokens. Like if your your if your\nvariable names are like very strange\nlike random characters and yeah probably\nthat's not going to be in the tokenizer.\nAnd when this happens uh the tokenizer\nwill fall back to character level or\nlike bit by\nbyte code level tokenization.\nSo if your if your token is like just\nrandom like gibbles it will just be each\ncharacter or like some maybe some\ncombinations might be together uh\nas different tokens but most of them are\ngoing to be separate tokens and that's\ngoing to be a bit of a pain to\nfor during inference and uh maybe not\nnot not not the best if you want uh\nefficient inference. Thank you.\nUm but yeah going back to to the\ntransformer side of the things um\nas I said the the models are generally\nquite uh quite quite similar um\nand the code for actually implementing\nthese transformers is also\nquite simple and like easy to write.\nIt's like maybe\nmaybe 100 lines actually usually more\nthan that less than that.\nUm and the first thing we have to to to\naccept is\nwhat the parameters of this transformer\nshould look like. As I mentioned before\nvocab size is the size of your tokenizer\nin our case it will be 65. Block size is\nessentially the sequence length or like\nthe the\nthe context window.\nUm in our case that would be 256 which\nis very very small for these models but\nbecause we're training a model locally\nlike that's kind kind of what we have to\ndo.\nUh bigger labs would use like 1 million\ncontext size for something like that.\nUh, but generally like 16,000 is like a\ncommon middle ground.\nUh, then we have the layers. How many as\nI mentioned before like uh,\ntransformers have multiple layers and\nthen you run the activations through\neach one of those layers. We're going to\ngo with a modest number of six.\nAnd then the attention heads like the\nthe way that uh, attention works is that\nyou might you'll have going to have\ndifferent heads for attention that are\ngoing to be attending for different\nthings. Like one of the attention heads\nmight be looking at punctuation. Maybe\nanother attention head might be looking\nat the grammar. Uh, so all these\ndifferent attention heads are attending\nto like a specific uh,\nuh, feature of the text or if you're\nusing audio a specific feature of the\naudio etc.\nUh, and lastly that's the embedding\ndimension. Uh,\nuh, that's how big the actual vectors of\nthose tokens that you uh, create are.\nUh, in our case we're going to start\nwith a 384. That's like the standard for\nGPT-2.\nBut a bigger value of course would have\nmore information per token. A smaller\nvalue would would have less, but that's\nlike a pretty standard value you can\nstart with.\nUm,\nas for the code itself, uh, feel free to\ncopy paste part of this uh, if you want\nto spend more time understanding it. I\ndon't want to go too deep into like all\nthe little details of how things work.\nUh, but essentially like\nyou're\ngenerally have like this overarching\nmodule and I guess we're going to call\nthat GPT and that overarching uh, top\nlevel module is going to include all the\nother modules that I described earlier.\nUh, in this case it will this will take\nthe config.\nUh, in this case this this will take the\nconfig\nthat we have we we had above and then\nwe'll create this uh, using we're using\ntorch uh,\nmodule dict here just because it's like\nthe easiest way to implement this. But\nthis is all just math like you can\neverything you see here would just be\nlike calculations like two matrix\nmultiplications that torch allows us to\nabstract and make things easier. And\npretty much all the things you see here\nyou see here are like neural networks\nlike smaller or bigger that are combined\ntogether.\nYes.\nUm not necessarily.\nSorry, maybe you can repeat the question\nwith the microphone. So the the the size\nof the input sequence is related to the\nnumber of parameters in your model.\nUh not necessarily. You can have like\nlarge sequences with like small models\nor like small sequences with with with\nbigger models. The The main thing that\nthis shows is essentially\nthere are two ways you can train a\nmodel. You can train a model like that\nlooks at that's a full attention model\nlet's say that looks at the full\nattention. So it looks at the whole past\nuh essentially uh which is what we're\nbuilding here today. Or you can have a\nwindowed model. That's where most of the\nlike bigger models that are out right\nnow that only look up to like this much\nin the past. And this parameter is the\nsize of that window that Okay.\n>> Yes, it's what we're going to be using\nto train. So the model will will not\nhave seen anything greater than 256 56\ntokens in the sequence.\nIf you try to go above that, it will it\nwill pass out. It will have issues. But\nso let's say we have like computational\ncapacity to increase the number of\nparameters to make the help the model\nreason better, right? Which number would\nyou crank up here to say it? Like would\nyou increase the number of layers,\nattention heads, or um\nI I would increase all of the all all of\nwhat they see here except of maybe the\nthe embedding size and maybe dimension.\nI don't remember exactly what other\nmodels do the exact numbers. I think\nthat seems reasonable to me.\nBut everything else like it works well\nfor like a small token small a small\nmodel.\n256 block size is tiny. Like that's if\nyou try to run this on chat GPT like you\nwould just forget things that you wrote\nlike 10 sentences before.\nbut\nthe the bigger you make this the harder\nit is to do the training. And that's\nwhat I was talking about scaling laws is\nthat\nyou can't just say he go here and say\nokay actually I don't want a 256 I want\n2 million context length.\nYou can't train this like that at least\nwith this current architecture. So\nthat's what like like researchers after\nlike GPT 3.5 came out they were like\nokay people are complaining that we only\nhave 16k context size. We want 1\nmillion. How do we do it? You can't just\nchange this number. You have to change\nthe architecture to allow training to be\nable otherwise you're just going to go\nlike out of memory like instantly.\nUh so that's like one of the things that\nresearchers now try to to to figure out\nhow we're going to be able to increase\nthese numbers here while keeping\ntraining stable.\nOr how how do you increase these numbers\nhere while keeping training stable and\nstill able to to have enough\ncompute to be able to do this?\nI hope this answers your question.\nAwesome. Thank you.\nSo yeah the the first thing we would\nhave to do is as I mentioned before like\ncreate the\nthe top level representation of our\nmodel that you can see here as the GPT\nclass.\nUh I'm not going to go again to to too\nmuch into the details but like you want\none would be the how the your model like\nunderstands embeddings and also how does\nit understand embedding position.\nUh I don't want to go into details but\nessentially you need the tokens need to\nbe able to understand both.\nthen you'd have essentially here all the\nlayers that I was mentioning earlier and\neach of them is configured as\nas a block, which we're going to go at\nthe definition of block later\nas a little bit later.\nBut essentially a block is like a layer\nof the transformer\nthat includes its own attention and its\nown like layer norms and it continues\nthe it\nfeeds into each other the the one you do\nthe forward pass.\nAnd lastly, you have the LM head and\nthis is the LM head takes all the\noutputs of the above and connects them\ntogether into\nwhat we call like logits, which is the\ndistribution of what the the next token\nshould be that should be generated. Uh,\ncuz I as I mentioned earlier like\nmaybe I did maybe I didn't, but the way\ntransformers work is that they predict\nnext token. So, you take the previous\nthe previous context, you predict the\nnext token and you have to sample this\ntoken on on this distribution.\nAnd the LM head creates this\ndistribution that we we sample from.\nThen the the the next important bit that\nlike is again like quite quite\nstraightforward like it is it's quite\nsimilar in most of these models is the\nforward pass\nwhich essentially allows the model to\nto go to to take the input, which is\ngoing to be the tokens that we mentioned\nand push them through all these\ndifferent components that that that that\nI mentioned earlier.\nUh,\nand just does some um\nuh does some some some pre-processing,\nturns tokens into embeddings and\npositional embeddings uh I I I\nadd them together, then goes through all\nthe blocks of the transformer, all the\ndifferent layers of the transformer\nand just runs the the forward pass of\nthat transformer.\nAnd then does the linear norms and then\npasses through the LM head to get a\ndistribution of those logits that we\nmentioned earlier.\nand this is if you're doing training,\nthis would also do cross-entropy loss\num in this case and then at the end\nyou're going to get logits and loss as\nthe outputs of your of uh\nof your transform model.\nAnd I do have some diagrams here that\nyou can see.\nlike they're quite they're quite basic,\nbut essentially they show the flow of\ntake token IDs, you pass them to make\nthem into embeddings, token embeddings\nand positional embeddings, you add them\ntogether, you pass them through the\ntransformer, then through the layer norm\nthat just makes the outputs\nin a space that the LM head can\ncomprehend easier.\nAnd then you return this distribution of\nlike what the next token should be\nthat has that has this this size and as\nI mentioned before, like 65 is\nthe size of like your voca- our vocab-\nour our our token size.\nAnd\nnow self-attention is like a little bit\nmore complicated. I don't want to go\nagain to go too deep of how\nhow that works, but essentially at-\nattention is there to to understand the\nrelationships between the tokens.\nUh essentially what what is the\nimportant like if I say the sky is blue,\nblue and sky have a a very big\ncorrelation.\nUh so that's what attention does. Based\non the how you've trained your weights,\nyou will understand what tokens should\nbe attending to each other and put\nhigher emphasis on those specific\nrelationships.\nNow\nagain going back to what I was say-\nsaying before about the what that's why\nthe tokenizer matters a lot cuz\nsky and blue are very easy to very easy\nfor the model to make this relationship.\nWhile in our case\nyou'll have to like combine different\ngroups of tokens together the different\ncharacters together, that's quite a bit\nharder.\nBut this that's that's what attention\ndoes. It's It's the\nwhat what each token should be attending\nto in the past and what has most\nimportance for it.\nAnd it has also a forward pass as all of\nthese different blocks do. And in your\nimplementation, feel free to just\ncopy-paste these these blocks. Uh maybe\nyou can spend some more time on\nunderstanding the diagrams and and how\nthings work.\nUh but as you can see, even something as\ncomplicated as attention has a very\nsmall It It's just a few lines of code\nto to implement.\nAnd yeah, lastly the the MLP block uh is\nagain as I mentioned earlier uh also\nlike again I already talked about the\nmulti-head\nwhy attention has multiple heads cuz\neach head attends to different parts of\nwhat makes language what it is.\nAnd then the MLP block\ntakes the outputs of attention and and\nmakes sense of all those different\nrelationships into something that the\nmodel can then understand a bit better.\nwhich again is just essentially just a a\nneural network that just combines things\ninto something that's a bit more\nunderstandable for the LM head to then\nbe able to to generate distribution for\nlogits.\nYeah, yeah, no, you can interrupt. Do we\nhave the same MLP\nfor individual transformer blocks?\nUh Like is it the same architecture and\nthe same weights between the different\ntransformer blocks?\nNo, each each block has its own weight.\nEach block\nThe the way each layer essentially you'd\nhave each layer that we'd call blocks.\nthey usually have like a different\nsection for like a different prefix for\nthe weights of like MLP would be a\ndifferent like maybe usually they're\ncalled FFN blocks instead of MLP, but\nit would still be the same. So, each\nblock has its own weights.\nAnd the MLP each each layer\nYes, each block has its own MLP.\nSo, it's is you have its block has its\nown\nuh as you can see here, it's on\nattention, its own uh\nlinear lay linear norms, and its own\nMLP.\nThat's what basically makes a layer of a\nof a transformer.\nAnd and that's what I what my point was\ngoing to be later.\nEverything comes together into this\nblock that we can see here, which is\nbasically a layer of a transformer\nthat has some normalization, running the\nattention to get the relationship\nbetween the models, and then having the\nMLP that combines the relationship of\nthe sorry, the relation between tokens,\nand then the MLP that takes\nthose relationships and turns them into\nlike a representation that's easy for\nthe model to uh\nto create the logits.\nAnd uh this uh oops.\nThis is what I was saying. Sorry. I have\ntwo different screens. I shouldn't be\ndoing that.\nBut yes, this is this is the transformer\nblock. This is the the building block\nessentially of of a transformer.\nIt has layer norm, the attention,\nand another layer norm. Like not all of\nthe models have this this configuration,\nbut this specific one has this. And then\nthe MLP that\ntakes everything and\ncreates it into a a representation that\nmakes sense for us to be able to make\nthe generations.\nAnd uh you can see here like a bit more\nof a like a simple diagram of how this\nthis works.\nYes? The original uh nano GPT had the\nresidual connection as well. Do you\nremember?\nUh so, the residual should be there. Um\nNo, no. What I mean on the\non Andre Andre Karpathy's nano GPT, did\nit have the\nI I don't I don't remember. Uh I It's\nbeen a while since I I Okay. Like I got\nI I I had the idea but from there, but I\nbuilt everything from scratch. So, I\ndon't I don't really remember if it did\nor not.\nUh but yeah, residual as you can what,\nthe idea of residual uh would be, as you\ncan see here, instead of doing X equals\nthe attention, you do X equals X plus\nattention. So, you you get the\ndifference. The the the values of the\nactivations don't change that much.\nUh, that's the idea of like doing the\nresiduals.\nUm,\nuh, and yeah. So, we have this like if\nyou wanted to implement this yourself,\nyou can copy paste all these different\nclasses into one file that you can call\nmodel.py.\nUm,\nand this is essentially all the maths of\nhow the transformers works. Um,\nand as I mentioned before, then we have\nto decide how big the transform is, like\nthe parameter count that you can see\nhere,\nuh, is just a 10 million parameter based\non what I was saying above.\nUh, you can just find yourself by just\nsumming all the all the different\nparameters of all the different parts of\nthe different blocks that we had above.\nUm, the token embeddings is 65 * 384. We\nsaid this is the vector for each\nembedding, so it's 25k. The positional\nembeddings is 256. 256, remember, is the\nsequence length, the max sequence length\nof the model. So, that's another 98k\nparameters.\nAnd then where the the biggest part of\nthe logic is is in the\nactual transformer blocks themselves,\nwhere most of the parameters live. So,\nyou have\num,\nyou have 4x.\nUh, so, the four there comes of the way\nattention works, where you have key\nvalue key query key and value pair. So,\nit's it's part of the potential has like\nfour different parameters. For for um,\nfor 384, which is the amount of tokens\ntimes the relationships between those\ntokens. So, 204 per vector times 384.\nSo, that's 590 that we have for the for\nthe attention per layer. And then for\nthe MLP, you have again the similar\nlogic of\nI don't remember what this 1,536 is, but\nyeah, in the end it turns out into being\n1.2 million.\nSo, total amount of parameter size we're\ngoing to be training is going to be 1.8\nmillion parameters, which should be good\nfor\nwhich should be easy to train for like\nmost devices.\nUh so, yeah, you can go back to this. It\nhas a lot of details that that makes\nthat that will that will make sense for\nyou to go back and understand a bit\ndeeper, do your own research on on this.\nBut, this is like the general like very\nvery high-level idea of how these\ntransformers work.\nAnd uh\nwe're going to go now to the the\ntraining loop.\nAnd that's where most of the meat of\nthis project is going to be. Um\nWell, we have this this transformer, uh\nhow we're going to train it into do what\nwe want it to do.\nThe objective of this training we're\ngoing to be working today is\nsomething that one has to be very easily\nrecognizable. Uh but, you know, when the\nmodel starts working and and groks,\nwhich means that it it understood what\nit's trying to do. It's going to be very\neasy to understand that the model\nactually works now.\nUh and secondly, it should be something\nthat's like quite easy for the model to\nlearn. Uh if you if the model had to\nto write uh\nPython uh like a\ncompetitive programming for you, then\nyeah, that's that's that's a that's a\nvery hard task, so we're not going to be\nable to do it here. But, in in our case,\nlike the the objective is going to be to\ncreate\na Shakespearean-like LLM that can create\nverses from from Shakespeare.\nAnd as we mentioned before, that these\nmodels like are learning as next token\nprediction. So,\nthe way that cross entropy works is that\nyou take your current the current tokens\nthat you want to train. In this case,\nlet's say that it's T0, T1 to TN.\nAnd then you wanted to predict T1 T2 to\nT plus one TN plus one.\nUh so, the way this cross entropy works\nis that you take your sequence and you\njust offset it by one as like what the\nmodel needs to learn what to calculate.\nAnd of course the last one you don't\nhave it so you have to like cut it off.\nUh and then the model learns how to\npredict the next token based on based on\nthis logic.\nUh now for the actual training code\nitself,\nfirst we need to load the data\nand we have this function that that\nloads the data. The data is already in\nthe uh repo itself.\nIt's in this data directory. It's a It's\na collection of different uh\ndifferent uh like lines and verses from\nfrom Shakespeare. It's It's about 1\nmillion tokens or 1 million characters.\nAnd we first load the data. The data\nloading is is is is\nvery simple,\ntoo simple. So, that's one of the things\nthat I think you can optimize.\nessentially just takes\nall the tokens, uh splits into a\nvalidation and a and a training set,\nand then just essentially shuffles it\nand takes\npart 256 batches uh of sequences of\nof of of tokens that are from from the\ntext itself.\nAnd uh\nand just essentially use it for\ntraining. Batch size going to be 64. So,\nit takes 256 uh token sequences,\n64 of them, stacks them together, and\npasses it to the model to to to teach it\nhow to do how to train.\nSo, a very simple data loader.\nUsually these data loaders are can be\nquite complex uh because of course like\nif you have especially when you have\nhigher context lengths,\nlike the way you load data is like a\nvery big part of how the model like lis-\nto learn.\nBut in our case, we have a very very\nsimple implementation.\nnext up is the way that\nthis how the code works for um\nwe need to get to use a device.\nUh this code works for MPS, it works for\nCUDA, and it works for CPU. Depends on\nwhat your your laptop supports, or like\nif you run things on Google Colab.\nlike if you run Google Colab, it will\ndetect CUDA and it will be quite fast.\nMPS is also quite fast. CPU will be the\nslowest.\nBut that's like it that's low it work\ndecently well.\nUh next up is the learning the learning\nrate, and that's like a big part of how\nthe the models are able to learn.\nUh the way the models work is that you\nfirst start generally with as high of a\nlearning rate as as you can, as you can\nafford without making the model\nbecome unstable.\nUh so it\nbasically makes it go crazy.\nand the way it works you start at a very\nhigh learning rate, which is essentially\nthe the amount of the model is able to\nlearn per step.\nHow much the the weights need to move\ninto the direction that you want. If you\nhave a very high learning rate, you\nwould offset your target, so it can go\noff the rails very fast your model. So\nyou want to use a very appropriate\nlearning rate. Um\nfor your model to be able to train well.\nAnd usually you have this this concept\nof a warm-up where you start with a very\nsmall learning rate so that all your\noptimizations uh the the model weights\nare able to to to stick to places that\nare\nthat again that they don't go into like\nthey they can they can start in places\nthat are appropriate for the training to\nbegin. So you start at a very low\nlearning rate, increase it slightly\nuntil until you reach the peak, and then\nat the peak you continue\nyou start reducing the learning rate,\nand that's what we call weight decay. Um\nand uh until you reach a point that\nyou're you're satisfied with it. Some\npeople\nFor some people that is zero. Like I\nprefer to not go to zero cuz then it's\nhard to restart the training. Um\nbut that's the idea. You want the\nlearning rate to be less when the model\nis like close to being perfect.\nSo small you you want it to start with\nvery big changes to find like good local\nminima look look global minima\nand then it for it to calibrate us\ntraining goes goes further.\nUm so we'll start with like a small\nwarm-up of 100 steps and then we're\ngoing to use a cosine decay\nuntil the max steps that we're going to\nbe in this case is going to be 5,000.\nSo you're going to start from like very\nlow peak at 100 steps and then start\ngoing down down to uh\nto 5,000 steps.\nAnd that's what the AdamW normalizer\ndoes. Uh it's essentially allows this\nthe the the this concept of like\ncontrolling the learning rate\nusing this cosine decay. And that's the\nmost common normalizer people use.\nAt least used to use. Now there's better\nnormalizers, but this is the most simple\nto to start with.\nAnd here's how the full training loop\nwould look like. Again, like not not not\nthat much code.\nYou just\nuh initialize your config.\nlike in this case it would be like a six\nsix layers, six attention heads, 384 um\nembedding size, and then 256. That's the\nsequence length.\nUh you initialize your model.\nAnd then you create your\nyou you start your optimizer.\nYou start your steps. You take a DM\nhelps with like tracking like the losses\nand all and all that kind of stuff. You\nwant your loss to start high and then\nkeep going down until you reach levels\nthat are acceptable.\nUm and then another important part is\nevaluations to make sure that your model\nactually works well. That's what the val\nloss\nis here.\nSo,\nit's very easy for models to like\noverfit, especially like this this this\nsmall models,\ncuz you don't have that much data. So,\nthe loss might keep going down, which\nmeans that the what the model predicts\nand what the training data is are very\nsimilar. So, your loss can keep going\ndown a lot.\nUh but actually at one point maybe your\nmodel actually overfits in this case.\nAnd when it overfits,\neven though the loss goes down, actually\nthe performance of the model is worse.\nThat's why we have this val loss,\nwhich\nis a is a part of the data the model has\nnever seen,\nand we run a forward pass to get the\nloss of that specific\npart of the data set. And\nif this is very low, it means the model\ncan is is performing well, cuz it had\nthe model has never seen this this data,\nso it can't memorize things it had never\nseen.\nSo, that's what that's what we have here\nwith the val loss.\nAnd uh\nNow, I'm not going to explain the\nconcept of of of of of uh\nbackwards losses, but essentially that's\nthe way the model the model weights move\ntowards the direction of being\noptimized.\nUh so, for for each step, we have a\nbatch size of\nin our case 256,\num 256 tokens, batch size 64. So, we we\npush this matrix through our model,\nand then it learns, and then the\noptimizer does an extra step, and now\nthe learning rates are adjusted\ndepending on what the steps you're in\nright now.\nAnd lastly, just to have an extra way of\nuh every every 1,000 steps, you save\nyour checkpoint to be able to restart\nyour training if you need it from that\npoint.\nAnd we're also running\nuh inference on the current checkpoint\nto see what the model actually predicts\nat this point. Uh so, what we're we're\ngoing to start seeing\nwhen we start from from big the\nbeginning because it's a model we're\ntraining from scratch, the loss is going\nto be essentially random. And in that\ncase, that would be natural log of 65,\nso it will start at around 4.17.\nUh that basically means the model like\nknows nothing. It has no clue of what\nthis data is.\nUh and slowly we're going to start\nseeing the loss going down to 3.3.\nThat's when the model is going to\nunderstand character frequencies.\nUh it will still not be able to do words\nyet, but it might understand things like\nth as part of the, which is a common\nword. Like th is going to be part of the\nthings that it starts generating. Then\nat around 2.5, it's going to\nit was going to get a little bit better\nabout this th, and then it will\nunderstand the word in and stuff like\nthat.\nThen at about 1.5 to two losses, it will\nstart actually creating words.\nAnd then at around one 1.0 to 1.2,\nthat's when the model is going to start\nbeing decent at at at this task. You\nwill actually be able to understand\nnames from the text. It will start\ncreating things that start making sense.\nBut then when the loss starts going\nbelow 1.0 for this specific data set,\nthat's where we're going to start seeing\noverfitting. The model will still be\nlike producing like reasonable things,\nbut it will no longer start\nbe getting better at it.\nthis is like an example at 200 steps\nwhen I was testing this.\nUh it was just producing like complete\nnonsense.\nUh and the val loss was around 3.5.\nthen at about 800 steps, it started\nproducing like decent things. Uh still\nnot not not great things, but it was it\nwas starting to get there.\nAnd at 1,000 steps, it got better.\nAnd there was one point that the val\nloss actually started increasing instead\nof decreasing, and that's where we know\nthe model overfit.\nSo at around 2,400 steps is where the\nthat was the optimal performance of this\nmodel. And then if we kept going, the\nthe performance was actually maybe not\ndecreasing, but the models are becoming\nless creative.\nSo, that's one of the things to to keep\nin mind. Now, val loss is like not the\nbest metric like for if you're actually\nbeing serious about training LLMs,\nusually you might have like some\nbenchmarks that are running as part of\nyour training and you can see like if\nthe benchmarks are getting worse or not.\nUh but for us that's like a very easy\nand cheap way of like understanding how\nthe model is doing.\nSo, yeah, that what um\nnext steps now like uh\nprobably to actually train this model\nyourself.\nConsidering the internet is already\ngood, I would suggest probably using\nGoogle Colab for this.\nyou can\nyou can copy paste stuff from from from\nfrom here. You can glue things together.\nCopy pasting will probably like allow\nyou to go get 90% there. Uh\nthere is a lot of room for for\nimprovement for what I did in here. I on\npurpose I did it like super simple and\nthere are things that you can improve\nyourselves.\nbut the idea is to\nto get something working. I hope\neverybody will be able to get something\nworking if if you're interested in do in\ndo in do work on this.\nAnd have something that\nstarting from nothing and getting like a\nmodel that can actually produce like a\nresult that seems reasonable.\nUm after we have trained a model, the\nnext part is text generation which is\nlike the inference side of things.\nwe're just going to be using uh there's\na multiple ways to to do to do\ninference. One way is like greedy\ndecoding. It's what I was mentioning\nearlier. You have all the logits which\nis as a distribution of tokens and you\njust take the most likely token and\nthat's what the greedy decoding means.\nUh so, let's say that you have like your\nthe token T and the token H are are both\nin the distribution. One has like 80%\nprobability, the other one has like 15%\nprobability.\nYou always be taking the the top the top\none.\nThat's greedy decoding. Greedy decoding\ndoesn't work very well for LLMs. It can\nwork well for other models, but for\nLLMs, like this essentially makes them\nvery boring and not very creative in\nwhat they generate. So, you pretty much\nnever want to use greedy decoding for\nLLMs. You would want to use it for for\nother\nmodels like transcription, for example,\ngreedy decoding is the best cuz\nthere's usually like only one way you\ncan you can transcribe something. You\ndon't want it to be creative in\ntranscription. Like that's not that's\nnot a good idea.\nUm so, that's what greedy decoding is.\nIn our case, we're not going to use\nthat. We're going to use temperature.\nSo, essentially what temperature is is\nthat you're not always choosing the\nhighest probability token.\nSometimes you might choose the second\nhighest probability token or like the\nthird highest.\nAnd uh even though it doesn't make any\nsense, why would you choose like a worse\ntoken for the situation?\nIt has proven that this actually makes\nthe model perform better.\nIt like sometimes it might like go into\nlike these weird loops, so there aren't\nlike techniques you can make sure that\nit doesn't go like crazy by generating\nsome nonsense.\nUh the worst thing is if if it predicts\nlike an end of transcript token and end\nof text token and then it's like stops\nthe generation, which maybe you have\nseen sometimes when using ChatGPT where\nsuddenly it just like stops for no\nreason.\nYou sometimes it's because of that, but\nthere are ways you can you can you can\num prevent this.\nGenerally like a 0.7 uh temperature is\nlike the best.\nThe best middle ground to make to to\ninference work well. And then you have\ntop K sampling.\nUh which essentially like\nit prevents the model for if you have\nlike, let's say,\nfive tokens that are very likely and\nthen the sixth token is like completely\nunlikely, top K sampling sampling\nprevents the model from predicting this\nlike sixth very unlikely token, even\nthough the temperature might you might\nget unlucky and the temperature might\nhit it.\nUm so, that's what top K sampling does.\nAnd this is like our inference function\nis like it's very straightforward. It\njust does\nit just runs uh\ntakes all the tokens as as the input,\npasses it through the model, takes the\nthe logits out of the model, and runs uh\nsoft this is that what I was describing\nbefore is called soft max. It takes\nusing a temperature\nthe probabilities and then\nuh it\nit decides what the the next token\nshould be based on the on those\nprobabilities.\nand one thing you can do you can use\nseeds and essentially seeds is that it\nlike right now everything will be random\nif you just keep returning it.\nBut if you if you keep returning it but\nif you use a a set seed then your\ninference will always be returning the\nsame value.\nUh which will be uh relevant in\nlater.\nUh then putting it all together\nif we put all together we should have\nthree different files. One is like the\nmodel.py that includes our model\narchitecture. One is train.py which\nincludes the data data set loading and\nthe training loop.\nAnd lastly the generate.py that includes\nour inference.\nAnd\nin total this should be like maybe a few\nhundred lines of code. Uh\nvery straightforward and that's with\neven with this much code like if we have\na lot big hardware we could train a good\nLLM using this architecture if we have\nenough data and enough resources. That's\nthat's all you need essentially.\nAnd that's what basically like GPT-3 and\nGPT-2 like when OpenAI released it I\nremember when OpenAI was about to\nrelease uh GPT-2 and they were saying\nwe're not going to release it because\nit's too dangerous for for humanity. And\nthat was like back then.\nIt the that was the code that they were\nworking on and like a lot of data.\nAnd of course a bigger model. Uh\nnow this seems to be like kind of kind\nof funny but for them like that was like\na very warm moment that we did this and\nthen the model like actually performs\nreally well on tasks.\nUm, but in the end it was just it was\njust what you see here.\nUm,\nso yeah, putting all together, uh, you\ncan\nuh, if you use Google Colab, you can use\nthis this, uh, snippet of code to\ndownload the\nthe data set\nand you can use this pip install command\nto install the different dependencies.\nUh, and then it should look\nuh, like something like this\nwhere you install your dependencies, you\ncopy your code.\nUh, and you might need to do some, um,\nconnection some connections together,\nbut essentially\nlike you can run a\na train that you can use a train command\nto run\nto to and use the data set that you want\nto use and that this will start the\ntraining and then you can see how the\nperformance of the model improves step\nby step. Like for me this took about\nlike 15 minutes to train on on Google\nColab until I started getting good\nresults.\nUh,\nwith some improvements you can make it\ngo faster and maybe you can make it go\nslower, but actually get better results.\nUm, but essentially like it's it's very\nsimple to get to get working. One thing\nto remember is that you have to change\nyour run time change run time type to T4\nGPU\nuh,\nbecause this this this is free and it\nwill it will run quite fast.\nUm, hey yeah, feel free to train. Like\nyou can try like maybe starting with a\nvery tiny model the 0.5 million\nparameter\nuh, with a whole that has two layers and\nonly two attention heads\nand a smaller embedding size for for\neach token.\nAnd then you can try bigger and bigger\nmodels until you get some usable\nresults.\nUm, and as I mentioned before you can\ntry different context lengths. I started\nwith 256, you can try bigger, 512.\nUm and then you can if you want to\nmonitor and see how your losses went\ndown like in a nice way, you can use\nthis like\nuh this pipe plot lib uh to see like\nyour the graphs.\nUh the things that you want to look for\nis if your train loss is not decreasing,\nit means your model is not learning.\nthe problem is you have a bug in your\ncode.\nif your uh\nthe you you also could be like a a low\ntraining loss.\nIf your train loss is is decreasing, but\nyour val loss is not it's actually\nincreasing, that means you overfit.\nUh and if you have very weird spikes in\nloss like the loss would be like very\nsmooth in general. If you have very\nweird spikes in your loss, it means like\nagain there's some some kind of bug\neither in your data or in your training.\nAnd uh when the model starts\nplateauing and not getting any better,\nit means you kind of you have pretty\nmuch exhausted the usefulness of your\ncurrent data set.\nSo either you going to use a bigger\nmodel or you going to need you have to\nneed more data.\nUh now one one like interesting part\nabout what uh I would like us to do is\nI think it'd be cool if we had like some\nsort of competition of who can train the\nbest model here if uh anybody is able to\nto get things working. Uh hopefully the\ndata is good enough.\nAnd also for further reading, you can\nsee like a lot of the resources for this\nuh for this workshop.\nbut uh essentially what the challenge is\nwe can\nwe can vote all together to find which\nwhich model actually produces the best\nverse of Shakespeare. Or it could be if\nyou use a different data set, a best\npoem or in that kind of category.\nThe rules are you have to train the\nmodel yourself like here and today. Like\nit it can't be like some you can't ask\nChatGPT to give you like a good verse.\nYou have to like use your own model. And\nto prove this, you'd use like a seed\nwith a specific prompt and see what\noutput it gives you.\nYou're free to like regenerate as many\ntimes until you you get the best\nresults.\nand uh you I'll have like a QR code that\nyou can submit your results and I can go\naround and like help people out that uh\nif you need any help getting uh training\nrunning. And uh of course uh\nthis training is like super bare-bones.\nThere are many ways you can optimize\nthis and make this better.\nSo, I guess for people that are a bit\nmore experienced, they can\nthey can implement this this uh\nimprovements and maybe get a better\noutputs of your other model.\nUh the winner is going to get some uh\nfree swag from from Level Ups, maybe\nlike a hoodie or like some some free\ncredits. Uh\nI'll see what I can actually give.\nSo, yeah, this is the submission.\nyou need to be creative and then I'm and\nthis will be essentially like a good\nverse.\nAnd we can maybe use like a kind of\nkind of bracket. Oh, what happened? Oh,\ncool.\nWe can use a bracket and then we can\nvote which verse like sounded best. That\ncould be funny, that could be like like\nwell-made, like up to you.\nAnd uh the reproducibility should look\nsomething like this.\nUh where\nyou run python generate on your best\ncheckpoint, the prompt that you decide\nthat you can it's up to you, temperature\nand then\na a seed that that proves that you can\nactually produce your results.\nUh you can try different model sizes.\nlike I guess like 85 million parameters\nis maybe too big for this, but if you\nhave resources, you can try it.\nUh you can try better tokenizers, like\nthis one of course is like\ncharacter-based, but perhaps you can\ntrain your own BP tokenizer\nuh based on that data set.\nAnd there's also other tweaks that you\ncan do, like\nbigger context, uh like there are some\nsome training optimizations, like using\na dropout value. Uh you can stop\nwhenever you want, when you feel like\nthe model is good enough, change the\nlearning rates.\nand essentially get like a\nmake the model as good as possible.\nyeah, that that is the idea.\nI'm going to go around and help you out.\nSorry, go ahead.\nSo, reasoning models act to to repeat\nthe uh uh\nYou're asking like uh if there's any\nmodels that are quite a bit different\ntraining.\nThe base the building blocks are very\nsimilar. Like you can train the same\nexact model, you can post train it which\nis how like usually reasoning is is uh\nis being taught to this model. You have\na good base instruct model and then you\npost train it to be a reasoning model.\nThis is very data set driven. So, you\nneed very very high quality data. And\nyou're going to use a loss that's like\ngood enough to be able to\nuh to learn this data in a in a very\ngood sense.\nthe complication of reasoning models is\nfinding this good chain of thought data.\nUh that's why like OpenAI has like all\nthese labelers that are like PhD\nstudents that they write down the\nreasonings of like how to how they solve\nproblems.\nbecause this data needs to be very high\nquality cuz it's it teaches the model\nhow to think. So, you can't just go on\nlike Reddit and just get random posts.\nYou're not going to learn how to think\nthis way for sure. Uh you need like some\nvery high value\ngood quality data to teach this\nreasoning process.\nBut in the end, reasoning is is\nessentially just adding to the context\nof the model like this\nto to the attention essentially. Uh this\nlike logic that then the model can when\nit generates a response, it can go back\nand attend to those reasoning tokens and\nget a better response out. So, it could\nbe like describing the model a bit\nbetter then it goes back, sees those\ntokens that it described, and say, \"Oh,\nactually yeah, I already figured this\nout. I'm going to write it down now.\"\nOkay.\nUh the microphone is not working.\nIs it? Yeah, perfect. Uh so, reasoning\nand non-reasoning models share the same\nbase often, and then one is post-trained\nin a different way and add this uh\nyou know, in a way different\npost-training. Yes. So, a a lot of the\nlabs, like let's say the current model\nthat was released like 1 3, usually they\nrelease like a base version, an instruct\nversion,\nand the usually the base version doesn't\nhave a chain of thought reasoning. Uh\nit's usually like the same model that\nthey first pre-train to be like quite\ngood, maybe do some fine-tuning as well.\nAnd then the next step is doing\npost-training to teach it this kind of\nlike this this uh\nthis knowledge.\nUh so, that's why like you see a lot of\na lot of uh big improvements that happen\nvery fast in the industry, like Gemini 3\nto 3.1, it's essentially giving it like\nbetter reasoning data and like like\nbetter fine-tuning post-training data\nfor like specific problems.\nIt's a little bit like benchmarking,\nlike\nusually this data is like very similar\nto what the benchmarks, the current good\nbenchmarks are.\nBut yeah, essentially just taking a base\nmodel, using this new data to improve it\nto the next level.\nOkay. And second question is compared to\nwhat you are showing us here, like this\nvery bare-bone model,\nhas there like has there been\nfundamental innovation in the main\ntraining\nof the model like powering nowadays\nmodels or\nis it mostly the same, but just with\nsmarter tricks, small tweaks, better\ndata, and so on. So, I like are everyone\nstill using the same attention layer and\nso on or are there like some\nfundamental shifts that have been\nhappening on the latest, and maybe you\nknow, maybe you don't, I don't know.\nNo, yeah, no, yeah. So, you're you're\ncorrect. That that So, they a lot of\nthis base is the same. They might do\nsome changes in terms of how attention\nattends to those different\ntokens because sometimes reasoning can\nbe quite large so you need big\nsequence lengths to be able to get good\nresults.\nSo there's a lot of like tricks that the\nnew labs that the labs do to make this\nto make the attention more efficient.\nBut overall you can take like a very you\ncan take this model GPT-2 and make it\ninto a reasoning model. Like if you have\nthe the data and like a big enough model\nto actually learn from that reasoning as\nwell cuz like this time models reasoning\nwon't help them too much. But if you had\na big enough model that can\nget stuff out of the reasoning there are\npeople that have taken like older models\nlike let's say llama 1B\nthat small and weren't trained for\nreasoning and they made them into\nreasoning models using the exact same\narchitecture.\nYes.\nHow much effort do you put in you know\ngetting your golden data set?\nWhat is that process that you follow?\nYou mean for post training? Yeah.\nYeah so like as I mentioned before like\nusually what most labs do is that\nthey go to companies like Scale AI\nthat's probably the biggest one. And\nScale AI has an army of like people that\nyou can you can say\nI want physicists.\nGive me data from physicists and Scale\nAI is going to find contract physicists\npay them like as much money as they\nneed. And then these physicists might\nlike write things down they might be\ncontacted to do different things. But\nessentially like a lot of these\ncompanies they like Scale AI provides\ndata for like Anthropic and another good\none by Meta so probably not that much\nanymore.\nBut essentially they they\nthese data sets are provided by these\nlike labeling companies.\nScale AI is one of them but a lot of the\nthe big labs have their own labeling\nteams too that they hire contractors to\ngenerate these data sets for them.\nbut as I as I said before like you want\nyou\nif this data set has like even some\nsmall issues it can literally make or\nbreak your model. So, these data sets\nare like kind of the most expensive,\nlike they will cost\ntons and tons of money,\nbut they actually are the ones that make\nthe models like as good as they are.\nJust a quick follow-up. So, even on that\nI mean,\nyou still have to evaluate, but the\nanswer wouldn't be exactly the same.\nSo, our people are really reviewing\nthis, or it's still\nyou're relying on LLM to evaluate? Uh\nyou you you rely on people for this kind\nof stuff.\nUsually, the way it works, uh\na big part of my job is actually like\ndoing this uh organization.\nUh usually, the way it works is you have\nyou might have like one person that\ngenerates the label this like very\nhigh-quality label data, and then you\nhave maybe some labeler that have\ngraduated into like a QA position, where\ntheir job is to essentially make sure\nthat all the like other labelers, the\nmore entry-level, their outputs are\ncorrect.\nAnd it's it's a it's quite a the tough\njob because like if your QA is not good,\nyou get fired. So, it's\nlike it's that that's the way they keep\nthe level quite high.\nYes.\nSo, LLMs are non-deterministic, but um\nhow does that seed parameter work?\nSo, the the way the LLMs are\nnon-deterministic is because they they\nessentially use random number generators\nfor of like the\nof of of your machine.\nUh or like of the the the\nthe GPU that you're currently using of\nthe the system. The seed essentially\nlike\nmakes all those different calculations\nto be always return always the same\nvalue. So, things are no longer random.\nLike you're you this is not only for uh\nfor for this uh these seeds can be used\nfor any random generation. Uh so, it\ncould be like for password hashes.\nYeah, it it works the same exact way.\nYes. But, this is like you mentioned\npretty deterministic, right? So, if we\nuse that that they are deterministic,\nright?\n>> Yes.\nYeah, if you use greedy decoding uh\nthere might be still some things that\nlike like it's good to use a seed even\nif you use greedy decoding cuz there\nmight be some other stuff that maybe you\ndon't you don't you don't control. Like\nmaybe you're using some like sometimes\ngreedy decoding might not be actually\ngreedy decoding might be 0.01 like a\ntemperature like for VLM for example\nthat they do some electrics like that to\nbe able to get uh good outputs.\nUh so in in general it's good to use\nseed even if you're using greedy\ndecoding.\nYes?\nthis is obviously all in text. Eleven\nLabs is mostly audio, right? Yes. How\ndifferent is this versus like doing this\nwith audio?\nIt's surprisingly very similar.\nReally? It's more complicated for sure,\nbut parts of the the stack of like\nmost audio models they also can do text\ncuz they you need the the models need to\nunderstand language itself. And the best\nway to teach something language is text.\nUh of course you can train an an\naudio-only model like uh\nAnd again it's like what I was talking\nabout the tokenizer. Like\nhow do you tokenize audio? Like what\nwhat is the concept of like a sound?\nLike how how big should your tokenizer\nbe for audio? What should it be only\nhuman speech or should it also be like a\nmusic? Like do you take the notes of\ndifferent music instruments as like\ndifferent tokens? These are the kind of\nproblems that you have to solve like if\nyou're creating a uh\nan audio model but you wouldn't\nnecessarily need it as a text. This is a\nbit easier. Uh\nbut the fundamentals are still like the\nsame. Like if you want to generate audio\nyou would you generate like an audio\ntoken and then that audio token would be\nusing a tokenizer and then you you\nit's not exactly the same cuz the audio\ntoken then you have to process it in\nsome different ways\nuh to make it into like actual audio.\nBut uh a lot of the same uh\ngeneral ideas still apply.\nBut do you have a lot more loss or\nsomething cuz with text you know like\nthis is the text the text can be down to\nvery clear like a one is a one\nbut in audio like particular pitch or\nfrequency or sound but like\ncuz then the unity there is already lost\nstraight away right? Yeah yeah so\nthe way it it works is that\nyou don't use like this cross entropy\nloss you use different types of losses\nand you can use cross entropy but\nusually it's it's losses that are more\nspecialized for what you're trying to\ndo. Like for example there's a loss\ncalled L2 loss which essentially takes\nlike two mel spectrograms and\ntries to see the difference between\nthose two mel spectrograms which is\nessentially like a sound waves in\nencoded in a certain way.\nAnd that's like a very common way for\nTTS models to be trained you train on\nthis specific types of loss.\nAnd the same thing I was mentioning\nearlier cross entropy doesn't really\nwork as well for for things like post\ntraining you might use different types\nof losses there or if you're distilling\na model from a big model to a smaller\nmodel you don't use cross entropy loss\nyou might use a KL divergence loss where\nyou find the\nthe token distributions of like the\nbigger model and you try to match the\nlogits of the smaller model so there's\ndifferent types of losses for different\nuse cases not all of them work the same\nway.\nYes.\nSo the way multi modal models work\nusually you don't\nuse tokens in the same sense. Um\nLike okay this is where like it becomes\na little complicated cuz like these\nmodels are not really built for this\nlike the GPT model like the bit the\nnewer models they have also like an\nembedding input which essentially as As\nAs mentioning earlier like you have each\ntoken\nthen corresponds to like a vector.\nBut these vectors, they don't have to\ncorrespond to specific token. You can\ntake these vectors from other places,\ntoo.\nAnd what a lot of these labs do is that\ninstead of having a tokenizer\nfor like video, for example, what they\ndo is they have another transformer that\nthey call a video encoder.\nAnd they put the video first through\nthat video encoder.\nAnd uh this video encoder will be taking\nlet's say you have a a 30-second video,\nit will take one frame per second of\nthis video.\nAnd it will take those frames and then\nput them through this like new\ntransformer, this encoder transformer,\nthat works quite a bit differently than\nthis one.\nAnd what you do is that you take the\nfinal layer of this transformer, the\nhidden values, which are also vectors.\nYou take those those vectors out of this\nencoder and you're going to input them\nin the embedding layer of the of the\ntransformer model. So, what the model is\ngoing to see is going to usually is is\nlike prefixed. So, you take the you take\nthe video, put it through the encoder,\nget some vectors, and then put those\nvectors in the embedding input of your\ntransformer that does text. And the way\nit would look like if you look at the\nsequence, it would probably be\nlike a prompt and then it would be\nprobably like a video token\nrepresentation.\nAnd then actually but the embedding of\nthat video token is going to be\noverridden by the output of the encoder.\nSo, that's how like this this multimodal\nmodels work. It produces a vector which\nis the same length as like a vector for\nwords.\nYes, it's exactly the same vector.\nAnd that's it for audio. You have an\naudio encoder and do the same but but\nfor audio.\nAnd the but for in in terms of how what\nthe model cares about, it just cares\nabout like these embeddings, right? They\ndon't care if it's text or if it's audio\nor if it's or if it's video.\nIt cares about these vectors and that's\nhow you you represent them into the the\nsame dimension as the model the\ntransformer expects.\nSo, there's there's no relation between\nlike the video of the horse jumping and\nthe word horse.\nIs there no\nsimilarity between those two like\nUm maybe there is. I I'm not It depends\non how you train it. Like it's These are\nthe kind of things that are a bit black\nboxes. Maybe there is, maybe there's\nnot. Actually, that's a good idea to\nlike\nThat would be a good research paper to\nto see like uh for video encoders, do\nthey actually match in the same\ndimension as the text encoders? I I\ndon't know.\nI imagine there probably is some uh\nconnection.\nSorry, you had a question as well? Uh\nyeah, I was wondering about like since\nyou do both uh normal speech, do you\nalso do some music generation?\nIs that like a very different problem or\nwill the architecture be like similar?\nAnd also like when you have these\nharmonics and stuff\nare you still able to do it with just\nlike a basic like uh auto regressive\ntransformer or do you have to like do\ndiffusion or is like things depend more\non each other?\nwhen you might want to like generate\neverything at the same time.\nY- Y- You can do both. There's music\nmodels that are auto regressive, there's\nmusic models that are diffusers. Uh\nlike it depends on how you how you train\nit. Um\nLike I think some of the some of the\nGoogle models are like like transformer\nbased. Some of uh open source models are\nlike diffuser based. Like both kind of\nwork kind of work very well. It's just\nthat this it's a little bit\nAs I said, like it's a little bit more\ndifficult to\nto to put into perspective this the\nconcept of like all music. If you\ntokenize and predict the next token,\nit's kind of hard cuz\nit's very abstract.\nUh so usually diffusers work a bit\nbetter in this like image modalities for\ngeneration or like music or like even\naudio for some models. Like they have\nsome kind of diffuser diffuser um\ndiffuser part of the process.\nboth can work.\nDiffusers are generally a bit easier\nto get it working.\nI hope this answered your question.\n>> sense.\nYep. How do you\ntokenize audio? I mean like in text you\nget\nrepetitions like\nrepetitions happens quite a lot. It's\neasier to\ncombine if they're tokens.\nVery big advantage of that.\nAudio\ndifferent voices\nthat are kind of like\nhow long\nhow long it takes to play.\nIt's very hard.\nAnd it's not really something that you\ndo by by just sitting down and thinking,\n\"Okay, I'm going to tokenize this word\nto that.\" This This is not something\nthat you like sit down and like decide.\nYou use some kind of process in the you\ntrain like an audio tokenizer through\nYou have a It's a very similar like\ncase, I guess,\nhow you train like a text tokenizer.\nYou'd use your training data and you'd\nfind like common patterns in the audio\nand then tokenize those patterns. Of\ncourse, like when we say audio, we don't\ndon't always just mean like the actual\nlike\nsample rate and like the the audio\nwaves. Usually convert them to something\nthat's a bit more easy to to tokenize,\nto to do this processing. The most\ncommon one is like is mel spectrograms.\nIt's First, you convert your audio to\nmel spectrograms and then use this\nthis this this\nessentially arrays of like of numbers\nto train your\nyour tokenizers.\nAnd it will be very dependent on your\ntraining set. Like if you wanted to\ntokenize music and use a music data set,\nyour audio tokens for music are going to\nbe very different than if you had a\nvoice data set. That's going to be\nlike focusing on like human voice.\nNow, the hard part is what if you want\nto do both voice and music?\nThat's where like That's That's very\nhard.\nAny more questions?\nOkay, awesome.\nYeah, if you if you want, you can start\nworking on training the model if you\nhave a laptop out or if you have already\nstarted. You can follow this.\nYou you can you you can follow the the\nworkshop uh\nthat gets something working.\nAnd uh if we do have enough submissions,\nwe can do the\nthe competition and\nand uh see who whoever wins will is\ngoing to get some\nsome nice swag.\nSorry?\nSo, uh\nbecause we don't have that much time\nleft, let's just say 5:45.\nUh if you have any any questions or you\nneed any help, uh please call me and\nI'll I'll come over.",
+  "segments": [
+    {
+      "text": "Thank you very much for joining for this workshop. Uh this is going to be a hands-on workshop. So, hopefully you can get your hands dirty doing some very interesting very interesting project. to start with a little bit about myself.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Uh my name is Angelos. I lead the speech-to-text team at Eleven Labs. I'm a research engineer. So, I spend the most of my time training new models, working on inference, and also I'm on the product side. So, I'm responsible for unfortunately talking to",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "clients sometimes, which I don't fully enjoy. I'm the kind of person that really likes to go straight into research and do train models and make things that are set of the art and very powerful. Currently, I'm working on training",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "real-time models for transcription. Uh specifically for agents. And if you have if you don't know already, we have this scribe V2 model that my team trained. It's currently the best transcription model in the market in terms of like popular public benchmarks.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Uh so, if you have any any transcription use cases, feel free to use it. I think it's quite good. Uh now as part of the workshop itself, uh today we're going to be training an LLM from scratch. So, no pre-trained weights, no",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "uh nothing that you can just grab online from like a Transformers library. We're going to work purely on torch and some like very basic libraries. We could go a level below and not use torch, but I don't want to to torture you that much.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "Uh so, I think torch is like a good level and this will be like a good indication of how like actual like research engineers like in in big labs like design their models and whatever is further than that is more like optimizations and making the scale",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "be better and bigger and improving for specific use cases. So, this what you're going to be doing today is like pretty much like 80% of of the way there to to create like a model from scratch. if you can go on this uh QR code, uh",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "you're going to find this uh GitHub repo. Uh I'm going to switch to that now. I'll leave it for a little bit longer. Uh there's you have two options. Uh one is either train the model locally in your laptop. Like if you have like a 16 GB of",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "memory, you should be able to do it. It's a small, very tiny model that you can train fast. Uh if not, and I'm guessing because not many people have outlets, maybe a Google Colab would be a another option. Uh Google Colab gives you free GPUs",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "that you can use for for training such a small model. So, either it will be your choice. Um well, I'm going to leave this on for a little bit longer. And then we can go in the actual repo itself. Um so, to give you some idea of the inspiration of this um",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "of this project, uh my first exposure to to transformers and LLMs in general was through this video from from Andrej Karpathy, who was one of the co-founders of of OpenAI. which was this code nanoGPT, and for me that was like a very special project.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "This is essentially like what inspires like this this workshop as well. Uh it's a bit lower level than what we're going to be doing now. So, it goes a bit deeper like into how you're using NumPy for like a lot of calculations. But I",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "think it's a good uh blueprint that we can follow for for us to be able to create a model from scratch. let me put this to the screen. But yeah, if you if you don't if you if you if you don't know this project, I think it's that's it's a great",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "introduction. If you do know this project and you've trained the elements like that before, this might be like seem a bit simple for you, but I think that there are ways we can expand this workshop to towards doing something that's",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "a little more of a competition, which I would see I would like to see what you can come up with. For the specific For the specific workshop, we're going to work with a very small model that's based on the GP2 GPT-2 architecture.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "It's a bit of an older architecture, but the the the base the the fundamental parts of it are basically haven't changed too much. And we're going to go over over those in in a bit. The four building blocks you need to to train a model is First one is going to",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "be the tokenizer. And depending on what your use case is, you'd want to use a different tokenizer for that specific use case. If you want to train, for example, a very big model that can that wants you want to generate text for like multiple languages, you'll",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "need a huge tokenizer, which means you're going to need a huge amount of data as well to train it. But for a for a smaller model, a smaller tokenizer with with with smaller embeddings is what would work best and train the fastest when your",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "when your data limited, which is what we are right now. Next will be a model architecture. To be honest, like at most models like have at least at at the at the period that we're going to be working in were very similar. Like in in they were just decoder only",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "causal decoder only models that had a very similar way of of using causal self-attention and the same like MLP layers and the same like layer norms and all kind of stuff, which we'll we'll get we'll get to it. So, if you know how to do this this like",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "small models, it's very easy to go and do the same process for like bigger like newer models, but of course the newer models are going to be way more specialized for longer context and essentially essentially being able to",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "scale this train the they're architected in a way to be able to scale training to as many tokens as possible, which you won't need in this case. And lastly it's the it's the training loop, which this is generally the most important part when you're training a",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "new model. Like if you check the difference between like GPT-4, GPT-4o, and GPT-5 or even even if you go before that, what you'll see mostly that usually the pre-training is very similar. It's the fine-tuning and post-training and",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "essentially what you use with a with the same base model or like very similar base model. And the way you train it actually makes a big difference in performances. And now we see for example uh Gemini 3 comes out and then has this this this many",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "this good benchmarks and then 3.1 comes out that has like double the performance in some benchmarks, which is crazy. Like obviously it's very sim- the models are very similar, but actually during training the train the the train the new",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "model in smarter ways to improve performance like very substantially. Now as for the end and lastly of course the inference part like that's going to be very easy for us like because we're just it's going to be a small model that can run everywhere.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "so like without that's going to be very simple uh part of the the building blocks. Uh then the prerequisites, any laptop will do uh that has at least six 16 GB of RAM. You can work with with with smaller laptops as well, it'll just be a bit",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "slower. Bigger laptops you can crank up the batch sizes higher, so it will train faster. Uh Python 3.12 and I expect uh I expect that most of you have like some idea of how to write Python. Uh like if you don't nothing is still quite",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "you can just copy paste things until something works or like ask for some help. Uh this training can uses uh Apple Silicon, so the the MPS architect the MPS architecture, CUDA or CPU, so it can basically support everything. Um and as for getting started, uh",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "this just makes things easier. Like I'm using UV for this project. Uh so if you have your laptop out, you can install UV on your machine if you haven't. Uh it's it's quite straightforward and there's no UV is quite simple. You can",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "just um UV sync and it creates a virtual environment for you and makes your life easier. And we're going to write the code in a scratchpad or if you're using Google Colab, which depends if you're into those very good, maybe that's a better idea.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "if you just go to if you just go to and create a new um let me actually create a new on a separate one so we can we can follow along. Yeah. So if you open Google Colab and you create a new um Colab project, you can run this command",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "which just installs the what we need, which is just torch, numpy, tqdm, and tick token. Tick token is mostly for for testing things out. And yeah, we can move on to the first part of this um uh of this workshop, which is going to",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "be the tokenizer. As I mentioned, like this is generally the first thing you think about when you create a new a new a new transform model is what tokenizer you're using. I come from the voice world, so this is where that that's the one of the",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "most important things. Like we think, \"Okay, we need to train this new TTS model and we're going to spend maybe 6 months thinking about the tokenizer, and then we're going to spend 2 months on the architecture.\" So that's that's like",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "generally one of the most important things of deciding how to create a new transformer. For those who don't know what a tokenizer is, like LLMs don't see text. They they work with embeddings or like vectors. Uh so we need like some kind of",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "representation of those vectors for the model to be able to process. Uh what we're going to be using here is a character level alignment. Uh a character level tokenization, sorry. Just because it's it has the lowest number of possible tokens.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "in the in our case for on our uh data set is going to be only 65 embeddings essentially cuz there's the 65 different characters that will appear in the in our training data. And the way it works uh like this this going to be using the Shakespeare data",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "set there's a few works of Shakespeare. It's part of the um it it it's part of the repo itself but you can if you're using um if you're using Colab there's going to be a link on how to download it on Colab a little bit later.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "And essentially we're going to use this this story library which basically just converts will be converting strings to integers and that these integers will then be turned to embeddings through the embedding layer when we train the the",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "LLM. And it's a very very simple straightforward tokenizer uses this enumerate uh function from from uh from Python and just then selects that specific item that has selected with a uh this dictionary. So yeah as I said before like we use",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "we use character level because it's much easier to train. because we have 65 65 uh tokens only it means that we the bigram combinations will be like 65 * 65 so 4,225 possible bigrams. Bigrams are essentially like when you have one",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "token and then you predict the next token after it. And this concept of of of bigram is very is a very important concept when when you're training transformers cuz you want your model to see as many possible bigrams as possible. So, if you have a model with",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "let's say 200,000 tokens, you need 200,000 tokens squared at least data to be able to to train like a from scratch in a in a in a in a very good way. Uh so, the or at least like this is the magnitude that you're looking for. In",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "our case, 4,000 bigrams is like very doable. Like this this data set should be included all bigrams like multiple times very likely. Um if we did try to train using a full tokenizer, this will never converge. We can just be training it for hours and",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "hours and then our model will never be able to to get good results. Now, the problem with with character level uh tokenizers is that they don't really scale very well. Uh because the models they the way they work is that they need to understand",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "correlation between different tokens. Um so, you can very easily have a correlation saying \"The sky is blue.\" Like these tokens combined together like make a lot of sense. But S K Y and then I S and then B L U E that it's a bit harder for them for the model",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "to be able to make like good to attend to these tokens in in in a good way. Uh so, this would this would work quite well for our example. But if you want like a very very good model, uh one it will be expensive to train because of course like",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "you have to create like a ton of tokens when during inference and during training. Uh but also it will just never converge to something good cuz the model the the tokens combined don't make too much sense. Um so, that's our trade-off, but this is",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "a trade-off that we're willing to take because of course we're running a a small model. But in the future if you want to expand this to something better, if you want to train like a proper LLM and you're happy to train for like a week or using bigger GPUs,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "uh using a proper tokenizer, that's used like byte pair encoding is like the most common uh way of like doing tokenizers these days, which essentially takes all You can the way you would train a BP tokenizer is that you take all your",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "training data and you define all common patterns and combine those common those common like character patterns into specific tokens that then you can reuse and the model can understand relationships of. So, the the way that this connects to",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "the model itself is we have this embedding table which is size vocab size and then it's what I said before, it takes a vector of integers and then returns uh sorry, a a list of integers integers and then returns a list of vectors which is going to be",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "their embeddings. and like like I said before, like that's if we did use uh such a big such a big tokenizer, that would also be like more than twice the size of our models cuz if you just multiply this, our uh embedding size is 384 for this model",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "that we're going to be training. So, that's already like 25,000 parameters and in that case like if we used GP the tools vocab which is 50,000, that would be 19 million parameters which is like more than three times the model",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "which wouldn't make sense in our case. Uh so, now moving on to the next part of this workshop which is going to be the transformer itself. And as as I mentioned before like the transformers, they have been kind of commoditized now.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "The way transformers work like there are different labs that find different optimizations, but the optimizations like in principle more about we have this like base like idea that works really well. How can we make it train faster and like have bigger",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "context and and people find ways that are more optimizations than than than necessarily reinventing the wheel. Uh for this at least there are some of course hybrid approaches that are more complicated. Uh so I'm I'm not going to go too deep",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "on how transformers work. Uh And also to prove a point that you don't necessarily need to know in a very deep level how transformers work to to be able to train something like this. Uh when I first like did this project myself I didn't I had no clue how",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "transformers worked and I still didn't that much at the end of the the work the previous project I worked on. But it once the more you work on it and the more you like you have motivation to continue pushing through you can",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "understand all the different concepts together and how they they they stack together and the reasons why they ended up the way they are. to go back to the big picture uh transformers are are are using like these four different building blocks.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "Uh one is multi-head self-attention. attention is like what the difference between that makes it transformers different than other neural networks is that they can actually attend to previous tokens and understand the relationship between tokens that I was I",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "was mentioning before and that's where attention comes in. And of course the bigger your attention is the more the model understands those relationships. And going back to what I said that's the what like big labs like Gemini they're trying to do 1 million",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "context and they're finding ways because if you just try to use a 1 million context for the for a model like this it would just break very easily like the the math wouldn't work. So then that's when like the engineers from the researchers from Gemini found",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "ways to to make it work. And that's what that that makes a difference but again fundamentally it's like the same the same architecture. Uh next one is the is the MLP uh or like the feed forward network uh which essentially takes this different uh",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "uh relationships between those tokens and while taking them while the the the relationship themselves are uh arranged all of the relationship between the tokens themselves, it it combines them together to to be able to generate the logits that",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "will then be uh so it's essentially kind of a it takes the context and then organizes it in ways that the model can then generate the logits and then generate the tokens. I hope that was a decent explanation. And then you have the residual",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "connections which are basically there for the model to to not have to reinvent itself after every layer. Uh residual basically means that every layer that that passes through the uh cuz as as as we'll talk about later transformer is is is is built on",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "multiple different layers that we pass through the activations one after the other. And residuals are there so that each activation doesn't completely uh restart things from scratch. It just changes them slightly. So it just takes",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "the previous input and makes a small and not just small difference. The next layer does the same and next layer does the same and this will continue on. And this way the model doesn't the each layer doesn't make a huge change on the inputs themselves",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "uh and the model can be more stable during training. And lastly with the layer normalization has a very similar uh has a very similar role in being able to the the layer normalization is able is is allowing you to scale down those activations in ways that",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "that allows that those activations not be to not be exploding into very big values. So if one layer like multiplies your activation by 10x, let's say, the layer norm is going to push it back back to like normal values, so it",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "doesn't go 10x 10x 10x, and then you can have like millions of values that started like 0.5 and then end at 10 million. That's what the layer norm is for. but again, these are just the building blocks. You don't necessarily need to",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "know like why they're there and what the what the purpose of them is. Like you you learn this as you start working on these models more and understand how does the why these decisions were made. Cuz all of them are as like as I'm talking to you, of",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "course, were done by We have a certain idea. Oh, this didn't work. So, let's add this to make it work. Sorry, go ahead. Are you showing me some slides that we haven't seen yet? Oh, oops. Yeah, I was showing. Where is it? I apologize for that. Yes. So,",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "I I was I was going through the tokenization. Uh that was the previous uh what what my previous point. and that's if you if you can go back and you'll have to go back through and forth through the slides when you're working",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "on your the model yourself, cuz you can you have to like copy paste the the the parts or figure them out yourself. But it it was explaining why we're going with character level tokenization and and what the other options we have.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "Then for the transformer, I will explain the different in the big picture, the different blocks of of architecture. Um and then now going to how does this look like in code? Uh cuz all the things I described to you actually are very cool There's very",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "little code you need to to to implement them. Uh first we start with the basis of Sorry, go ahead. when it comes to code, does it apply and because at least in English, you know, you have words, vocabularies kind of fixed. But in Python, you have your own",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "variables and so on. So, how does tokenization work in that setting? What would be a token? Sorry. So, in a programming language, of course, you have programming syntax, keywords, but then you have also normal variables, function names, and so on.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "So, when it comes to tokenization, how does that work? So, yeah, as I mentioned to you before, uh we're going to be using like a character-level tokenizer because it's going to be easy for this project, but most big labs, they don't use",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "character-level tokenization. They They use what I was mentioning earlier, the BPE tokenizer or like byte push Essentially, they they what they do is that they You You look at your training data. Let's say you have like this many",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "trillions of tokens, and your training data is going to be including like code, as you mentioned yourself. Uh and the way it works, it will just look at common patterns. Uh so, if you have like a lot of training data that is that is code itself,",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "it will it will see, and then it will realize, \"Okay, for loops seem to be like a good candidate for for that to be a token.\" So, the for is going to be for sure a token. And then you might have some like enumerate. Enumerate you Do",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "you see quite commonly in the in the training data, so that will be another token. So, it will look at all these different tokens, and then create this tokenizer based on the common uh relationship between them. Uh of course, like maybe some languages",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "that are like maybe Pascal that might not be very common in the language, so this the keywords of Pascal might not be like very common. Although, I do think that there probably is like good representation in the tokenizers, too.",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "But some other of those like crazy like white space-only like languages that this these ones probably are not going to be work very well. My question was more on the So, one thing is the keywords of the programming language, but then you have your own",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "variable names. Which are not common among different programs. >> I I see that's what you mean. Making them as tokens, I'm not sure how does that help. So again like there's no there's no specific way there's no like human in",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "the loop in this process. It depends on your training data that you use to train this tokenizer. if your code like there's like foo and bar like that's like common variables these were probably are going to be tokens. Like if your your if your",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "variable names are like very strange like random characters and yeah probably that's not going to be in the tokenizer. And when this happens uh the tokenizer will fall back to character level or like bit by byte code level tokenization.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "So if your if your token is like just random like gibbles it will just be each character or like some maybe some combinations might be together uh as different tokens but most of them are going to be separate tokens and that's going to be a bit of a pain to",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "for during inference and uh maybe not not not not the best if you want uh efficient inference. Thank you. Um but yeah going back to to the transformer side of the things um as I said the the models are generally quite uh quite quite similar um",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "and the code for actually implementing these transformers is also quite simple and like easy to write. It's like maybe maybe 100 lines actually usually more than that less than that. Um and the first thing we have to to to accept is",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "what the parameters of this transformer should look like. As I mentioned before vocab size is the size of your tokenizer in our case it will be 65. Block size is essentially the sequence length or like the the the context window.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "Um in our case that would be 256 which is very very small for these models but because we're training a model locally like that's kind kind of what we have to do. Uh bigger labs would use like 1 million context size for something like that.",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "Uh, but generally like 16,000 is like a common middle ground. Uh, then we have the layers. How many as I mentioned before like uh, transformers have multiple layers and then you run the activations through each one of those layers. We're going to",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "go with a modest number of six. And then the attention heads like the the way that uh, attention works is that you might you'll have going to have different heads for attention that are going to be attending for different",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "things. Like one of the attention heads might be looking at punctuation. Maybe another attention head might be looking at the grammar. Uh, so all these different attention heads are attending to like a specific uh, uh, feature of the text or if you're",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "using audio a specific feature of the audio etc. Uh, and lastly that's the embedding dimension. Uh, uh, that's how big the actual vectors of those tokens that you uh, create are. Uh, in our case we're going to start with a 384. That's like the standard for",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "GPT-2. But a bigger value of course would have more information per token. A smaller value would would have less, but that's like a pretty standard value you can start with. Um, as for the code itself, uh, feel free to copy paste part of this uh, if you want",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "to spend more time understanding it. I don't want to go too deep into like all the little details of how things work. Uh, but essentially like you're generally have like this overarching module and I guess we're going to call",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "that GPT and that overarching uh, top level module is going to include all the other modules that I described earlier. Uh, in this case it will this will take the config. Uh, in this case this this will take the config that we have we we had above and then",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "we'll create this uh, using we're using torch uh, module dict here just because it's like the easiest way to implement this. But this is all just math like you can everything you see here would just be like calculations like two matrix",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "multiplications that torch allows us to abstract and make things easier. And pretty much all the things you see here you see here are like neural networks like smaller or bigger that are combined together. Yes. Um not necessarily.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "Sorry, maybe you can repeat the question with the microphone. So the the the size of the input sequence is related to the number of parameters in your model. Uh not necessarily. You can have like large sequences with like small models",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "or like small sequences with with with bigger models. The The main thing that this shows is essentially there are two ways you can train a model. You can train a model like that looks at that's a full attention model let's say that looks at the full",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "attention. So it looks at the whole past uh essentially uh which is what we're building here today. Or you can have a windowed model. That's where most of the like bigger models that are out right now that only look up to like this much",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "in the past. And this parameter is the size of that window that Okay. >> Yes, it's what we're going to be using to train. So the model will will not have seen anything greater than 256 56 tokens in the sequence. If you try to go above that, it will it",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "will pass out. It will have issues. But so let's say we have like computational capacity to increase the number of parameters to make the help the model reason better, right? Which number would you crank up here to say it? Like would",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "you increase the number of layers, attention heads, or um I I would increase all of the all all of what they see here except of maybe the the embedding size and maybe dimension. I don't remember exactly what other models do the exact numbers. I think",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "that seems reasonable to me. But everything else like it works well for like a small token small a small model. 256 block size is tiny. Like that's if you try to run this on chat GPT like you would just forget things that you wrote like 10 sentences before.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "but the the bigger you make this the harder it is to do the training. And that's what I was talking about scaling laws is that you can't just say he go here and say okay actually I don't want a 256 I want 2 million context length.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "You can't train this like that at least with this current architecture. So that's what like like researchers after like GPT 3.5 came out they were like okay people are complaining that we only have 16k context size. We want 1",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "million. How do we do it? You can't just change this number. You have to change the architecture to allow training to be able otherwise you're just going to go like out of memory like instantly. Uh so that's like one of the things that",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "researchers now try to to to figure out how we're going to be able to increase these numbers here while keeping training stable. Or how how do you increase these numbers here while keeping training stable and still able to to have enough",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "compute to be able to do this? I hope this answers your question. Awesome. Thank you. So yeah the the first thing we would have to do is as I mentioned before like create the the top level representation of our model that you can see here as the GPT class.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "Uh I'm not going to go again to to too much into the details but like you want one would be the how the your model like understands embeddings and also how does it understand embedding position. Uh I don't want to go into details but",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "essentially you need the tokens need to be able to understand both. then you'd have essentially here all the layers that I was mentioning earlier and each of them is configured as as a block, which we're going to go at the definition of block later",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "as a little bit later. But essentially a block is like a layer of the transformer that includes its own attention and its own like layer norms and it continues the it feeds into each other the the one you do the forward pass.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "And lastly, you have the LM head and this is the LM head takes all the outputs of the above and connects them together into what we call like logits, which is the distribution of what the the next token should be that should be generated. Uh,",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "cuz I as I mentioned earlier like maybe I did maybe I didn't, but the way transformers work is that they predict next token. So, you take the previous the previous context, you predict the next token and you have to sample this token on on this distribution.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "And the LM head creates this distribution that we we sample from. Then the the the next important bit that like is again like quite quite straightforward like it is it's quite similar in most of these models is the forward pass",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "which essentially allows the model to to go to to take the input, which is going to be the tokens that we mentioned and push them through all these different components that that that that I mentioned earlier. Uh, and just does some um",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "uh does some some some pre-processing, turns tokens into embeddings and positional embeddings uh I I I add them together, then goes through all the blocks of the transformer, all the different layers of the transformer and just runs the the forward pass of",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "that transformer. And then does the linear norms and then passes through the LM head to get a distribution of those logits that we mentioned earlier. and this is if you're doing training, this would also do cross-entropy loss",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "um in this case and then at the end you're going to get logits and loss as the outputs of your of uh of your transform model. And I do have some diagrams here that you can see. like they're quite they're quite basic, but essentially they show the flow of",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "take token IDs, you pass them to make them into embeddings, token embeddings and positional embeddings, you add them together, you pass them through the transformer, then through the layer norm that just makes the outputs in a space that the LM head can",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "comprehend easier. And then you return this distribution of like what the next token should be that has that has this this size and as I mentioned before, like 65 is the size of like your voca- our vocab- our our our token size. And",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "now self-attention is like a little bit more complicated. I don't want to go again to go too deep of how how that works, but essentially at- attention is there to to understand the relationships between the tokens. Uh essentially what what is the",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "important like if I say the sky is blue, blue and sky have a a very big correlation. Uh so that's what attention does. Based on the how you've trained your weights, you will understand what tokens should be attending to each other and put",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "higher emphasis on those specific relationships. Now again going back to what I was say- saying before about the what that's why the tokenizer matters a lot cuz sky and blue are very easy to very easy for the model to make this relationship. While in our case",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "you'll have to like combine different groups of tokens together the different characters together, that's quite a bit harder. But this that's that's what attention does. It's It's the what what each token should be attending to in the past and what has most",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "importance for it. And it has also a forward pass as all of these different blocks do. And in your implementation, feel free to just copy-paste these these blocks. Uh maybe you can spend some more time on understanding the diagrams and and how things work.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "Uh but as you can see, even something as complicated as attention has a very small It It's just a few lines of code to to implement. And yeah, lastly the the MLP block uh is again as I mentioned earlier uh also like again I already talked about the multi-head",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "why attention has multiple heads cuz each head attends to different parts of what makes language what it is. And then the MLP block takes the outputs of attention and and makes sense of all those different relationships into something that the",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "model can then understand a bit better. which again is just essentially just a a neural network that just combines things into something that's a bit more understandable for the LM head to then be able to to generate distribution for logits.",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, yeah, no, you can interrupt. Do we have the same MLP for individual transformer blocks? Uh Like is it the same architecture and the same weights between the different transformer blocks? No, each each block has its own weight. Each block",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "The the way each layer essentially you'd have each layer that we'd call blocks. they usually have like a different section for like a different prefix for the weights of like MLP would be a different like maybe usually they're",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "called FFN blocks instead of MLP, but it would still be the same. So, each block has its own weights. And the MLP each each layer Yes, each block has its own MLP. So, it's is you have its block has its own uh as you can see here, it's on attention, its own uh",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "linear lay linear norms, and its own MLP. That's what basically makes a layer of a of a transformer. And and that's what I what my point was going to be later. Everything comes together into this block that we can see here, which is",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "basically a layer of a transformer that has some normalization, running the attention to get the relationship between the models, and then having the MLP that combines the relationship of the sorry, the relation between tokens, and then the MLP that takes",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "those relationships and turns them into like a representation that's easy for the model to uh to create the logits. And uh this uh oops. This is what I was saying. Sorry. I have two different screens. I shouldn't be doing that.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "But yes, this is this is the transformer block. This is the the building block essentially of of a transformer. It has layer norm, the attention, and another layer norm. Like not all of the models have this this configuration,",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "but this specific one has this. And then the MLP that takes everything and creates it into a a representation that makes sense for us to be able to make the generations. And uh you can see here like a bit more of a like a simple diagram of how this this works.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "Yes? The original uh nano GPT had the residual connection as well. Do you remember? Uh so, the residual should be there. Um No, no. What I mean on the on Andre Andre Karpathy's nano GPT, did it have the I I don't I don't remember. Uh I It's",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "been a while since I I Okay. Like I got I I I had the idea but from there, but I built everything from scratch. So, I don't I don't really remember if it did or not. Uh but yeah, residual as you can what, the idea of residual uh would be, as you",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "can see here, instead of doing X equals the attention, you do X equals X plus attention. So, you you get the difference. The the the values of the activations don't change that much. Uh, that's the idea of like doing the residuals. Um,",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "uh, and yeah. So, we have this like if you wanted to implement this yourself, you can copy paste all these different classes into one file that you can call model.py. Um, and this is essentially all the maths of how the transformers works. Um,",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "and as I mentioned before, then we have to decide how big the transform is, like the parameter count that you can see here, uh, is just a 10 million parameter based on what I was saying above. Uh, you can just find yourself by just",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "summing all the all the different parameters of all the different parts of the different blocks that we had above. Um, the token embeddings is 65 * 384. We said this is the vector for each embedding, so it's 25k. The positional",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "embeddings is 256. 256, remember, is the sequence length, the max sequence length of the model. So, that's another 98k parameters. And then where the the biggest part of the logic is is in the actual transformer blocks themselves,",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "where most of the parameters live. So, you have um, you have 4x. Uh, so, the four there comes of the way attention works, where you have key value key query key and value pair. So, it's it's part of the potential has like four different parameters. For for um,",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "for 384, which is the amount of tokens times the relationships between those tokens. So, 204 per vector times 384. So, that's 590 that we have for the for the attention per layer. And then for the MLP, you have again the similar logic of",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "I don't remember what this 1,536 is, but yeah, in the end it turns out into being 1.2 million. So, total amount of parameter size we're going to be training is going to be 1.8 million parameters, which should be good for which should be easy to train for like",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "most devices. Uh so, yeah, you can go back to this. It has a lot of details that that makes that that will that will make sense for you to go back and understand a bit deeper, do your own research on on this. But, this is like the general like very",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "very high-level idea of how these transformers work. And uh we're going to go now to the the training loop. And that's where most of the meat of this project is going to be. Um Well, we have this this transformer, uh how we're going to train it into do what",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "we want it to do. The objective of this training we're going to be working today is something that one has to be very easily recognizable. Uh but, you know, when the model starts working and and groks, which means that it it understood what",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "it's trying to do. It's going to be very easy to understand that the model actually works now. Uh and secondly, it should be something that's like quite easy for the model to learn. Uh if you if the model had to to write uh Python uh like a",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "competitive programming for you, then yeah, that's that's that's a that's a very hard task, so we're not going to be able to do it here. But, in in our case, like the the objective is going to be to create a Shakespearean-like LLM that can create",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "verses from from Shakespeare. And as we mentioned before, that these models like are learning as next token prediction. So, the way that cross entropy works is that you take your current the current tokens that you want to train. In this case,",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "let's say that it's T0, T1 to TN. And then you wanted to predict T1 T2 to T plus one TN plus one. Uh so, the way this cross entropy works is that you take your sequence and you just offset it by one as like what the model needs to learn what to calculate.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "And of course the last one you don't have it so you have to like cut it off. Uh and then the model learns how to predict the next token based on based on this logic. Uh now for the actual training code itself, first we need to load the data",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "and we have this function that that loads the data. The data is already in the uh repo itself. It's in this data directory. It's a It's a collection of different uh different uh like lines and verses from from Shakespeare. It's It's about 1",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "million tokens or 1 million characters. And we first load the data. The data loading is is is is very simple, too simple. So, that's one of the things that I think you can optimize. essentially just takes all the tokens, uh splits into a",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "validation and a and a training set, and then just essentially shuffles it and takes part 256 batches uh of sequences of of of of tokens that are from from the text itself. And uh and just essentially use it for training. Batch size going to be 64. So,",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "it takes 256 uh token sequences, 64 of them, stacks them together, and passes it to the model to to to teach it how to do how to train. So, a very simple data loader. Usually these data loaders are can be quite complex uh because of course like",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "if you have especially when you have higher context lengths, like the way you load data is like a very big part of how the model like lis- to learn. But in our case, we have a very very simple implementation. next up is the way that",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "this how the code works for um we need to get to use a device. Uh this code works for MPS, it works for CUDA, and it works for CPU. Depends on what your your laptop supports, or like if you run things on Google Colab. like if you run Google Colab, it will",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "detect CUDA and it will be quite fast. MPS is also quite fast. CPU will be the slowest. But that's like it that's low it work decently well. Uh next up is the learning the learning rate, and that's like a big part of how the the models are able to learn.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "Uh the way the models work is that you first start generally with as high of a learning rate as as you can, as you can afford without making the model become unstable. Uh so it basically makes it go crazy. and the way it works you start at a very",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "high learning rate, which is essentially the the amount of the model is able to learn per step. How much the the weights need to move into the direction that you want. If you have a very high learning rate, you would offset your target, so it can go",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "off the rails very fast your model. So you want to use a very appropriate learning rate. Um for your model to be able to train well. And usually you have this this concept of a warm-up where you start with a very small learning rate so that all your",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "optimizations uh the the model weights are able to to to stick to places that are that again that they don't go into like they they can they can start in places that are appropriate for the training to begin. So you start at a very low",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "learning rate, increase it slightly until until you reach the peak, and then at the peak you continue you start reducing the learning rate, and that's what we call weight decay. Um and uh until you reach a point that you're you're satisfied with it. Some",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "people For some people that is zero. Like I prefer to not go to zero cuz then it's hard to restart the training. Um but that's the idea. You want the learning rate to be less when the model is like close to being perfect. So small you you want it to start with",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "very big changes to find like good local minima look look global minima and then it for it to calibrate us training goes goes further. Um so we'll start with like a small warm-up of 100 steps and then we're going to use a cosine decay",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "until the max steps that we're going to be in this case is going to be 5,000. So you're going to start from like very low peak at 100 steps and then start going down down to uh to 5,000 steps. And that's what the AdamW normalizer",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "does. Uh it's essentially allows this the the the this concept of like controlling the learning rate using this cosine decay. And that's the most common normalizer people use. At least used to use. Now there's better normalizers, but this is the most simple",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "to to start with. And here's how the full training loop would look like. Again, like not not not that much code. You just uh initialize your config. like in this case it would be like a six six layers, six attention heads, 384 um",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "embedding size, and then 256. That's the sequence length. Uh you initialize your model. And then you create your you you start your optimizer. You start your steps. You take a DM helps with like tracking like the losses and all and all that kind of stuff. You",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "want your loss to start high and then keep going down until you reach levels that are acceptable. Um and then another important part is evaluations to make sure that your model actually works well. That's what the val loss is here. So,",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "it's very easy for models to like overfit, especially like this this this small models, cuz you don't have that much data. So, the loss might keep going down, which means that the what the model predicts and what the training data is are very",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "similar. So, your loss can keep going down a lot. Uh but actually at one point maybe your model actually overfits in this case. And when it overfits, even though the loss goes down, actually the performance of the model is worse.",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "That's why we have this val loss, which is a is a part of the data the model has never seen, and we run a forward pass to get the loss of that specific part of the data set. And if this is very low, it means the model can is is performing well, cuz it had",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "the model has never seen this this data, so it can't memorize things it had never seen. So, that's what that's what we have here with the val loss. And uh Now, I'm not going to explain the concept of of of of of uh backwards losses, but essentially that's",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "the way the model the model weights move towards the direction of being optimized. Uh so, for for each step, we have a batch size of in our case 256, um 256 tokens, batch size 64. So, we we push this matrix through our model, and then it learns, and then the",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "optimizer does an extra step, and now the learning rates are adjusted depending on what the steps you're in right now. And lastly, just to have an extra way of uh every every 1,000 steps, you save your checkpoint to be able to restart",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "your training if you need it from that point. And we're also running uh inference on the current checkpoint to see what the model actually predicts at this point. Uh so, what we're we're going to start seeing when we start from from big the",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "beginning because it's a model we're training from scratch, the loss is going to be essentially random. And in that case, that would be natural log of 65, so it will start at around 4.17. Uh that basically means the model like",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "knows nothing. It has no clue of what this data is. Uh and slowly we're going to start seeing the loss going down to 3.3. That's when the model is going to understand character frequencies. Uh it will still not be able to do words",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "yet, but it might understand things like th as part of the, which is a common word. Like th is going to be part of the things that it starts generating. Then at around 2.5, it's going to it was going to get a little bit better about this th, and then it will",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "understand the word in and stuff like that. Then at about 1.5 to two losses, it will start actually creating words. And then at around one 1.0 to 1.2, that's when the model is going to start being decent at at at this task. You",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "will actually be able to understand names from the text. It will start creating things that start making sense. But then when the loss starts going below 1.0 for this specific data set, that's where we're going to start seeing",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "overfitting. The model will still be like producing like reasonable things, but it will no longer start be getting better at it. this is like an example at 200 steps when I was testing this. Uh it was just producing like complete nonsense.",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "Uh and the val loss was around 3.5. then at about 800 steps, it started producing like decent things. Uh still not not not great things, but it was it was starting to get there. And at 1,000 steps, it got better. And there was one point that the val",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "loss actually started increasing instead of decreasing, and that's where we know the model overfit. So at around 2,400 steps is where the that was the optimal performance of this model. And then if we kept going, the the performance was actually maybe not",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "decreasing, but the models are becoming less creative. So, that's one of the things to to keep in mind. Now, val loss is like not the best metric like for if you're actually being serious about training LLMs, usually you might have like some",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "benchmarks that are running as part of your training and you can see like if the benchmarks are getting worse or not. Uh but for us that's like a very easy and cheap way of like understanding how the model is doing. So, yeah, that what um",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "next steps now like uh probably to actually train this model yourself. Considering the internet is already good, I would suggest probably using Google Colab for this. you can you can copy paste stuff from from from from here. You can glue things together.",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "Copy pasting will probably like allow you to go get 90% there. Uh there is a lot of room for for improvement for what I did in here. I on purpose I did it like super simple and there are things that you can improve yourselves. but the idea is to",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "to get something working. I hope everybody will be able to get something working if if you're interested in do in do in do work on this. And have something that starting from nothing and getting like a model that can actually produce like a",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "result that seems reasonable. Um after we have trained a model, the next part is text generation which is like the inference side of things. we're just going to be using uh there's a multiple ways to to do to do inference. One way is like greedy",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "decoding. It's what I was mentioning earlier. You have all the logits which is as a distribution of tokens and you just take the most likely token and that's what the greedy decoding means. Uh so, let's say that you have like your",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "the token T and the token H are are both in the distribution. One has like 80% probability, the other one has like 15% probability. You always be taking the the top the top one. That's greedy decoding. Greedy decoding doesn't work very well for LLMs. It can",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "work well for other models, but for LLMs, like this essentially makes them very boring and not very creative in what they generate. So, you pretty much never want to use greedy decoding for LLMs. You would want to use it for for other",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "models like transcription, for example, greedy decoding is the best cuz there's usually like only one way you can you can transcribe something. You don't want it to be creative in transcription. Like that's not that's not a good idea.",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "Um so, that's what greedy decoding is. In our case, we're not going to use that. We're going to use temperature. So, essentially what temperature is is that you're not always choosing the highest probability token. Sometimes you might choose the second",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "highest probability token or like the third highest. And uh even though it doesn't make any sense, why would you choose like a worse token for the situation? It has proven that this actually makes the model perform better.",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "It like sometimes it might like go into like these weird loops, so there aren't like techniques you can make sure that it doesn't go like crazy by generating some nonsense. Uh the worst thing is if if it predicts like an end of transcript token and end",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "of text token and then it's like stops the generation, which maybe you have seen sometimes when using ChatGPT where suddenly it just like stops for no reason. You sometimes it's because of that, but there are ways you can you can you can um prevent this.",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "Generally like a 0.7 uh temperature is like the best. The best middle ground to make to to inference work well. And then you have top K sampling. Uh which essentially like it prevents the model for if you have like, let's say,",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "five tokens that are very likely and then the sixth token is like completely unlikely, top K sampling sampling prevents the model from predicting this like sixth very unlikely token, even though the temperature might you might",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "get unlucky and the temperature might hit it. Um so, that's what top K sampling does. And this is like our inference function is like it's very straightforward. It just does it just runs uh takes all the tokens as as the input,",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "passes it through the model, takes the the logits out of the model, and runs uh soft this is that what I was describing before is called soft max. It takes using a temperature the probabilities and then uh it it decides what the the next token",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "should be based on the on those probabilities. and one thing you can do you can use seeds and essentially seeds is that it like right now everything will be random if you just keep returning it. But if you if you keep returning it but",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "if you use a a set seed then your inference will always be returning the same value. Uh which will be uh relevant in later. Uh then putting it all together if we put all together we should have three different files. One is like the",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "model.py that includes our model architecture. One is train.py which includes the data data set loading and the training loop. And lastly the generate.py that includes our inference. And in total this should be like maybe a few hundred lines of code. Uh",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "very straightforward and that's with even with this much code like if we have a lot big hardware we could train a good LLM using this architecture if we have enough data and enough resources. That's that's all you need essentially.",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "And that's what basically like GPT-3 and GPT-2 like when OpenAI released it I remember when OpenAI was about to release uh GPT-2 and they were saying we're not going to release it because it's too dangerous for for humanity. And that was like back then.",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "It the that was the code that they were working on and like a lot of data. And of course a bigger model. Uh now this seems to be like kind of kind of funny but for them like that was like a very warm moment that we did this and",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "then the model like actually performs really well on tasks. Um, but in the end it was just it was just what you see here. Um, so yeah, putting all together, uh, you can uh, if you use Google Colab, you can use this this, uh, snippet of code to download the",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "the data set and you can use this pip install command to install the different dependencies. Uh, and then it should look uh, like something like this where you install your dependencies, you copy your code. Uh, and you might need to do some, um,",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "connection some connections together, but essentially like you can run a a train that you can use a train command to run to to and use the data set that you want to use and that this will start the training and then you can see how the",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "performance of the model improves step by step. Like for me this took about like 15 minutes to train on on Google Colab until I started getting good results. Uh, with some improvements you can make it go faster and maybe you can make it go",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "slower, but actually get better results. Um, but essentially like it's it's very simple to get to get working. One thing to remember is that you have to change your run time change run time type to T4 GPU uh, because this this this is free and it",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "will it will run quite fast. Um, hey yeah, feel free to train. Like you can try like maybe starting with a very tiny model the 0.5 million parameter uh, with a whole that has two layers and only two attention heads and a smaller embedding size for for",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "each token. And then you can try bigger and bigger models until you get some usable results. Um, and as I mentioned before you can try different context lengths. I started with 256, you can try bigger, 512. Um and then you can if you want to",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "monitor and see how your losses went down like in a nice way, you can use this like uh this pipe plot lib uh to see like your the graphs. Uh the things that you want to look for is if your train loss is not decreasing, it means your model is not learning.",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "the problem is you have a bug in your code. if your uh the you you also could be like a a low training loss. If your train loss is is decreasing, but your val loss is not it's actually increasing, that means you overfit. Uh and if you have very weird spikes in",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "loss like the loss would be like very smooth in general. If you have very weird spikes in your loss, it means like again there's some some kind of bug either in your data or in your training. And uh when the model starts plateauing and not getting any better,",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "it means you kind of you have pretty much exhausted the usefulness of your current data set. So either you going to use a bigger model or you going to need you have to need more data. Uh now one one like interesting part about what uh I would like us to do is",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "I think it'd be cool if we had like some sort of competition of who can train the best model here if uh anybody is able to to get things working. Uh hopefully the data is good enough. And also for further reading, you can",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "see like a lot of the resources for this uh for this workshop. but uh essentially what the challenge is we can we can vote all together to find which which model actually produces the best verse of Shakespeare. Or it could be if",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "you use a different data set, a best poem or in that kind of category. The rules are you have to train the model yourself like here and today. Like it it can't be like some you can't ask ChatGPT to give you like a good verse.",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "You have to like use your own model. And to prove this, you'd use like a seed with a specific prompt and see what output it gives you. You're free to like regenerate as many times until you you get the best results. and uh you I'll have like a QR code that",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "you can submit your results and I can go around and like help people out that uh if you need any help getting uh training running. And uh of course uh this training is like super bare-bones. There are many ways you can optimize this and make this better.",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "So, I guess for people that are a bit more experienced, they can they can implement this this uh improvements and maybe get a better outputs of your other model. Uh the winner is going to get some uh free swag from from Level Ups, maybe",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "like a hoodie or like some some free credits. Uh I'll see what I can actually give. So, yeah, this is the submission. you need to be creative and then I'm and this will be essentially like a good verse. And we can maybe use like a kind of",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "kind of bracket. Oh, what happened? Oh, cool. We can use a bracket and then we can vote which verse like sounded best. That could be funny, that could be like like well-made, like up to you. And uh the reproducibility should look something like this. Uh where",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "you run python generate on your best checkpoint, the prompt that you decide that you can it's up to you, temperature and then a a seed that that proves that you can actually produce your results. Uh you can try different model sizes.",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "like I guess like 85 million parameters is maybe too big for this, but if you have resources, you can try it. Uh you can try better tokenizers, like this one of course is like character-based, but perhaps you can train your own BP tokenizer",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "uh based on that data set. And there's also other tweaks that you can do, like bigger context, uh like there are some some training optimizations, like using a dropout value. Uh you can stop whenever you want, when you feel like",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "the model is good enough, change the learning rates. and essentially get like a make the model as good as possible. yeah, that that is the idea. I'm going to go around and help you out. Sorry, go ahead. So, reasoning models act to to repeat the uh uh",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "You're asking like uh if there's any models that are quite a bit different training. The base the building blocks are very similar. Like you can train the same exact model, you can post train it which is how like usually reasoning is is uh",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "is being taught to this model. You have a good base instruct model and then you post train it to be a reasoning model. This is very data set driven. So, you need very very high quality data. And you're going to use a loss that's like good enough to be able to",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "uh to learn this data in a in a very good sense. the complication of reasoning models is finding this good chain of thought data. Uh that's why like OpenAI has like all these labelers that are like PhD students that they write down the",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "reasonings of like how to how they solve problems. because this data needs to be very high quality cuz it's it teaches the model how to think. So, you can't just go on like Reddit and just get random posts. You're not going to learn how to think",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "this way for sure. Uh you need like some very high value good quality data to teach this reasoning process. But in the end, reasoning is is essentially just adding to the context of the model like this to to the attention essentially. Uh this",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "like logic that then the model can when it generates a response, it can go back and attend to those reasoning tokens and get a better response out. So, it could be like describing the model a bit better then it goes back, sees those",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "tokens that it described, and say, \"Oh, actually yeah, I already figured this out. I'm going to write it down now.\" Okay. Uh the microphone is not working. Is it? Yeah, perfect. Uh so, reasoning and non-reasoning models share the same",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "base often, and then one is post-trained in a different way and add this uh you know, in a way different post-training. Yes. So, a a lot of the labs, like let's say the current model that was released like 1 3, usually they",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "release like a base version, an instruct version, and the usually the base version doesn't have a chain of thought reasoning. Uh it's usually like the same model that they first pre-train to be like quite good, maybe do some fine-tuning as well.",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "And then the next step is doing post-training to teach it this kind of like this this uh this knowledge. Uh so, that's why like you see a lot of a lot of uh big improvements that happen very fast in the industry, like Gemini 3",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "to 3.1, it's essentially giving it like better reasoning data and like like better fine-tuning post-training data for like specific problems. It's a little bit like benchmarking, like usually this data is like very similar",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "to what the benchmarks, the current good benchmarks are. But yeah, essentially just taking a base model, using this new data to improve it to the next level. Okay. And second question is compared to what you are showing us here, like this very bare-bone model,",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "has there like has there been fundamental innovation in the main training of the model like powering nowadays models or is it mostly the same, but just with smarter tricks, small tweaks, better data, and so on. So, I like are everyone",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "still using the same attention layer and so on or are there like some fundamental shifts that have been happening on the latest, and maybe you know, maybe you don't, I don't know. No, yeah, no, yeah. So, you're you're correct. That that So, they a lot of",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "this base is the same. They might do some changes in terms of how attention attends to those different tokens because sometimes reasoning can be quite large so you need big sequence lengths to be able to get good results.",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "So there's a lot of like tricks that the new labs that the labs do to make this to make the attention more efficient. But overall you can take like a very you can take this model GPT-2 and make it into a reasoning model. Like if you have",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "the the data and like a big enough model to actually learn from that reasoning as well cuz like this time models reasoning won't help them too much. But if you had a big enough model that can get stuff out of the reasoning there are",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "people that have taken like older models like let's say llama 1B that small and weren't trained for reasoning and they made them into reasoning models using the exact same architecture. Yes. How much effort do you put in you know getting your golden data set?",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "What is that process that you follow? You mean for post training? Yeah. Yeah so like as I mentioned before like usually what most labs do is that they go to companies like Scale AI that's probably the biggest one. And Scale AI has an army of like people that",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "you can you can say I want physicists. Give me data from physicists and Scale AI is going to find contract physicists pay them like as much money as they need. And then these physicists might like write things down they might be",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "contacted to do different things. But essentially like a lot of these companies they like Scale AI provides data for like Anthropic and another good one by Meta so probably not that much anymore. But essentially they they these data sets are provided by these",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "like labeling companies. Scale AI is one of them but a lot of the the big labs have their own labeling teams too that they hire contractors to generate these data sets for them. but as I as I said before like you want you if this data set has like even some",
+      "start": 1590,
+      "duration": 6
+    },
+    {
+      "text": "small issues it can literally make or break your model. So, these data sets are like kind of the most expensive, like they will cost tons and tons of money, but they actually are the ones that make the models like as good as they are.",
+      "start": 1596,
+      "duration": 6
+    },
+    {
+      "text": "Just a quick follow-up. So, even on that I mean, you still have to evaluate, but the answer wouldn't be exactly the same. So, our people are really reviewing this, or it's still you're relying on LLM to evaluate? Uh you you you rely on people for this kind",
+      "start": 1602,
+      "duration": 6
+    },
+    {
+      "text": "of stuff. Usually, the way it works, uh a big part of my job is actually like doing this uh organization. Uh usually, the way it works is you have you might have like one person that generates the label this like very high-quality label data, and then you",
+      "start": 1608,
+      "duration": 6
+    },
+    {
+      "text": "have maybe some labeler that have graduated into like a QA position, where their job is to essentially make sure that all the like other labelers, the more entry-level, their outputs are correct. And it's it's a it's quite a the tough",
+      "start": 1614,
+      "duration": 6
+    },
+    {
+      "text": "job because like if your QA is not good, you get fired. So, it's like it's that that's the way they keep the level quite high. Yes. So, LLMs are non-deterministic, but um how does that seed parameter work? So, the the way the LLMs are",
+      "start": 1620,
+      "duration": 6
+    },
+    {
+      "text": "non-deterministic is because they they essentially use random number generators for of like the of of of your machine. Uh or like of the the the the GPU that you're currently using of the the system. The seed essentially like",
+      "start": 1626,
+      "duration": 6
+    },
+    {
+      "text": "makes all those different calculations to be always return always the same value. So, things are no longer random. Like you're you this is not only for uh for for this uh these seeds can be used for any random generation. Uh so, it",
+      "start": 1632,
+      "duration": 6
+    },
+    {
+      "text": "could be like for password hashes. Yeah, it it works the same exact way. Yes. But, this is like you mentioned pretty deterministic, right? So, if we use that that they are deterministic, right? >> Yes. Yeah, if you use greedy decoding uh",
+      "start": 1638,
+      "duration": 6
+    },
+    {
+      "text": "there might be still some things that like like it's good to use a seed even if you use greedy decoding cuz there might be some other stuff that maybe you don't you don't you don't control. Like maybe you're using some like sometimes",
+      "start": 1644,
+      "duration": 6
+    },
+    {
+      "text": "greedy decoding might not be actually greedy decoding might be 0.01 like a temperature like for VLM for example that they do some electrics like that to be able to get uh good outputs. Uh so in in general it's good to use seed even if you're using greedy",
+      "start": 1650,
+      "duration": 6
+    },
+    {
+      "text": "decoding. Yes? this is obviously all in text. Eleven Labs is mostly audio, right? Yes. How different is this versus like doing this with audio? It's surprisingly very similar. Really? It's more complicated for sure, but parts of the the stack of like",
+      "start": 1656,
+      "duration": 6
+    },
+    {
+      "text": "most audio models they also can do text cuz they you need the the models need to understand language itself. And the best way to teach something language is text. Uh of course you can train an an audio-only model like uh And again it's like what I was talking",
+      "start": 1662,
+      "duration": 6
+    },
+    {
+      "text": "about the tokenizer. Like how do you tokenize audio? Like what what is the concept of like a sound? Like how how big should your tokenizer be for audio? What should it be only human speech or should it also be like a music? Like do you take the notes of",
+      "start": 1668,
+      "duration": 6
+    },
+    {
+      "text": "different music instruments as like different tokens? These are the kind of problems that you have to solve like if you're creating a uh an audio model but you wouldn't necessarily need it as a text. This is a bit easier. Uh",
+      "start": 1674,
+      "duration": 6
+    },
+    {
+      "text": "but the fundamentals are still like the same. Like if you want to generate audio you would you generate like an audio token and then that audio token would be using a tokenizer and then you you it's not exactly the same cuz the audio",
+      "start": 1680,
+      "duration": 6
+    },
+    {
+      "text": "token then you have to process it in some different ways uh to make it into like actual audio. But uh a lot of the same uh general ideas still apply. But do you have a lot more loss or something cuz with text you know like",
+      "start": 1686,
+      "duration": 6
+    },
+    {
+      "text": "this is the text the text can be down to very clear like a one is a one but in audio like particular pitch or frequency or sound but like cuz then the unity there is already lost straight away right? Yeah yeah so the way it it works is that",
+      "start": 1692,
+      "duration": 6
+    },
+    {
+      "text": "you don't use like this cross entropy loss you use different types of losses and you can use cross entropy but usually it's it's losses that are more specialized for what you're trying to do. Like for example there's a loss",
+      "start": 1698,
+      "duration": 6
+    },
+    {
+      "text": "called L2 loss which essentially takes like two mel spectrograms and tries to see the difference between those two mel spectrograms which is essentially like a sound waves in encoded in a certain way. And that's like a very common way for",
+      "start": 1704,
+      "duration": 6
+    },
+    {
+      "text": "TTS models to be trained you train on this specific types of loss. And the same thing I was mentioning earlier cross entropy doesn't really work as well for for things like post training you might use different types of losses there or if you're distilling",
+      "start": 1710,
+      "duration": 6
+    },
+    {
+      "text": "a model from a big model to a smaller model you don't use cross entropy loss you might use a KL divergence loss where you find the the token distributions of like the bigger model and you try to match the logits of the smaller model so there's",
+      "start": 1716,
+      "duration": 6
+    },
+    {
+      "text": "different types of losses for different use cases not all of them work the same way. Yes. So the way multi modal models work usually you don't use tokens in the same sense. Um Like okay this is where like it becomes a little complicated cuz like these",
+      "start": 1722,
+      "duration": 6
+    },
+    {
+      "text": "models are not really built for this like the GPT model like the bit the newer models they have also like an embedding input which essentially as As As mentioning earlier like you have each token then corresponds to like a vector.",
+      "start": 1728,
+      "duration": 6
+    },
+    {
+      "text": "But these vectors, they don't have to correspond to specific token. You can take these vectors from other places, too. And what a lot of these labs do is that instead of having a tokenizer for like video, for example, what they",
+      "start": 1734,
+      "duration": 6
+    },
+    {
+      "text": "do is they have another transformer that they call a video encoder. And they put the video first through that video encoder. And uh this video encoder will be taking let's say you have a a 30-second video, it will take one frame per second of this video.",
+      "start": 1740,
+      "duration": 6
+    },
+    {
+      "text": "And it will take those frames and then put them through this like new transformer, this encoder transformer, that works quite a bit differently than this one. And what you do is that you take the final layer of this transformer, the",
+      "start": 1746,
+      "duration": 6
+    },
+    {
+      "text": "hidden values, which are also vectors. You take those those vectors out of this encoder and you're going to input them in the embedding layer of the of the transformer model. So, what the model is going to see is going to usually is is",
+      "start": 1752,
+      "duration": 6
+    },
+    {
+      "text": "like prefixed. So, you take the you take the video, put it through the encoder, get some vectors, and then put those vectors in the embedding input of your transformer that does text. And the way it would look like if you look at the",
+      "start": 1758,
+      "duration": 6
+    },
+    {
+      "text": "sequence, it would probably be like a prompt and then it would be probably like a video token representation. And then actually but the embedding of that video token is going to be overridden by the output of the encoder.",
+      "start": 1764,
+      "duration": 6
+    },
+    {
+      "text": "So, that's how like this this multimodal models work. It produces a vector which is the same length as like a vector for words. Yes, it's exactly the same vector. And that's it for audio. You have an audio encoder and do the same but but for audio.",
+      "start": 1770,
+      "duration": 6
+    },
+    {
+      "text": "And the but for in in terms of how what the model cares about, it just cares about like these embeddings, right? They don't care if it's text or if it's audio or if it's or if it's video. It cares about these vectors and that's",
+      "start": 1776,
+      "duration": 6
+    },
+    {
+      "text": "how you you represent them into the the same dimension as the model the transformer expects. So, there's there's no relation between like the video of the horse jumping and the word horse. Is there no similarity between those two like",
+      "start": 1782,
+      "duration": 6
+    },
+    {
+      "text": "Um maybe there is. I I'm not It depends on how you train it. Like it's These are the kind of things that are a bit black boxes. Maybe there is, maybe there's not. Actually, that's a good idea to like That would be a good research paper to",
+      "start": 1788,
+      "duration": 6
+    },
+    {
+      "text": "to see like uh for video encoders, do they actually match in the same dimension as the text encoders? I I don't know. I imagine there probably is some uh connection. Sorry, you had a question as well? Uh yeah, I was wondering about like since",
+      "start": 1794,
+      "duration": 6
+    },
+    {
+      "text": "you do both uh normal speech, do you also do some music generation? Is that like a very different problem or will the architecture be like similar? And also like when you have these harmonics and stuff are you still able to do it with just",
+      "start": 1800,
+      "duration": 6
+    },
+    {
+      "text": "like a basic like uh auto regressive transformer or do you have to like do diffusion or is like things depend more on each other? when you might want to like generate everything at the same time. Y- Y- You can do both. There's music",
+      "start": 1806,
+      "duration": 6
+    },
+    {
+      "text": "models that are auto regressive, there's music models that are diffusers. Uh like it depends on how you how you train it. Um Like I think some of the some of the Google models are like like transformer based. Some of uh open source models are",
+      "start": 1812,
+      "duration": 6
+    },
+    {
+      "text": "like diffuser based. Like both kind of work kind of work very well. It's just that this it's a little bit As I said, like it's a little bit more difficult to to to put into perspective this the concept of like all music. If you",
+      "start": 1818,
+      "duration": 6
+    },
+    {
+      "text": "tokenize and predict the next token, it's kind of hard cuz it's very abstract. Uh so usually diffusers work a bit better in this like image modalities for generation or like music or like even audio for some models. Like they have",
+      "start": 1824,
+      "duration": 6
+    },
+    {
+      "text": "some kind of diffuser diffuser um diffuser part of the process. both can work. Diffusers are generally a bit easier to get it working. I hope this answered your question. >> sense. Yep. How do you tokenize audio? I mean like in text you get repetitions like",
+      "start": 1830,
+      "duration": 6
+    },
+    {
+      "text": "repetitions happens quite a lot. It's easier to combine if they're tokens. Very big advantage of that. Audio different voices that are kind of like how long how long it takes to play. It's very hard. And it's not really something that you",
+      "start": 1836,
+      "duration": 6
+    },
+    {
+      "text": "do by by just sitting down and thinking, \"Okay, I'm going to tokenize this word to that.\" This This is not something that you like sit down and like decide. You use some kind of process in the you train like an audio tokenizer through",
+      "start": 1842,
+      "duration": 6
+    },
+    {
+      "text": "You have a It's a very similar like case, I guess, how you train like a text tokenizer. You'd use your training data and you'd find like common patterns in the audio and then tokenize those patterns. Of course, like when we say audio, we don't",
+      "start": 1848,
+      "duration": 6
+    },
+    {
+      "text": "don't always just mean like the actual like sample rate and like the the audio waves. Usually convert them to something that's a bit more easy to to tokenize, to to do this processing. The most common one is like is mel spectrograms.",
+      "start": 1854,
+      "duration": 6
+    },
+    {
+      "text": "It's First, you convert your audio to mel spectrograms and then use this this this this essentially arrays of like of numbers to train your your tokenizers. And it will be very dependent on your training set. Like if you wanted to",
+      "start": 1860,
+      "duration": 6
+    },
+    {
+      "text": "tokenize music and use a music data set, your audio tokens for music are going to be very different than if you had a voice data set. That's going to be like focusing on like human voice. Now, the hard part is what if you want to do both voice and music?",
+      "start": 1866,
+      "duration": 6
+    },
+    {
+      "text": "That's where like That's That's very hard. Any more questions? Okay, awesome. Yeah, if you if you want, you can start working on training the model if you have a laptop out or if you have already started. You can follow this.",
+      "start": 1872,
+      "duration": 6
+    },
+    {
+      "text": "You you can you you can follow the the workshop uh that gets something working. And uh if we do have enough submissions, we can do the the competition and and uh see who whoever wins will is going to get some some nice swag. Sorry? So, uh",
+      "start": 1878,
+      "duration": 6
+    },
+    {
+      "text": "because we don't have that much time left, let's just say 5:45. Uh if you have any any questions or you need any help, uh please call me and I'll I'll come over.",
+      "start": 1884,
+      "duration": 6
+    }
+  ]
+}

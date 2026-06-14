@@ -1,0 +1,136 @@
+# Performance Benchmark Scenarios
+# Covers: PERF-RT-001~020, PERF-CC-001~007, PERF-BD-001~003 from comprehensive-test-suite-2026-02-17.md
+
+# Response Time Benchmarks
+- id: perf-ask-ttfb
+  test_plan_ids: [PERF-RT-001]
+  description: "AI Ask first byte response time"
+  method: api
+  endpoint: "/api/ai-ask/chat"
+  metric: time_to_first_byte
+  p50_target_ms: 2000
+  p90_target_ms: 3000
+  p99_target_ms: 5000
+
+- id: perf-mixture-ttfb
+  test_plan_ids: [PERF-RT-003]
+  description: "Mixture mode first response (4 models)"
+  method: api
+  endpoint: "/api/ai-ask/chat/mixture"
+  metric: time_to_first_byte
+  p50_target_ms: 3000
+  p90_target_ms: 5000
+  p99_target_ms: 8000
+
+- id: perf-search-response
+  test_plan_ids: [PERF-RT-004]
+  description: "Web search + AI response time"
+  method: api
+  endpoint: "/api/ai-ask/chat?web_search=true"
+  metric: time_to_first_byte
+  p50_target_ms: 5000
+  p90_target_ms: 8000
+  p99_target_ms: 12000
+
+- id: perf-rag-search
+  test_plan_ids: [PERF-RT-005]
+  description: "Knowledge base RAG search time (10 docs)"
+  method: api
+  endpoint: "/api/rag/search"
+  metric: response_time
+  p50_target_ms: 3000
+  p90_target_ms: 5000
+  p99_target_ms: 8000
+
+- id: perf-history-list
+  test_plan_ids: [PERF-RT-012]
+  description: "Conversation history list load (100+ items)"
+  method: api
+  endpoint: "/api/ai-ask/conversations"
+  metric: response_time
+  p50_target_ms: 1000
+  p90_target_ms: 2000
+  p99_target_ms: 3000
+
+# Page Load Performance
+- id: perf-page-fcp
+  test_plan_ids: [PERF-RT-013]
+  description: "First Contentful Paint for key pages"
+  method: browser
+  pages:
+    - /ai-ask
+    - /ai-research
+    - /ai-teams
+    - /ai-writing
+    - /library
+  metric: first_contentful_paint
+  target_ms: 2000
+
+- id: perf-page-tti
+  test_plan_ids: [PERF-RT-014]
+  description: "Time to Interactive for key pages"
+  method: browser
+  pages:
+    - /ai-ask
+    - /ai-research
+    - /ai-teams
+    - /ai-writing
+    - /library
+  metric: time_to_interactive
+  target_ms: 3000
+
+# Concurrent Requests
+- id: perf-concurrent-ask
+  test_plan_ids: [PERF-CC-001]
+  description: "3 simultaneous Ask API requests"
+  method: api
+  concurrent: 3
+  endpoint: "/api/ai-ask/conversations"
+  expected: "All return 200, no timeouts"
+
+- id: perf-concurrent-mixed
+  test_plan_ids: [PERF-CC-002]
+  description: "Ask + Teams + Research simultaneous requests"
+  method: api
+  concurrent: 3
+  endpoints:
+    - "/api/ai-ask/conversations"
+    - "/api/ai-teams/topics"
+    - "/api/ai-research/topics"
+  expected: "All return 200, no blocking"
+
+- id: perf-concurrent-tabs
+  test_plan_ids: [PERF-CC-003]
+  description: "3 browser tabs with same user"
+  method: browser
+  tabs: 3
+  expected: "Independent operation, no data corruption"
+
+- id: perf-websocket-connections
+  test_plan_ids: [PERF-CC-007]
+  description: "20 WebSocket connections simultaneously"
+  method: api
+  concurrent: 20
+  expected: "All connected, no drops"
+
+# Large Data Volume
+- id: perf-large-knowledge-base
+  test_plan_ids: [PERF-BD-001]
+  description: "Knowledge base with 100+ documents"
+  method: api
+  data_volume: "100+ documents"
+  expected: "Search completes in <5s"
+
+- id: perf-large-history
+  test_plan_ids: [PERF-BD-002]
+  description: "500+ conversation history"
+  method: api
+  data_volume: "500+ conversations"
+  expected: "List loads in <3s"
+
+- id: perf-long-conversation
+  test_plan_ids: [PERF-BD-003]
+  description: "100+ messages in single conversation"
+  method: browser
+  data_volume: "100+ messages"
+  expected: "No crash, no truncation, smooth scroll"

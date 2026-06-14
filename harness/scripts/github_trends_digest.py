@@ -30,7 +30,7 @@ except ImportError as exc:  # pragma: no cover
 
 
 UTC = dt.timezone.utc
-DEFAULT_MAIL_TO = "sean.lisihao@huawei.com"
+DEFAULT_MAIL_TO = os.environ.get("GITHUB_TRENDS_MAIL_TO", "user@example.com")
 
 
 def now_utc() -> dt.datetime:
@@ -477,7 +477,7 @@ project: github-trends-digest
 def write_digest(config: dict[str, Any], analysis: dict[str, Any], date_str: str) -> dict[str, Any]:
     return {
         "status": "disabled",
-        "reason": "raw GitHub Trends Digest report generation was retired; use tech_hotspot_radar.py github-trend-report for AI Influence insight reports",
+        "reason": "raw GitHub Trends Digest report generation was retired; use scripts/run_github_trend_report_daily.sh --date YYYY-MM-DD so AI Influence report generation and mail-result stay unified",
         "date": date_str,
     }
 
@@ -565,7 +565,7 @@ def send_email(html_content: str, date_str: str) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="GitHub trends collector and digest")
     p.add_argument("command", choices=["collect", "analyze", "run", "status"])
-    p.add_argument("--config", default="/Users/lisihao/Solar/harness/config/github-trends.yaml")
+    p.add_argument("--config", default="${SOLAR_REPO}/harness/config/github-trends.yaml")
     p.add_argument("--force", action="store_true")
     p.add_argument("--date", default="")
     return p

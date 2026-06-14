@@ -174,7 +174,7 @@ def _load_schema(path: Optional[Path] = None) -> Dict[str, Any]:
 def _flatten_registry(raw: Dict[str, Any], registry_path: Path) -> List[RegistryEntry]:
     capsules = raw.get("capsules", {})
     entries: List[RegistryEntry] = []
-    for capsule_kind in ("capability", "guard", "resource"):
+    for capsule_kind in ("capability", "guard", "resource", "verifier", "workflow"):
         for item in capsules.get(capsule_kind, []) or []:
             manifest_path = Path(item["manifest_path"])
             if not manifest_path.is_absolute():
@@ -1095,3 +1095,82 @@ def resolve_capability_capsule_for_envelope(
         registry_path=registry_path,
     )
     return resolved
+
+
+DEFAULT_WORKFLOW_MAX_DEPTH = 3
+
+
+def expand_workflow_capsule(
+    capsule_id: str,
+    *,
+    registry_path: Optional[Path] = None,
+    max_depth: int = DEFAULT_WORKFLOW_MAX_DEPTH,
+    _visited: Optional[set] = None,
+    _depth: int = 0,
+) -> Dict[str, Any]:
+    """Recursively expand a workflow capsule into its child capsules.
+
+    Enforces max_depth and cycle protection. Returns a structured
+    expansion result with child DAG traceability.
+    """
+    visited = set(_visited or set())
+    if capsule_id in visited:
+        return {
+            "capsule_id": capsule_id,
+            "cycle_detected": True,
+            "children": [],
+            "trace": [capsule_id],
+        }
+    visited.add(capsule_id)
+
+    if _depth >= max_depth:
+        return {
+            "capsule_id": capsule_id,
+            "max_depth_exceeded": True,
+            "children": [],
+            "trace": [capsule_id],
+        }
+
+    entry = get_registry_entry(capsule_id, path=registry_path, include_nonstable=True)
+    if entry is None:
+        return {
+            "capsule_id": capsule_id,
+            "not_found": True,
+            "children": [],
+            "trace": [capsule_id],
+        }
+
+    manifest = load_capability_capsule_manifest(Path(entry.manifest_path))
+    workflow_spec = manifest.get("workflow_spec") or {}
+    child_ids = list(workflow_spec.get("child_capsule_ids", []))
+
+    if not child_ids or entry.capsule_kind != "workflow":
+        return {
+            "capsule_id": capsule_id,
+            "capsule_kind": entry.capsule_kind,
+            "children": [],
+            "trace": [capsule_id],
+        }
+
+    children = []
+    for child_id in child_ids:
+        child_result = expand_workflow_capsule(
+            child_id,
+            registry_path=registry_path,
+            max_depth=max_depth,
+            _visited=visited,
+            _depth=_depth + 1,
+        )
+        children.append(child_result)
+
+    return {
+        "capsule_id": capsule_id,
+        "capsule_kind": "workflow",
+        "expansion_strategy": workflow_spec.get("expansion_strategy", "sequential"),
+        "children": children,
+        "trace": [capsule_id] + [
+            step
+            for child in children
+            for step in child.get("trace", [])
+        ],
+    }

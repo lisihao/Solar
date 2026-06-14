@@ -104,6 +104,40 @@ class TestSendToPaneLiteral:
         literal_calls = [c for c in calls_log if "-l" in c]
         assert len(literal_calls) > 0, "Expected -l (literal) flag in tmux send-keys"
 
+    def test_verification_suite_with_write_scope_uses_builder_lane(self, tmp_harness):
+        """Verifier-named test creation nodes must not be dispatched to evaluator-only persona."""
+        import graph_node_dispatcher as gnd
+
+        node = {
+            "id": "N6_verification_suite",
+            "goal": "补齐 schema、contract、persistence、integration 和 negative-control 测试。",
+            "logical_operator": "Verifier",
+            "write_scope": ["tests/test_optimizer_call_chain.py"],
+            "acceptance": ["相关 pytest/shell smoke 命令通过"],
+            "required_capabilities": ["python", "testing", "verification"],
+        }
+        payload = {"dispatch_role": "evaluator"}
+        assignment = {"dispatch_role": "evaluator"}
+
+        assert gnd._graph_queue_dispatch_role(payload, node, assignment) == "builder"
+
+    def test_readonly_evaluator_node_keeps_evaluator_lane(self, tmp_harness):
+        """Pure review nodes without write scope should remain evaluator dispatches."""
+        import graph_node_dispatcher as gnd
+
+        node = {
+            "id": "E1_review",
+            "goal": "Review handoff and write eval sidecar.",
+            "logical_operator": "Verifier",
+            "write_scope": [],
+            "acceptance": ["eval_json exists"],
+            "required_capabilities": ["review"],
+        }
+        payload = {"dispatch_role": "evaluator"}
+        assignment = {"dispatch_role": "evaluator"}
+
+        assert gnd._graph_queue_dispatch_role(payload, node, assignment) == "evaluator"
+
     def test_sprint_level_handoff_only_reconciles_owner_node(self, tmp_harness):
         """A sprint-level handoff must not make sibling same-gate nodes reviewing."""
         tmp_path, sprints, sid, graph = tmp_harness
@@ -111,6 +145,15 @@ class TestSendToPaneLiteral:
 
         graph["required_gates"] = ["gate-shared"]
         graph["nodes"] = [
+            {
+                "id": "N8",
+                "goal": "Upstream dependency",
+                "depends_on": [],
+                "write_scope": [],
+                "acceptance": [],
+                "status": "passed",
+                "gate": "gate-shared",
+            },
             {
                 "id": "N9",
                 "goal": "Render planning.html",
@@ -142,8 +185,213 @@ class TestSendToPaneLiteral:
                 "handoff": str(sprints / f"{sid}.handoff.md"),
             }
         ]
-        assert graph["nodes"][0]["status"] == "pending"
-        assert graph["nodes"][1]["status"] == "reviewing"
+        assert graph["nodes"][0]["status"] == "passed"
+        assert graph["nodes"][1]["status"] == "pending"
+        assert graph["nodes"][2]["status"] == "reviewing"
+
+    def test_sprint_level_handoff_waits_for_owner_dependencies(self, tmp_harness):
+        """A final sprint handoff must not make a join node reviewing before deps pass."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        graph["nodes"] = [
+            {
+                "id": "N2",
+                "goal": "LaunchAgent work",
+                "depends_on": [],
+                "write_scope": [],
+                "acceptance": [],
+                "status": "pending",
+            },
+            {
+                "id": "N5",
+                "goal": "Write sprint handoff",
+                "depends_on": ["N2"],
+                "write_scope": [f"sprints/{sid}.handoff.md"],
+                "acceptance": ["handoff exists"],
+                "status": "pending",
+            },
+        ]
+        (sprints / f"{sid}.handoff.md").write_text("# Sprint handoff\n", encoding="utf-8")
+
+        repaired = gnd._reconcile_existing_dispatches(graph, sprints / f"{sid}.task_graph.json")
+
+        assert repaired == []
+        assert graph["nodes"][1]["status"] == "pending"
+
+    def test_parent_handoff_write_scope_does_not_satisfy_release_verification_node(self, tmp_harness):
+        """A stale parent handoff must not stand in for a node-specific closeout."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        graph["nodes"] = [
+            {
+                "id": "N5",
+                "goal": "Publish SectionRender final HTML",
+                "depends_on": [],
+                "write_scope": [],
+                "acceptance": [],
+                "status": "passed",
+            },
+            {
+                "id": "N6",
+                "goal": (
+                    "Add release verification that proves failed fixture fails and golden MVP passes, "
+                    "then produce implementation handoff evidence."
+                ),
+                "depends_on": ["N5"],
+                "write_scope": [
+                    "harness/tests/research_survey/",
+                    f"sprints/{sid}.handoff.md",
+                ],
+                "acceptance": [
+                    "Target pytest and py_compile commands pass.",
+                    "Closeout includes actual commands, results, unverified items, and risks.",
+                ],
+                "status": "pending",
+            },
+        ]
+        (sprints / f"{sid}.handoff.md").write_text("# Older sprint handoff\n", encoding="utf-8")
+
+        repaired = gnd._reconcile_existing_dispatches(graph, sprints / f"{sid}.task_graph.json")
+
+        assert repaired == []
+        assert graph["nodes"][1]["status"] == "pending"
+        assert gnd._existing_node_handoff(sid, graph["nodes"][1], graph) is None
+
+    def test_actor_runtime_unbound_operator_falls_back_to_assigned_pane(self, tmp_harness, monkeypatch):
+        """Legacy ad-hoc logical_operator names should not strand concrete-pane dispatch."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        node = {
+            "id": "B6",
+            "goal": "Wire compatibility call chain",
+            "logical_operator": "compat_call_chain_integration",
+            "required_capabilities": ["python", "testing"],
+            "status": "pending",
+        }
+        graph["nodes"] = [node]
+        graph_path = sprints / f"{sid}.task_graph.json"
+        graph_path.write_text(json.dumps(graph), encoding="utf-8")
+        sent: list[tuple[str, Path]] = []
+        ledger: list[dict] = []
+
+        class FakeActorResult:
+            success = False
+            error = "no_available_actor_for_compat_call_chain_integration"
+            dispatch_path = "actor_runtime"
+
+            def to_dict(self):
+                return {"success": False, "error": self.error, "dispatch_path": self.dispatch_path}
+
+        class FakeActorBridge:
+            @staticmethod
+            def dispatch_node(sprint_id, node_arg, fallback_allowed=False):
+                assert sprint_id == sid
+                assert node_arg["id"] == "B6"
+                assert fallback_allowed is False
+                return FakeActorResult()
+
+        monkeypatch.setattr(gnd, "_actor_dispatch_bridge", FakeActorBridge)
+        monkeypatch.setattr(gnd, "_pane_exists", lambda pane: True)
+        monkeypatch.setattr(gnd, "_assigned_pane_unavailable_reason", lambda pane: "")
+        monkeypatch.setattr(gnd, "_ensure_lease", lambda pane, sid_arg, dispatch_id, ttl, dry_run: {"acquired": True})
+        monkeypatch.setattr(gnd, "_inject_dispatch_context", lambda *args, **kwargs: None)
+        monkeypatch.setattr(gnd, "_send_to_pane", lambda pane, path, dry_run, **kwargs: sent.append((pane, Path(path))) or True)
+        monkeypatch.setattr(gnd, "_write_submit_ack", lambda *args, **kwargs: None)
+        monkeypatch.setattr(gnd, "_actorhost_bridge", lambda **kwargs: {"actor_id": "N/A", "host_id": "N/A", "host_type": "tmux", "lease_state": "ready"})
+        monkeypatch.setattr(gnd, "_append_dispatch_ledger", lambda event, sid_arg, pane, dispatch_id, meta: ledger.append({"event": event, "pane": pane, "meta": meta}))
+
+        item = {
+            "intent": "graph_node|node_id=B6",
+            "priority": 80,
+            "payload": {
+                "sprint_id": sid,
+                "graph": str(graph_path),
+                "node": node,
+                "assignment": {"pane": "solar-harness-lab:0.0"},
+                "dispatch_id": "dispatch-B6",
+            },
+        }
+
+        result = gnd.dispatch_queue_item(item, dry_run=False, ttl=900)
+
+        assert result["ok"] is True
+        assert result["dispatch_path"] == "compatibility_fallback"
+        assert result["fallback_reason"] == "explicit_pane_compatibility"
+        assert sent and sent[0][0] == "solar-harness-lab:0.0"
+        assert ledger[0]["event"] == "actor_runtime_no_binding_compat_fallback"
+
+    def test_existing_handoff_uses_node_artifacts_handoff_md(self, tmp_harness):
+        """Evaluator dispatch should honor handoff paths stored in node artifacts."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        handoff_name = f"{sid}.N1-handoff.md"
+        (sprints / handoff_name).write_text("# Node handoff\n", encoding="utf-8")
+        node = graph["nodes"][0]
+        node["artifacts"] = {"handoff_md": handoff_name}
+
+        handoff = gnd._existing_node_handoff(sid, node, graph)
+
+        assert handoff == sprints / handoff_name
+
+    def test_existing_handoff_uses_top_level_handoff_md(self, tmp_harness):
+        """Resolver must not miss handoffs stored outside the artifacts map."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        handoff_name = f"{sid}.N1-handoff.md"
+        (sprints / handoff_name).write_text("# Node handoff\n", encoding="utf-8")
+        node = graph["nodes"][0]
+        node["handoff_md"] = handoff_name
+
+        handoff = gnd._existing_node_handoff(sid, node, graph)
+
+        assert handoff == sprints / handoff_name
+
+    def test_existing_handoff_uses_nested_artifact_ref(self, tmp_harness):
+        """Resolver accepts structured artifact refs emitted by newer workers."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        handoff_name = f"{sid}.N1-handoff.md"
+        (sprints / handoff_name).write_text("# Node handoff\n", encoding="utf-8")
+        node = graph["nodes"][0]
+        node["artifact_refs"] = [{"handoff_md": {"path": handoff_name}}]
+
+        handoff = gnd._existing_node_handoff(sid, node, graph)
+
+        assert handoff == sprints / handoff_name
+
+    def test_dispatch_evals_reconciles_existing_eval_before_discovery(self, tmp_harness, monkeypatch):
+        """Existing eval sidecars should close reviewing nodes before slow evaluator discovery."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        node = graph["nodes"][0]
+        node["status"] = "reviewing"
+        node["handoff_md"] = f"{sid}.N1-handoff.md"
+        graph["node_results"]["N1"] = {"status": "reviewing"}
+        (sprints / f"{sid}.N1-handoff.md").write_text("# handoff\n", encoding="utf-8")
+        (sprints / f"{sid}.N1-eval.json").write_text(
+            json.dumps({"verdict": "PASS", "node_id": "N1"}) + "\n",
+            encoding="utf-8",
+        )
+        (sprints / f"{sid}.task_graph.json").write_text(json.dumps(graph) + "\n", encoding="utf-8")
+        discovery_calls = []
+        monkeypatch.setattr(gnd, "_discover_evaluators", lambda *_: discovery_calls.append(True) or [])
+        monkeypatch.setattr(gnd, "release_lease", lambda *a, **k: {"released": True})
+
+        result = gnd.dispatch_node_evals(str(sprints / f"{sid}.task_graph.json"), dry_run=False)
+
+        saved = gnd.load_graph(sprints / f"{sid}.task_graph.json")
+        assert result["ok"] is True
+        assert result["reconciled"][0]["reason"] == "eval_sidecar_exists"
+        assert gnd.node_status(saved, "N1") == "passed"
+        assert saved["nodes"][0]["status"] == "passed"
+        assert discovery_calls == []
 
     def test_stale_submit_ack_without_live_lease_does_not_resurrect_dispatch(self, tmp_harness, monkeypatch):
         """Old ack files are not proof of a current dispatch after the lease expired."""
@@ -224,6 +472,59 @@ class TestSendToPaneLiteral:
             }
         ]
 
+    def test_idle_eval_lease_without_sidecar_requeues_review(self, tmp_harness, monkeypatch):
+        """An idle evaluator pane with no eval sidecar must not keep a live lease forever."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        node = graph["nodes"][0]
+        gnd.set_node_status(graph, "N1", "reviewing")
+        dispatch_id = f"graph-eval-{sid}-N1-q1"
+        pane = "solar-harness:0.3"
+        node["eval_assignments"] = [
+            {
+                "pane": pane,
+                "dispatch_id": dispatch_id,
+                "eval_md_path": str(sprints / f"{sid}.N1-eval.md"),
+                "eval_json_path": str(sprints / f"{sid}.N1-eval.json"),
+            }
+        ]
+        release_calls = []
+        monkeypatch.setattr(
+            gnd,
+            "read_lease",
+            lambda *_: {"sid": sid, "dispatch_id": dispatch_id, "expires_at": "2099-01-01T00:00:00Z"},
+        )
+        monkeypatch.setattr(
+            gnd,
+            "_pane_tail",
+            lambda *_args, **_kwargs: "Critical finding found but no sidecar yet\n\n❯\n  ⏵⏵ bypass permissions on\n",
+        )
+        monkeypatch.setattr(gnd, "_pane_tui_busy", lambda *_: False)
+        monkeypatch.setattr(
+            gnd,
+            "release_lease",
+            lambda *a, **k: release_calls.append(a) or {"released": True},
+        )
+
+        repaired = gnd._reconcile_existing_dispatches(graph, sprints / f"{sid}.task_graph.json")
+
+        assert "eval_assignments" not in node
+        assert node["eval_retry_reason"] == "eval_idle_without_sidecar"
+        assert node["last_eval_closeout_failure"]["reason"] == "eval_idle_without_sidecar"
+        assert release_calls == [(pane, dispatch_id, "graph_eval_reconcile_missing_sidecar_closeout")]
+        assert repaired == [
+            {
+                "node": "N1",
+                "pane": pane,
+                "dispatch_id": dispatch_id,
+                "status": "reviewing",
+                "reason": "eval_idle_without_sidecar",
+                "eval_md_path": str(sprints / f"{sid}.N1-eval.md"),
+                "eval_json_path": str(sprints / f"{sid}.N1-eval.json"),
+            }
+        ]
+
     def test_reconcile_accepts_lowercase_passed_eval_sidecar(self, tmp_harness, monkeypatch):
         """Evaluator sidecars may write verdict=passed; reconcile must still close the node."""
         tmp_path, sprints, sid, graph = tmp_harness
@@ -252,6 +553,73 @@ class TestSendToPaneLiteral:
                 "handoff": str(sprints / f"{sid}.N1-handoff.md"),
                 "eval_json": str(sprints / f"{sid}.N1-eval.json"),
                 "verdict": "PASS",
+            }
+        ]
+
+    def test_reconcile_releases_eval_failed_contract_closeout(self, tmp_harness, monkeypatch):
+        """A terminal evaluator result without eval sidecars must clear eval assignment for retry."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        operator_id = "mini-codex-gpt55-medium-builder-1"
+        eval_dispatch_id = f"graph-eval-{sid}-N1-q1"
+        node = graph["nodes"][0]
+        node["status"] = "reviewing"
+        node["eval_assignments"] = [
+            {
+                "pane": f"operator:{operator_id}",
+                "dispatch_id": eval_dispatch_id,
+                "role": "primary",
+                "eval_md_path": str(sprints / f"{sid}.N1-eval.md"),
+                "eval_json_path": str(sprints / f"{sid}.N1-eval.json"),
+            }
+        ]
+        node["eval_dispatch_id"] = eval_dispatch_id
+        node["eval_dispatched_at"] = "2026-06-05T04:13:01Z"
+        (sprints / f"{sid}.N1-handoff.md").write_text("# handoff\n", encoding="utf-8")
+
+        result_dir = tmp_path / "run" / "operator-results" / operator_id / f"pm-{sid}-N1-eval"
+        result_dir.mkdir(parents=True)
+        (result_dir / "result.json").write_text(
+            json.dumps(
+                {
+                    "sprint_id": sid,
+                    "node_id": "N1",
+                    "operator_id": operator_id,
+                    "status": "failed_contract_closeout",
+                    "finished_at": "2026-06-05T04:14:01Z",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        release_calls = []
+        monkeypatch.setattr(gnd, "release_lease", lambda *a, **k: release_calls.append(a) or {"released": True})
+        monkeypatch.setattr(
+            gnd,
+            "_cooldown_operator_after_contract_closeout",
+            lambda *a, **k: {"ok": True, "reason": "test_cooldown"},
+        )
+
+        repaired = gnd._reconcile_existing_dispatches(graph, sprints / f"{sid}.task_graph.json")
+
+        assert node["status"] == "reviewing"
+        assert "eval_assignments" not in node
+        assert "eval_dispatch_id" not in node
+        assert node["eval_retry_reason"] == "eval_failed_contract_closeout"
+        assert node["last_eval_closeout_failure"]["operator_status"] == "failed_contract_closeout"
+        assert release_calls == [(f"operator:{operator_id}", eval_dispatch_id, "graph_eval_reconcile_failed_contract_closeout")]
+        assert repaired == [
+            {
+                "node": "N1",
+                "pane": f"operator:{operator_id}",
+                "dispatch_id": eval_dispatch_id,
+                "status": "reviewing",
+                "reason": "eval_failed_contract_closeout",
+                "operator_status": "failed_contract_closeout",
+                "result_json": str(result_dir / "result.json"),
+                "operator_cooldown": {"ok": True, "reason": "test_cooldown"},
             }
         ]
 

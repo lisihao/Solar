@@ -1,0 +1,249 @@
+{
+  "videoId": "tNAmPpYTydI",
+  "title": "FAST '26 - Bidaw: Enhancing Key-Value Caching for Interactive LLM Serving via Bidirectional...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 11503,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. I'm Xiao from Chuan\nUniversity. I'm here to present a\nresearch work about Kashing for\ninteractive amm serving on behalf of my\ncolleagueu.\nThis is a collaborative work from Tuan\nUniversity, China University of G\nGeosciences and China Telecom\nin interactive large language model\nserving large language models engage in\nmutron humanlike conversations with\nhuman users where both parties are are\nexpected to respond to each other's\noutputs alternately and timely.\nTypical applications include virtual\ncompanions, language practice, and\nintelligent consumer service.\nTo maintain contextual coherence, the\nAIM engine must refer back to historical\nK value tensors from previous\ninteraction runs. However, due to the\nstrictly limited GPU memory, these KB\ntensors are typically evicted and\ndeleted as soon as a computation round\nfinishes. Consequently, whenever a new\nuser query arrives, the engine is forced\nto recomputee the entire conversation\nhistory just to regenerate those lost\nKBs.\nThis compute, discard and recomputee\ncycle leads to a massive amount of\nredundant computation. As a conversation\nproceeds and the history grows larger,\nthe the overhead scarce exponentially in\nlong context scenarios. This redundancy\ncan amount for more than 90% of the\ntotal communication severely throttening\nthe inference efficiency of our system.\nTo eliminate redundant computation, the\nmost intuitive approach is to cache the\nKB tensors of every conversation run.\nHowever, caching requires massive\nstorage capacity and a high bandwidth.\nWhile distributed memory pools are an\noption, they often require expensive\nhardware like RDI which significantly\nincreases deployment deployment costs.\nFor more cost efficient\nuh local deployment, many system now\nadopt a two layer two tire storage\narchitecture utilizing a performance\nlayer which is the host memory and a\ncapacity layer consisting of SSD to\nprovide large scale KV caching at a\nfraction of the cost.\nHowever, this cost-saving architecture\nintroduces a new critical bottleneck,\nthe KV loading efficiency. Since the GPU\ncannot start computation until the KBS\nare are fetched from these two two tire\nsystem, the loading speed directly\ndedicates the overall performance.\nOur measurements revealed that in\nexisting two tire solutions, this\nloading process is highly inefficient\ncompared to an ideal scenario where all\nKBS are stored in host memory. Current\nmethods suffer from a 3.88 times\nincrease in latency and a two times\nstroke in throughput, turning the\nstorage system a severe performance\nbottleneck.\nTo understand the in inefficiency of KV\nloading, we analyze the real world\ninteractive conversation measure\nworkload and identify three important KV\naccess characteristics that can\nsignificantly affect the KV loading\nefficiency of the two tile storage\nsystem. First for each user a multi-\nround conversation often spans a long\nduration during which\nuh users KV resides in the two tile\nstorage and is repeatedly accessed. This\nlong duration arises from the large\nnumber of interaction runs between the\nuser and the RM with an average of 82.4\nruns.\nConsequently, the total volume of\nconcurrent cache KVS grows rapidly as\nthe workload pressure increases. We\nobserve that the the size of the cache\nKVs quickly exceeds the cap capacity of\nthe performance layer. Uh this indicates\nthat the care for eviction to the\ncapacity layer is needed in order to\nmaximize IO heats in the performance\nlayer. Uh second K accesses have poor\ntemporal locality. you find that the\nweighted reuse distance for KV accesses\nis substantial with 80% of KV accesses\nuh surpassing the 200 GB capacity of the\nperformance layer. This stems from the\nfact that each user sends requests\nintermittently rather than sending all\nof them requests at once in a burst\nmanner.\nWe test the state-of-the-art eviction\nstrategy for KV caching Q enhance in\ncash retention and two general\nstrategies. We find that uh their hit\nrates are low with only around 20%.\nUh this is because these two tire\nstorage KB is ignoring the user\nconversation pattern in the computer\nengine only using its own past KB\naccesses and queuing information. But KV\naccesses have poor temporal locality.\nThird, KV loading times vary greatly\nacross requests due to the KB size\ndifference and the bandwidth gap between\nstory layers. First, the bandwidth gap\nbetween the two story layers is large.\nSecond, the size of loaded K is very\nvary greatly across requests as requests\nhave significantly varying history\nconversation lenses.\nAs a result, the coefficient of\nvariation of KV loading times among\nrequests is high reaching more than 80%\nas shown in the figure. However, the\ncomput engine schedules requests without\nconsidering their greatly varying KV\nloading times from the two tile storage.\nUh when scheduling a request with long\nKV loading time, uh its computation is\ndelayed by the length loading process as\nits computation relies on the loaded KB.\nEven if subsequent requests have short\nKV loading times such that their Ks can\nquickly loaded from the GPU uh into the\nGPU for computation they can only wait\nidly.\nUh to address these issues we design and\nimplement a efficient KV caching\napproach for interactive ARM serving via\nbirectional awareness between compute\nand storage.\nFirst on a computer side engine on a\ncomputer engine side performs request\nscheduling based on the KB loading\nlatency from the two tile storage to\nelevate request shortening.\nSecond on two tile storage side employs\na KB eviction strategy guided by the\nlens of the model answer in computer\nengine.\nuh during implement implementation we\ncatch the carefully chosen storage\nefficient tensors to balance\ncomputational savings and storage\nfootprint\nto address the problem of IO induced\nrequest blocking we pro propose an IO\naware request scheduling strategy first\nwe propose dual cunes the request is\nsent sent to the reading queue if the KB\nresides in the performance layer and to\nthe preparing queue. Otherwise, only\nrequests in the reading queue can be\nscheduled for the GPU inference and\nrequests in the preparing queue are\npromoted to the ready queue after their\nKS are loaded into performance layer.\nThis ensures that GPU inference can\nproceed quickly for requests with fast\nperformance layer IO without being\nstored by previous requests with low\nwith slow capacity layer IO.\nSecond, we propose hybrid sc scheduling\npolicies. For the ready Q, we adopt the\nfirst come first served policy. For the\npreparing queue, adopt a customized HR\npolicy to prioritize requests with small\nKVS and avoid starvation of large KV\nrequests.\nUh we we also use an example to\nillustrate that the efficiency of our\npro proposed IO aware request\nscheduleuler. Consider a scenario where\nGPU memory can hold only one request and\nthe file requests have arrived. Request\none and two have KVS uh in the capacity\nlayer with request one larger. Whereas\nrequest three, four, five have KS in the\nperformance layer. Under conventional IO\noblivious scheduling strategy such as\nfirst come, first serve. Uh request one\nis scheduled first. it computation is\nblocked until the KV is loaded from the\ncapacity layer leaving the GPU ider and\nthe GPU memory underutilized. In\ncontrast with our IO aware request\nscheduling strategy request three, four\nand five are scheduled first. Moreover,\nwith our scheduling the capacity layer\nIO for request two begins uh earlier\nthan that of request one. Thus uh when\nrequest three completes uh there is a\nrequest uh namely request two that can\nquickly start computation.\nUh on the two tile story side BER\nemploys a KV effiction strategy guided\nby the length of the model answer in the\ncomputing in the computer engine. Our\nanalysis indicates that in interactive\nARM survey the weighted reuse distance\nand lower bound of a KBXS is positively\ncorrelated with the length of the RM\nprevious answer generated by the\ncomputer engine. This is because longer\nmodel answer leads to more time for the\nuser to read, listen and comprehend the\nanswer and then formulate the next\nquestion. Leveraging this insight by the\ncaptures the latest rounds model answer\ngenerated by the computer engine for\neach user and predicts the weighted\nreuse distance of the next KV excess.\nUh then selects eviction candidates by\npredicting the heat pleasure of each of\neach user's next KV excess. To achieve\nthis first we need to estimate the heat\npotential for excesses with different\nweighted real distance. Here heat\npleasure means that the heat rates under\nthe optimal eviction strategy that knows\nthe future. We maintain a ghost cache\nadopting the optimal eviction strategy\nin background to estimate such\npotential. Uh the ghost cache is used on\ntraces arriving prior to a threshold\ngiving the future insight for these par\ntraces. Second, we predict the weighted\nreuse distance of each user's next KV\ncaches a KV access based on the lower\nbound prediction. Finally, we calculate\nthe heat potential of each user's KV and\nevict the KV with the lowest potential.\nFor further optimizations, uh we propose\na mix grand GPU memory allocation\ntechnique. We allocate the big GPU\nmemory blocks to the history and input\ntokens and allocate small blocks to\noutput tokens and in this way history\ncables are transmitted at a large\ngranularity uh enabling efficient CPU\nGPU transmission.\nUh we also propose storage efficient\ntensor caching by balancing storage\nfootprint against computational savings\nwhich can reduce the so space overhead\nposed by uh the two tile storage.\nUh finally we evaluate bider on a Linux\nserver. The server contains uh a 800 GPU\nand 200 uh gigabytes host memory. We\nevaluate our uh interactive conversation\nworkload and public share GPT workload.\nWe compute BER with VM cach attention\nand flash jam.\nAccording to our evaluation, BER can\nsignificantly reduce the average\nresponse latency and improve the system\nthroughput across different models. For\nexample, our uh own opt 30 billion by\nthe reduced the average response latency\nby up to 3.58\ntimes and sustains 1.8 times higher uh\nuser arrival rates with similar latency.\nBER also reduces terror latency. Our\nevaluation shows that by the reduces P90\nlatency by up to 52.60\nuh 69% reduces P95 latency by up to uh\n49% and reduces P99 latency by up to\n47%. Besides BER maintains low overhead\neach operation takes only uh 0.62 62\nmilliseconds on average and by uh each\neviction operation takes only 0\n35 milliseconds on average.\nUh now let's conclude this paper. We\nface three fundamental challenges when\ncaching ks for interactive m serving\nwith two tile storage. Uh first there is\na large volume of concurrently cached ks\nrequiring care for eviction. Second, the\nKV accesses have poor temporal locality\nmaking eviction difficult. Second, the\nKV loading times vary greatly uh leading\nto request blocking.\nUh we deal with three challenges with\nbirectional awareness between compute\nand storage. First, we propose IO aware\nrequest scheduling strategy to reduce\nrequest blocking. Second, we propose\nprevious answer based eviction strategy\nto reduce m race. Uh, okay. Thanks for\nyour listening. If you have any\nquestions, please contact my colleagueu.\nYou can find find his email right here.\nThank you.",
+  "segments": [
+    {
+      "text": "Hello everyone. I'm Xiao from Chuan University. I'm here to present a research work about Kashing for interactive amm serving on behalf of my colleagueu. This is a collaborative work from Tuan University, China University of G Geosciences and China Telecom",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "in interactive large language model serving large language models engage in mutron humanlike conversations with human users where both parties are are expected to respond to each other's outputs alternately and timely. Typical applications include virtual",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "companions, language practice, and intelligent consumer service. To maintain contextual coherence, the AIM engine must refer back to historical K value tensors from previous interaction runs. However, due to the strictly limited GPU memory, these KB",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "tensors are typically evicted and deleted as soon as a computation round finishes. Consequently, whenever a new user query arrives, the engine is forced to recomputee the entire conversation history just to regenerate those lost KBs.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "This compute, discard and recomputee cycle leads to a massive amount of redundant computation. As a conversation proceeds and the history grows larger, the the overhead scarce exponentially in long context scenarios. This redundancy",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "can amount for more than 90% of the total communication severely throttening the inference efficiency of our system. To eliminate redundant computation, the most intuitive approach is to cache the KB tensors of every conversation run.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "However, caching requires massive storage capacity and a high bandwidth. While distributed memory pools are an option, they often require expensive hardware like RDI which significantly increases deployment deployment costs. For more cost efficient",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "uh local deployment, many system now adopt a two layer two tire storage architecture utilizing a performance layer which is the host memory and a capacity layer consisting of SSD to provide large scale KV caching at a fraction of the cost.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "However, this cost-saving architecture introduces a new critical bottleneck, the KV loading efficiency. Since the GPU cannot start computation until the KBS are are fetched from these two two tire system, the loading speed directly",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "dedicates the overall performance. Our measurements revealed that in existing two tire solutions, this loading process is highly inefficient compared to an ideal scenario where all KBS are stored in host memory. Current methods suffer from a 3.88 times",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "increase in latency and a two times stroke in throughput, turning the storage system a severe performance bottleneck. To understand the in inefficiency of KV loading, we analyze the real world interactive conversation measure",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "workload and identify three important KV access characteristics that can significantly affect the KV loading efficiency of the two tile storage system. First for each user a multi- round conversation often spans a long duration during which",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "uh users KV resides in the two tile storage and is repeatedly accessed. This long duration arises from the large number of interaction runs between the user and the RM with an average of 82.4 runs. Consequently, the total volume of",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "concurrent cache KVS grows rapidly as the workload pressure increases. We observe that the the size of the cache KVs quickly exceeds the cap capacity of the performance layer. Uh this indicates that the care for eviction to the",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "capacity layer is needed in order to maximize IO heats in the performance layer. Uh second K accesses have poor temporal locality. you find that the weighted reuse distance for KV accesses is substantial with 80% of KV accesses",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "uh surpassing the 200 GB capacity of the performance layer. This stems from the fact that each user sends requests intermittently rather than sending all of them requests at once in a burst manner. We test the state-of-the-art eviction",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "strategy for KV caching Q enhance in cash retention and two general strategies. We find that uh their hit rates are low with only around 20%. Uh this is because these two tire storage KB is ignoring the user conversation pattern in the computer",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "engine only using its own past KB accesses and queuing information. But KV accesses have poor temporal locality. Third, KV loading times vary greatly across requests due to the KB size difference and the bandwidth gap between",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "story layers. First, the bandwidth gap between the two story layers is large. Second, the size of loaded K is very vary greatly across requests as requests have significantly varying history conversation lenses. As a result, the coefficient of",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "variation of KV loading times among requests is high reaching more than 80% as shown in the figure. However, the comput engine schedules requests without considering their greatly varying KV loading times from the two tile storage.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Uh when scheduling a request with long KV loading time, uh its computation is delayed by the length loading process as its computation relies on the loaded KB. Even if subsequent requests have short KV loading times such that their Ks can",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "quickly loaded from the GPU uh into the GPU for computation they can only wait idly. Uh to address these issues we design and implement a efficient KV caching approach for interactive ARM serving via birectional awareness between compute and storage.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "First on a computer side engine on a computer engine side performs request scheduling based on the KB loading latency from the two tile storage to elevate request shortening. Second on two tile storage side employs a KB eviction strategy guided by the",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "lens of the model answer in computer engine. uh during implement implementation we catch the carefully chosen storage efficient tensors to balance computational savings and storage footprint to address the problem of IO induced",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "request blocking we pro propose an IO aware request scheduling strategy first we propose dual cunes the request is sent sent to the reading queue if the KB resides in the performance layer and to the preparing queue. Otherwise, only",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "requests in the reading queue can be scheduled for the GPU inference and requests in the preparing queue are promoted to the ready queue after their KS are loaded into performance layer. This ensures that GPU inference can",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "proceed quickly for requests with fast performance layer IO without being stored by previous requests with low with slow capacity layer IO. Second, we propose hybrid sc scheduling policies. For the ready Q, we adopt the first come first served policy. For the",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "preparing queue, adopt a customized HR policy to prioritize requests with small KVS and avoid starvation of large KV requests. Uh we we also use an example to illustrate that the efficiency of our pro proposed IO aware request",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "scheduleuler. Consider a scenario where GPU memory can hold only one request and the file requests have arrived. Request one and two have KVS uh in the capacity layer with request one larger. Whereas request three, four, five have KS in the",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "performance layer. Under conventional IO oblivious scheduling strategy such as first come, first serve. Uh request one is scheduled first. it computation is blocked until the KV is loaded from the capacity layer leaving the GPU ider and",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "the GPU memory underutilized. In contrast with our IO aware request scheduling strategy request three, four and five are scheduled first. Moreover, with our scheduling the capacity layer IO for request two begins uh earlier",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "than that of request one. Thus uh when request three completes uh there is a request uh namely request two that can quickly start computation. Uh on the two tile story side BER employs a KV effiction strategy guided by the length of the model answer in the",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "computing in the computer engine. Our analysis indicates that in interactive ARM survey the weighted reuse distance and lower bound of a KBXS is positively correlated with the length of the RM previous answer generated by the",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "computer engine. This is because longer model answer leads to more time for the user to read, listen and comprehend the answer and then formulate the next question. Leveraging this insight by the captures the latest rounds model answer",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "generated by the computer engine for each user and predicts the weighted reuse distance of the next KV excess. Uh then selects eviction candidates by predicting the heat pleasure of each of each user's next KV excess. To achieve",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "this first we need to estimate the heat potential for excesses with different weighted real distance. Here heat pleasure means that the heat rates under the optimal eviction strategy that knows the future. We maintain a ghost cache",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "adopting the optimal eviction strategy in background to estimate such potential. Uh the ghost cache is used on traces arriving prior to a threshold giving the future insight for these par traces. Second, we predict the weighted",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "reuse distance of each user's next KV caches a KV access based on the lower bound prediction. Finally, we calculate the heat potential of each user's KV and evict the KV with the lowest potential. For further optimizations, uh we propose",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "a mix grand GPU memory allocation technique. We allocate the big GPU memory blocks to the history and input tokens and allocate small blocks to output tokens and in this way history cables are transmitted at a large granularity uh enabling efficient CPU",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "GPU transmission. Uh we also propose storage efficient tensor caching by balancing storage footprint against computational savings which can reduce the so space overhead posed by uh the two tile storage. Uh finally we evaluate bider on a Linux",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "server. The server contains uh a 800 GPU and 200 uh gigabytes host memory. We evaluate our uh interactive conversation workload and public share GPT workload. We compute BER with VM cach attention and flash jam. According to our evaluation, BER can",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "significantly reduce the average response latency and improve the system throughput across different models. For example, our uh own opt 30 billion by the reduced the average response latency by up to 3.58 times and sustains 1.8 times higher uh",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "user arrival rates with similar latency. BER also reduces terror latency. Our evaluation shows that by the reduces P90 latency by up to 52.60 uh 69% reduces P95 latency by up to uh 49% and reduces P99 latency by up to 47%. Besides BER maintains low overhead",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "each operation takes only uh 0.62 62 milliseconds on average and by uh each eviction operation takes only 0 35 milliseconds on average. Uh now let's conclude this paper. We face three fundamental challenges when caching ks for interactive m serving",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "with two tile storage. Uh first there is a large volume of concurrently cached ks requiring care for eviction. Second, the KV accesses have poor temporal locality making eviction difficult. Second, the KV loading times vary greatly uh leading",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "to request blocking. Uh we deal with three challenges with birectional awareness between compute and storage. First, we propose IO aware request scheduling strategy to reduce request blocking. Second, we propose previous answer based eviction strategy",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "to reduce m race. Uh, okay. Thanks for your listening. If you have any questions, please contact my colleagueu. You can find find his email right here. Thank you.",
+      "start": 276,
+      "duration": 6
+    }
+  ]
+}

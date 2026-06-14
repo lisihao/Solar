@@ -49,6 +49,17 @@ def pm(tmp_path, monkeypatch):
     mod = _load("pm_dispatch", TOOLS_DIR / "pm_dispatch.py")
     monkeypatch.setattr(mod, "OPERATOR_STATUS_DIR", tmp_path / "run" / "operator-status")
     (tmp_path / "run" / "operator-status").mkdir(parents=True, exist_ok=True)
+
+    def _runtime_state(operator_id: str) -> str:
+        status_file = mod.OPERATOR_STATUS_DIR / f"{operator_id}.json"
+        if not status_file.exists():
+            return "idle"
+        try:
+            return str(json.loads(status_file.read_text(encoding="utf-8")).get("runtime_state", "idle"))
+        except Exception:
+            return "idle"
+
+    monkeypatch.setattr(mod, "get_operator_runtime_state", _runtime_state)
     return mod, tmp_path
 
 
@@ -67,6 +78,7 @@ class TestQuotaTextClassification:
         "Upgrade your plan to continue",
         "Individual quota reached",
         "resets in 30 minutes",
+        "你的请求过于频繁。为保障数据安全，我们已暂时限制你访问对话记录。请稍等几分钟后再重试。",
     ]
 
     @pytest.mark.parametrize("text", QUOTA_SAMPLES)
@@ -79,6 +91,15 @@ class TestQuotaTextClassification:
 
     def test_normal_output_not_classified(self, ofc):
         assert ofc.classify_failure_state("Task completed successfully") == ""
+
+    def test_explicit_usage_limit_not_masked_by_closeout_words(self, ofc):
+        text = (
+            "必须阅读 builder handoff/evidence，写入 eval.md/eval.json verdict，"
+            "不要只写 PM result。\n"
+            "ERROR: You've hit your usage limit. Visit settings or try again at "
+            "Jun 10th, 2026 8:56 PM."
+        )
+        assert ofc.classify_failure_state(text) == "cooldown"
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +260,32 @@ class TestIsDispatchableReason:
 # ---------------------------------------------------------------------------
 
 class TestApplyFailureFlowControl:
+    def test_parse_try_again_at_reset_hint(self, ofc):
+        import datetime
+        from zoneinfo import ZoneInfo
+
+        now = datetime.datetime(2026, 6, 4, 20, 33, tzinfo=ZoneInfo("America/Toronto"))
+        reset = ofc.parse_rate_limit_reset_at(
+            "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. "
+            "Switch to another model now, or try again at 9:25 PM.",
+            now=now,
+        )
+
+        assert reset == datetime.datetime(2026, 6, 5, 1, 25, tzinfo=datetime.timezone.utc)
+
+    def test_parse_try_again_at_full_date_reset_hint(self, ofc):
+        import datetime
+        from zoneinfo import ZoneInfo
+
+        now = datetime.datetime(2026, 6, 5, 4, 53, tzinfo=ZoneInfo("America/Toronto"))
+        reset = ofc.parse_rate_limit_reset_at(
+            "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. "
+            "Switch to another model now, or try again at Jun 10th, 2026 10:25 PM.",
+            now=now,
+        )
+
+        assert reset == datetime.datetime(2026, 6, 11, 2, 25, tzinfo=datetime.timezone.utc)
+
     def test_quota_text_sets_cooldown_state(self, tmp_path, monkeypatch):
         import operator_flow_control as ofc
 
@@ -256,7 +303,7 @@ class TestApplyFailureFlowControl:
         import operator_runtime as rt
         monkeypatch.setattr(rt, "set_operator_status", _fake_set_status)
 
-        quota_text = "You've hit your limit · resets 1:40pm (America/Toronto)"
+        quota_text = "RESOURCE_EXHAUSTED: quota exceeded"
         result = ofc.apply_failure_flow_control(
             task_dir,
             operator_id="op-planner",
@@ -290,3 +337,125 @@ class TestApplyFailureFlowControl:
 
         assert result["runtime_state"] == ""
         assert len(calls) == 0
+
+    def test_browser_history_throttle_defers_for_ten_minutes(self, tmp_path, monkeypatch):
+        import operator_flow_control as ofc
+
+        task_dir = tmp_path / "task3"
+        task_dir.mkdir()
+        calls: list[dict] = []
+
+        import operator_runtime as rt
+        monkeypatch.delenv("SOLAR_BROWSER_AGENT_HISTORY_THROTTLE_COOLDOWN_SECONDS", raising=False)
+        monkeypatch.setattr(
+            rt,
+            "set_operator_status",
+            lambda op_id, state, ttl_seconds=None: calls.append(
+                {"op_id": op_id, "state": state, "ttl": ttl_seconds}
+            ) or {"operator_id": op_id, "runtime_state": state},
+        )
+        monkeypatch.setattr(
+            ofc,
+            "persist_operator_block",
+            lambda *args, **kwargs: {
+                "ok": True,
+                "reason": kwargs.get("reason"),
+                "runtime_state": args[1],
+            },
+        )
+
+        result = ofc.apply_failure_flow_control(
+            task_dir,
+            operator_id="chatgpt-report-writer",
+            failure_text="你的请求过于频繁。为保障数据安全，我们已暂时限制你访问对话记录。请稍等几分钟后再重试。",
+            rate_limit_cooldown_seconds=3600,
+            auth_cooldown_seconds=21600,
+            defer_on_cooldown=True,
+        )
+
+        assert result["runtime_state"] == "cooldown"
+        assert calls == [{"op_id": "chatgpt-report-writer", "state": "cooldown", "ttl": 600}]
+        assert result["task_control"]["action"] == "defer"
+        assert result["task_control"]["delay_seconds"] == 600
+        assert result["task_control"]["reason"] == "browser_history_throttle"
+        assert result["config_block"]["reason"] == "browser_history_throttle"
+
+
+class TestQuotaRecoveryPrune:
+    def test_claude_live_heartbeat_clears_future_registry_and_status_cooldown(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        status_dir = tmp_path / "run" / "operator-status"
+        status_dir.mkdir(parents=True)
+        registry_path.parent.mkdir(parents=True)
+        operator_id = "mini-claude-opus-evaluator"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        operator_id: {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "anthropic",
+                            "backend": "claude-cli",
+                            "model": "opus",
+                            "quota_guard_state": "cooldown",
+                            "quota_refresh_at": "2026-06-13T06:50:00Z",
+                            "state": {
+                                "runtime_state": "cooldown",
+                                "cooldown_until": "2026-06-13T06:50:00Z",
+                                "last_error_at": "2026-06-12T21:00:00Z",
+                            },
+                            "flow_control": {
+                                "last_block_detected_at": "2026-06-12T21:00:00Z",
+                                "last_block_expires_at": "2026-06-13T06:50:00Z",
+                            },
+                        }
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        status_path = status_dir / f"{operator_id}.json"
+        status_payload = {
+            "operator_id": operator_id,
+            "runtime_state": "cooldown",
+            "state": "idle",
+            "updated_at": "2026-06-12T21:00:00Z",
+            "expires_at": "2026-06-13T06:50:00Z",
+            "heartbeat_at": "2026-06-12T23:30:00Z",
+            "effective_provider": "anthropic",
+        }
+        status_path.write_text(json.dumps(status_payload), encoding="utf-8")
+
+        class FakeRuntime:
+            OPERATOR_STATUS_DIR = status_dir
+
+            @staticmethod
+            def get_operator_status(op_id):
+                if op_id != operator_id or not status_path.exists():
+                    return None
+                return json.loads(status_path.read_text(encoding="utf-8"))
+
+            @staticmethod
+            def clear_operator_status(op_id):
+                if op_id == operator_id and status_path.exists():
+                    status_path.unlink()
+
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+        monkeypatch.setattr(ofc, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(ofc, "_operator_runtime_module", lambda: FakeRuntime)
+        monkeypatch.setattr(ofc, "_now", lambda: datetime.datetime(2026, 6, 12, 23, 45, tzinfo=datetime.timezone.utc))
+
+        result = ofc.prune_expired_operator_config_blocks()
+
+        assert result["ok"] is True
+        assert any(item["operator_id"] == operator_id and item["expired_at"] == "claude_live_heartbeat_after_block" for item in result["pruned"])
+        updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"][operator_id]
+        assert updated["quota_guard_state"] == "ok"
+        assert updated["quota_refresh_at"] is None
+        assert updated["state"]["runtime_state"] == "idle"
+        assert not status_path.exists()

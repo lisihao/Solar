@@ -54,16 +54,16 @@ def _required_types_from_source_matrix(root: Path) -> set[str]:
 def _chapter_axis(chapter_title: str) -> str:
     text = str(chapter_title or "")
     rules = [
+        ("risk", r"风险|安全|可解释"),
         ("definition", r"定义|边界|术语"),
         ("history", r"历史|演进|脉络"),
-        ("evaluation", r"评估|基准|评价"),
+        ("evaluation", r"评估|基准|评价|证据强度|证据链|信号地图"),
         ("contradiction", r"争议|反证|失败"),
-        ("architecture", r"架构|范式|系统"),
-        ("method_taxonomy", r"分类|方法|代表系统"),
-        ("engineering", r"工程|部署|实现"),
-        ("risk", r"风险|安全|可解释"),
+        ("architecture", r"架构|范式|系统|技术|设计映射"),
+        ("method_taxonomy", r"分类|方法|代表系统|关键变化|分歧|机会"),
+        ("engineering", r"工程|部署|实现|行动路线|行动"),
         ("ecosystem", r"产业|生态|开源"),
-        ("roadmap", r"未来|路线图|开放问题"),
+        ("roadmap", r"未来|路线图|开放问题|预测|观察指标|下一步"),
     ]
     for axis, pattern in rules:
         if re.search(pattern, text):
@@ -977,6 +977,370 @@ def _build_depth_profile(
     }
 
 
+INSIGHT_GENERIC_SURVEY_TITLES = {
+    "问题定义与研究边界",
+    "历史脉络与技术演进",
+    "核心架构范式",
+    "方法分类与代表系统",
+    "评估方法与基准体系",
+    "工程实现与部署约束",
+    "风险、安全与可解释性",
+    "产业生态与开源实现",
+}
+
+INSIGHT_REPEATED_TEMPLATE_PATTERNS = [
+    "研究问题与术语边界",
+    "关键机制与设计空间",
+    "证据链与代表工作",
+    "工程取舍与评价标准",
+    "风险与争议",
+    "未解问题",
+    "机制可行性不等于工程可控性",
+]
+
+INSIGHT_MACHINE_LABEL_PATTERNS = {
+    "official_doc": r"\bofficial_doc\b",
+    "claim_id": r"\bclaim_id\b",
+    "evidence_id": r"\bevidence_id\b",
+    "source_type": r"\bsource_type\b",
+    "execution_metrics": r"\bExecution Metrics\b",
+    "estimated_from_report_artifacts": r"\bestimated_from_report_artifacts\b",
+}
+
+INSIGHT_THESIS_MARKERS = [
+    "核心判断",
+    "中心论点",
+    "核心结论",
+    "一页结论",
+    "main thesis",
+    "central thesis",
+    "thesis",
+    "main argument",
+]
+
+INSIGHT_ACTION_PATTERNS = {
+    "action": r"行动|建议|路线图|roadmap|next step|下一步",
+    "design": r"设计|架构|architecture|design|方案",
+    "experiment": r"实验|验证|复现|experiment|evaluation",
+    "operator": r"\boperator\b|算子",
+    "schema_or_gate": r"\bschema\b|数据结构|质量门|\bgate\b|门禁",
+    "product_or_strategy": r"产品|战略|策略|strategy|product",
+}
+
+INSIGHT_PREDICTION_PATTERNS = {
+    "future": r"未来|预测|forecast|watch|观察",
+    "driver": r"driver|驱动|为什么现在|why now",
+    "indicator": r"indicator|领先指标|观察指标|信号",
+    "risk": r"风险|不确定性|反证|counter|反方",
+    "falsification": r"falsification|证伪|推翻|失效条件",
+}
+
+_COMMON_QUESTION_TOKENS = {
+    "what",
+    "which",
+    "with",
+    "this",
+    "that",
+    "should",
+    "when",
+    "where",
+    "how",
+    "why",
+    "deepdive",
+    "insight",
+    "report",
+    "分析",
+    "报告",
+    "洞察",
+    "什么",
+    "哪些",
+    "如何",
+    "为什么",
+}
+
+
+def _visible_report_text(root: Path) -> tuple[str, list[str]]:
+    preferred_paths = [
+        root / "chief_editor_final.md",
+        root / "human_final.md",
+        root / "final.html",
+    ]
+    fallback_paths = [root / "final.md"]
+    texts: list[str] = []
+    used: list[str] = []
+    for path in preferred_paths:
+        if path.exists():
+            texts.append(path.read_text(encoding="utf-8", errors="ignore"))
+            used.append(path.name)
+    if not texts:
+        for path in fallback_paths:
+            if path.exists():
+                texts.append(path.read_text(encoding="utf-8", errors="ignore"))
+                used.append(path.name)
+    return "\n\n".join(texts), used
+
+
+def _is_insight_run(root: Path, ast: dict[str, Any]) -> bool:
+    survey_plan = _read_json(root / "survey_plan.json")
+    contract = _read_json(root / "deepdive_requirement_contract.json")
+    profile = str(contract.get("profile") or ast.get("profile") or "").lower()
+    planner_mode = str(survey_plan.get("planner_mode") or ast.get("planner_mode") or "").lower()
+    text = " ".join(
+        str(item or "")
+        for item in [
+            ast.get("title"),
+            ast.get("brief"),
+            contract.get("brief"),
+            contract.get("raw_brief"),
+            profile,
+            planner_mode,
+        ]
+    ).lower()
+    return (
+        planner_mode in {"conference_insight", "insight"}
+        or "insight" in profile
+        or "insight" in text
+        or "洞察" in text
+        or ("cais" in text and "solar" in text)
+        or ("会议" in text and "洞察" in text)
+    )
+
+
+def _extract_signal_list(value: Any) -> list[str]:
+    signals: list[str] = []
+    if isinstance(value, str) and value.strip():
+        signals.append(value.strip())
+    elif isinstance(value, list):
+        for item in value:
+            signals.extend(_extract_signal_list(item))
+    elif isinstance(value, dict):
+        for key in (
+            "required_signals",
+            "must_include_signals",
+            "required_named_signals",
+            "must_include",
+            "named_signals",
+        ):
+            if key in value:
+                signals.extend(_extract_signal_list(value.get(key)))
+    return signals
+
+
+def _required_insight_signals(root: Path, ast: dict[str, Any]) -> list[str]:
+    survey_plan = _read_json(root / "survey_plan.json")
+    contract = _read_json(root / "deepdive_requirement_contract.json")
+    candidates = [
+        ast.get("insight_profile") if isinstance(ast, dict) else {},
+        survey_plan.get("insight_profile") if isinstance(survey_plan, dict) else {},
+        contract.get("insight_profile") if isinstance(contract, dict) else {},
+        contract.get("profile_requirements") if isinstance(contract, dict) else {},
+    ]
+    signals: list[str] = []
+    for candidate in candidates:
+        signals.extend(_extract_signal_list(candidate))
+    return sorted({signal for signal in signals if signal})
+
+
+def _question_tokens(question: str) -> set[str]:
+    text = question.lower()
+    english = {
+        token
+        for token in re.findall(r"[a-z][a-z0-9_-]{3,}", text)
+        if token not in _COMMON_QUESTION_TOKENS
+    }
+    chinese = {
+        token
+        for token in re.findall(r"[\u4e00-\u9fff]{2,}", text)
+        if token not in _COMMON_QUESTION_TOKENS
+    }
+    return english | chinese
+
+
+def _user_question_coverage(root: Path, ast: dict[str, Any], final_text: str) -> dict[str, Any]:
+    contract = _read_json(root / "deepdive_requirement_contract.json")
+    questions: list[str] = []
+    if isinstance(contract, dict):
+        scope = contract.get("scope_boundaries") if isinstance(contract.get("scope_boundaries"), dict) else {}
+        questions.extend(str(item) for item in scope.get("must_answer", []) if str(item).strip())
+        for item in contract.get("research_questions", []) if isinstance(contract.get("research_questions"), list) else []:
+            if isinstance(item, dict) and str(item.get("text") or "").strip():
+                questions.append(str(item.get("text")))
+    if not questions and ast.get("title"):
+        questions.append(str(ast.get("title")))
+    lowered = (final_text or "").lower()
+    covered = 0
+    uncovered: list[str] = []
+    for question in questions:
+        tokens = _question_tokens(question)
+        if not tokens:
+            continue
+        hits = sum(1 for token in tokens if token.lower() in lowered)
+        if hits >= max(1, min(3, len(tokens) // 2)):
+            covered += 1
+        else:
+            uncovered.append(question)
+    total = covered + len(uncovered)
+    return {
+        "covered": covered,
+        "total": total,
+        "ratio": round(covered / max(total, 1), 4),
+        "uncovered": uncovered[:5],
+    }
+
+
+def _count_visible_sources(text: str) -> int:
+    urls = set(re.findall(r"https?://[^\s)>\"]+", text or ""))
+    markdown_links = set(re.findall(r"\[[^\]]+\]\((https?://[^)]+)\)", text or ""))
+    footnotes = set(re.findall(r"\[\^\d+\]|\[[0-9]{1,3}\]", text or ""))
+    return len(urls | markdown_links) + len(footnotes)
+
+
+def _build_insight_quality(root: Path, ast: dict[str, Any], chapters: list[dict[str, Any]]) -> dict[str, Any]:
+    active = _is_insight_run(root, ast)
+    final_text, visible_files = _visible_report_text(root)
+    chapter_titles = [str(row.get("title") or "") for row in chapters if isinstance(row, dict)]
+    lowered = (final_text or "").lower()
+    issues: list[str] = []
+    warnings: list[str] = []
+    gate_details: dict[str, Any] = {}
+
+    generic_hits = sorted(set(chapter_titles) & INSIGHT_GENERIC_SURVEY_TITLES)
+    generic_ratio = round(len(generic_hits) / max(len(chapter_titles), 1), 4)
+    gate_details["generic_survey_toc"] = {
+        "hits": generic_hits,
+        "ratio": generic_ratio,
+    }
+    if active and len(generic_hits) >= 4:
+        issues.append(f"insight_generic_survey_toc_leak:{len(generic_hits)}")
+
+    repeated_patterns = {
+        pattern: len(re.findall(re.escape(pattern), final_text or "", flags=re.I))
+        for pattern in INSIGHT_REPEATED_TEMPLATE_PATTERNS
+    }
+    excessive_repetitions = {
+        pattern: count for pattern, count in repeated_patterns.items() if count > 2
+    }
+    gate_details["template_repetition"] = excessive_repetitions
+    if active and excessive_repetitions:
+        issues.append("insight_template_repetition:" + ",".join(sorted(excessive_repetitions.keys())[:5]))
+
+    machine_label_hits = {
+        label: len(re.findall(pattern, final_text or "", flags=re.I))
+        for label, pattern in INSIGHT_MACHINE_LABEL_PATTERNS.items()
+    }
+    machine_label_hits = {label: count for label, count in machine_label_hits.items() if count}
+    gate_details["machine_label_leak"] = machine_label_hits
+    if active and machine_label_hits:
+        issues.append("insight_machine_label_leak:" + ",".join(sorted(machine_label_hits.keys())))
+
+    thesis_hits = [marker for marker in INSIGHT_THESIS_MARKERS if marker.lower() in lowered]
+    gate_details["thesis_clarity"] = {
+        "hits": thesis_hits,
+    }
+    if active and not thesis_hits:
+        issues.append("insight_thesis_missing")
+
+    question_coverage = _user_question_coverage(root, ast, final_text)
+    gate_details["user_question_fitness"] = question_coverage
+    if active and question_coverage["total"] and question_coverage["ratio"] < 0.5:
+        issues.append(
+            f"insight_user_question_coverage_low:{question_coverage['covered']}<{max(1, question_coverage['total'] // 2)}"
+        )
+
+    action_hits = {
+        label: len(re.findall(pattern, final_text or "", flags=re.I))
+        for label, pattern in INSIGHT_ACTION_PATTERNS.items()
+    }
+    action_hit_groups = [label for label, count in action_hits.items() if count > 0]
+    gate_details["action_mapping"] = {
+        "hits": action_hits,
+        "score": len(action_hit_groups),
+    }
+    if active and len(action_hit_groups) < 3:
+        issues.append(f"insight_action_mapping_low:{len(action_hit_groups)}<3")
+
+    solar_terms = {
+        "solar": len(re.findall(r"\bsolar\b", lowered)),
+        "operator": len(re.findall(r"\boperator\b|算子", lowered)),
+        "schema": len(re.findall(r"\bschema\b|ir\b|数据结构|结构", lowered)),
+        "gate": len(re.findall(r"\bgate\b|门禁|质量门", lowered)),
+        "runtime": len(re.findall(r"\bruntime\b|运行时", lowered)),
+    }
+    actionability_score = sum(1 for value in solar_terms.values() if value > 0)
+    gate_details["solar_absorption"] = {
+        "terms": solar_terms,
+        "score": actionability_score,
+    }
+    contract = _read_json(root / "deepdive_requirement_contract.json")
+    context_text = " ".join(
+        str(item or "")
+        for item in [
+            ast.get("title"),
+            ast.get("brief"),
+            contract.get("brief") if isinstance(contract, dict) else "",
+            contract.get("raw_brief") if isinstance(contract, dict) else "",
+        ]
+    ).lower()
+    solar_requested = "solar" in context_text
+    if active and solar_requested and actionability_score < 4:
+        issues.append(f"insight_solar_absorption_low:{actionability_score}<4")
+
+    figure_files = list((root / "figures").glob("*.svg")) if (root / "figures").exists() else []
+    figures_json = _read_json(root / "figures.json")
+    json_figures = figures_json if isinstance(figures_json, list) else figures_json.get("figures", []) if isinstance(figures_json, dict) else []
+    html_figure_count = len(re.findall(r"<figure\b|class=[\"'][^\"']*figure|\.svg", final_text or "", flags=re.I))
+    figure_count = len(figure_files) + len(json_figures if isinstance(json_figures, list) else []) + html_figure_count
+    gate_details["figure_coverage"] = {
+        "figure_count": figure_count,
+        "svg_files": len(figure_files),
+        "html_mentions": html_figure_count,
+    }
+    if active and figure_count < 1:
+        issues.append("insight_figure_required_missing")
+
+    visible_source_count = _count_visible_sources(final_text)
+    gate_details["citation_visibility"] = {
+        "visible_source_count": visible_source_count,
+        "visible_files": visible_files,
+    }
+    if active and visible_source_count < 5:
+        issues.append(f"insight_visible_citation_count_low:{visible_source_count}<5")
+
+    required_signals = _required_insight_signals(root, ast)
+    if active and required_signals:
+        missing_signals = [signal for signal in required_signals if signal.lower() not in lowered]
+        gate_details["required_signal_coverage"] = {
+            "required": required_signals,
+            "missing": missing_signals,
+        }
+        if missing_signals:
+            issues.append("insight_required_signal_missing:" + ",".join(missing_signals[:5]))
+    else:
+        gate_details["required_signal_coverage"] = {"required": [], "missing": []}
+
+    forecast_hits = [
+        label
+        for label, pattern in INSIGHT_PREDICTION_PATTERNS.items()
+        if re.search(pattern, final_text or "", flags=re.I)
+    ]
+    gate_details["prediction_packet"] = {
+        "hits": forecast_hits,
+    }
+    if active and len(forecast_hits) < 3:
+        issues.append(f"insight_prediction_packet_low:{len(forecast_hits)}<3")
+
+    if not active and final_text:
+        warnings.append("insight_gate_inactive")
+    return {
+        "ok": (not active) or not issues,
+        "active": active,
+        "visible_files": visible_files,
+        "issues": issues,
+        "warnings": warnings,
+        "gates": gate_details,
+    }
+
+
 def assess_survey_quality(output_dir: str | Path, ast: dict | None = None, packs: dict | None = None) -> dict[str, Any]:
     root = Path(output_dir).expanduser()
     ast = ast or _read_json(root / "survey_report_ast.json")
@@ -1038,9 +1402,10 @@ def assess_survey_quality(output_dir: str | Path, ast: dict | None = None, packs
     chapter_review = _build_chapter_review(root, chapters, sections, pack_rows, section_scorecard)
     chief_editor_review = _build_chief_editor_review(root, chapters, sections, chapter_review, literature_map, controversy_review)
     depth_profile = _build_depth_profile(root, chapters, sections, final_quality, literature_map, controversy_review)
+    insight_quality = _build_insight_quality(root, ast, chapters)
 
     payload = {
-        "ok": taxonomy["ok"] and contradiction_matrix["ok"] and section_factual_audit["ok"] and section_scorecard["ok"] and final_quality["ok"] and source_coverage["ok"] and literature_map["ok"] and controversy_review["ok"] and chapter_review["ok"] and chief_editor_review["ok"] and depth_profile["ok"],
+        "ok": taxonomy["ok"] and contradiction_matrix["ok"] and section_factual_audit["ok"] and section_scorecard["ok"] and final_quality["ok"] and source_coverage["ok"] and literature_map["ok"] and controversy_review["ok"] and chapter_review["ok"] and chief_editor_review["ok"] and depth_profile["ok"] and insight_quality["ok"],
         "taxonomy": taxonomy,
         "contradiction_matrix": contradiction_matrix,
         "section_factual_audit": section_factual_audit,
@@ -1052,6 +1417,7 @@ def assess_survey_quality(output_dir: str | Path, ast: dict | None = None, packs
         "chapter_review": chapter_review,
         "chief_editor_review": chief_editor_review,
         "depth_profile": depth_profile,
+        "insight_quality": insight_quality,
     }
     (root / "survey_taxonomy.json").write_text(json.dumps(taxonomy, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (root / "survey_contradiction_matrix.json").write_text(json.dumps(contradiction_matrix, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -1064,4 +1430,5 @@ def assess_survey_quality(output_dir: str | Path, ast: dict | None = None, packs
     (root / "survey_chapter_review.json").write_text(json.dumps(chapter_review, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (root / "survey_chief_editor.json").write_text(json.dumps(chief_editor_review, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (root / "survey_depth_profile.json").write_text(json.dumps(depth_profile, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (root / "survey_insight_quality.json").write_text(json.dumps(insight_quality, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return payload

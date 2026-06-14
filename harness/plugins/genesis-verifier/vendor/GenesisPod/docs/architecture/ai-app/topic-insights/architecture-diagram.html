@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Topic Insights / AI Engine / AI Kernel - Architecture Diagram</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa3;
+    --accent-blue: #5b8def;
+    --accent-teal: #36d6b5;
+    --accent-purple: #a78bfa;
+    --accent-amber: #f5a623;
+    --accent-rose: #f472b6;
+    --accent-green: #34d399;
+    --l4-bg: #1e2a3d;
+    --l4-border: #2d4a6f;
+    --l3-bg: #1a2d2a;
+    --l3-border: #2a5a4a;
+    --l2-bg: #2a1f3d;
+    --l2-border: #4a2f6f;
+    --l1-bg: #2d2520;
+    --l1-border: #5a4530;
+    --facade-bg: rgba(91, 141, 239, 0.08);
+    --facade-border: rgba(91, 141, 239, 0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', monospace;
+    min-height: 100vh;
+    padding: 32px;
+    line-height: 1.5;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    letter-spacing: -0.5px;
+  }
+
+  .subtitle {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 32px;
+  }
+
+  .diagram-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    position: relative;
+  }
+
+  /* === Layer Rows === */
+  .layer-row {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 16px;
+    align-items: stretch;
+  }
+
+  .layer-label {
+    width: 60px;
+    min-width: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    gap: 4px;
+  }
+
+  .layer-label .level {
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  /* === Module Box === */
+  .module-box {
+    flex: 1;
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    border: 1.5px solid;
+    transition: box-shadow 0.2s;
+  }
+
+  .module-box:hover {
+    box-shadow: 0 0 30px rgba(91, 141, 239, 0.1);
+  }
+
+  .module-box.l4 { background: var(--l4-bg); border-color: var(--l4-border); }
+  .module-box.l3 { background: var(--l3-bg); border-color: var(--l3-border); }
+  .module-box.l2 { background: var(--l2-bg); border-color: var(--l2-border); }
+  .module-box.l1 { background: var(--l1-bg); border-color: var(--l1-border); }
+
+  .module-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .module-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .module-icon.l4 { background: rgba(91, 141, 239, 0.2); color: var(--accent-blue); }
+  .module-icon.l3 { background: rgba(54, 214, 181, 0.2); color: var(--accent-teal); }
+  .module-icon.l2 { background: rgba(167, 139, 250, 0.2); color: var(--accent-purple); }
+  .module-icon.l1 { background: rgba(245, 166, 35, 0.2); color: var(--accent-amber); }
+
+  .module-name {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .module-path {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .module-stats {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* === Internal Structure Grid === */
+  .internal-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .internal-item {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+
+  .internal-item .name {
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+
+  .internal-item .detail {
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+
+  /* === Facade Bar === */
+  .facade-bar {
+    background: var(--facade-bg);
+    border: 1.5px dashed var(--facade-border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-top: 10px;
+  }
+
+  .facade-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-blue);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .facade-title::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--accent-blue);
+    display: inline-block;
+  }
+
+  .facade-exports {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .facade-tag {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(91, 141, 239, 0.12);
+    color: rgba(91, 141, 239, 0.9);
+    white-space: nowrap;
+  }
+
+  .facade-tag.type { background: rgba(167, 139, 250, 0.12); color: rgba(167, 139, 250, 0.9); }
+  .facade-tag.service { background: rgba(54, 214, 181, 0.12); color: rgba(54, 214, 181, 0.9); }
+  .facade-tag.registry { background: rgba(245, 166, 35, 0.12); color: rgba(245, 166, 35, 0.9); }
+  .facade-tag.util { background: rgba(244, 114, 182, 0.12); color: rgba(244, 114, 182, 0.9); }
+
+  /* === Arrow Connectors === */
+  .arrow-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin: 8px 0;
+    padding-left: 80px;
+  }
+
+  .arrow-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+
+  .arrow-line {
+    width: 2px;
+    height: 28px;
+    position: relative;
+  }
+
+  .arrow-line::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+  }
+
+  .arrow-line.down { background: linear-gradient(to bottom, var(--accent-blue), var(--accent-teal)); }
+  .arrow-line.down::after { border-top: 8px solid var(--accent-teal); }
+
+  .arrow-line.down2 { background: linear-gradient(to bottom, var(--accent-teal), var(--accent-purple)); }
+  .arrow-line.down2::after { border-top: 8px solid var(--accent-purple); }
+
+  .arrow-line.down3 { background: linear-gradient(to bottom, var(--accent-blue), var(--accent-purple)); }
+  .arrow-line.down3::after { border-top: 8px solid var(--accent-purple); }
+
+  .arrow-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    padding: 3px 8px;
+    background: var(--surface);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    margin: 2px 0;
+  }
+
+  .arrow-label strong {
+    color: var(--accent-green);
+    font-weight: 700;
+  }
+
+  /* === Dependency Summary === */
+  .dep-summary {
+    max-width: 1400px;
+    margin: 32px auto 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .dep-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+
+  .dep-card-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .dep-arrow {
+    font-size: 16px;
+    color: var(--accent-green);
+  }
+
+  .dep-list {
+    list-style: none;
+  }
+
+  .dep-list li {
+    font-size: 11px;
+    padding: 4px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .dep-list li:last-child { border-bottom: none; }
+
+  .dep-count {
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+  }
+
+  .dep-count.high { background: rgba(91, 141, 239, 0.2); color: var(--accent-blue); }
+  .dep-count.mid { background: rgba(54, 214, 181, 0.2); color: var(--accent-teal); }
+  .dep-count.low { background: rgba(167, 139, 250, 0.2); color: var(--accent-purple); }
+
+  /* === Legend === */
+  .legend {
+    max-width: 1400px;
+    margin: 24px auto 0;
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+
+  /* === Cross-cut dependency line === */
+  .cross-dep {
+    position: relative;
+    margin: 0 0 8px 80px;
+  }
+
+  .cross-dep-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(167, 139, 250, 0.05);
+    border: 1px dashed rgba(167, 139, 250, 0.2);
+    border-radius: 6px;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  .cross-dep-line .path {
+    color: var(--accent-purple);
+    font-weight: 600;
+  }
+
+  /* responsive */
+  @media (max-width: 900px) {
+    .internal-grid { grid-template-columns: repeat(2, 1fr); }
+    .dep-summary { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Topic Insights / AI Engine / AI Kernel</h1>
+<p class="subtitle">Architecture Dependency Map &mdash; GenesisPod v29.0.1 &mdash; 2026-03-12</p>
+
+<div class="diagram-container">
+
+  <!-- ============ L4: Topic Insights ============ -->
+  <div class="layer-row">
+    <div class="layer-label">
+      <span class="level" style="color: var(--accent-blue)">L4</span>
+      <span>APP</span>
+    </div>
+    <div class="module-box l4">
+      <div class="module-header">
+        <div class="module-icon l4">TI</div>
+        <div>
+          <div class="module-name">Topic Insights</div>
+          <div class="module-path">modules/ai-app/topic-insights/</div>
+        </div>
+        <div class="module-stats">~200 files<br>60+ providers</div>
+      </div>
+
+      <div class="internal-grid">
+        <div class="internal-item">
+          <div class="name">controllers/</div>
+          <div class="detail">6 controllers + gateway</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">services/core/</div>
+          <div class="detail">leader(4) mission(5) research(7) topic(5)</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">services/data/</div>
+          <div class="detail">router, planner, fetcher, connectors(4)</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">services/dimension/</div>
+          <div class="detail">mission, search, writing, section-writer</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">services/report/</div>
+          <div class="detail">synthesis, editor, annotation, export</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">handlers/</div>
+          <div class="detail">5 workflow handlers (Engine pattern)</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">services/search/</div>
+          <div class="detail">orchestrator, 11 adapters, fusion</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">services/quality/</div>
+          <div class="detail">critique, gate, trace, defect</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">agents/ + teams/</div>
+          <div class="detail">TopicInsightsAgent, TeamConfig</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">types/ + dto/</div>
+          <div class="detail">9 types, 16 DTOs</div>
+        </div>
+      </div>
+
+      <div style="font-size: 10px; color: var(--text-dim); margin-bottom: 6px; font-weight: 600;">
+        onModuleInit Registrations:
+      </div>
+      <div class="facade-exports" style="margin-bottom: 0;">
+        <span class="facade-tag registry">AgentRegistry.register(TopicInsightsAgent)</span>
+        <span class="facade-tag registry">TeamRegistry.registerConfig(TEAM_CONFIG)</span>
+        <span class="facade-tag registry">WorkflowHandlerRegistry.register(5 handlers)</span>
+        <span class="facade-tag registry">DataSourceConnectorRegistry.register(4 connectors)</span>
+        <span class="facade-tag registry">PromptSkillBridge.registerDomain("insights")</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Arrow: L4 → L3 ============ -->
+  <div class="arrow-row">
+    <div class="arrow-block">
+      <div class="arrow-label">
+        <strong>112+</strong> imports via <code style="color:var(--accent-blue)">ai-engine/facade</code>
+      </div>
+      <div class="arrow-line down"></div>
+    </div>
+    <div class="arrow-block">
+      <div class="arrow-label">
+        <strong>19</strong> imports via <code style="color:var(--accent-purple)">ai-kernel/facade</code>
+      </div>
+      <div class="arrow-line down3"></div>
+    </div>
+    <div class="arrow-block">
+      <div class="arrow-label">
+        <strong>14</strong> imports via <code style="color:var(--accent-amber)">ai-infra/facade</code>
+      </div>
+      <div class="arrow-line" style="background: linear-gradient(to bottom, var(--accent-blue), var(--accent-amber))"></div>
+    </div>
+  </div>
+
+  <!-- ============ L3: AI Engine ============ -->
+  <div class="layer-row">
+    <div class="layer-label">
+      <span class="level" style="color: var(--accent-teal)">L3</span>
+      <span>ENGINE</span>
+    </div>
+    <div class="module-box l3">
+      <div class="module-header">
+        <div class="module-icon l3">AE</div>
+        <div>
+          <div class="module-name">AI Engine</div>
+          <div class="module-path">modules/ai-engine/</div>
+        </div>
+        <div class="module-stats">~400 files<br>@Global() module</div>
+      </div>
+
+      <div class="internal-grid">
+        <div class="internal-item">
+          <div class="name">llm/</div>
+          <div class="detail">AiChatService, adapters, prompts</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">tools/</div>
+          <div class="detail">ToolRegistry, 200+ tools, 8 categories</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">agents/</div>
+          <div class="detail">AgentRegistry, orchestrator, base classes</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">teams/</div>
+          <div class="detail">TeamRegistry, orchestrator, DAG/Sequential</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">skills/</div>
+          <div class="detail">SkillRegistry, runtime, sandbox</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">orchestration/</div>
+          <div class="detail">DAGExecutor, state machine, planner</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">knowledge/</div>
+          <div class="detail">RAG, memory, evidence management</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">content/</div>
+          <div class="detail">fetch, image, synthesis</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">safety/</div>
+          <div class="detail">guardrails, constraint validation</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">mcp/</div>
+          <div class="detail">MCPManager, stdio/http/sse clients</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">infra/</div>
+          <div class="detail">observability, realtime, A2A protocol</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">facade/</div>
+          <div class="detail">11 files, 120+ exports, 539 lines index</div>
+        </div>
+      </div>
+
+      <div class="facade-bar">
+        <div class="facade-title">AI Engine Facade (ai-engine/facade/index.ts)</div>
+        <div class="facade-exports">
+          <span class="facade-tag service">ChatFacade</span>
+          <span class="facade-tag service">AgentFacade</span>
+          <span class="facade-tag service">TeamFacade</span>
+          <span class="facade-tag service">ToolFacade</span>
+          <span class="facade-tag service">RAGFacade</span>
+          <span class="facade-tag registry">ToolRegistry</span>
+          <span class="facade-tag registry">AgentRegistry</span>
+          <span class="facade-tag registry">TeamRegistry</span>
+          <span class="facade-tag registry">SkillRegistry</span>
+          <span class="facade-tag service">AiChatService</span>
+          <span class="facade-tag service">SearchService</span>
+          <span class="facade-tag service">MCPManager</span>
+          <span class="facade-tag service">TraceCollectorService</span>
+          <span class="facade-tag service">DAGExecutor</span>
+          <span class="facade-tag type">ExecutionContext</span>
+          <span class="facade-tag type">ToolContext</span>
+          <span class="facade-tag type">TaskProfile</span>
+          <span class="facade-tag type">WorkflowConfig</span>
+          <span class="facade-tag type">TeamConfig</span>
+          <span class="facade-tag util">inferIsReasoning</span>
+          <span class="facade-tag" style="color:var(--text-dim);background:rgba(255,255,255,0.05)">+90 more types/services</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Arrow: L3 → L2 ============ -->
+  <div class="arrow-row">
+    <div class="arrow-block" style="flex: 2;">
+      <div class="arrow-label">
+        <strong>142+</strong> imports via <code style="color:var(--accent-purple)">ai-kernel/facade</code>
+      </div>
+      <div class="arrow-line down2"></div>
+    </div>
+    <div class="arrow-block" style="flex: 1;">
+      <div class="arrow-label" style="font-size:9px; opacity:0.6;">
+        (no reverse dependency)
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ L2: AI Kernel ============ -->
+  <div class="layer-row">
+    <div class="layer-label">
+      <span class="level" style="color: var(--accent-purple)">L2</span>
+      <span>KERNEL</span>
+    </div>
+    <div class="module-box l2">
+      <div class="module-header">
+        <div class="module-icon l2">AK</div>
+        <div>
+          <div class="module-name">AI Kernel</div>
+          <div class="module-path">modules/ai-kernel/</div>
+        </div>
+        <div class="module-stats">~100 files<br>33 providers<br>@Global() module</div>
+      </div>
+
+      <div class="internal-grid">
+        <div class="internal-item">
+          <div class="name">process/</div>
+          <div class="detail">ProcessManager, state transition</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">journal/</div>
+          <div class="detail">EventJournal, CheckpointManager</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">memory/</div>
+          <div class="detail">WorkingMemory, PersistentStore</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">ipc/</div>
+          <div class="detail">EventBus, MessageBus, A2A, Progress</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">resource/</div>
+          <div class="detail">CircuitBreaker, CostController, RateLimiter</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">observability/</div>
+          <div class="detail">EventLog, Metrics, CostAttribution</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">supervisor/</div>
+          <div class="detail">ProcessSupervisor, state mgmt</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">security/</div>
+          <div class="detail">CapabilityGuard</div>
+        </div>
+        <div class="internal-item">
+          <div class="name">mission/ + scheduler/</div>
+          <div class="detail">MissionExecutor, KernelScheduler</div>
+        </div>
+      </div>
+
+      <div class="facade-bar" style="border-color: rgba(167, 139, 250, 0.3); background: rgba(167, 139, 250, 0.05);">
+        <div class="facade-title" style="color: var(--accent-purple);">
+          AI Kernel Facade (ai-kernel/facade/index.ts)
+        </div>
+        <div class="facade-exports">
+          <span class="facade-tag service">CircuitBreakerService</span>
+          <span class="facade-tag service">ProcessEventLogService</span>
+          <span class="facade-tag service">CheckpointManager</span>
+          <span class="facade-tag service">EventBusService</span>
+          <span class="facade-tag service">MessageBusService</span>
+          <span class="facade-tag service">WorkingMemoryStore</span>
+          <span class="facade-tag service">ConstraintEngine</span>
+          <span class="facade-tag service">CostController</span>
+          <span class="facade-tag service">RateLimiter</span>
+          <span class="facade-tag service">KernelMetricsService</span>
+          <span class="facade-tag service">CostAttributionService</span>
+          <span class="facade-tag service">CapabilityGuardService</span>
+          <span class="facade-tag service">ProcessSupervisorService</span>
+          <span class="facade-tag service">A2AClientService</span>
+          <span class="facade-tag service">ProgressTrackerService</span>
+          <span class="facade-tag type">StateTransitionMap</span>
+          <span class="facade-tag" style="color:var(--text-dim);background:rgba(255,255,255,0.05)">+15 more</span>
+        </div>
+      </div>
+
+      <div style="margin-top: 10px; font-size: 10px; color: var(--text-dim); text-align: center;">
+        Depends only on: <code style="color: var(--accent-amber);">PrismaModule</code> (database) &mdash; No outbound module dependencies
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ L1: AI Infra (compact) ============ -->
+  <div class="arrow-row">
+    <div class="arrow-block">
+      <div class="arrow-line" style="height:16px; background: rgba(245,166,35,0.3);"></div>
+    </div>
+  </div>
+
+  <div class="layer-row">
+    <div class="layer-label">
+      <span class="level" style="color: var(--accent-amber)">L1</span>
+      <span>INFRA</span>
+    </div>
+    <div class="module-box l1" style="padding: 14px 20px;">
+      <div class="module-header" style="margin-bottom: 0;">
+        <div class="module-icon l1">IF</div>
+        <div>
+          <div class="module-name">AI Infrastructure</div>
+          <div class="module-path">modules/ai-infra/</div>
+        </div>
+        <div class="module-stats" style="display:flex; gap:16px; font-size:11px;">
+          <span><strong style="color:var(--accent-amber)">BillingContext</strong> &middot; CreditsModule</span>
+          <span><strong style="color:var(--accent-amber)">SecretsService</strong> &middot; SecretsModule</span>
+          <span><strong style="color:var(--accent-amber)">R2StorageService</strong> &middot; StorageModule</span>
+          <span><strong style="color:var(--accent-amber)">NotificationService</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============ Dependency Summary Cards ============ -->
+<div class="dep-summary">
+
+  <div class="dep-card">
+    <div class="dep-card-title">
+      <span style="color:var(--accent-blue)">Topic Insights</span>
+      <span class="dep-arrow">&rarr;</span>
+      <span style="color:var(--accent-teal)">AI Engine</span>
+    </div>
+    <ul class="dep-list">
+      <li><span>ChatFacade</span> <span class="dep-count high">26 files</span></li>
+      <li><span>ToolRegistry</span> <span class="dep-count high">12 files</span></li>
+      <li><span>ToolFacade</span> <span class="dep-count mid">9 files</span></li>
+      <li><span>ExecutionContext (type)</span> <span class="dep-count mid">6 files</span></li>
+      <li><span>ToolContext (type)</span> <span class="dep-count low">5 files</span></li>
+      <li><span>AgentFacade</span> <span class="dep-count low">4 files</span></li>
+      <li><span>TeamFacade</span> <span class="dep-count low">3 files</span></li>
+      <li><span>TraceCollectorService</span> <span class="dep-count low">2 files</span></li>
+      <li><span>DAGExecutor, RAGFacade, etc.</span> <span class="dep-count low">1 each</span></li>
+      <li style="border-top:1px solid var(--border);padding-top:6px;font-weight:700;">
+        <span>Total</span> <span class="dep-count high">112+ imports</span>
+      </li>
+    </ul>
+  </div>
+
+  <div class="dep-card">
+    <div class="dep-card-title">
+      <span style="color:var(--accent-blue)">Topic Insights</span>
+      <span class="dep-arrow">&rarr;</span>
+      <span style="color:var(--accent-purple)">AI Kernel</span>
+    </div>
+    <ul class="dep-list">
+      <li><span>CircuitBreakerService</span> <span class="dep-count high">12 files</span></li>
+      <li><span>CapabilityGuardService</span> <span class="dep-count low">2 files</span></li>
+      <li><span>StateTransitionValidator</span> <span class="dep-count low">1 file</span></li>
+      <li><span>StateTransitionMap (type)</span> <span class="dep-count low">1 file</span></li>
+      <li><span>HealthCheckRunner</span> <span class="dep-count low">1 file</span></li>
+      <li style="border-top:1px solid var(--border);padding-top:6px;font-weight:700;">
+        <span>Total</span> <span class="dep-count mid">19 imports</span>
+      </li>
+    </ul>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:8px;">
+      Kernel usage is focused: resilience (CircuitBreaker) and security (CapabilityGuard).
+    </div>
+  </div>
+
+  <div class="dep-card">
+    <div class="dep-card-title">
+      <span style="color:var(--accent-teal)">AI Engine</span>
+      <span class="dep-arrow">&rarr;</span>
+      <span style="color:var(--accent-purple)">AI Kernel</span>
+    </div>
+    <ul class="dep-list">
+      <li><span>ProcessEventLogService</span> <span class="dep-count high">15+ files</span></li>
+      <li><span>CircuitBreakerService</span> <span class="dep-count high">10+ files</span></li>
+      <li><span>CheckpointManager</span> <span class="dep-count mid">8 files</span></li>
+      <li><span>WorkingMemoryStore</span> <span class="dep-count mid">6 files</span></li>
+      <li><span>ConstraintEngine</span> <span class="dep-count mid">5 files</span></li>
+      <li><span>MessageBusService</span> <span class="dep-count low">4 files</span></li>
+      <li><span>CostController</span> <span class="dep-count low">3 files</span></li>
+      <li><span>KernelMetricsService</span> <span class="dep-count low">3 files</span></li>
+      <li><span>MissionExecutorService</span> <span class="dep-count low">2 files</span></li>
+      <li><span>EventJournalService, etc.</span> <span class="dep-count low">1-2 each</span></li>
+      <li style="border-top:1px solid var(--border);padding-top:6px;font-weight:700;">
+        <span>Total</span> <span class="dep-count high">142+ imports</span>
+      </li>
+    </ul>
+  </div>
+
+</div>
+
+<!-- ============ Legend ============ -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-blue)"></div> L4 AI App (Topic Insights)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-teal)"></div> L3 AI Engine</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-purple)"></div> L2 AI Kernel</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-amber)"></div> L1 Infrastructure</div>
+  <div class="legend-item"><div class="legend-dot" style="border: 2px dashed var(--facade-border); background:none;"></div> Facade boundary (all imports must pass through)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-green)"></div> Dependency direction (top &rarr; bottom only)</div>
+</div>
+
+<div style="text-align:center; margin-top:24px; font-size:11px; color:var(--text-dim);">
+  <strong>Key invariant:</strong> No reverse dependencies detected. AI Kernel depends only on PrismaModule. All cross-layer imports pass through Facade (0 violations in production code).
+</div>
+
+</body>
+</html>

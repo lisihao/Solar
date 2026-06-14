@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar.local/schemas/evolution-runtime-ir.schema.json",
+  "title": "Solar Evolution Runtime IR",
+  "description": "CORAL-style Evolution Runtime intermediate representation. Activated only through ModeSelector when capsule mode.supports contains 'evolution'. ModeSelector is the only route into Evolution Runtime; CORAL runtime cannot self-activate outside Solar Optimizer policy.",
+  "type": "object",
+  "required": ["schema_version", "population", "assignment", "parent_selection", "shared_memory", "evaluator", "heartbeat", "stop_rules"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "solar.evolution_runtime_ir.v1"
+    },
+    "population": {
+      "type": "object",
+      "description": "Population configuration. Population size upper bound supplied by policy.",
+      "required": ["size"],
+      "additionalProperties": false,
+      "properties": {
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Population size. Upper bound supplied by policy, not hardcoded."
+        },
+        "composition": {
+          "type": "string",
+          "enum": ["homogeneous", "heterogeneous"],
+          "default": "heterogeneous",
+          "description": "Whether agents share the same capsule or use diverse capsules."
+        }
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "description": "Task-to-agent assignment policy.",
+      "required": ["policy"],
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "type": "string",
+          "enum": ["round_robin", "diversity_weighted", "score_weighted"],
+          "description": "How tasks are assigned to population agents."
+        },
+        "diversity_axes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Axes for diversity measurement. Values from policy, e.g. model, access_path, cost_band, strategy."
+        }
+      }
+    },
+    "parent_selection": {
+      "type": "object",
+      "description": "How parent attempts are selected for next generation.",
+      "required": ["policy"],
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "type": "string",
+          "enum": ["self", "best_in_window", "cross_agent_random", "cross_agent_topk", "pareto"],
+          "description": "Parent selection strategy."
+        },
+        "window_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of recent attempts to consider. Set by policy."
+        },
+        "topk": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "K value for cross_agent_topk policy."
+        }
+      }
+    },
+    "shared_memory": {
+      "type": "object",
+      "description": "Public/private shared memory layout. Path classes are symbolic; concrete locations produced by runtime config and policy.",
+      "required": ["policy"],
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "type": "string",
+          "enum": ["public_only", "public_plus_own_private"],
+          "default": "public_only",
+          "description": "Memory visibility scope for agents."
+        },
+        "public_spaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path_class", "visibility"],
+            "properties": {
+              "path_class": {
+                "type": "string",
+                "enum": ["public/attempts", "public/notes", "public/skills", "public/capsules", "public/hypotheses", "public/negative_results", "public/leaderboards", "public/heartbeat", "public/sessions.json"],
+                "description": "Symbolic path class. Concrete path resolved by runtime."
+              },
+              "visibility": {
+                "type": "string",
+                "enum": ["agents_readable", "agents_readwrite", "evaluator_readable"],
+                "description": "Who can read/write this space."
+              }
+            }
+          },
+          "description": "Public memory spaces available to agents."
+        },
+        "private_spaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path_class", "visibility"],
+            "properties": {
+              "path_class": {
+                "type": "string",
+                "enum": ["private/evaluators", "private/hidden_tests", "private/secrets", "private/policies", "private/billing"],
+                "description": "Symbolic path class. Agents MUST NEVER access these."
+              },
+              "visibility": {
+                "type": "string",
+                "enum": ["evaluator_only", "policy_only", "policy_runtime_only"],
+                "description": "Restricted visibility. Agents are forbidden from all private spaces."
+              }
+            }
+          },
+          "description": "Private memory spaces. Agents MUST NEVER access these."
+        }
+      }
+    },
+    "evaluator": {
+      "type": "object",
+      "description": "Evaluator configuration. Evaluator is a first-class physical operator, isolated from agents.",
+      "required": ["isolation_level"],
+      "additionalProperties": false,
+      "properties": {
+        "isolation_level": {
+          "type": "string",
+          "enum": ["worktree_detached", "process_sandbox", "container", "host"],
+          "default": "worktree_detached",
+          "description": "Evaluator isolation level."
+        },
+        "timeout_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Timeout. Default supplied by policy."
+        },
+        "concurrency_safe": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether evaluator can run concurrently. Default false means max concurrency 1."
+        },
+        "scoring_visibility": {
+          "type": "string",
+          "enum": ["score_only", "score_plus_public_feedback"],
+          "default": "score_only",
+          "description": "What agents can see from evaluator output."
+        }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "description": "Heartbeat intervention subscriptions and trigger configuration.",
+      "required": ["subscriptions"],
+      "additionalProperties": false,
+      "properties": {
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["heartbeat_class", "trigger"],
+            "properties": {
+              "heartbeat_class": {
+                "type": "string",
+                "enum": [
+                  "ReflectHeartbeat",
+                  "ConsolidateHeartbeat",
+                  "RedirectHeartbeat",
+                  "QuotaHeartbeat",
+                  "SafetyHeartbeat",
+                  "CapsuleEvolutionHeartbeat"
+                ],
+                "description": "Heartbeat intervention type."
+              },
+              "trigger": {
+                "type": "string",
+                "description": "Trigger condition. e.g. every_attempt, every_N_attempts, plateau, premium_quota_low, boundary_violation, repeated_failure_same_capsule. Values from policy."
+              },
+              "n_value": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "N value for every_N_attempts trigger."
+              }
+            }
+          },
+          "description": "Active heartbeat subscriptions. Heartbeat events are mirrored to runtime state and auditable through Evidence Ledger."
+        }
+      }
+    },
+    "stop_rules": {
+      "type": "object",
+      "description": "Evolution termination rules. All thresholds from policy, not hardcoded.",
+      "required": [],
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum total attempts before stopping."
+        },
+        "max_wall_clock_sec": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum wall clock time in seconds."
+        },
+        "no_improvement_window": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of attempts with no score improvement before redirect or stop."
+        },
+        "safety_stop": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether safety stops are enabled. Safety violations pause population and require policy review."
+        }
+      }
+    }
+  }
+}

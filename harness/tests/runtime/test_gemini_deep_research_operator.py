@@ -16,7 +16,7 @@ def test_build_request_reads_prompt_file(tmp_path):
     prompt_file.write_text("hello deep research", encoding="utf-8")
     payload = gdro.build_request({"prompt_file": str(prompt_file)}, task_dir=tmp_path)
     assert payload["prompt"] == "hello deep research"
-    assert payload["project_name"] == "杂项"
+    assert payload["project_name"] == ""
     assert payload["expected_output"] == "markdown"
     assert payload["max_retries"] == 3
 
@@ -44,7 +44,7 @@ def test_run_request_writes_result(monkeypatch, tmp_path, capsys):
     
     result = gdro.run_request({
         "prompt": "hello",
-        "project_name": "杂项",
+        "project_name": "1234",
         "request_dir": str(request_dir)
     }, task_dir=tmp_path)
     
@@ -58,6 +58,52 @@ def test_run_request_writes_result(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Gemini Deep Research Result" in out
     assert "Paper 1" in out
+
+
+def test_run_request_clamps_short_deep_research_timeout(monkeypatch, tmp_path):
+    class Result:
+        returncode = 0
+        stdout = "final research report"
+        stderr = ""
+
+    request_dir = tmp_path / "gemini-deep-research-request"
+    request_dir.mkdir(parents=True, exist_ok=True)
+    (request_dir / "assistant-response.txt").write_text("deep research report text", encoding="utf-8")
+
+    captured = {}
+
+    def mock_run(*args, **kwargs):
+        captured.update(kwargs)
+        return Result()
+
+    monkeypatch.delenv("BROWSER_AGENT_GEMINI_TIMEOUT", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_GEMINI_MIN_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_GEMINI_PROCESS_TIMEOUT_GRACE_SECONDS", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_GEMINI_ACCOUNT_EMAIL", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL", raising=False)
+    monkeypatch.setattr(gdro, "_wrapper_cmd", lambda: ["fake-wrapper"])
+    monkeypatch.setattr(gdro.subprocess, "run", mock_run)
+
+    gdro.run_request({
+        "prompt": "hello",
+        "request_dir": str(request_dir),
+        "timeout_seconds": 120,
+    }, task_dir=tmp_path)
+
+    assert captured["env"]["BROWSER_AGENT_GEMINI_TIMEOUT"] == "1800"
+    assert "BROWSER_AGENT_GEMINI_ACCOUNT_EMAIL" not in captured["env"]
+    assert "BROWSER_AGENT_TARGET_ACCOUNT_EMAIL" not in captured["env"]
+    assert captured["timeout"] == 1980
+
+
+def test_timeout_settings_respects_larger_env_timeout(monkeypatch):
+    monkeypatch.setenv("BROWSER_AGENT_GEMINI_TIMEOUT", "2400")
+    monkeypatch.setenv("BROWSER_AGENT_GEMINI_PROCESS_TIMEOUT_GRACE_SECONDS", "300")
+
+    internal_timeout, process_timeout = gdro._timeout_settings({"timeout_seconds": 120})
+
+    assert internal_timeout == 2400
+    assert process_timeout == 2700
 
 
 def test_run_request_retries_on_failure(monkeypatch, tmp_path):
@@ -110,6 +156,7 @@ def test_main_applies_success_cooldown(monkeypatch, tmp_path):
     
     monkeypatch.setenv("SOLAR_OPERATOR_ENVELOPE_JSON", str(envelope_path))
     monkeypatch.setenv("TASK_DIR", str(tmp_path / "task"))
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     monkeypatch.setenv("SOLAR_GEMINI_SUCCESS_COOLDOWN_SECONDS", "300")
     
     monkeypatch.setattr(gdro.ofc, "ensure_operator_available", lambda operator_id: None)
@@ -137,6 +184,7 @@ def test_main_applies_failure_flow_control(monkeypatch, tmp_path):
     
     monkeypatch.setenv("SOLAR_OPERATOR_ENVELOPE_JSON", str(envelope_path))
     monkeypatch.setenv("TASK_DIR", str(tmp_path / "task"))
+    monkeypatch.setenv("BROWSER_AGENT_QUEUE_BYPASS", "1")
     
     monkeypatch.setattr(gdro.ofc, "ensure_operator_available", lambda operator_id: None)
     

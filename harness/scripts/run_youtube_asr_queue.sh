@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="${ROOT:-/Users/lisihao/Solar/harness}"
+SOLAR_REPO="${SOLAR_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+ROOT="${ROOT:-${SOLAR_REPO}/harness}"
 CONFIG="${YOUTUBE_INFLUENCE_CONFIG:-$ROOT/config/youtube-influence-digest.yaml}"
 LOG_DIR="${ROOT}/logs"
 mkdir -p "$LOG_DIR"

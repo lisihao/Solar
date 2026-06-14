@@ -25,11 +25,12 @@ SOLAR = HOME / "Solar"
 CODEX_SKILLS = HOME / ".codex" / "skills"
 AGENTS_SKILLS = HOME / ".agents" / "skills"
 CODEX_MEMORY = HOME / ".codex" / "memories"
-REMOTE = "lisihao@100.122.223.55"
-REMOTE_HARNESS = "/Users/lisihao/.solar/harness"
+REMOTE = "lisihao@${SOLAR_REMOTE_IP}"
+REMOTE_HARNESS = "${HARNESS_DIR}"
 MEMRL_DB = HOME / ".solar" / "solar.db"
 MEMRL_FEEDBACK_JSONL = HARNESS / "logs" / "skill-healthcheck-memrl-feedback.jsonl"
 EVOLUTION_ENGINE = HARNESS / "lib" / "evolution_engine.py"
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 PATTERNS: dict[str, dict[str, Any]] = {
     "prompt_residue": {
@@ -257,11 +258,20 @@ def _sqlite_tables(db: Path) -> set[str]:
         return set()
 
 
+def _quote_sql_identifier(value: str) -> str | None:
+    if not SQL_IDENTIFIER_RE.match(value):
+        return None
+    return '"' + value.replace('"', '""') + '"'
+
+
 def _sqlite_count(db: Path, table: str) -> int | None:
     try:
         import sqlite3
+        quoted_table = _quote_sql_identifier(table)
+        if quoted_table is None:
+            return None
         conn = sqlite3.connect(str(db))
-        cur = conn.execute(f"SELECT count(1) FROM {table}")
+        cur = conn.execute("SELECT count(1) FROM " + quoted_table)
         val = cur.fetchone()
         conn.close()
         return int(val[0]) if val and val[0] is not None else 0

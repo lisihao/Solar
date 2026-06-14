@@ -1,0 +1,214 @@
+{
+  "videoId": "RD8XpVhI3Lk",
+  "title": "FAST '26 - Xerxes: Extensive Exploration of Scalable Hardware Systems with CXL-Based Simulation...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 9888,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. I'm Haoguo from Tsinghua\nUniversity. I'm presenting this work on\nbehalf of the authors from Peking\nUniversity and their collaborators.\nThis paper is titled Xerxes, extensive\nexploration of scalable hardware systems\nwith CXL-based simulation framework.\nFirst, let's look at the motivation. CXL\n3 introduces features like port-based\nrouting and device managed coherence,\nenabling arbitrary non-tree topologies\nthat go beyond the traditional\nhost-centric hierarchies in CPU memory\nsystems.\nThis is a conflict with traditional\nresearch, which assumes a host-centric\nsystem.\nThe problem is a simulation void. We\ndon't have CXL 3.0 hardware yet, and\nexisting simulators aren't good enough\nto model these new fabric behaviors.\nXerxes is designed to fix this.\nSpecifically, there's a big gap between\nprotocol evolution and hardware\navailability.\nAs you can see on the timeline, CXL 3\nwas defined in 2022, introducing major\nfeatures like back invalidation and\npeer-to-peer topologies.\nHowever, hardware is lagging. Even in\n2024, full CXL 3 hardware is still\nunavailable. Because of this, simulation\nis the only viable path for research\nright now. Looking deeper, CXL 1 started\nin 2019 with basic expansion. CXL 2\nadded memory pooling in 2020, but\nhardware for this has only partially\ncaught up.\nThis lag means researchers must simulate\nto study advanced features like non-tree\ntopologies and distributed coherence.\nSo, why do existing tools fall short?\nFirst, real hardware isn't commercially\navailable at scale, so we cannot test\ncomplex rack-scale dynamics. Second,\ntraditional simulators typically fall\ninto two categories, computation-centric\nand network-centric. Computation-centric\nsimulators, such as Gem5 and GP GPU-Sim,\nare built around a host-centric\narchitectural model.\nThey model memory as a strict hierarchy\nof components tightly coupled to CPU,\nlacking a flexible interconnect layer\ncapable of modeling a scalable CXL\nfabric.\nNetwork-centric simulators, like BookSim\nand Garnet, are designed to simulate\ncomplex network topologies and routing\nalgorithms, but are fundamentally\nunaware of memory and coherence\nsemantics, as they model generic packets\nrather than stateful memory requests.\nThird, NUMA emulation lacks physical\nlayer fidelity. It cannot model PCIe\nbehaviors like flow control and lane\ncontention.\nIn more detail, these flaws mean that\ncurrent methods cannot accurately\ncapture protocol interactions, such as\ndistributed nature of CXL coherence,\nleading to unreliable results to\nlarge-scale systems.\nXerxes was built to solve these specific\nchallenges.\nNow, let's move to design of Xerxes.\nXerxes is a novel framework. It uses a\ndecoupled architecture and graph-based\nconnectivity to faithfully model CXL 3\nmechanisms.\nThis design allows for a modular\nsimulation of diverse components,\nensuring scalability and accuracy in\nrepresenting emerging CXL features.\nHere's the high-level architecture. We\nseparate the system into two layers to\nmake it scalable. The device layer in\nblue models components like hosts and\naccelerators as independent components.\nThe interconnect layer in red manages\nthe connections. It uses a graph-based\napproach to support arbitrary topologies\nusing port-based routing.\nWe also provide extensible interfaces to\neasily attach existing simulators like\nDRAMSim3.\nThis two-layer approach decouples\nphysical connectivity from device logic,\nenabling simulation of complex\nnon-hierarchical fabrics that\ntraditional tools cannot handle.\nLet's look closer at the device layer.\nIt features like a modular component\ndesign, like devices like hosts,\nexpanders, or endpoints are modeled as\nisolated blocks.\nThis supports plug-and-play. Users can\nadd the new devices without changing the\nexisting code. It is also highly\nextensible for developers to create\ncustom CXL devices.\nDevices act as a peer independent\ncomponents, managing their own state,\nwhich aligns with CXL's shift away from\nhost-centric models.\nNext is the interconnect layer.\nThis layer models the topology as a\ngraph, where devices are nodes and\nconnections are edges. Crucially, it\nnatively supports port-based routing.\nThis allows us to simulate non-tree\nfabric, which is a key feature of CXL 3.\nConfiguration is simple, making it easy\nto define complex scalable fabrics.\nPort-based routing enables flexible\nforwarding, supporting arbitrary\ntopologies via routing tables, which is\nessential for rack-scale systems.\nNow, let's detail the key components.\nThe requester models the computation. It\nacts as the source of memory request,\nsimulating a CPU or accelerator. It has\ntwo modes, a request generator for\nsynthetic workloads and trace replay for\nrunning real-world traces.\nInternally, it handles queuing, address\ntranslation, and caching before requests\nenter the fabric.\nThis component ensures accurate modeling\nof more memory request origins,\nincluding address mapping and the\ncoherence management at the source.\nFor the interconnect, we have the bus\nand the switch. The bus connects two\ndevices. It models PCIe 5 or 6 links,\nsupporting full duplex bandwidth\nallocation.\nThe switch supports port-based routing.\nEach port has configurable bandwidth,\nand it supports custom routing policies,\nallowing us to simulate diverse network\ntopologies.\nThese elements capture PCIe specific\nbehaviors like bidirectional links and\nadaptive routing, critical for realistic\nCXL simulation.\nFor coherence, Xerxes implements device\nmanaged coherence.\nThis offloads coherence work from the\nhost to the devices.\nXerxes includes an inclusive snoop\nfilter. It tracks who shares the data.\nIf there's a conflict, the device\ncoherence agent issues a back invalid\nsnoops to peers, collects responses, and\ngrants ownership.\nDMC enables scalable peer-to-peer\ncommunication, reducing host overhead,\nand the snoop filter's inclusive design\ntracks sharers in device memory modes\nmodes like HDM-DB.\nXerxes is also extensible. For example,\nwe integrate it with DRAMSim3 for\naccurate memory simulation. The\nchallenge is synchronizing the clocks.\nThe solution is a clocking event\nmechanism that syncs the two simulation\ndomains.\nThis integration allows seamless\nattachment of third-party models without\nkernel modifications, enhancing\nsimulation fidelity.\nThe next part is simulator validation.\nWe calibrated Xerxes against real\nhardware to ensure the results are\naccurate and trustworthy.\nThis step is crucial to validate the\nframework's predictive capabilities for\nunreleased features.\nThe calibration platform uses a\nfourth-generation Intel Xeon processor\nand a Montage CXL memory expander.\nWe tuned simulator parameters like\narbitration delays and buffer sizes to\nmatch the measurements from these\nphysical hardware.\nThis establishes a solid ground truth\nbaseline.\nThe methodology involved empirical\nmeasurements of latency and bandwidth to\nalign simulation with real CXL\nbehaviors.\nHere are the validation results. Xerxes\nshows great fidelity. The idle latency\nand bandwidth closely match the\nhardware. The error rate is below 8%\nwith an average of just 4.3%.\nCompared to existing emulation methods,\nwhich deviate significantly under high\nload, Xerxes remains accurate.\nThis accuracy holds across diverse\nworkloads and traffic patterns, unlike\nsimpler approaches that fall fail under\ncontention.\nFinally, we show design space\nexploration. Xerxes provides\narchitectural insights for\nnext-generation CXL systems. These\nexplorations uncover key design\nconsiderations for scalable hardware.\nWe have several insights. The first\ninsight is about topology. As shown in\nthe charts, tree-like topologies suffer\nfrom bottlenecks at the root switch. In\ncontrast, scalable topologies, like\nspine-leaf, offer linear bandwidth\nscaling because they provide multiple\npaths.\nThe takeaway is that scalable topologies\nare essential for high-performance CXL\nfabrics. For example, tree topologies\nlead to head-of-line blocking, while\nspine-leaf distributes load, improving\noverall system performance in\nlarge-scale setups.\nWhen simulating large-scale topology,\nXerxes is very efficient. It can\nsimulate up to 64 hosts in under 90\nseconds,\nusing less than 200 MB of memory.\nThis makes it feasible to explore\nlarge-scale topologies quickly.\nThe second insight focuses on device\nmanaged coherence. We found that\nhardware policies matter. For the victim\nselection policy, LIFO, namely last in,\nfirst out, works best. It reduces back\ninvalidations by about 16% by evicting\nstreaming data first. At the protocol\nlevel, we found that an invalid block\nlength of two is the optimal sweet spot.\nSpecifically, LIFO is well suited for\nthe cache miss heavy patterns in snoop\nfilters, while the block length balances\nperformance benefits against bus\ncontention.\nThis demonstrates how Xerxes uniquely\nfacilitates the co-design of hardware\npolicies and protocol features.\nThe third insight highlights the\nphysical layer.\nFull duplex transmission boost\nbandwidth. With the 1:1 read-write mix,\nyou can approach twice the theoretical\nbandwidth.\nHowever, header overhead is a\nconstraint. Small packets with large\nheaders will diminish this gain. Xerxes\naccurately models these physical layer\ndetails.\nThis phenomenon arises from PCIe's\nbidirectional links. Mixed workloads\nmaximize utilization, unlike single-type\naccesses.\nTo summarize, Xerxes is the first\nopen-source simulator for CXL 3. It\nsupports topology of wire fabrics and\ndevice managed coherence.\nIt is validated against hardware with an\naverage below 8%. The code is available\non GitHub.\nThank you for your attention. If you\nhave any questions, please contact the\noriginal authors. Thank you.",
+  "segments": [
+    {
+      "text": "Hello everyone. I'm Haoguo from Tsinghua University. I'm presenting this work on behalf of the authors from Peking University and their collaborators. This paper is titled Xerxes, extensive exploration of scalable hardware systems",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "with CXL-based simulation framework. First, let's look at the motivation. CXL 3 introduces features like port-based routing and device managed coherence, enabling arbitrary non-tree topologies that go beyond the traditional",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "host-centric hierarchies in CPU memory systems. This is a conflict with traditional research, which assumes a host-centric system. The problem is a simulation void. We don't have CXL 3.0 hardware yet, and existing simulators aren't good enough",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "to model these new fabric behaviors. Xerxes is designed to fix this. Specifically, there's a big gap between protocol evolution and hardware availability. As you can see on the timeline, CXL 3 was defined in 2022, introducing major",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "features like back invalidation and peer-to-peer topologies. However, hardware is lagging. Even in 2024, full CXL 3 hardware is still unavailable. Because of this, simulation is the only viable path for research right now. Looking deeper, CXL 1 started",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "in 2019 with basic expansion. CXL 2 added memory pooling in 2020, but hardware for this has only partially caught up. This lag means researchers must simulate to study advanced features like non-tree topologies and distributed coherence.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "So, why do existing tools fall short? First, real hardware isn't commercially available at scale, so we cannot test complex rack-scale dynamics. Second, traditional simulators typically fall into two categories, computation-centric",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "and network-centric. Computation-centric simulators, such as Gem5 and GP GPU-Sim, are built around a host-centric architectural model. They model memory as a strict hierarchy of components tightly coupled to CPU, lacking a flexible interconnect layer",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "capable of modeling a scalable CXL fabric. Network-centric simulators, like BookSim and Garnet, are designed to simulate complex network topologies and routing algorithms, but are fundamentally unaware of memory and coherence",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "semantics, as they model generic packets rather than stateful memory requests. Third, NUMA emulation lacks physical layer fidelity. It cannot model PCIe behaviors like flow control and lane contention. In more detail, these flaws mean that",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "current methods cannot accurately capture protocol interactions, such as distributed nature of CXL coherence, leading to unreliable results to large-scale systems. Xerxes was built to solve these specific challenges. Now, let's move to design of Xerxes.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "Xerxes is a novel framework. It uses a decoupled architecture and graph-based connectivity to faithfully model CXL 3 mechanisms. This design allows for a modular simulation of diverse components, ensuring scalability and accuracy in",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "representing emerging CXL features. Here's the high-level architecture. We separate the system into two layers to make it scalable. The device layer in blue models components like hosts and accelerators as independent components.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "The interconnect layer in red manages the connections. It uses a graph-based approach to support arbitrary topologies using port-based routing. We also provide extensible interfaces to easily attach existing simulators like DRAMSim3.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "This two-layer approach decouples physical connectivity from device logic, enabling simulation of complex non-hierarchical fabrics that traditional tools cannot handle. Let's look closer at the device layer. It features like a modular component",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "design, like devices like hosts, expanders, or endpoints are modeled as isolated blocks. This supports plug-and-play. Users can add the new devices without changing the existing code. It is also highly extensible for developers to create custom CXL devices.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "Devices act as a peer independent components, managing their own state, which aligns with CXL's shift away from host-centric models. Next is the interconnect layer. This layer models the topology as a graph, where devices are nodes and",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "connections are edges. Crucially, it natively supports port-based routing. This allows us to simulate non-tree fabric, which is a key feature of CXL 3. Configuration is simple, making it easy to define complex scalable fabrics.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "Port-based routing enables flexible forwarding, supporting arbitrary topologies via routing tables, which is essential for rack-scale systems. Now, let's detail the key components. The requester models the computation. It acts as the source of memory request,",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "simulating a CPU or accelerator. It has two modes, a request generator for synthetic workloads and trace replay for running real-world traces. Internally, it handles queuing, address translation, and caching before requests enter the fabric.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "This component ensures accurate modeling of more memory request origins, including address mapping and the coherence management at the source. For the interconnect, we have the bus and the switch. The bus connects two devices. It models PCIe 5 or 6 links,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "supporting full duplex bandwidth allocation. The switch supports port-based routing. Each port has configurable bandwidth, and it supports custom routing policies, allowing us to simulate diverse network topologies. These elements capture PCIe specific",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "behaviors like bidirectional links and adaptive routing, critical for realistic CXL simulation. For coherence, Xerxes implements device managed coherence. This offloads coherence work from the host to the devices. Xerxes includes an inclusive snoop",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "filter. It tracks who shares the data. If there's a conflict, the device coherence agent issues a back invalid snoops to peers, collects responses, and grants ownership. DMC enables scalable peer-to-peer communication, reducing host overhead,",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "and the snoop filter's inclusive design tracks sharers in device memory modes modes like HDM-DB. Xerxes is also extensible. For example, we integrate it with DRAMSim3 for accurate memory simulation. The challenge is synchronizing the clocks.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "The solution is a clocking event mechanism that syncs the two simulation domains. This integration allows seamless attachment of third-party models without kernel modifications, enhancing simulation fidelity. The next part is simulator validation.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "We calibrated Xerxes against real hardware to ensure the results are accurate and trustworthy. This step is crucial to validate the framework's predictive capabilities for unreleased features. The calibration platform uses a",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "fourth-generation Intel Xeon processor and a Montage CXL memory expander. We tuned simulator parameters like arbitration delays and buffer sizes to match the measurements from these physical hardware. This establishes a solid ground truth baseline.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "The methodology involved empirical measurements of latency and bandwidth to align simulation with real CXL behaviors. Here are the validation results. Xerxes shows great fidelity. The idle latency and bandwidth closely match the",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "hardware. The error rate is below 8% with an average of just 4.3%. Compared to existing emulation methods, which deviate significantly under high load, Xerxes remains accurate. This accuracy holds across diverse workloads and traffic patterns, unlike",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "simpler approaches that fall fail under contention. Finally, we show design space exploration. Xerxes provides architectural insights for next-generation CXL systems. These explorations uncover key design considerations for scalable hardware.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "We have several insights. The first insight is about topology. As shown in the charts, tree-like topologies suffer from bottlenecks at the root switch. In contrast, scalable topologies, like spine-leaf, offer linear bandwidth",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "scaling because they provide multiple paths. The takeaway is that scalable topologies are essential for high-performance CXL fabrics. For example, tree topologies lead to head-of-line blocking, while spine-leaf distributes load, improving",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "overall system performance in large-scale setups. When simulating large-scale topology, Xerxes is very efficient. It can simulate up to 64 hosts in under 90 seconds, using less than 200 MB of memory. This makes it feasible to explore",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "large-scale topologies quickly. The second insight focuses on device managed coherence. We found that hardware policies matter. For the victim selection policy, LIFO, namely last in, first out, works best. It reduces back invalidations by about 16% by evicting",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "streaming data first. At the protocol level, we found that an invalid block length of two is the optimal sweet spot. Specifically, LIFO is well suited for the cache miss heavy patterns in snoop filters, while the block length balances",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "performance benefits against bus contention. This demonstrates how Xerxes uniquely facilitates the co-design of hardware policies and protocol features. The third insight highlights the physical layer. Full duplex transmission boost",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "bandwidth. With the 1:1 read-write mix, you can approach twice the theoretical bandwidth. However, header overhead is a constraint. Small packets with large headers will diminish this gain. Xerxes accurately models these physical layer details.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "This phenomenon arises from PCIe's bidirectional links. Mixed workloads maximize utilization, unlike single-type accesses. To summarize, Xerxes is the first open-source simulator for CXL 3. It supports topology of wire fabrics and device managed coherence.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "It is validated against hardware with an average below 8%. The code is available on GitHub. Thank you for your attention. If you have any questions, please contact the original authors. Thank you.",
+      "start": 234,
+      "duration": 6
+    }
+  ]
+}

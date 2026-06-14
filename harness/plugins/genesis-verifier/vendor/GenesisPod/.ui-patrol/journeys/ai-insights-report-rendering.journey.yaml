@@ -1,0 +1,129 @@
+# Journey: AI Insights Report Rendering Verification
+# Covers: report completeness, LaTeX formulas, charts, view modes
+id: ai-insights-report-rendering
+tier: critical
+auth: session
+description: "Verify report rendering in both continuous and chapterized views, including LaTeX formulas, chart figures, and content completeness"
+
+precondition:
+  - "A topic with completed research and generated report must exist"
+  - "Report must have multiple dimensions (≥3) and contain LaTeX formulas"
+
+sampleTopicId: "8a5a6aeb-b2dd-4673-80cd-73687db4f96c"
+
+steps:
+  # ─── Navigate to Topic Detail ───
+  - navigate: /ai-insights/topic/{sampleTopicId}
+  - wait: "button:has-text('洞察报告'), button:has-text('Insights Report')"
+  - click: "button:has-text('洞察报告'), button:has-text('Insights Report')"
+  - wait: 3000
+  - screenshot: "insights-report-tab-loaded"
+
+  # ─── 1. Continuous View Verification ───
+  - description: "Verify continuous view shows all dimensions"
+  - click: "button[aria-label='连续视图'], button:has(svg.lucide-list)"
+  - wait: 2000
+  - screenshot: "continuous-view"
+
+  - assert:
+      # Content completeness
+      - element_count_gte:
+          selector: "h2"
+          min: 3
+          message: "Should have at least 3 H2 headings (dimensions)"
+      - text_not_contains: "<!-- chart:"
+      - text_not_contains: "<!-- figure:"
+      - text_not_contains: "LATEX"
+
+      # LaTeX rendering
+      - no_raw_latex:
+          patterns:
+            - "\\text{"
+            - "\\frac{"
+            - "\\approx"
+            - "\\sum_"
+            - "\\prod_"
+          message: "Raw LaTeX commands should not be visible as text"
+      - no_katex_errors:
+          selector: ".katex-error"
+          message: "No KaTeX parse errors should exist"
+
+  # ─── 2. Chapterized View Verification ───
+  - description: "Switch to chapterized view"
+  - click: "button[aria-label='章节视图'], button:has(svg.lucide-book-open)"
+  - wait: 2000
+  - screenshot: "chapter-view"
+
+  - assert:
+      # Chapter navigation exists
+      - element_visible: "[data-testid='chapter-nav'], nav:has(button)"
+      - text_visible_any: ["章 1", "Chapter 1", "1."]
+
+  # Navigate to a chapter with formulas (usually chapter 1)
+  - description: "Verify chapter content renders with formulas"
+  - assert:
+      - element_count_gte:
+          selector: "h3, h4"
+          min: 2
+          message: "Chapter should have sub-sections"
+      - no_raw_latex:
+          patterns:
+            - "\\text{"
+            - "\\frac{"
+          message: "Chapter view should render LaTeX correctly"
+
+  # Navigate through chapters
+  - click: "button:has-text('→'), button[aria-label='Next chapter']"
+  - wait: 1000
+  - screenshot: "chapter-2"
+  - assert:
+      - text_not_contains: "[object Object]"
+      - text_not_contains: "undefined"
+
+  - click: "button:has-text('→'), button[aria-label='Next chapter']"
+  - wait: 1000
+  - screenshot: "chapter-3"
+
+  # ─── 3. Word Count Verification ───
+  - assert:
+      - element_visible: "[class*='word-count'], span:has-text('字')"
+        message: "Word count should be displayed"
+
+  # ─── 4. Report Toolbar ───
+  - description: "Verify toolbar buttons are functional"
+  - assert:
+      - element_visible: "button[aria-label*='export'], button[aria-label*='导出'], button:has(svg.lucide-download)"
+        message: "Export button should be visible"
+      - element_visible: "button[aria-label*='copy'], button:has(svg.lucide-copy)"
+        message: "Copy button should be visible"
+
+  # ─── 5. Back to Continuous — Scroll Test ───
+  - click: "button[aria-label='连续视图'], button:has(svg.lucide-list)"
+  - wait: 2000
+  - scroll_to_bottom: true
+  - screenshot: "continuous-view-bottom"
+  - assert:
+      # References section should be at the bottom
+      - text_visible_any: ["参考文献", "References"]
+        message: "References section should be visible at bottom"
+
+  # ─── 6. Chart Figure Verification ───
+  - description: "Verify chart images render (if any)"
+  - scroll_to_top: true
+  - assert:
+      - no_leaked_placeholders:
+          patterns:
+            - "<!-- chart:"
+            - "<!-- figure:"
+            - "d0-s0-fig"
+          message: "No chart/figure placeholders should leak as text"
+
+summary:
+  pass_criteria:
+    - "Both continuous and chapter views render all dimensions"
+    - "LaTeX formulas render as math (no raw commands)"
+    - "No KaTeX errors"
+    - "No placeholder leaks"
+    - "References section present"
+    - "Word count displayed"
+    - "Navigation between chapters works"

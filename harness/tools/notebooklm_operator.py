@@ -12,8 +12,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import operator_flow_control as ofc
-
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
@@ -21,6 +19,12 @@ DEFAULT_WRAPPER = HARNESS_DIR / "scripts" / "browser_agent_notebooklm_wrapper.py
 DEFAULT_BROWSER_USE_PYTHON = HOME / ".claude" / "mcp-servers" / "browser-use" / ".venv" / "bin" / "python"
 DEFAULT_OPERATOR_ID = "mini-browser-notebooklm"
 JSON_FENCE_RE = re.compile(r"```json\s*(.*?)\s*```", re.S | re.I)
+
+if str(HARNESS_DIR / "lib") not in sys.path:
+    sys.path.insert(0, str(HARNESS_DIR / "lib"))
+
+import operator_flow_control as ofc  # noqa: E402
+from browser_agent_queue_client import enqueue_current_process_if_needed  # noqa: E402
 
 
 class NotebookLMOperatorError(RuntimeError):
@@ -303,13 +307,25 @@ def run_notebooklm_request(request_payload: dict[str, Any], *, task_dir: Path | 
 def main() -> int:
     envelope = _load_envelope()
     task_dir = _task_dir()
-    ofc.clear_task_control(task_dir)
     request_payload = build_notebooklm_request(envelope, task_dir=task_dir)
     rate_control = _rate_control_settings(envelope)
     operator_id = str(rate_control["operator_id"])
     source_files = request_payload.get("source_files") or []
     if not isinstance(source_files, list) or not source_files:
         raise SystemExit("NotebookLM operator requires source_files")
+    queued_rc = enqueue_current_process_if_needed(
+        job_name=operator_id,
+        repo_root=HARNESS_DIR,
+        cwd=task_dir,
+        timeout_seconds=int(
+            envelope.get("queue_timeout_seconds")
+            or os.environ.get("BROWSER_AGENT_QUEUE_WAIT_TIMEOUT_SECONDS")
+            or 6 * 60 * 60
+        ),
+    )
+    if queued_rc is not None:
+        return queued_rc
+    ofc.clear_task_control(task_dir)
     try:
         ofc.ensure_operator_available(operator_id)
         run_notebooklm_request(request_payload, task_dir=task_dir)

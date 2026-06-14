@@ -1,0 +1,944 @@
+{
+  "videoId": "ynJyIKwjonM",
+  "title": "Agentic Search for Context Engineering — Leonie Monigatti, Elastic",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 45879,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Everyone ready?\n>> Yes.\n>> Awesome. Welcome to AI engineer. Thanks\nfor joining my session.\nWe are going to be talking about agentic\nsearch for context engineering today.\nMy name is Leonei. I work at Elastic,\nthe company behind Elastic Search.\nAnd usually I like to talk about\nretrieval on Twitter. Today I'm super\nexcited to be doing this in person. Uh,\na little bit of housekeeping. If you\nwant to access the slides and the code\nwe will be looking at, you can scan the\nQR code.\nlet's start with why I'm excited about\nsearch and retrieval and hopefully why\nyou are excited about it by the end of\nthis workshop as well.\nWho here has built an agent or some form\nof it before?\nAwesome. Then you've probably then\nyou're probably not intimidated by this\nuh image. You've probably seen some some\nalternative to this one before. This is\nessentially what context engineering\nlooks like. So context engineering when\nwe talk about it is the art or\nengineering techniques about how from\nall of the possible context sources we\nhave, how do we actually decide what\ngoes into the context window so our LLMs\ncan uh generate the best responses.\nOften when we talk about this, we talk\nabout context curation and we mean this\nlittle this little arrow from context\nsources to context window. But we're not\ngiving this little arrow right there\nenough uh credit in my opinion because\nwhat's powering this is the search tool\nor search tools that actually decide\nwhat goes from context sources to the\ncontext window. And today we're going to\nbe looking at the different search tools\nwe have. So this is my personal hot\ntake. I like to say that context\nengineering is about 80% agentic search\nbecause it's this little box right here.\nAll right, let's start with a little bit\nof history. And when I say history, I\nmean the last three years.\nRag. Um when we started with rag the\noriginal idea was that we had a fixed\nretrieval pipeline. So the user message\nwould\nusually more or less ver verbatim be\nused as a search query to be used\nusually as a vector search query to pull\nsome data or chunks uh from a database\nand together with a retrieved context.\nit would the user message would go into\nthe context window and then it would be\nfed to the LLM.\nNice.\nThis has clearly many limitations.\nSo since this is a fixed pipeline\nwhether or not you actually need any\ncontext, you're still retrieving\nadditional information and in the worst\ncase that can actually confuse your LLM.\nRight?\nOn the other hand, if you're only\nretrieving once,\nlet's say you need some multihop\nretrieval, you're asking your LLM\nsomething more complex, then if you're\nonly retrieving once, maybe the\nretrieved chunks um reveal some\ninformation about another search query\nyou need, then you would actually might\nwant to have a second round of search,\nright? So that's why we then moved on to\naentic rag.\nSo we replace the fixed pipeline with\nnow a search tool. So\nnow the agent can decide by himself by\nitself uh whether or not to call the\nsearch tool and retrieve some\ninformation. So we don't have the\nproblem anymore of do I actually need\nany information and when I actually\nretrieve information is this even\nrelevant? Do I need to retrieve more?\nUm,\ndo I actually have to retrieve\nsomething, rewrite the search query? Um,\nyeah.\nSo, we still only have one context\nsource in this case, one database. Now,\nwhen we look at context engineering, the\ncontext lies in many different places,\nright? So, we have context sources in\nlocal files. So when you think about\nyour coding agent, you probably have\nyour um coding project in or code files\nlaying around in your local file system,\nmaybe you're using um some kind of\nworking memory like a scratch pad. So\nyou're planning with your um agent what\nyou want to do. Then you probably have\nsomething like a plan MD file.\nWhen you have agent skills, you also\nhave them usually in a local folder\nsomewhere. We still have databases\nbecause many enterprises have their data\nstored in databases.\nUm, we have the web as another context\nsource. And I know this is a super\ncontroversial uh image here because I\ndid not commit to having the long-term\nmemory in the local file system or the\ndatabase. This is I think a currently a\nvery big discussion. We can get into\nthis in the Q&A if you like. But we also\nhave long-term memory as another context\nsource. Right?\nSo how do we actually retrieve context\nfrom these? Usually we have a set of um\nlet's say context source native search\ntools. So for the local files you\nusually have something like um a search\nfiles um tool. For skills you usually\nhave a skill loading tool. When you\nthink about databases,\nwe have a little bit more custom tools.\nSo, um something like a semantic search\ntool. Maybe you also have something more\num general purpose like a tool that lets\nyou execute entire search queries\nagainst a database like SQL for example.\nFor web you have web search tools and\nfor memory you have something like a\ndedicated memory tool.\nIf that's not overwhelming enough, we\nnow also have something called a shell\ntool. Um, Langchain calls it shell tool.\nAnthropic calls it the bash tool. If\nyou've experienced uh if you've played\naround with open cloud, it's called the\nexec tool. But what all of these tools\ndo is they let your agent run commands\nin the terminal. And that actually makes\nthem super uh versatile because now you\ncan let your agent um use CLIs to\nnavigate your um and explore your local\nfiles. So you can just run ls and grab\nto find data in your local file system.\nIf your database has a custom CLI, you\ncan actually let the agent also use the\nshell tool um and interact with the\ndatabase.\nYou could also let your agent write an\nentire search entire script from scratch\nlike connect to your database, run a\nsearch query.\nUm, if your database is exposed via\nHTTPS, you can just run a curl command,\ninteract with the database through the\nshell tool. Speaking of curl commands,\nyou can also um do web searches if you\nlike. So this shell tool is super\nversatile, right? So the question and\nthe topic of today is\nwhat search tool do we actually need? Do\nwe only need a s a shell tool? Do I need\nall of these?\nAnd if you take home only one thing from\ntoday is that doing good search is\nincredibly difficult and that's why we\nhave many different techniques to do\nsearch. Right? We have vector search, we\nhave keyword search, even in vector\nsearch, we have dense embeddings, sparse\nembeddings, multi vector embeddings.\nThen we have many different indexing\ntechniques. So\ndepending on what kind of search\nrequirements and latency requirements\nyou have,\nyou will need to curate your own stack\nof search tools. Right?\nSo today we're going to be looking at a\nfew of these. Unfortunately, we only\nhave one hour, so I cannot show you all\nof them. Um,\nbefore we get into some code, I want to\num give you a few fundamentals um of\nbuilding good search tools because\nagentic search at the surface level\nseems very straightforward.\nThe user makes a request. The agent\ncalls the right tool with the right\nparameters.\nI see someone laughing. Um, the\nretrieval tool gives you the tool\nresponse and then your agent uh responds\nto you with the correct answer.\nAt Elastic, we help a lot of internal\nand external teams build uh agents based\nto interact with elastic search data.\nAnd the reality is that this can break\nin many different ways. I'm just going\nto show you three um today. So the first\nis the agent doesn't call any tool. So\nthis means the agent decides I actually\ncan answer this question based on my\nparametric knowledge. I don't need to\nuse any um context retrieval tool. And\nthe other problem is that the agent\ncalls the wrong tool. I was recently\ntalking to a colleague of mine was\nasking him what was your the most\nchallenging aspect of your project and\nhe was like you won't believe it but it\nwas really difficult to get the agent to\nactually not call the web search tool\nbut call the database search tool\nright\nand then depending on how complex your\nparameters are for your search tools it\ncan also be quite challenging to get\nyour agent to generate the right um\nsearch parameters, right?\nThere's many more failure cases, but\nwe're going to limit this to to these\nthree today. So,\nI personally hate this slide because I\nfeel like everyone in this room probably\nknows um that the tool description is\nthe most important aspect, but anytime I\nsee a tool description, it's like the\nleast effort, one sentence, and then\nyou're wondering why your agent isn't\ncalling the right tool. So, arguably,\nthis is a very long tool description.\nI'm not saying you have to write it like\nthis. I'm just saying if you just start\nwith a core purpose, if it works fine,\ngreat. But if you add more parameters or\nmore tools and your agent is starting to\nstruggle with calling the right uh tool,\nthen maybe add some trigger condition.\nWhen should this tool be used? When\nshould this tool not be used? Especially\nif you have multiple tools. Um, adding\nsomething like relationships is super\nimportant, like first call this agent\nskill before you actually call this tool\nor get some confirmation before you call\nthis tool.\nIf you have the perfect tool description\nand your agent still doesn't call the\nright tool, then reinforce it in the\nagent system prompt. That should\nactually um help out in most cases.\nThen I want to quickly touch on some on\nthe parameter complexity.\nIf you have a search tool that's just\nvery simple in in the sense that\nsomething like get customer by ID, it\nshould be fairly straightforward for the\nagent to generate an ID parameter given\nthat it's a valid ID. Um same for if\nyou're doing a semantic search, right?\ngenerating some valid string should be\nshouldn't cause any any issues. But\nlet's say if you want to have a semantic\nsearch tool and instead of just giving\num a topic, you now also want to give it\nsome filter conditions, maybe you want\nto define the top K. Then you start to\nhave more parameters, right? This isn't\nvery complex here, but the longer the\nlist of parameters you have, the more\ndifficult um it's going to get for the\nagent to generate the right ones.\nAnd I think a very complex one for an\nagent is to when you have something\nthat's more general purpose like letting\nthe agent um execute um entire search\nqueries against a database. So here I\nhave ESQL which is the elastic search\nquery language could be could be SQL as\nwell. So letting the agent write an\nentire SQL query from scratch can be\nquite challenging. Most are pretty good,\nbut um some aren't. So just keep in mind\num let's say the the complexity of the\nparameter also is kind of a failure mode\nand you can you might need to help the\nagent out with um a few of these if the\nthey are more complex.\nGood. Let's look at some code.\nOkay,\nquick show of hands. Who here has built\nsome sort of agentic rag, agentic surge\nbefore?\nOkay, about half. That's good. Um,\nso we're going to be looking at three\nthings. Uh, I'm going to give you a\nquick recap or intro to the very vanilla\nagentic search demo.\nAnd then I'm going to show you how easy\nit is to break this usual demo. And then\nwe're replacing the semantic search tool\nwith something more general purpose. So\nwe're letting the agent write an entire\nsearch query from scratch.\nAnd for these two examples, we will be\nusing um a local elastic search cluster\nas a context source. And then for the\nthird part, I'm switching gears and I'm\ngoing to be showing you how search over\nlocal file system works um with the bash\ntool. And then I'm also going to show\nthe shell tool. And then I'm also going\nto show you um some limitations of the\nshell tool and how you can expand it\nwith custom CLIs.\nAll right. The example that we'll be\ndoing today is I have the conference\nsession data of this conference here.\nAnd let me let me start show you this\none. So just a quick recap.\nWe have elastic search database and\nwe're going to be writing a semantic\nsearch\num search tool. And for in the database\nI have the conference session\num already chunked. You probably already\nknow how to chunk and store data in a\ndatabase. So we're skipping this part.\nThis is not the important aspect.\nSo, what do we need for an agent, an\nLLM? Oh, sorry.\nWe're going to be using lang chain for\nthis um session just because it wraps a\nlot of the complexity and uh I don't\nlike it lets us concentrate on the high\nlevel concepts. also has some nice\nbuilt-in features like uh the shell tool\nis built in and it has some uh code\nsamples for skill loading tools which we\nwill be looking at later.\nOkay, switching back. I'm using GPT 5.4\nNano for this demo.\nThen we're defining a very simple system\nprompt. So the usual you are a search\nagent tasked with answering questions.\nUm you have access to different context\nretrieval tools and before answering a\nquestion oops decide whether or not you\nneed to retrieve additional context\nto help the agent a little bit I have\nsome information about how the data is\num structured in elastic search. So here\nwe have a text field. It's comprised of\nthe title of each session and the\ndescription of each session and the text\nfield is what actually gets embedded um\nas the vector embeddings for semantic\nsearch and then I also have some\nmetadata fields. So for example the day,\nthe time, the room, um the speaker's\nname. So since the metadata is not\nembedded, I can only run um filters over\nthem but not any semantic search just\nfor your information.\nOkay,\nnow the interesting part let's build a\nsemantic search tool. So how that works\nin lang chain is I have to first define\nan embedding model. In this case I'm\nusing the new genome embeddings v5\nmodel.\nUm this is used to embed the search\nqueries at query time and the embedding\nmodel I'm putting in with putting it\ninto my um elastic search store together\nwith the elastic data to create a vector\nstore and then\nI can create a search tool. So in this\ncase I have all I have to do is I call\nthe similarity search method. It takes\nin a search query and in this case I'm\nsetting the limit or the top K to three.\nThis is a little bit of foreshadowing\nbecause I'm limiting the capabilities of\nthis tool to just returning three search\nresults. Right?\nWhat's nice in Langchain as well is that\nwhen you use the tool decorator up here,\nit lets you convert any Python function\ninto a search tool uh sorry into an\nagent tool.\nSo by default, it takes the\num functions u Python functions name as\nthe tool name and the dock string down\nhere is going to uh convert going to get\nconverted into the tool description. You\ncan see I'm breaking my own rule by\nhaving a very short tool description\nhere. Why this works is because I only\nhave one search tool here, right? So you\nwill see I'm adding a few things later\non, but it's not going to get very\ndescriptive in this demo here.\nSo now we can um run a test and test it\nfor a search query of regulatory\nconstraints. And you can see it finds a\ntalk by my friend B on engineering AI\nsystems under server constraints and it\nalso finds some more talks. One by TAS\nand one by Pedro.\nAll right, let's plug it in.\nSo we're plugging in the LM, the system\nprompt, and the search tool. I'm leaving\nout memory. Obviously, this would be\nanother core component of an agent. In\nthis case, I'm leaving it out to keep it\nkind of concise.\nNow I can\nuh run a simple question like which\nsessions discuss regulatory constraints\nin AI systems.\nAnd you can see the agent first uh calls\nmy semantic search tool. It wrote a\nquite extensive\nsearch query in my opinion, but it\nworks. Um, it finds the right talk by\nBili.\nThen it decided that that apparently\nwasn't enough. So, it rewrote the search\nquery. Uh, but decided but got the very\nsimilar search results back. So after\nthat it decided that sorry it decided\nthat it's now able to um respond with\nthe right talks.\nThis is where most agentic search demos\nfail. But this is very brittle. Does\nanyone have an idea how we can break\nthis?\nYes, that's a good idea.\nAnything else?\nAsking it something that's not in the\ndatabase would be something great. What\nabout asking it um something where\nsemantic search actually falls short?\nMaybe something where we want to look\nfor a keyword, a specific keyword.\num also doing something like filtering\nbecause we're in this search tool we\ndon't have any filters implemented right\nmy choice of search query is which\nsessions should I visit to learn more\nabout GEA\nI'm not even sure like I've heard people\ntalk about Ga I'm not even sure if I'm\npronouncing it correctly sorry that's\nwhy I need to definitely\nattend this session.\nSo what you can see is the agent now\ncalls the search semantic search tool\nand this time it's looking for GPA. So\nfar so good\nbut now you can see it's actually\nreturning a talk for um deep minds Gemma\nmodels. I guess from token from a\ntokenization perspective it could be\nsimilar to GDPA or JPA I don't know then\nit returns something on harness\nengineering not sure if that's\nnecessarily related and then a third one\nI clearly none of these are related to\nGPA\nspoiler alert I know there's a talk\nabout GPA or JPA again I think it's\nright after this one So\nwe can see the search tool we just\ncreated. It's not very useful or at\nleast useful only for a very narrow\nscope of use cases. Right?\nWhat if we let the agent now write an\nentire search query from scratch? Let me\nshow you how we can do this.\nwe're now replacing the database tool\nthat we had with an execute query tool.\nSo we're letting the agent not only take\nin a like a search like a topic, but\nthis time we're giving it an entire\nthe search tool an entire search query.\nAnd I'm going to show you because this\nis quite difficult for an agent. Uh\nwe're also combining it with a skill\nloading tool.\ndoing the same thing. I'm setting up my\nLLM.\nYou've probably noticed I'm switching to\na little bit more powerful model here.\nSo I'm switching from the GPT 5.4 Nano\nto um the mini because I am now\nanticipating that writing search queries\nis a little bit more difficult. So the\nnano is probably not powerful enough.\nI'm using the exact same system prompt\nas before.\nAnd now I'm creating a general purpose\ndatabase query tool.\nSince I'm using elastic search, I'm\ngoing to be using the elastic search\nquery language, which is a pipe query\nlanguage for filtering, transforming,\nand analyzing data.\nIt looks something like this. Maybe it\nreminds you of SQL. It's a little bit\ndifferent. It has different\ncapabilities. Not important for this\nsession. Um, but you can see when I\nconnect to my client and then I use this\nquery method from the SQL class and run\nthis query, you can actually see that\nthere is a session by Samuel which talks\na lot about GPA. You can see here is a\nmatch.\nHere's another match.\nSo let's wrap this into a search tool.\nYou can see um this time I just use the\nthe query method again here and the\nagent takes in the ESQL query um as a\nparameter\nand I exchanged the tool description\nwith something that's said that's called\nexecute an ESQL query against the\nconference schedule index in elastic\nsearch.\nnotice anything different about how I\nwrote this search tool versus the other\none.\nThis time I added a try except block\nhere for error handling. Generally\nspeaking, you should have error\nhandling. But since I'm anticipating\nthat writing a good ESQL query or a\nvalid one is gonna cause more problems\nfor the the tool, um I don't want the\nagent to just fail and then the whole\nsystem to crash. So instead of instead I\nreturn the error response to the agent\nso it can kind of self-correct, rewrite\nthe query.\nGenerally speaking, super important to\nhave this, right? So the agent can\nself-correct. So when we we can test\nthis here, this is not important. Uh\nthen I'm plugging in the LLM, the system\nprompt, and my not new search tool into\nthe agent again. And when I now um ask\nit the exact same question as before,\nwhich session should I visit to learn\nmore about GDPA?\nYou can see it calls the execute ESQL\nquery tool and it generates something\nthat looks like valid ESQL.\nI'm not expecting anyone to be very\nfamiliar with ESQL. What's wrong with\nthis is that\nESQL doesn't use the percentage sign as\na wild card character. And in ESQL, you\nwould use the asterisk. So in this case,\nit's actually looking for percentage\nsign, GPA, percentage sign in the data\nas an exact match. So that's why it's\nactually returning zero search results.\nAnd this is when you're working with\nsearch tools also super important to\nthink about. Is returning zero search\nresults\nactually a valid response or is it a\nfailure mode? Right?\nOkay.\nHow could I overcome this? I could\nprobably write\num a more descriptive tool description,\ngive it a little bit more help on how to\nwrite better um parameters.\nI could re reinforce it in the system\nprompt, give it more instructions there.\nOr I could use an agent skill because\nyou need more documentation than just\nlike a oneliner, right?\nSo now I'm going to show you how to add\nan agent skill.\nSo in this case\nI'm going to be writing my own very\nshort custom uh agent skill. Quick\nquestion. Who has you used and played\nwith agent skills before?\nOkay, good amount.\nI'm going to be writing a very short one\nhere. Um\nthere is official elastic search agent\nskills available if you want to play\naround with it. In this case I'm just uh\nusing my own custom ones. So how that\nworks is you have the um the skill name\nand then also skill description which\ngets injected into the system prompt. So\nonly the uh if you write it in in\nmarkdown it's the I think the front meta\nright that gets injected into the system\nprompt and then when you need it um more\ninformation on the agent skill is loaded\ninto the context window right so it's\ncalled something like progressive\ndisclosure where you kind of add more\ninformation about the skill as you as\nneeded\nso in this case I have some minimal\ninstructions like here's the basic um\nstructure of an ESQL query.\nUm ESQL uses double quotes for string\nliterals.\nJust some very basic syntax rules. And I\nalso added some more information about\nthe wild card pattern so it's not making\nthis mistake again.\nAnd then as I mentioned, Langchen has\nsome boilerplate code you can just copy\nand reuse for um using agent skills. So\nI'm skipping over this. All you have to\nknow is we have a tool and skill loading\ntool and it's get it's getting inject um\nsorry it gets combined with a something\ncalled a skill middleware.\nSkipping over this because this is not\nrelevant for our session.\nAnd now\nall I have to do is\num add it edit the tool description of\nmy general purpose search tool. So this\nis the exact same tool that I had before\nexcept this time I'm now adding some\nrelationship to I'm saying always use\nelastic the elastic search ESQL skill to\ngenerate the ESQL query before using\nthis tool because otherwise if the agent\nthen still uses this tool first without\nwithout um using the agent skill then\nthat would be a shame. Right,\nI'm doing the exact same. So I'm\nreinforcing this now in the system\nprompt. I'm saying the same thing to use\nthe um elastic search a agent skill\nfirst before calling the general purpose\nsearch tool. And now I'm plugging it\ninto the agent again. So this time LLM\nsystem prompt for the skill loading\ntool. I have the skill middleware and\nthen my general purpose ESQL query tool.\nAnd now when I let the um ask when I ask\nthe agent which session should I visit\nto learn more about Ga you can see it f\nfirst loads the skill.\nSo it actually loads everything that's\nkind of in the body part of the skill\ninto my context window.\nAnd then it generates\nthis time a very valid SQL with the\nasterisk as my percentage as my wild\ncard characters. And you can see it\nactually finds the right session.\nAnd now it tells me that at 10:40, so\nafter this session, I should be going to\nthis session to learn more about GPA and\nlearn how to pronounce it correctly.\nOkay,\nwhat's also cool about this is now the\nagent can do a lot of things, right? It\ncan also do aggregations.\nSo if I ask it something like how many\nsessions are on April 8th, you can see\nagain it loads the um elastic search\nESQL\ntool.\nUm and then it writes an ESQL query.\nWhoops.\nWrites an ESQL query that's using a\nfilter. So it's filtering for April 8th.\nAnd then it also does an aggregation,\nsome some counting and tells me today\nthere are 27 sessions.\nThis is nice because\nif I just do a search, let's say I ask\nit to tell me which sessions are on\nApril 8th and it only runs a filtered\nsearch, right? So just imagine it would\ngive me a list of all 27 sessions that\nare today and we let the agent\ncount how many sessions there are.\nThat would probably not be so good\nbecause we all know agents or LMS are\nnotoriously bad at counting things. Um\nand also it would um fill up your\ncontext window, right? So by letting the\nagent do its own calculation, so letting\nlike outsourcing the calculation part\ninto the search tool, it's actually\nquite an efficient way to do this,\nright?\nAny questions so far.\nOkay,\nlet's switch gears. Um,\nthis is a very prominent topic at the\nmoment. Maybe you've heard the\ndiscussion about all an agent needs is a\nshell tool and a file system.\nSo, I work at Elastic, but I don't\ndiscriminate. Let's look at file systems\nand how to do this because I think it's\na very interesting um topic in general.\nSo what I did here um I prepared the\ndata this time in a local file system.\nSo I have a folder called session data\nand in here I have for each type of\nsession like keynotes and workshops. I\nhave another folder and in there there's\nper session one file looks something\nlike this. So with a title, some\nmetadata and the description.\nAnd now um I'm going to show you how you\ncan use the shell tool with this.\nSo I'm switching back to the GPT 5.4\nnano because LM are just generally good\nat um navigating file systems, writing\nuh shell commands. So GPT 5.4 nano is\nsufficient. In this case,\nI define another system prompt. So the\nfirst part of the system prompt is\nuh exactly the same as the one we had\nbefore.\nAnd what I'm replacing this time is\ninstead of explaining how the data is\nstructured in elastic search, I'm\nexplaining how the data is structured in\nmy local file system.\nOkay, so\nlet's use the shell tool. I have to give\nyou a disclaimer. Using the shell tool\ncan be risky since giving your agent\naccess to a terminal\ncan make it delete files or do other\nthings you don't want it to do. So\nalways recommended to uh use it in a\nsandbox environment. Also in langun it\ndoesn't have any safeguards by default.\nSo please be careful when using this.\nBut other than that it's very easy to\nuse. So you can just use uh import the\nshell tool and instantiate it here. And\nhere you can see how you would use it.\nSo it takes in the commands parameter.\nSo when I say echo hello world, you can\nsee down here it actually prints hello\nworld into my terminal.\nAnd then all you have to do again plug\nin the LLM, the system prompt and the\nshell tool. And now you can ask it this\nexact same thing we had earlier. So are\nthere any sessions about GPA and you can\nsay you can see here it's called the\nterminal here but it's the it's the\nagent calls the uh shell tool and it\nactually writes a few commands. So first\nit's looking at the folder structure and\nthen it runs um some grab commands. So\nit's looking for GPA in the session data\nand I think it's looking for the first\n50 entries.\nSo you can see it saw the um the folder\nstructure and then it also found the one\nsession we were talking about earlier.\nBut since I was only looking at the\nfirst 50 and only found one session, it\ndecided that it should probably look at\nthe entire session data. So it finds the\nexact same session again. So this time\nit decides, okay, then I should probably\nlook at the contents of this session.\nSo now it reads the entire file content.\nAnd here you can see the\nthe session information\num as a tool response.\nAnd then at the end the agent tells me\nwhich session I should visit.\nOkay.\nGrab works\nbased on exact matches, right? And um\nreg.\nAnd I just want to show you this because\nI think it's funny how like surprisingly\ngood agents are with bash because they\nkind of can cheat at semantic search. I\nLet me show you this.\nSo when I ask it which sessions discuss\nhandling regulatory constraints, this\nwas our semantic search query from the\nbeginning. You can see it again looks at\nthe folder structure and then it the\nfirst command or the first search it\ndoes it's looking for regulate.\nIt's fair. It's looking for regulation\nfor regulatory.\nI guess that's that's a fair start. But\nthen it goes ahead and now it just\nchains a bunch of synonyms together. So\nit's looking for compliance. It's\nlooking for constraints. It's looking\nfor GDPR. It's looking for governance.\nYeah, I guess that's fair.\nUm, I think it actually finds the it\nfinds a bunch of sessions. So, it's\nlike, okay, let me try a bunch of other\nsynonyms. So, now it's looking again for\nuh regulate, compliance, GDPR, PR,\nsoenity.\nUm, I think yeah, the list goes on. It's\njust looking at a bunch of different\nsynonyms and it actually is successful\nwith this and it finds the session by\nbuilding and returns the session\ninformation and then um is able to\nrespond correctly.\nI guess it works. Is that the most\nefficient way to do this?\nProbably not. I mean just as an example.\nSo, let's say you you want to search for\nsomething like movies with animal\nsuperheroes or something. Do you really\nwant to do your agent to search for a\nlist of all the animals possible? Will\nyou find all the superhero movies with\nanimal superheroes?\nProbably not. So,\nit works.\nIs it the best? I let you decide.\nSo at the moment there's many different\nsemantic search alternatives to grab. Um\nI think there's one by llama index\ncalled sam tools. There's a really cool\none by light on which is called coal\ngrap based on multi vector embeddings.\nAlso there's one by our own Gina that's\ncalled Gina Grap. Um, today I'm going to\nshow you how easy it is to actually um,\nuse this together with your agent.\nSo, all you have to do is go ahead and\ninstall the Gina CLI\nand then\nall all you have to do is tell your\nagent that it now has access to this\ntool or to the CLI.\nSo, this is the exact same system prompt\nas I had earlier. Now with the\ndifference that I'm explaining to it um\nthat it has gen\nworks how it should use it.\nHere are some examples of how you would\nuse Gina Grap.\nJust a disclaimer Gina Grap has many\ndifferent modes. You can use it for um\nclassification. You can use it for\nre-ranking. Today I'm just showing you\nhow to use it for semantic search.\nAnd at the end I'm also explaining to\nthe agent when it should use grap and\nwhen it should use gina grabs. Just so\nit knows for exact matches you probably\nstill want to use grap. And for um more\nsemantic search or fuzzy queries use um\ngina grap.\nAnd then plugging this in to my agent\nagain.\nAnd when I now run the exact same\nsemantic search query we had earlier. So\nwhich oops\nwhich sessions discuss handling\nregulatory constraints. You can see the\nsame behavior. So it calls the terminal\ntool. It first explores the folder\nstructure and then it actually on the\nfirst try is able to correctly use gina\ngrab. So, it's looking for regulatory\nconstraints\nand boom, it actually finds um the\nsession by Bill on the first first try.\nFinds a few others because it's looking\nfor 10. Um it says returned top k of 10\nand then it's able to answer me\ncorrectly. Nice.\nAll right. Any questions so far?\nGood.\nThen I'm switching back.\nSo we were looking at a bunch of\ndifferent tools today. We saw how big\nthe tool landscape is. Um I showed you a\nfew of the um search tools we have. Now,\nsome practical recommendations on when\nshould you actually use what.\nSo,\nmaybe let's start with this. If you're\nlooking for just one silver bullet tool,\nthat's probably not the right way to go.\nAgain, if you're if you think about it,\ndoing good search is incredibly\ndifficult. So ideally you want to have\nor curate the right set of search tools\nfor your agents search behaviors\nand you want to have a combination of\nspecialized tools and a combination and\nuh general purpose tools. So specialized\ntools are something that the agent can\nuse out of the box. Something with a\nvery simple parameter,\nsomething where you're not where you\ndon't need a very powerful LLM. You\nknow, the agent isn't going to make a\nlot of mistakes. The agent can just use\nthis tool out of the box. So at Elastic,\nwe like to think about this about of\nhaving a low floor. So this is a concept\nfrom user experience where the agent can\njust\nyou use a tool doesn't make many\nmistakes. It's also efficient so it\ndoesn't have to run your tool multiple\ntimes. You can think about this as the\nsemantic search tool we had earlier.\nMaybe you need to look up customers by\nID a lot of the time. Then having a\nspecialized tool for that exact\noperation would be helpful.\nBut then you also want to give the agent\na high ceiling. That means\nfor unexpected queries, for complex\nquestions, you want the agent to still\nbe able to handle these questions,\nright? And not be have like these\nlimited uh specialized tools and be\nlike, I I cannot solve this. So for this\ncase, something like a shell tool or the\nvery um general purpose one we had\nearlier of a query execution tool would\nbe very helpful.\nBut the problem with the query execution\ntool or the shell tool you saw earlier\nis since it's so general purpose, the\nagent sometimes might need more\niteration to iterations to actually get\nto the right answer. Right?\nSo this is my my practical\nrecommendation of having a balanced set\nof search tools um of a low floor and\nhigh ceiling.\nThis is all nice when you already know\nyour agents behavior,\nbut if you don't know your agents query\nbehavior yet, then I would recommend to\nstart with a general purpose tool.\nThen log your agent's behavior.\nGenerally speaking, logging your agents\nbehavior recommended. Um, but if you\nnotice, maybe your agent is taking\nfour or five tool calls per question.\nThat's too many tool calls. Then you\nprobably that's probably an indicator\nthat the tool your agent has is too\ndifficult for it to use. then definitely\nlook at what the agent's actually trying\nto solve, maybe scope out something more\nspecialized in that case, right?\nAlso, if you notice specific um query\nbehaviors, this is what I personally did\nwith my with my test open claw. I was uh\nit has the exec tool and I um started\nlogging its behavior and obviously I was\nplaying around with databases. So after\nthree days I was asking it what kind of\ninteresting patterns do you see and was\nrecommending me actually to um implement\nsome specific uh search tools uh to\ninteract with the database because it\nwas out of the box only using the the\nexec tool.\nAll right. Start with general purpose\ntools if you don't know your users\nbehavior yet. Log breaks and app\npurposeuilt interfaces.\nYeah, that's that was a lot to take in.\nUm,\nI'm sure you have lots of questions, so\nI'm opening it up for Q&A. And\notherwise, on your way out, don't forget\nto grab yourself some stickers. And then\nthank you for joining my session.\nI think there's a mic coming.\nThank you. Um, so would you say the tool\nstack you need is also mostly dependent\non the model you're willing to use. So\nif you were using a very good model, it\nmight be fine using the shell tool or\nthe search tool, but a very small model\nand light agent might need more\nspecialized tools or\n>> Yeah, actually we I think in our\ninternal testing we noticed that a more\npowerful tool actually reduces the error\nrate of um for the parameters by I don't\nknow the numbers exactly but it was a\nvery big amount where it reduced the\nerror rate. So having a stronger model\ndefinitely helps\num for the general purpose tools but I\nthink you cannot expect uh just because\nyou have a very strong model that\nthere's going to be no no errors if that\nmakes sense. Yeah.\n>> Thanks for a nice talk. Um I have one\nquestion. Maybe it's slightly off topic\nbut um so now we are talking about a\ngentic rack but it comes with the\ndrawback of having higher latency\nagainst typical rack. So would you\nrecommend of having like a second\npathway for simple rack for fast answers\nand how would you like\nguide the agent to actually choose the\nright one because I think it's hard to\nsay which question should be answered by\na gent or by simple rag.\n>> That's a good question.\nI I don't think I have a have a good\nanswer on like on the top of my head\nright now. I'm thinking I was maybe\nsomething related. I was asked recently\nif you have a rag system, should you\nreplace it with a gentic rag? And I\nguess this is kind of going in the same\ndirection of when do you actually need a\ngentic rag, right?\nprobably for a lot of use cases. I know\nrag has been killed many times, but I\nthink the reality is that rag is still\nvery effective for many use cases. Um\nhow would you actually switch between\nrag and agentic rag? I'm not sure\nbecause I assume it's again it needs\nsome kind of almost agentic logic of\nswitching between them. So\nI'm not sure. I'm sorry.\nIn such cases uh like um when you have\nuh the wild card in the GAPA\nuh example uh why can't we just um\nperform a hybrid tool that maybe search\nand replaces uh common wrong uh wild\ncard symbols coming from SQL with the\ncorrect ones for instance.\n>> I'm not sure if I understand your\nquestion correctly. I mean um\nthere are cases in which uh the agent\ndoes doesn't know the how to write the\nuh correct query because maybe he thinks\nuh the placeholders uh coming from SQL\num apply to ESQL\nbut uh so why don't we perform a hybrid\ntool that um determine significantly um\nuh search and replaces the wrong um\nplaceholder\nthe the percentage symbol with the\nasterisk.\n>> Yeah, actually so the the example I\nshowed you of using the agent skill\nwasn't necessarily the the necessary\nsolution for it. You can also um add\njust some very simple instructions on\nfor ESQL don't use um the percentage\nsign as a wild card character. It\nactually works. I tried it when I was\nbuilding the the demo. Um but then when\nthe agent now runs in the next issue,\nthen you start adding the next piece of\ndocumentation. then you can kind of\nstart writing the entire ESQL\ndocumentmentation from scratch into your\nsystem prompt. And yes, for the demo\npurposes is it would have worked, but\nit's probably not how you would do it\nnecessarily when you're building\nsomething more robust, right? Because if\nyou just add like little like band-aids\nevery time you run into an error, then\nwhat happens when you run into the next\nedge case? Does that make sense? Yeah.\n>> Hi, thank you for the really wonderful\num presentation. I have a question. Uh\nin the demo we have walk through the\nagentic search with DB curious tool and\nalso another one with shell tool. Would\nyou recommend in the practical use we\ncan also kind of uh use combine both\ntool and then we validate the result\nfrom each of tool and then we kind of\nadd the confidence of the result from\nthe LM. Would you like recommend doing\nthis in a practical use?\n>> Yes. Yes. That's a great question. Also\nagain I'm kind of cheating in this demo\nright because I'm only showing you one\ntool per demo. In reality, you would\nhave something more like a bunch of\ndifferent tools where you then have to\num decide which or the agent has to\ndecide which tool to use. I think there\nwas a very interesting blog post by\nVersel I believe and they did an\nexperiment. I think it's called, if you\nwant to look it up, I think it's called\ntesting is if bash is all you need is\nthe title I think of the blog post. And\nthey actually kind of benchmarked or\ntested an agent with a bash tool, an\nagent with a just file search tools, I\nbelieve, and an agent with database\ntools. And in the end, they also had one\nagent with a bash tool and the database\ntool. and they noticed that was super\ninteresting.\nUh for a specific set of queries um\nwhere you have analytical queries,\nthis is a specific use case. Actually,\nthe database tool was more effective,\nbut on the other hand, the file search\ntool is very effective as you saw for\njust quickly finding things. But the\nvery interesting aspect was the hybrid\nagent with the bash tool and the um\ndatabase tool was actually achieving the\nhighest um like highest accuracy because\nit first I believe it was first using\nthe database tool and then verifying the\nresults with the shell with the shell\ntool and that led the agent to actually\nachieve better accuracy. So I think that\nwas a very interesting way um and\nbehavior to see in in agents.\n>> Thanks for sharing.\n>> Um one second question. Um, so if we use\nthe semantic search tool, I think in\npractice you probably would use some\nkind of threshold to cut the results to\nnot get something if there's no answer.\nBut in the agentic regime, would you\nthen say, okay, let's put a conservative\nthreshold such that we don't confuse our\nagent or would you say the agent is\nsmart enough even if we retrieve results\nthat are not really relevant, it will be\ngood enough to to to notice that?\n>> Yeah, that's a great question actually.\nUm, so in the examples you probably saw\nsome where the agent was returning. I\nthink in the last genograph example, you\nsee it's actually returning the top K\nresults where only the first one is the\nactual relevant one. And I think um\nbecause the agent does a little bit of\nreasoning over whether the search\nresults are relevant to the search\nquery, I think it's much better or\nthey're much better today at kind of\nweeding out what's not relevant. But\nthen you kind of run into the risk if\nyou have longer running conversations\nthat kind of these search results sit in\nyour context window longterm could have\nthe problem of confusing your agent long\nterm. So I think it kind of\nit depends on your use case of how\num your like how your agent can handle\nlike irrelevant search results.\nGenerally speaking, based on search\nresults, it can filter out what's\nirrelevant.\nUh thank you for the talk. Amazing. Um\nare you utilizing sub agents for this\nsearch queries? Because yeah, if we let\nthem decide to is it relevant to use a\nquestion like yeah it's done in reggas\nframework for example for evaluation.\nI mean sub agents would help a lot. Do\nyou have any experience with them?\n>> Unfortunately not. I have not played\naround with sub aents yet. I can only\ntell you that I know for example I\nbelieve in cloud code they're using sub\naents for doing specific search tasks. I\nthink there was a blog post on how\nthey're actually using a sub agent to um\nanswer specific questions about claw\ncode because it's kind of like a niche\nquestion a user would ask. So in this\ncase they kind of outsourced um their\nexpertise to a sub agent. So having a\nsub agent for specific niche questions I\nthink would be interesting but I don't\nhave too much like experience and\n>> Okay. Thanks. Uh can I ask another\nquestion?\n>> Sure.\n>> Um\ndamn I forget. Sorry\nI try to catch up later.\nUm yeah, I kindly off topic but um you\ntalked about skills and the big benefit\nof skills is just have the description\nin the uh system prompt and whenever\nneeded we need to load this the full\nskill. Um do you have any recommendation\nwhen and how to clear the system prompt\nagain? So because we want to keep the\ncontext window small and maybe for a\nlong um session we might have up to 10\nskills full skills in the context and\nyeah\n>> I'm not sure Joe do you have a better\nanswer like have an idea.\n>> So what we're doing is that we learn the\nskills like\nbut then we\nto like offload things. So when the\ncontext\nvery small\nbut\num but yeah so like the way that we are\ndoing it behind the scenes is that we're\nwe're we're providing like that kind of\nprogressive disclosure of skills. So\nwe're providing those um the skill names\nand descriptions the location within the\nfile store and then from the file store\nwe're loading into the context window\nwhen we need that skill and then we\noffload it once it's once it the prog\nyou know the context window progresses\nahead of time around that. So we have\nthis kind of more on demand one around\nthat. And that's the same with our like\ncompaction like comp of context and\nthat's what I would advise you to do\nlike some of the questions do try and\nuse the file store as much as you can\nand have those tools as well like being\nable to grap the file store for when you\nwant to see previous tool results and\nthen and then use it from that.\nThanks as my colleague Joe from Elastic\nas well.\nAwesome. If there are no more question,\nI will let you guys go into the coffee\nbreak. Again, don't forget to grab\nyourself some stickers and happy to\ncatch up in the halls if anyone's\ninterested. Thanks so much.",
+  "segments": [
+    {
+      "text": "Everyone ready? >> Yes. >> Awesome. Welcome to AI engineer. Thanks for joining my session. We are going to be talking about agentic search for context engineering today. My name is Leonei. I work at Elastic, the company behind Elastic Search.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "And usually I like to talk about retrieval on Twitter. Today I'm super excited to be doing this in person. Uh, a little bit of housekeeping. If you want to access the slides and the code we will be looking at, you can scan the QR code.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "let's start with why I'm excited about search and retrieval and hopefully why you are excited about it by the end of this workshop as well. Who here has built an agent or some form of it before? Awesome. Then you've probably then",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "you're probably not intimidated by this uh image. You've probably seen some some alternative to this one before. This is essentially what context engineering looks like. So context engineering when we talk about it is the art or",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "engineering techniques about how from all of the possible context sources we have, how do we actually decide what goes into the context window so our LLMs can uh generate the best responses. Often when we talk about this, we talk",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "about context curation and we mean this little this little arrow from context sources to context window. But we're not giving this little arrow right there enough uh credit in my opinion because what's powering this is the search tool",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "or search tools that actually decide what goes from context sources to the context window. And today we're going to be looking at the different search tools we have. So this is my personal hot take. I like to say that context",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "engineering is about 80% agentic search because it's this little box right here. All right, let's start with a little bit of history. And when I say history, I mean the last three years. Rag. Um when we started with rag the",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "original idea was that we had a fixed retrieval pipeline. So the user message would usually more or less ver verbatim be used as a search query to be used usually as a vector search query to pull some data or chunks uh from a database",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "and together with a retrieved context. it would the user message would go into the context window and then it would be fed to the LLM. Nice. This has clearly many limitations. So since this is a fixed pipeline whether or not you actually need any",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "context, you're still retrieving additional information and in the worst case that can actually confuse your LLM. Right? On the other hand, if you're only retrieving once, let's say you need some multihop retrieval, you're asking your LLM",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "something more complex, then if you're only retrieving once, maybe the retrieved chunks um reveal some information about another search query you need, then you would actually might want to have a second round of search,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "right? So that's why we then moved on to aentic rag. So we replace the fixed pipeline with now a search tool. So now the agent can decide by himself by itself uh whether or not to call the search tool and retrieve some information. So we don't have the",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "problem anymore of do I actually need any information and when I actually retrieve information is this even relevant? Do I need to retrieve more? Um, do I actually have to retrieve something, rewrite the search query? Um, yeah.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "So, we still only have one context source in this case, one database. Now, when we look at context engineering, the context lies in many different places, right? So, we have context sources in local files. So when you think about",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "your coding agent, you probably have your um coding project in or code files laying around in your local file system, maybe you're using um some kind of working memory like a scratch pad. So you're planning with your um agent what",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "you want to do. Then you probably have something like a plan MD file. When you have agent skills, you also have them usually in a local folder somewhere. We still have databases because many enterprises have their data stored in databases.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "Um, we have the web as another context source. And I know this is a super controversial uh image here because I did not commit to having the long-term memory in the local file system or the database. This is I think a currently a",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "very big discussion. We can get into this in the Q&A if you like. But we also have long-term memory as another context source. Right? So how do we actually retrieve context from these? Usually we have a set of um let's say context source native search",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "tools. So for the local files you usually have something like um a search files um tool. For skills you usually have a skill loading tool. When you think about databases, we have a little bit more custom tools. So, um something like a semantic search",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "tool. Maybe you also have something more um general purpose like a tool that lets you execute entire search queries against a database like SQL for example. For web you have web search tools and for memory you have something like a dedicated memory tool.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "If that's not overwhelming enough, we now also have something called a shell tool. Um, Langchain calls it shell tool. Anthropic calls it the bash tool. If you've experienced uh if you've played around with open cloud, it's called the",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "exec tool. But what all of these tools do is they let your agent run commands in the terminal. And that actually makes them super uh versatile because now you can let your agent um use CLIs to navigate your um and explore your local",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "files. So you can just run ls and grab to find data in your local file system. If your database has a custom CLI, you can actually let the agent also use the shell tool um and interact with the database. You could also let your agent write an",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "entire search entire script from scratch like connect to your database, run a search query. Um, if your database is exposed via HTTPS, you can just run a curl command, interact with the database through the shell tool. Speaking of curl commands,",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "you can also um do web searches if you like. So this shell tool is super versatile, right? So the question and the topic of today is what search tool do we actually need? Do we only need a s a shell tool? Do I need all of these?",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "And if you take home only one thing from today is that doing good search is incredibly difficult and that's why we have many different techniques to do search. Right? We have vector search, we have keyword search, even in vector",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "search, we have dense embeddings, sparse embeddings, multi vector embeddings. Then we have many different indexing techniques. So depending on what kind of search requirements and latency requirements you have, you will need to curate your own stack",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "of search tools. Right? So today we're going to be looking at a few of these. Unfortunately, we only have one hour, so I cannot show you all of them. Um, before we get into some code, I want to um give you a few fundamentals um of",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "building good search tools because agentic search at the surface level seems very straightforward. The user makes a request. The agent calls the right tool with the right parameters. I see someone laughing. Um, the retrieval tool gives you the tool",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "response and then your agent uh responds to you with the correct answer. At Elastic, we help a lot of internal and external teams build uh agents based to interact with elastic search data. And the reality is that this can break",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "in many different ways. I'm just going to show you three um today. So the first is the agent doesn't call any tool. So this means the agent decides I actually can answer this question based on my parametric knowledge. I don't need to",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "use any um context retrieval tool. And the other problem is that the agent calls the wrong tool. I was recently talking to a colleague of mine was asking him what was your the most challenging aspect of your project and he was like you won't believe it but it",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "was really difficult to get the agent to actually not call the web search tool but call the database search tool right and then depending on how complex your parameters are for your search tools it can also be quite challenging to get",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "your agent to generate the right um search parameters, right? There's many more failure cases, but we're going to limit this to to these three today. So, I personally hate this slide because I feel like everyone in this room probably",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "knows um that the tool description is the most important aspect, but anytime I see a tool description, it's like the least effort, one sentence, and then you're wondering why your agent isn't calling the right tool. So, arguably,",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "this is a very long tool description. I'm not saying you have to write it like this. I'm just saying if you just start with a core purpose, if it works fine, great. But if you add more parameters or more tools and your agent is starting to",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "struggle with calling the right uh tool, then maybe add some trigger condition. When should this tool be used? When should this tool not be used? Especially if you have multiple tools. Um, adding something like relationships is super",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "important, like first call this agent skill before you actually call this tool or get some confirmation before you call this tool. If you have the perfect tool description and your agent still doesn't call the right tool, then reinforce it in the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "agent system prompt. That should actually um help out in most cases. Then I want to quickly touch on some on the parameter complexity. If you have a search tool that's just very simple in in the sense that something like get customer by ID, it",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "should be fairly straightforward for the agent to generate an ID parameter given that it's a valid ID. Um same for if you're doing a semantic search, right? generating some valid string should be shouldn't cause any any issues. But",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "let's say if you want to have a semantic search tool and instead of just giving um a topic, you now also want to give it some filter conditions, maybe you want to define the top K. Then you start to have more parameters, right? This isn't",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "very complex here, but the longer the list of parameters you have, the more difficult um it's going to get for the agent to generate the right ones. And I think a very complex one for an agent is to when you have something",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "that's more general purpose like letting the agent um execute um entire search queries against a database. So here I have ESQL which is the elastic search query language could be could be SQL as well. So letting the agent write an",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "entire SQL query from scratch can be quite challenging. Most are pretty good, but um some aren't. So just keep in mind um let's say the the complexity of the parameter also is kind of a failure mode and you can you might need to help the",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "agent out with um a few of these if the they are more complex. Good. Let's look at some code. Okay, quick show of hands. Who here has built some sort of agentic rag, agentic surge before? Okay, about half. That's good. Um, so we're going to be looking at three",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "things. Uh, I'm going to give you a quick recap or intro to the very vanilla agentic search demo. And then I'm going to show you how easy it is to break this usual demo. And then we're replacing the semantic search tool with something more general purpose. So",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "we're letting the agent write an entire search query from scratch. And for these two examples, we will be using um a local elastic search cluster as a context source. And then for the third part, I'm switching gears and I'm",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "going to be showing you how search over local file system works um with the bash tool. And then I'm also going to show the shell tool. And then I'm also going to show you um some limitations of the shell tool and how you can expand it with custom CLIs.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "All right. The example that we'll be doing today is I have the conference session data of this conference here. And let me let me start show you this one. So just a quick recap. We have elastic search database and we're going to be writing a semantic search",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "um search tool. And for in the database I have the conference session um already chunked. You probably already know how to chunk and store data in a database. So we're skipping this part. This is not the important aspect. So, what do we need for an agent, an",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "LLM? Oh, sorry. We're going to be using lang chain for this um session just because it wraps a lot of the complexity and uh I don't like it lets us concentrate on the high level concepts. also has some nice built-in features like uh the shell tool",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "is built in and it has some uh code samples for skill loading tools which we will be looking at later. Okay, switching back. I'm using GPT 5.4 Nano for this demo. Then we're defining a very simple system prompt. So the usual you are a search",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "agent tasked with answering questions. Um you have access to different context retrieval tools and before answering a question oops decide whether or not you need to retrieve additional context to help the agent a little bit I have",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "some information about how the data is um structured in elastic search. So here we have a text field. It's comprised of the title of each session and the description of each session and the text field is what actually gets embedded um",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "as the vector embeddings for semantic search and then I also have some metadata fields. So for example the day, the time, the room, um the speaker's name. So since the metadata is not embedded, I can only run um filters over",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "them but not any semantic search just for your information. Okay, now the interesting part let's build a semantic search tool. So how that works in lang chain is I have to first define an embedding model. In this case I'm using the new genome embeddings v5",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "model. Um this is used to embed the search queries at query time and the embedding model I'm putting in with putting it into my um elastic search store together with the elastic data to create a vector store and then I can create a search tool. So in this",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "case I have all I have to do is I call the similarity search method. It takes in a search query and in this case I'm setting the limit or the top K to three. This is a little bit of foreshadowing because I'm limiting the capabilities of",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "this tool to just returning three search results. Right? What's nice in Langchain as well is that when you use the tool decorator up here, it lets you convert any Python function into a search tool uh sorry into an agent tool. So by default, it takes the",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "um functions u Python functions name as the tool name and the dock string down here is going to uh convert going to get converted into the tool description. You can see I'm breaking my own rule by having a very short tool description",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "here. Why this works is because I only have one search tool here, right? So you will see I'm adding a few things later on, but it's not going to get very descriptive in this demo here. So now we can um run a test and test it for a search query of regulatory",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "constraints. And you can see it finds a talk by my friend B on engineering AI systems under server constraints and it also finds some more talks. One by TAS and one by Pedro. All right, let's plug it in. So we're plugging in the LM, the system",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "prompt, and the search tool. I'm leaving out memory. Obviously, this would be another core component of an agent. In this case, I'm leaving it out to keep it kind of concise. Now I can uh run a simple question like which sessions discuss regulatory constraints",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "in AI systems. And you can see the agent first uh calls my semantic search tool. It wrote a quite extensive search query in my opinion, but it works. Um, it finds the right talk by Bili. Then it decided that that apparently",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "wasn't enough. So, it rewrote the search query. Uh, but decided but got the very similar search results back. So after that it decided that sorry it decided that it's now able to um respond with the right talks. This is where most agentic search demos",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "fail. But this is very brittle. Does anyone have an idea how we can break this? Yes, that's a good idea. Anything else? Asking it something that's not in the database would be something great. What about asking it um something where",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "semantic search actually falls short? Maybe something where we want to look for a keyword, a specific keyword. um also doing something like filtering because we're in this search tool we don't have any filters implemented right",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "my choice of search query is which sessions should I visit to learn more about GEA I'm not even sure like I've heard people talk about Ga I'm not even sure if I'm pronouncing it correctly sorry that's why I need to definitely attend this session.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "So what you can see is the agent now calls the search semantic search tool and this time it's looking for GPA. So far so good but now you can see it's actually returning a talk for um deep minds Gemma models. I guess from token from a",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "tokenization perspective it could be similar to GDPA or JPA I don't know then it returns something on harness engineering not sure if that's necessarily related and then a third one I clearly none of these are related to GPA spoiler alert I know there's a talk",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "about GPA or JPA again I think it's right after this one So we can see the search tool we just created. It's not very useful or at least useful only for a very narrow scope of use cases. Right? What if we let the agent now write an",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "entire search query from scratch? Let me show you how we can do this. we're now replacing the database tool that we had with an execute query tool. So we're letting the agent not only take in a like a search like a topic, but",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "this time we're giving it an entire the search tool an entire search query. And I'm going to show you because this is quite difficult for an agent. Uh we're also combining it with a skill loading tool. doing the same thing. I'm setting up my LLM.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "You've probably noticed I'm switching to a little bit more powerful model here. So I'm switching from the GPT 5.4 Nano to um the mini because I am now anticipating that writing search queries is a little bit more difficult. So the",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "nano is probably not powerful enough. I'm using the exact same system prompt as before. And now I'm creating a general purpose database query tool. Since I'm using elastic search, I'm going to be using the elastic search query language, which is a pipe query",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "language for filtering, transforming, and analyzing data. It looks something like this. Maybe it reminds you of SQL. It's a little bit different. It has different capabilities. Not important for this session. Um, but you can see when I",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "connect to my client and then I use this query method from the SQL class and run this query, you can actually see that there is a session by Samuel which talks a lot about GPA. You can see here is a match. Here's another match.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "So let's wrap this into a search tool. You can see um this time I just use the the query method again here and the agent takes in the ESQL query um as a parameter and I exchanged the tool description with something that's said that's called",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "execute an ESQL query against the conference schedule index in elastic search. notice anything different about how I wrote this search tool versus the other one. This time I added a try except block here for error handling. Generally",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "speaking, you should have error handling. But since I'm anticipating that writing a good ESQL query or a valid one is gonna cause more problems for the the tool, um I don't want the agent to just fail and then the whole system to crash. So instead of instead I",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "return the error response to the agent so it can kind of self-correct, rewrite the query. Generally speaking, super important to have this, right? So the agent can self-correct. So when we we can test this here, this is not important. Uh",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "then I'm plugging in the LLM, the system prompt, and my not new search tool into the agent again. And when I now um ask it the exact same question as before, which session should I visit to learn more about GDPA? You can see it calls the execute ESQL",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "query tool and it generates something that looks like valid ESQL. I'm not expecting anyone to be very familiar with ESQL. What's wrong with this is that ESQL doesn't use the percentage sign as a wild card character. And in ESQL, you",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "would use the asterisk. So in this case, it's actually looking for percentage sign, GPA, percentage sign in the data as an exact match. So that's why it's actually returning zero search results. And this is when you're working with",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "search tools also super important to think about. Is returning zero search results actually a valid response or is it a failure mode? Right? Okay. How could I overcome this? I could probably write um a more descriptive tool description,",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "give it a little bit more help on how to write better um parameters. I could re reinforce it in the system prompt, give it more instructions there. Or I could use an agent skill because you need more documentation than just like a oneliner, right?",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "So now I'm going to show you how to add an agent skill. So in this case I'm going to be writing my own very short custom uh agent skill. Quick question. Who has you used and played with agent skills before? Okay, good amount.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to be writing a very short one here. Um there is official elastic search agent skills available if you want to play around with it. In this case I'm just uh using my own custom ones. So how that works is you have the um the skill name",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "and then also skill description which gets injected into the system prompt. So only the uh if you write it in in markdown it's the I think the front meta right that gets injected into the system prompt and then when you need it um more",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "information on the agent skill is loaded into the context window right so it's called something like progressive disclosure where you kind of add more information about the skill as you as needed so in this case I have some minimal",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "instructions like here's the basic um structure of an ESQL query. Um ESQL uses double quotes for string literals. Just some very basic syntax rules. And I also added some more information about the wild card pattern so it's not making this mistake again.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "And then as I mentioned, Langchen has some boilerplate code you can just copy and reuse for um using agent skills. So I'm skipping over this. All you have to know is we have a tool and skill loading tool and it's get it's getting inject um",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "sorry it gets combined with a something called a skill middleware. Skipping over this because this is not relevant for our session. And now all I have to do is um add it edit the tool description of my general purpose search tool. So this",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "is the exact same tool that I had before except this time I'm now adding some relationship to I'm saying always use elastic the elastic search ESQL skill to generate the ESQL query before using this tool because otherwise if the agent",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "then still uses this tool first without without um using the agent skill then that would be a shame. Right, I'm doing the exact same. So I'm reinforcing this now in the system prompt. I'm saying the same thing to use the um elastic search a agent skill",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "first before calling the general purpose search tool. And now I'm plugging it into the agent again. So this time LLM system prompt for the skill loading tool. I have the skill middleware and then my general purpose ESQL query tool.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "And now when I let the um ask when I ask the agent which session should I visit to learn more about Ga you can see it f first loads the skill. So it actually loads everything that's kind of in the body part of the skill into my context window.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "And then it generates this time a very valid SQL with the asterisk as my percentage as my wild card characters. And you can see it actually finds the right session. And now it tells me that at 10:40, so after this session, I should be going to",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "this session to learn more about GPA and learn how to pronounce it correctly. Okay, what's also cool about this is now the agent can do a lot of things, right? It can also do aggregations. So if I ask it something like how many",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "sessions are on April 8th, you can see again it loads the um elastic search ESQL tool. Um and then it writes an ESQL query. Whoops. Writes an ESQL query that's using a filter. So it's filtering for April 8th. And then it also does an aggregation,",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "some some counting and tells me today there are 27 sessions. This is nice because if I just do a search, let's say I ask it to tell me which sessions are on April 8th and it only runs a filtered search, right? So just imagine it would",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "give me a list of all 27 sessions that are today and we let the agent count how many sessions there are. That would probably not be so good because we all know agents or LMS are notoriously bad at counting things. Um and also it would um fill up your",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "context window, right? So by letting the agent do its own calculation, so letting like outsourcing the calculation part into the search tool, it's actually quite an efficient way to do this, right? Any questions so far. Okay, let's switch gears. Um,",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "this is a very prominent topic at the moment. Maybe you've heard the discussion about all an agent needs is a shell tool and a file system. So, I work at Elastic, but I don't discriminate. Let's look at file systems and how to do this because I think it's",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "a very interesting um topic in general. So what I did here um I prepared the data this time in a local file system. So I have a folder called session data and in here I have for each type of session like keynotes and workshops. I",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "have another folder and in there there's per session one file looks something like this. So with a title, some metadata and the description. And now um I'm going to show you how you can use the shell tool with this. So I'm switching back to the GPT 5.4",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "nano because LM are just generally good at um navigating file systems, writing uh shell commands. So GPT 5.4 nano is sufficient. In this case, I define another system prompt. So the first part of the system prompt is uh exactly the same as the one we had",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "before. And what I'm replacing this time is instead of explaining how the data is structured in elastic search, I'm explaining how the data is structured in my local file system. Okay, so let's use the shell tool. I have to give",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "you a disclaimer. Using the shell tool can be risky since giving your agent access to a terminal can make it delete files or do other things you don't want it to do. So always recommended to uh use it in a sandbox environment. Also in langun it",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "doesn't have any safeguards by default. So please be careful when using this. But other than that it's very easy to use. So you can just use uh import the shell tool and instantiate it here. And here you can see how you would use it.",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "So it takes in the commands parameter. So when I say echo hello world, you can see down here it actually prints hello world into my terminal. And then all you have to do again plug in the LLM, the system prompt and the shell tool. And now you can ask it this",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "exact same thing we had earlier. So are there any sessions about GPA and you can say you can see here it's called the terminal here but it's the it's the agent calls the uh shell tool and it actually writes a few commands. So first",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "it's looking at the folder structure and then it runs um some grab commands. So it's looking for GPA in the session data and I think it's looking for the first 50 entries. So you can see it saw the um the folder structure and then it also found the one",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "session we were talking about earlier. But since I was only looking at the first 50 and only found one session, it decided that it should probably look at the entire session data. So it finds the exact same session again. So this time",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "it decides, okay, then I should probably look at the contents of this session. So now it reads the entire file content. And here you can see the the session information um as a tool response. And then at the end the agent tells me which session I should visit.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "Okay. Grab works based on exact matches, right? And um reg. And I just want to show you this because I think it's funny how like surprisingly good agents are with bash because they kind of can cheat at semantic search. I Let me show you this.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "So when I ask it which sessions discuss handling regulatory constraints, this was our semantic search query from the beginning. You can see it again looks at the folder structure and then it the first command or the first search it",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "does it's looking for regulate. It's fair. It's looking for regulation for regulatory. I guess that's that's a fair start. But then it goes ahead and now it just chains a bunch of synonyms together. So it's looking for compliance. It's",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "looking for constraints. It's looking for GDPR. It's looking for governance. Yeah, I guess that's fair. Um, I think it actually finds the it finds a bunch of sessions. So, it's like, okay, let me try a bunch of other synonyms. So, now it's looking again for",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "uh regulate, compliance, GDPR, PR, soenity. Um, I think yeah, the list goes on. It's just looking at a bunch of different synonyms and it actually is successful with this and it finds the session by building and returns the session",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "information and then um is able to respond correctly. I guess it works. Is that the most efficient way to do this? Probably not. I mean just as an example. So, let's say you you want to search for something like movies with animal",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "superheroes or something. Do you really want to do your agent to search for a list of all the animals possible? Will you find all the superhero movies with animal superheroes? Probably not. So, it works. Is it the best? I let you decide.",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "So at the moment there's many different semantic search alternatives to grab. Um I think there's one by llama index called sam tools. There's a really cool one by light on which is called coal grap based on multi vector embeddings.",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "Also there's one by our own Gina that's called Gina Grap. Um, today I'm going to show you how easy it is to actually um, use this together with your agent. So, all you have to do is go ahead and install the Gina CLI and then all all you have to do is tell your",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "agent that it now has access to this tool or to the CLI. So, this is the exact same system prompt as I had earlier. Now with the difference that I'm explaining to it um that it has gen works how it should use it. Here are some examples of how you would",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "use Gina Grap. Just a disclaimer Gina Grap has many different modes. You can use it for um classification. You can use it for re-ranking. Today I'm just showing you how to use it for semantic search. And at the end I'm also explaining to",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "the agent when it should use grap and when it should use gina grabs. Just so it knows for exact matches you probably still want to use grap. And for um more semantic search or fuzzy queries use um gina grap. And then plugging this in to my agent again.",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "And when I now run the exact same semantic search query we had earlier. So which oops which sessions discuss handling regulatory constraints. You can see the same behavior. So it calls the terminal tool. It first explores the folder",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "structure and then it actually on the first try is able to correctly use gina grab. So, it's looking for regulatory constraints and boom, it actually finds um the session by Bill on the first first try. Finds a few others because it's looking",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "for 10. Um it says returned top k of 10 and then it's able to answer me correctly. Nice. All right. Any questions so far? Good. Then I'm switching back. So we were looking at a bunch of different tools today. We saw how big",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "the tool landscape is. Um I showed you a few of the um search tools we have. Now, some practical recommendations on when should you actually use what. So, maybe let's start with this. If you're looking for just one silver bullet tool,",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "that's probably not the right way to go. Again, if you're if you think about it, doing good search is incredibly difficult. So ideally you want to have or curate the right set of search tools for your agents search behaviors",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "and you want to have a combination of specialized tools and a combination and uh general purpose tools. So specialized tools are something that the agent can use out of the box. Something with a very simple parameter, something where you're not where you",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "don't need a very powerful LLM. You know, the agent isn't going to make a lot of mistakes. The agent can just use this tool out of the box. So at Elastic, we like to think about this about of having a low floor. So this is a concept",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "from user experience where the agent can just you use a tool doesn't make many mistakes. It's also efficient so it doesn't have to run your tool multiple times. You can think about this as the semantic search tool we had earlier.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "Maybe you need to look up customers by ID a lot of the time. Then having a specialized tool for that exact operation would be helpful. But then you also want to give the agent a high ceiling. That means for unexpected queries, for complex",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "questions, you want the agent to still be able to handle these questions, right? And not be have like these limited uh specialized tools and be like, I I cannot solve this. So for this case, something like a shell tool or the very um general purpose one we had",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "earlier of a query execution tool would be very helpful. But the problem with the query execution tool or the shell tool you saw earlier is since it's so general purpose, the agent sometimes might need more iteration to iterations to actually get",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "to the right answer. Right? So this is my my practical recommendation of having a balanced set of search tools um of a low floor and high ceiling. This is all nice when you already know your agents behavior, but if you don't know your agents query",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "behavior yet, then I would recommend to start with a general purpose tool. Then log your agent's behavior. Generally speaking, logging your agents behavior recommended. Um, but if you notice, maybe your agent is taking four or five tool calls per question.",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "That's too many tool calls. Then you probably that's probably an indicator that the tool your agent has is too difficult for it to use. then definitely look at what the agent's actually trying to solve, maybe scope out something more",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "specialized in that case, right? Also, if you notice specific um query behaviors, this is what I personally did with my with my test open claw. I was uh it has the exec tool and I um started logging its behavior and obviously I was",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "playing around with databases. So after three days I was asking it what kind of interesting patterns do you see and was recommending me actually to um implement some specific uh search tools uh to interact with the database because it",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "was out of the box only using the the exec tool. All right. Start with general purpose tools if you don't know your users behavior yet. Log breaks and app purposeuilt interfaces. Yeah, that's that was a lot to take in. Um,",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "I'm sure you have lots of questions, so I'm opening it up for Q&A. And otherwise, on your way out, don't forget to grab yourself some stickers. And then thank you for joining my session. I think there's a mic coming. Thank you. Um, so would you say the tool",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "stack you need is also mostly dependent on the model you're willing to use. So if you were using a very good model, it might be fine using the shell tool or the search tool, but a very small model and light agent might need more specialized tools or",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": ">> Yeah, actually we I think in our internal testing we noticed that a more powerful tool actually reduces the error rate of um for the parameters by I don't know the numbers exactly but it was a very big amount where it reduced the",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "error rate. So having a stronger model definitely helps um for the general purpose tools but I think you cannot expect uh just because you have a very strong model that there's going to be no no errors if that makes sense. Yeah.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": ">> Thanks for a nice talk. Um I have one question. Maybe it's slightly off topic but um so now we are talking about a gentic rack but it comes with the drawback of having higher latency against typical rack. So would you recommend of having like a second",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "pathway for simple rack for fast answers and how would you like guide the agent to actually choose the right one because I think it's hard to say which question should be answered by a gent or by simple rag. >> That's a good question.",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "I I don't think I have a have a good answer on like on the top of my head right now. I'm thinking I was maybe something related. I was asked recently if you have a rag system, should you replace it with a gentic rag? And I",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "guess this is kind of going in the same direction of when do you actually need a gentic rag, right? probably for a lot of use cases. I know rag has been killed many times, but I think the reality is that rag is still very effective for many use cases. Um",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "how would you actually switch between rag and agentic rag? I'm not sure because I assume it's again it needs some kind of almost agentic logic of switching between them. So I'm not sure. I'm sorry. In such cases uh like um when you have",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "uh the wild card in the GAPA uh example uh why can't we just um perform a hybrid tool that maybe search and replaces uh common wrong uh wild card symbols coming from SQL with the correct ones for instance. >> I'm not sure if I understand your",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "question correctly. I mean um there are cases in which uh the agent does doesn't know the how to write the uh correct query because maybe he thinks uh the placeholders uh coming from SQL um apply to ESQL but uh so why don't we perform a hybrid",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "tool that um determine significantly um uh search and replaces the wrong um placeholder the the percentage symbol with the asterisk. >> Yeah, actually so the the example I showed you of using the agent skill wasn't necessarily the the necessary",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "solution for it. You can also um add just some very simple instructions on for ESQL don't use um the percentage sign as a wild card character. It actually works. I tried it when I was building the the demo. Um but then when",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "the agent now runs in the next issue, then you start adding the next piece of documentation. then you can kind of start writing the entire ESQL documentmentation from scratch into your system prompt. And yes, for the demo purposes is it would have worked, but",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "it's probably not how you would do it necessarily when you're building something more robust, right? Because if you just add like little like band-aids every time you run into an error, then what happens when you run into the next",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "edge case? Does that make sense? Yeah. >> Hi, thank you for the really wonderful um presentation. I have a question. Uh in the demo we have walk through the agentic search with DB curious tool and also another one with shell tool. Would",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "you recommend in the practical use we can also kind of uh use combine both tool and then we validate the result from each of tool and then we kind of add the confidence of the result from the LM. Would you like recommend doing this in a practical use?",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": ">> Yes. Yes. That's a great question. Also again I'm kind of cheating in this demo right because I'm only showing you one tool per demo. In reality, you would have something more like a bunch of different tools where you then have to",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "um decide which or the agent has to decide which tool to use. I think there was a very interesting blog post by Versel I believe and they did an experiment. I think it's called, if you want to look it up, I think it's called",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "testing is if bash is all you need is the title I think of the blog post. And they actually kind of benchmarked or tested an agent with a bash tool, an agent with a just file search tools, I believe, and an agent with database",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "tools. And in the end, they also had one agent with a bash tool and the database tool. and they noticed that was super interesting. Uh for a specific set of queries um where you have analytical queries, this is a specific use case. Actually,",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "the database tool was more effective, but on the other hand, the file search tool is very effective as you saw for just quickly finding things. But the very interesting aspect was the hybrid agent with the bash tool and the um",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "database tool was actually achieving the highest um like highest accuracy because it first I believe it was first using the database tool and then verifying the results with the shell with the shell tool and that led the agent to actually",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "achieve better accuracy. So I think that was a very interesting way um and behavior to see in in agents. >> Thanks for sharing. >> Um one second question. Um, so if we use the semantic search tool, I think in practice you probably would use some",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "kind of threshold to cut the results to not get something if there's no answer. But in the agentic regime, would you then say, okay, let's put a conservative threshold such that we don't confuse our agent or would you say the agent is",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "smart enough even if we retrieve results that are not really relevant, it will be good enough to to to notice that? >> Yeah, that's a great question actually. Um, so in the examples you probably saw some where the agent was returning. I",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "think in the last genograph example, you see it's actually returning the top K results where only the first one is the actual relevant one. And I think um because the agent does a little bit of reasoning over whether the search",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "results are relevant to the search query, I think it's much better or they're much better today at kind of weeding out what's not relevant. But then you kind of run into the risk if you have longer running conversations that kind of these search results sit in",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "your context window longterm could have the problem of confusing your agent long term. So I think it kind of it depends on your use case of how um your like how your agent can handle like irrelevant search results. Generally speaking, based on search",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "results, it can filter out what's irrelevant. Uh thank you for the talk. Amazing. Um are you utilizing sub agents for this search queries? Because yeah, if we let them decide to is it relevant to use a question like yeah it's done in reggas",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "framework for example for evaluation. I mean sub agents would help a lot. Do you have any experience with them? >> Unfortunately not. I have not played around with sub aents yet. I can only tell you that I know for example I",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "believe in cloud code they're using sub aents for doing specific search tasks. I think there was a blog post on how they're actually using a sub agent to um answer specific questions about claw code because it's kind of like a niche",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "question a user would ask. So in this case they kind of outsourced um their expertise to a sub agent. So having a sub agent for specific niche questions I think would be interesting but I don't have too much like experience and",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": ">> Okay. Thanks. Uh can I ask another question? >> Sure. >> Um damn I forget. Sorry I try to catch up later. Um yeah, I kindly off topic but um you talked about skills and the big benefit of skills is just have the description",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "in the uh system prompt and whenever needed we need to load this the full skill. Um do you have any recommendation when and how to clear the system prompt again? So because we want to keep the context window small and maybe for a",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "long um session we might have up to 10 skills full skills in the context and yeah >> I'm not sure Joe do you have a better answer like have an idea. >> So what we're doing is that we learn the skills like but then we to like offload things. So when the context",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "very small but um but yeah so like the way that we are doing it behind the scenes is that we're we're we're providing like that kind of progressive disclosure of skills. So we're providing those um the skill names and descriptions the location within the",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "file store and then from the file store we're loading into the context window when we need that skill and then we offload it once it's once it the prog you know the context window progresses ahead of time around that. So we have",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "this kind of more on demand one around that. And that's the same with our like compaction like comp of context and that's what I would advise you to do like some of the questions do try and use the file store as much as you can",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "and have those tools as well like being able to grap the file store for when you want to see previous tool results and then and then use it from that. Thanks as my colleague Joe from Elastic as well. Awesome. If there are no more question,",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "I will let you guys go into the coffee break. Again, don't forget to grab yourself some stickers and happy to catch up in the halls if anyone's interested. Thanks so much.",
+      "start": 1110,
+      "duration": 6
+    }
+  ]
+}

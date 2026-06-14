@@ -1,0 +1,389 @@
+{
+  "videoId": "WE_Gnowy3uw",
+  "title": "Replacing 12K LoC with a 200 LoC Skill — David Gomes, Cursor",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 18589,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi everyone. How you all doing? Thank\nyou for coming today.\nI'm going to be talking about how\nmarkdown is basically the new code. As\nDeja has already sort of previewed,\nwe recently replaced a lot of code in\nthe cursor application with just\nmarkdown, just a skill.\nAnd\nin today's talk, I'm going to share a\nbit of the journey of going from a\nfull-blown feature with a lot of code, a\nlot of dependencies, a lot of complexity\nand tests into a much more\nlightweight, streamlined version of the\nsame feature effectively, but just with\na single skill.\nBefore I start though, I have to give\nyou guys a little recap of\nGit work trees and how they work in\nCursor.\nNow, if you haven't heard of work trees\nin Git, they're effectively like\nseparate checkouts. And I'm sorry for\nthe wide screen.\nBut they're effectively like like\nseparate checkouts of your repos that\nallow you to work in parallel. So,\ndifferent agents can be working on the\nsame task at the same or on different\ntasks at the same time without um\ninterfering with each other.\nIf you've never used this feature before\nin Cursor, the way it works is that you\ncan spin up an agent on an individual\nwork tree.\nUm and you will see, for example, the\nsame file\nin two different work trees, and you can\nsee that they look different because the\nagent is doing some work on on the work\ntree, but not on your primary checkout.\nAnd anytime the agent runs commands or\nlints or anything it does will be\nisolated and scoped to that Git work\ntree.\nwith this feature you can also\nwork even in parallel at the same time\non the screen. You can have like these\ngrids of agents working for you. Um\nand\nif you say, \"Hey, open a PR.\" the agent\nwill open a pull request from that work\ntree with the changes that it produced\ninside that work tree.\nAnd\none of the coolest things about this\nfeature is that it allows you to\ngive the same task even to different\nmodels at the same time\nand then compare what different models\ndo on the same prompt. So, if you\nhaven't heard of this, we call it best\nof 10 and\nit's effectively a way for you to\ncompete\non on diff- I have have different models\ncompete on the same task.\nAnd then you can even preview the\nchanges if it's a front-end\num project you're working on.\nUh you can\ncompare all the different visual\nimplementations and then choose the one\nyou prefer.\nNow,\nif you have never heard about this all\nall everything I'm talking about today,\nI will also just say that it all came\nout in around October of last year or\nalongside Cursor 2.0.\nUm and when we initially shipped that,\nit came with a lot of complexity.\nUm we had to\nwrite all the code for creating work\ntrees, managing these work trees,\nfeeding them into the agent as context.\nWe also had to make sure that the agents\nwere scoped and isolated and they could\nnot escape the work tree they were\nworking on.\nUh we also have something called setup\nscripts, which users can configure and\nrun uh and and I have Cursor run them\nanytime an agent starts operating on a\ngiven work tree. We also have the\njudging. So, I didn't show you this\nbefore, but uh there's a little thumbs\nup icon on one of the models. That's\njust a judge that we run um that tells\nyou which implementation looks the best\nbased on um\ndifferent criteria. Uh I and then we\nalso have to make some changes to the\nharness\nuh and introduce some system reminders\nto help the agent stay on track in these\nwork trees. And then finally there's\nthere's some cleanup complexity as well\nbecause people like to spin up hundreds\nof these work trees and then their disk\nsizes blow up and we have to help them\nby cleaning up the um the the work trees\nthat stay behind.\nNow,\nin our new implementation, the one that\nI'm going to be talking about today, we\nwere able to get rid of most of these\nthings.\nAnd in fact, I recently opened a PR\nuh removing this entire feature from\nCursor and it was a massive like\ndeletion of of of code. Like I think it\nwas around 15,000 lines of code deleted.\nThe new implementation of the feature is\nalmost as good as the previous one um\nand it is much much more lightweight in\nterms of us to maintain it\num and it even has some benefits\ncompared to the previous implementation\nthat I'll be talking about today.\nSo, how were we able to replace an\nentire feature with a skill?\nWe decided that there are two primitives\nthat we could use to effectively allow\nCursor users to use work trees by simply\nleveraging two primitives. One is agent\nskills and the other are sub agents. So,\nboth of these are existing Cursor\nfeatures. You can learn more about them\nin our docs. Uh we have a page for\nskills and we have a page for sub\nagents.\nWe realized that if we took these two\nthings together, we could basically\nre-implement\nboth the Cursor work trees feature as\nwell as the Cursor best event feature\nwith just markdown.\nAnd this is a little video of how it\nworks. So, I can now as a user say\n{slash} work tree and then I'll give it\nsome task. I'll say, \"Fix the typo in\nthe footer of the website.\" And this\nagent will run in an isolated work tree\nand do its work there.\nSo,\nthe way the skill is written is actually\nreally simple. I can show you most of\nit.\nUh it doesn't fit on the screen, but\nit's basically a set of instructions\ntelling the model\num how to create work trees and um to\nrun the setup scripts that the user\nmight have configured, and then to stay\non that checkout, right? We want to make\nsure that when the agent\nis operating on a work tree, it is\nstaying in that checkout.\nUm the best event skill is very similar.\nIt's actually even smaller. The entire\nskill fits on the screen here with with\na small\nuh font. Um and what we're doing here is\nwe're instructing the parent agent to go\nand create sub agents for each model,\nand then spin up a work tree\nfor each uh so after each sub agent\ncreate its own work tree and work inside\nthat work tree. Um and then we also tell\nit to wait for all the sub agents, and\nwhen they're done, please provide some\ncommentary. Please\nlet the user know um\nwhat um\nthe different implementations by the\ndifferent sub agents look like. Maybe\nyou can grade them. Maybe you can make\nsome uh criticism of them, and maybe you\ncan help the user choose which one is\nthe best. Um and and please give that to\nthe user in some nice table format or\nsomething.\nBut again, it's only around 40 lines of\ncode, and it's all markdown. Like it's\nnot even code and\nthe previous version of this was maybe\n4,000 lines of code.\nUh some of the considerations we have to\nhave in this in the skill is that the\nskill must be\ncross-platform compatible. Like we have\nWindows-specific instructions, and we\nhave Linux and Mac OS instructions as\nwell.\nWe also instruct the parent model to run\nthe setup scripts for each work tree\nthat the user might have configured. And\nthen, and this is the hardest part,\nwe'll spend a bit of time on this on the\ntalk today, we have to instruct the\nmodel to stay on that word tree, right?\nWe have to really say, \"Hey, do not ever\nwork outside this and do not ever\nescape, right?\" Um\nAnd we we do that with some aggressive\nprompting effectively.\nSo, the new commands are {slash} word\ntree and then {slash} passive end to do\nthe basic basically like um\nthe\nto start agents in isolated word trees\nand to start multiple agents on the same\ntask. And then we also have apply word\ntree and delete word tree to bring over\nchanges from the side word tree into\nyour primary checkout and delete word\ntree just does what you would expect.\nUh a little note is that\nthese are not actually skills in Cursor,\nthey're actually commands, but\nthe way these commands work in Cursor is\nextremely similar to how skills work in\nthat they're the prompts only get loaded\ninto the context if the user chooses to\nload them.\nUm and the only reason we did it as\ncommands and not as skills is so that\nthe prompts for them can be controlled\nin our servers in our backend. This\nmeans I can iterate on these prompts\num without you having to update your\nCursor version. Um\nif I do some improvements to these\nprompts,\nthe next time you use them, you're going\nto have you're going to get the latest\nversion of the prompts.\nBut effectively, they work like skills.\nUm this is a demo of the passive end\nskill or command where I'm giving the\nsame task to Kimi, Grok, Composer, GPT,\nand Opus. And you what you will see is\nthat the parent agent starts by spinning\nup five sub agents on the five different\nmodels that I specified, and each one is\ngoing to have its own word tree, each\neach one has its own context. And then\nOpus takes a little longer as expected,\nand then at the end, the parent model,\nas instructed, will do that comparison\nof across all the different submissions.\nIt'll say,\num,\n\"These two models did basically the same\nthing. This one did something that none\nof the others did.\" And you can even\ntalk to the parent agent and you can\nsay, \"Oh, I like this part that Opus did\nand I like this part that GPT did. Can\nyou Can you match them together?\" And\nthe the parent agent will do that for\nyou.\nUm, so let's talk about some of the pros\nof the new implementation and then I'll\ntalk about some of the some of the the\nthe cons, some of the things we lost,\num, with this refactor.\nSo, the main\npro of re-implementing this entire\nfeature as a skill\nis that\nI have a lot less code to maintain.\nUh, selfishly, um, I'm going to be\nspending a lot less time maintaining\nthis feature. And this is an an advanced\nfeature, right? We're not talking about\na feature that is used by 90% of\nCursor's users. Far from it. Work trees\nare kind of an advanced thing, um, and\nso only the Cursor power users that love\nparalyzing and having these grids of\nagents are using work trees. So, it's\nnot the kind of feature where we want to\nbe spending a lot of time with\nmaintenance.\nAnother advantage is that\nour users can now switch into a work\ntree halfway through a chat.\nIt was not possible before.\nUm, we didn't want to pollute the prompt\nUI too much with all these like\ndrop-downs and settings. And so,\nnow that it's just a slash command, it's\nmuch easier for for users to switch to a\nwork tree halfway through a chat. They\ncan start talking about something and\nthen if they decide they want to work on\nthe side, they can do that with slash\nwork tree.\nAnother big advantage is that the\nprevious implementation did not work if\nyou were working on multiple repos at\nthe same time.\nSo, it's very common to have a\nmulti-repo setup where maybe your front\nend and your back end are separate\nrepos.\nIn the past,\nyou could not do work trees\nin this kind of setup. It was just\ndisabled. With the new /worktree\ncommand, everything works fine. The\nagent will make sure to create a\nworktree on each repo, and then if you\nopen a PR, it'll open two PRs, one for\neach repo. It works quite well.\nAnother advantage of the new skill\nimplementation is that the judging\nexperience at the end of knowing what\nmodel did which for best of N\nis far superior. The parent now has a\nlot more context over what each of the\nsub-agents did, and the user can even\nask the agent to stitch together a\nlittle different pieces pieces and bits\nfrom the different implementations,\nwhich was not possible before. In the\nprevious implementation, you had to\nchoose one sub-agent or one model and\njust stick with that.\nNow, let's talk about some of the cons.\nAnd if you're curious, um we have a\nforums link here where we're actually\ngetting some mixed feedback on the new\nimplementation. Like, some people were\nreally accustomed to the old way of how\nthe feature used to work. Um and if\nyou're curious, you can go and see that\nnot everyone is happy with the change,\nat least for now, but we're\nwe're tracking.\nWhat are the problems?\nNumber one, it's very hard for the agent\nto stay on track.\nWith our previous approach, um\nthe agent had to stay on track. Like, it\nwe didn't let the model ever touch any\nfiles outside its worktree. It was\nphysically impossible for it to do so.\nNow, we're trusting the model. So, it's\nyou could say it's a bit vibes-based\nbecause we're basically saying, \"Hey,\noperate on this directory and and and\nthen like, you know, knock on wood,\nplease please don't forget about this.\"\nAnd especially over long sessions, it's\nquite possible that the model will\nforget where it should be operating. And\nsometimes these models, especially the\nworst models,\nwill kind of hallucinate or they'll go a\nbit haywire and they'll start doing\nthings they shouldn't.\nBut we're we're working on this.\nUm another con is that it feels slower\nbecause you're you're seeing the agent\ncreate the worktree and you're seeing\nthat in your chat.\nIt's not actually slower, but it does\nfeel like the agent is kind of like\nwasting time doing something that should\nbe done for it in advance.\nUm we're also looking at some\nimprovements here. And then finally,\nthis is much harder to find the feature\nnow, right? Like before, whenever you\nopened cursor, you had this drop down\nthat would show you, do you want to run\nthis task locally, or do you want to run\nit in a cloud, or do you want to run it\nin a work tree? Now that entire drop\ndown is gone. And so, if you want to use\nwork trees, you have to know the feature\nexists, so you can actually type {slash}\nwork tree.\nSo, the discoverability is a bit worse,\nbut as I mentioned before, this is an\nadvanced power user feature,\num which\nwe're personally okay with we're we're\nwe're okay with being less discoverable\nin general.\nSo,\nhow can we make the skill better?\nUm as I mentioned, the biggest problem\nright now is that the agent is not\nreally always staying on track.\nUh there's two ways that we're going to\nimprove this. One is with evals, and\nthen using those evals to improve the\nprompt.\nAnd then the other one is through RL and\ntraining. So, at Cursor, we train our\nown model called Composer.\nAnd for Composer 2,\nuh the latest version of this model, we\ndidn't have any RL tasks\nwith these prompts.\nWe don't We didn't have any tasks in all\nof the\nmany, many thousands of tasks that we\nused for RL actually operating in this\ntype of environment.\nSo, we're we're working on adding a\nbunch of these tasks into our RL\npipeline, so that by the time we launch\nComposer 3 or 4 or 5,\nuh at least our own model will be much\nbetter at this.\nObviously, we cannot improve the models\nthat the other companies develop, but\nwe've been sharing feedback with all the\nother labs and model providers on this\nkind of thing.\nAnd for evals,\nuh I've been working on some evals for\nfor feature, and it was actually my\nfirst time, or not my first time, but\nwhen I'm I'm fairly um\nearly in my um\nwriting evals uh journey, and\nI was actually very surprised. If you\nuse something like Braintrust, and shout\nout to Braintrust, they've been super\nhelpful.\nUh writing these kinds of evals is\nactually super super easy. You don't\nhave to know almost anything about\nevals, and you can just prompt the\nagent, and it'll do everything for you.\nUm effectively, what I'm doing is I spin\nup the cursor CLI.\nIt's headless, so it's great for evals.\nUm and then I have a two scorers. One\nthat checks to see if the model did any\nwork\nin its work tree as expected, and then\nanother one, which is the reverse of\nthat, which is did the model do any work\nin the primary checkout where it\nshouldn't be doing any work.\nUh and so far, the evals I've got are\npretty simple. So, I actually haven't\nbeen\nable to simulate extremely long\nsessions, which is when the model start\nperforming worse.\nBut, even so far, I've already\nunderstood that not all models are\nequally good at this. So, for example,\nHaiku, which is a smaller, less\nintelligent model, will very often\ndeviate and start working in the primary\ncheckout. But, the other models that\nI've been testing, such as Composer and\nGrok,\nare doing much better.\nSo, I still have to improve these evals\na lot more to make them more\ncomplicated, but the hope is that\nas soon as I can start to find patterns\nhere, I can actually go and improve the\nprompts. And then another thing we can\ndo is have better system reminders\nto the models uh instructing them to\nstay on track and to not deviate from\nthe work tree that they are supposed to\nworking in.\nOkay, so what's next? Um the first thing\nis we're actually going to take a a\nsmall step back here, and we're actually\ngoing to have a much more\ncomplete and native work trees\nimplementation in the new cursor agent\nwindow.\nIf you're uh if you've been following,\nwe recently announced cursor 3.0.\nPart of 3.0 is a more agentic interface\nfor coding where you can still edit code\nand you can still see code, but the UI\nand the UX are much more optimized\naround the agent and the chat interface.\nWe believe this kind of interface is the\nright place for a proper work trees\nimplementation. The kind of person who\nis more likely to be\nuh doing a bunch of local\nparallelization is\nusually the same type of person that is\nmore likely to use this type of UI.\nSo, we're taking a\nsmall step back there and building a\nproper work trees uh implementation that\nis more native, not so much agentic, in\nthe new UI.\nAlso, we're improving the skills, um as\nI mentioned, through this continued work\non evals and then RL and other training\nwork.\nAnd then finally,\nwe are actually looking into other\nparallelization primitives that are not\nGit work trees. So, if you've used Git\nwork trees, you might know that\nuh they can be a bit slow to create, um\nand also to\nuh they also use up a lot of disk space\non your computer, um and then finally,\nuh they only work in Git repos. So, if\nyou're using something other than Git,\nthere's really no local parallelization\nprimitive in cursor. Um in the near\nfuture, we hope to uh share more about\nthis, but we're looking into some other\nsolutions for local parallelization that\ndon't involve Git and don't involve Git\nwork trees.\nUm so yeah, stay tuned for that.\nUm thank you all for coming to the talk\ntoday. Um I'm sure many of you have\nquestions and I'm going to be around all\nday. Uh feel free to grab me anytime and\nuh um\nI'm happy to chat with anyone. Thank\nyou.\n>> Mhm.",
+  "segments": [
+    {
+      "text": "Hi everyone. How you all doing? Thank you for coming today. I'm going to be talking about how markdown is basically the new code. As Deja has already sort of previewed, we recently replaced a lot of code in the cursor application with just",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "markdown, just a skill. And in today's talk, I'm going to share a bit of the journey of going from a full-blown feature with a lot of code, a lot of dependencies, a lot of complexity and tests into a much more lightweight, streamlined version of the",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "same feature effectively, but just with a single skill. Before I start though, I have to give you guys a little recap of Git work trees and how they work in Cursor. Now, if you haven't heard of work trees in Git, they're effectively like",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "separate checkouts. And I'm sorry for the wide screen. But they're effectively like like separate checkouts of your repos that allow you to work in parallel. So, different agents can be working on the same task at the same or on different",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "tasks at the same time without um interfering with each other. If you've never used this feature before in Cursor, the way it works is that you can spin up an agent on an individual work tree. Um and you will see, for example, the same file",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "in two different work trees, and you can see that they look different because the agent is doing some work on on the work tree, but not on your primary checkout. And anytime the agent runs commands or lints or anything it does will be",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "isolated and scoped to that Git work tree. with this feature you can also work even in parallel at the same time on the screen. You can have like these grids of agents working for you. Um and if you say, \"Hey, open a PR.\" the agent",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "will open a pull request from that work tree with the changes that it produced inside that work tree. And one of the coolest things about this feature is that it allows you to give the same task even to different models at the same time",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "and then compare what different models do on the same prompt. So, if you haven't heard of this, we call it best of 10 and it's effectively a way for you to compete on on diff- I have have different models compete on the same task.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "And then you can even preview the changes if it's a front-end um project you're working on. Uh you can compare all the different visual implementations and then choose the one you prefer. Now, if you have never heard about this all",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "all everything I'm talking about today, I will also just say that it all came out in around October of last year or alongside Cursor 2.0. Um and when we initially shipped that, it came with a lot of complexity. Um we had to write all the code for creating work",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "trees, managing these work trees, feeding them into the agent as context. We also had to make sure that the agents were scoped and isolated and they could not escape the work tree they were working on. Uh we also have something called setup",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "scripts, which users can configure and run uh and and I have Cursor run them anytime an agent starts operating on a given work tree. We also have the judging. So, I didn't show you this before, but uh there's a little thumbs",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "up icon on one of the models. That's just a judge that we run um that tells you which implementation looks the best based on um different criteria. Uh I and then we also have to make some changes to the harness uh and introduce some system reminders",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "to help the agent stay on track in these work trees. And then finally there's there's some cleanup complexity as well because people like to spin up hundreds of these work trees and then their disk sizes blow up and we have to help them",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "by cleaning up the um the the work trees that stay behind. Now, in our new implementation, the one that I'm going to be talking about today, we were able to get rid of most of these things. And in fact, I recently opened a PR",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "uh removing this entire feature from Cursor and it was a massive like deletion of of of code. Like I think it was around 15,000 lines of code deleted. The new implementation of the feature is almost as good as the previous one um",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "and it is much much more lightweight in terms of us to maintain it um and it even has some benefits compared to the previous implementation that I'll be talking about today. So, how were we able to replace an entire feature with a skill?",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "We decided that there are two primitives that we could use to effectively allow Cursor users to use work trees by simply leveraging two primitives. One is agent skills and the other are sub agents. So, both of these are existing Cursor",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "features. You can learn more about them in our docs. Uh we have a page for skills and we have a page for sub agents. We realized that if we took these two things together, we could basically re-implement both the Cursor work trees feature as",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "well as the Cursor best event feature with just markdown. And this is a little video of how it works. So, I can now as a user say {slash} work tree and then I'll give it some task. I'll say, \"Fix the typo in the footer of the website.\" And this",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "agent will run in an isolated work tree and do its work there. So, the way the skill is written is actually really simple. I can show you most of it. Uh it doesn't fit on the screen, but it's basically a set of instructions telling the model",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "um how to create work trees and um to run the setup scripts that the user might have configured, and then to stay on that checkout, right? We want to make sure that when the agent is operating on a work tree, it is staying in that checkout.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "Um the best event skill is very similar. It's actually even smaller. The entire skill fits on the screen here with with a small uh font. Um and what we're doing here is we're instructing the parent agent to go and create sub agents for each model,",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "and then spin up a work tree for each uh so after each sub agent create its own work tree and work inside that work tree. Um and then we also tell it to wait for all the sub agents, and when they're done, please provide some commentary. Please",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "let the user know um what um the different implementations by the different sub agents look like. Maybe you can grade them. Maybe you can make some uh criticism of them, and maybe you can help the user choose which one is",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "the best. Um and and please give that to the user in some nice table format or something. But again, it's only around 40 lines of code, and it's all markdown. Like it's not even code and the previous version of this was maybe 4,000 lines of code.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "Uh some of the considerations we have to have in this in the skill is that the skill must be cross-platform compatible. Like we have Windows-specific instructions, and we have Linux and Mac OS instructions as well. We also instruct the parent model to run",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "the setup scripts for each work tree that the user might have configured. And then, and this is the hardest part, we'll spend a bit of time on this on the talk today, we have to instruct the model to stay on that word tree, right?",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "We have to really say, \"Hey, do not ever work outside this and do not ever escape, right?\" Um And we we do that with some aggressive prompting effectively. So, the new commands are {slash} word tree and then {slash} passive end to do",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "the basic basically like um the to start agents in isolated word trees and to start multiple agents on the same task. And then we also have apply word tree and delete word tree to bring over changes from the side word tree into",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "your primary checkout and delete word tree just does what you would expect. Uh a little note is that these are not actually skills in Cursor, they're actually commands, but the way these commands work in Cursor is extremely similar to how skills work in",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "that they're the prompts only get loaded into the context if the user chooses to load them. Um and the only reason we did it as commands and not as skills is so that the prompts for them can be controlled in our servers in our backend. This",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "means I can iterate on these prompts um without you having to update your Cursor version. Um if I do some improvements to these prompts, the next time you use them, you're going to have you're going to get the latest version of the prompts.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "But effectively, they work like skills. Um this is a demo of the passive end skill or command where I'm giving the same task to Kimi, Grok, Composer, GPT, and Opus. And you what you will see is that the parent agent starts by spinning",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "up five sub agents on the five different models that I specified, and each one is going to have its own word tree, each each one has its own context. And then Opus takes a little longer as expected, and then at the end, the parent model,",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "as instructed, will do that comparison of across all the different submissions. It'll say, um, \"These two models did basically the same thing. This one did something that none of the others did.\" And you can even talk to the parent agent and you can",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "say, \"Oh, I like this part that Opus did and I like this part that GPT did. Can you Can you match them together?\" And the the parent agent will do that for you. Um, so let's talk about some of the pros of the new implementation and then I'll",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "talk about some of the some of the the the cons, some of the things we lost, um, with this refactor. So, the main pro of re-implementing this entire feature as a skill is that I have a lot less code to maintain. Uh, selfishly, um, I'm going to be",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "spending a lot less time maintaining this feature. And this is an an advanced feature, right? We're not talking about a feature that is used by 90% of Cursor's users. Far from it. Work trees are kind of an advanced thing, um, and",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "so only the Cursor power users that love paralyzing and having these grids of agents are using work trees. So, it's not the kind of feature where we want to be spending a lot of time with maintenance. Another advantage is that",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "our users can now switch into a work tree halfway through a chat. It was not possible before. Um, we didn't want to pollute the prompt UI too much with all these like drop-downs and settings. And so, now that it's just a slash command, it's",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "much easier for for users to switch to a work tree halfway through a chat. They can start talking about something and then if they decide they want to work on the side, they can do that with slash work tree. Another big advantage is that the",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "previous implementation did not work if you were working on multiple repos at the same time. So, it's very common to have a multi-repo setup where maybe your front end and your back end are separate repos. In the past, you could not do work trees",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "in this kind of setup. It was just disabled. With the new /worktree command, everything works fine. The agent will make sure to create a worktree on each repo, and then if you open a PR, it'll open two PRs, one for each repo. It works quite well.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "Another advantage of the new skill implementation is that the judging experience at the end of knowing what model did which for best of N is far superior. The parent now has a lot more context over what each of the sub-agents did, and the user can even",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "ask the agent to stitch together a little different pieces pieces and bits from the different implementations, which was not possible before. In the previous implementation, you had to choose one sub-agent or one model and just stick with that.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "Now, let's talk about some of the cons. And if you're curious, um we have a forums link here where we're actually getting some mixed feedback on the new implementation. Like, some people were really accustomed to the old way of how",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "the feature used to work. Um and if you're curious, you can go and see that not everyone is happy with the change, at least for now, but we're we're tracking. What are the problems? Number one, it's very hard for the agent to stay on track.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "With our previous approach, um the agent had to stay on track. Like, it we didn't let the model ever touch any files outside its worktree. It was physically impossible for it to do so. Now, we're trusting the model. So, it's",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "you could say it's a bit vibes-based because we're basically saying, \"Hey, operate on this directory and and and then like, you know, knock on wood, please please don't forget about this.\" And especially over long sessions, it's",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "quite possible that the model will forget where it should be operating. And sometimes these models, especially the worst models, will kind of hallucinate or they'll go a bit haywire and they'll start doing things they shouldn't.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "But we're we're working on this. Um another con is that it feels slower because you're you're seeing the agent create the worktree and you're seeing that in your chat. It's not actually slower, but it does feel like the agent is kind of like",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "wasting time doing something that should be done for it in advance. Um we're also looking at some improvements here. And then finally, this is much harder to find the feature now, right? Like before, whenever you opened cursor, you had this drop down",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "that would show you, do you want to run this task locally, or do you want to run it in a cloud, or do you want to run it in a work tree? Now that entire drop down is gone. And so, if you want to use work trees, you have to know the feature",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "exists, so you can actually type {slash} work tree. So, the discoverability is a bit worse, but as I mentioned before, this is an advanced power user feature, um which we're personally okay with we're we're we're okay with being less discoverable in general.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "So, how can we make the skill better? Um as I mentioned, the biggest problem right now is that the agent is not really always staying on track. Uh there's two ways that we're going to improve this. One is with evals, and then using those evals to improve the",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "prompt. And then the other one is through RL and training. So, at Cursor, we train our own model called Composer. And for Composer 2, uh the latest version of this model, we didn't have any RL tasks with these prompts. We don't We didn't have any tasks in all",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "of the many, many thousands of tasks that we used for RL actually operating in this type of environment. So, we're we're working on adding a bunch of these tasks into our RL pipeline, so that by the time we launch Composer 3 or 4 or 5,",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "uh at least our own model will be much better at this. Obviously, we cannot improve the models that the other companies develop, but we've been sharing feedback with all the other labs and model providers on this kind of thing. And for evals,",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "uh I've been working on some evals for for feature, and it was actually my first time, or not my first time, but when I'm I'm fairly um early in my um writing evals uh journey, and I was actually very surprised. If you use something like Braintrust, and shout",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "out to Braintrust, they've been super helpful. Uh writing these kinds of evals is actually super super easy. You don't have to know almost anything about evals, and you can just prompt the agent, and it'll do everything for you.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "Um effectively, what I'm doing is I spin up the cursor CLI. It's headless, so it's great for evals. Um and then I have a two scorers. One that checks to see if the model did any work in its work tree as expected, and then another one, which is the reverse of",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "that, which is did the model do any work in the primary checkout where it shouldn't be doing any work. Uh and so far, the evals I've got are pretty simple. So, I actually haven't been able to simulate extremely long sessions, which is when the model start",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "performing worse. But, even so far, I've already understood that not all models are equally good at this. So, for example, Haiku, which is a smaller, less intelligent model, will very often deviate and start working in the primary",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "checkout. But, the other models that I've been testing, such as Composer and Grok, are doing much better. So, I still have to improve these evals a lot more to make them more complicated, but the hope is that as soon as I can start to find patterns",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "here, I can actually go and improve the prompts. And then another thing we can do is have better system reminders to the models uh instructing them to stay on track and to not deviate from the work tree that they are supposed to working in.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "Okay, so what's next? Um the first thing is we're actually going to take a a small step back here, and we're actually going to have a much more complete and native work trees implementation in the new cursor agent window. If you're uh if you've been following,",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "we recently announced cursor 3.0. Part of 3.0 is a more agentic interface for coding where you can still edit code and you can still see code, but the UI and the UX are much more optimized around the agent and the chat interface.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "We believe this kind of interface is the right place for a proper work trees implementation. The kind of person who is more likely to be uh doing a bunch of local parallelization is usually the same type of person that is more likely to use this type of UI.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "So, we're taking a small step back there and building a proper work trees uh implementation that is more native, not so much agentic, in the new UI. Also, we're improving the skills, um as I mentioned, through this continued work",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "on evals and then RL and other training work. And then finally, we are actually looking into other parallelization primitives that are not Git work trees. So, if you've used Git work trees, you might know that uh they can be a bit slow to create, um",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "and also to uh they also use up a lot of disk space on your computer, um and then finally, uh they only work in Git repos. So, if you're using something other than Git, there's really no local parallelization primitive in cursor. Um in the near",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "future, we hope to uh share more about this, but we're looking into some other solutions for local parallelization that don't involve Git and don't involve Git work trees. Um so yeah, stay tuned for that. Um thank you all for coming to the talk",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "today. Um I'm sure many of you have questions and I'm going to be around all day. Uh feel free to grab me anytime and uh um I'm happy to chat with anyone. Thank you. >> Mhm.",
+      "start": 444,
+      "duration": 6
+    }
+  ]
+}

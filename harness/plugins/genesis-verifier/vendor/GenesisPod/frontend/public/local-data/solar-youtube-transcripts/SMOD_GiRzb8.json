@@ -1,0 +1,994 @@
+{
+  "videoId": "SMOD_GiRzb8",
+  "title": "Stanford CS221 | Autumn 2025 | Lecture 10: Games I",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 50946,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So today's lecture is\ngoing to be about games.\nRemember last time, we talked\nabout Markov decision processes\nand reinforcement learning.\nAnd the time before that we\ntalked about search and games\nwill complete our tour of\nthe state space models.\nAnd so let's dive\nin with an example.\nSo we're going to play a game.\nThis is called game 1 for\nlack of a better term.\nSo there are three\nbins here, A, B, and C.\nSo you are going to choose\none of the three bins.\nAnd then I choose a\nnumber from that bin.\nAnd your goal is to\nmaximize the chosen number.\nOK, pretty straightforward.\nSo let's do a poll.\nHow many of you would\nchoose A. OK, a few,\nsome people would choose A.\nHow many of you would choose B?\nWait, I think some of you are\nvoting twice, but that's OK.\nMaybe a stochastic policy.\nAnd how many of you would\nchoose C. OK, most of you\nwould choose C.\nSo what should your strategy be?\nAnd as opposed this is very\nill-defined right on purpose.\nAnd the whole point of games\nis that your strategy should\ndepend on what I'm going to do.\nAnd for example, if someone\nchose A, I might be lenient.\nI just give you 50 or I could be\nreally trying to screw you over\nand I'll give you negative 50.\nSo the challenge in games\nis that you don't know what\nthe opponent's going to do.\nSo how do you\nguard against that?\nI'm actually surprised\nmore people didn't choose\nB. I guess you guys don't think\nI'm as adversarial as I might\nbe but OK.\nSo, MDPs, the agent is\ntrying to maximize utility\nand the environment\nis random and unknown.\nIf it's not known, then we\ndo reinforcement learning\nand it becomes known either\nimplicitly or explicitly.\nIn games, the agent is still\ntrying to maximize the utility,\nbut there is an opponent\nin the environment\nand the opponent\nstrategy is unknown.\nSo here is the\nroadmap for today.\nWe're going to talk about\nmodeling for a while.\nWhat's a game?\nWe're going to see\nhow we play a game\nand what the notion\nof game value is.\nAnd then we're going to look at\na bunch of different recurrences\nthat are going to help us\nunderstand the optimal values\nand the optimal policies.\nAnd then the last\npart of the lecture\nwill be about how we speed\nthings up, either exactly\nor approximately.\nSo let's start with\nthe notion of a game.\nSo the key object you\nshould have in your head\nis a game tree.\nSo I'm going to use this\nexample throughout the lecture.\nSo let me just\ndraw on the board.\nSo the root of the tree is the\nstarting state of the game.\nAnd each edge that's\ncoming out of a node\nare the particular\nactions that can be taken.\nIn this case, you can go A B,\nC And then now, it's my turn.\nAnd I choose a number.\nAnd that can either end in--\nI'll just leave\nthe nodes up there.\nSo minus 50, 1,\n3, or minus 5, 15.\nOK.\nSo every root to leaf path\nis a rollout or a trajectory\nor a game outcome of a game.\nAnd each node, a player\nhas to make a decision.\nSome of the nodes are the\nagent making a decision\nand some of the nodes are an\nopponent making a decision.\nOK, so in this lecture and\nin this class in general,\nwe're going to focus on\ntwo player zero sum games.\nSo what does that mean?\nTwo player means that the\nnumber of players is two.\nUsually, this will be an\nopponent and an agent.\nAnd zero sum means that\nthe utility of an agent\nis equal to the negative\nutility of the opponent.\nSo if you add those two\nthings together, you get 0.\nOK.\nThat's why it's called zero sum.\nSo in particular, if the\nagent gets utility of 1,\nthe opponent gets a\nutility of minus 1.\nAssume it's trying to\nmaximize their utility.\nSo the total utility is 0.\nSo let's look at this\nexample in more detail.\nWe can define this\ngame formally.\nSo a game formally has\na start state as before.\nSo this is just going\nto be the string root.\nAt each state, I\ncan call a function\nto see if the game is\nover and that's is end\nor whether it's a leaf node.\nThis is new.\nSo at every state, I also\nhave a player function\nthat tells me which is the\nplayer whose turn it is.\nAnd that is, in general, going\nto be a property of the estate.\nSo the state knows\nwhose turn it is.\nAnd it's either going to be\nagent or op for opponent.\nAnd then finally,\neach state is going\nto give me a set of successors.\nAnd I've written the\nsuccessors for our purposes\nhere as a mapping from\nan action to a state.\nSo taking action A\ntakes me to state A.\nSo let's do one other node here.\nSo from state A,\nI'm not at the end.\nSo A, just to be\nclear, is this one.\nActually, let me\njust write this end.\nSo for a reference.\nAnd so this is like\nchoosing actions A, B, C.\nAnd this is 1, 2.\nI'm just going to\nlabel them as 1, 2.\nOK.\nSo the player at state\nA is up for opponent.\nAnd the successors\nof this state are--\nthe opponent can choose\neither action one\nto give me get me to A1 or\naction two to get me to A2.\nOK.\nAnd if you're in A1,\nthe game is over,\nand the utility is minus 50.\nSo these functions I\ncan call on any state.\nAnd that tells me what the\nutilities and the successors\nare.\nSo what's special about a game?\nOne is that all the utility\nis at the end state.\nSo this is not a\nhard restriction.\nSometimes, you have\ngames that give\nyou points during the\nmiddle and the utility is\nthe number of points,\nthen that's fine,\nbut usually I think in a\ngame what matters at the end\nis whether who wins or not\nor whether it's a draw.\nAnd so even if you\nhave a lot of points,\nyou might still lose the game.\nAnd generally, the utility is\ntrying to capture what you want.\nSo this is going to\nmake things challenging.\nThis is in the context of\nreinforcement learning.\nThis is known as a\nsparse reward problem\nbecause you don't\nreally know what's\ngoing to happen until\nyou get to the very end.\nYou might seem like\nyou're doing really well\nand then everything crumbles.\nAnd then the more\nimportant thing\nis that different players are\nin control of different states.\nSo in Markov decision processes,\nwe saw this a little bit.\nRemember there were agent\ncontrol nodes, which\nare ones where the agent is\ntrying to make a decision,\nand that goes to a\nchance node where\nthe environment transitions\nto a successor state.\nSo now we're going to see\nmany other types of nodes\nwhere the opponent is\ncontrolling some of the nodes\nnow.\nSo just in terms of\nnotation, a policy\nis still a mapping\nfrom states to actions.\nSo a deterministic\npolicy, pi sub p of s\nis the action that a player\np will take in state s,\nand a stochastic policy,\nwhich in general, we're\ngoing to assume--\nthis is going to be the\nprobability that a player\np takes an action A in state s.\nAnd we'll see some\nexamples of this.\nSo here's another\nexample of a game.\nSo this is a very simple\ncalled the halving game.\nSo I'm going to start with a\nnumber n, like let's say 11,\nand the agent and\nopponent are going\nto take turns choosing actions.\nAnd an action can be either\ndecrementing n or replacing it\nwith halving it rounded down.\nOK.\nAnd the person who is\nleft with zero wins.\nSo what this might\nlook like is--\nso you start at the\nstarting state, n is 11.\nIt's the agents turn.\nSo here, we're seeing that\nthe state marks whose turn it\nis explicitly as a field.\nThe player here is\nobviously the agent.\nThe successors of this\nstate are, I can decrement\nand that takes me to this\nstate, where n is now 10\nand it's opponent's\nturn, or I can\nhave where I take 11 divided by\n2 floor it and that gives me 5.\nAnd then here, I\nhaven't ended yet.\nOK.\nSo you can think about what\nis the optimal strategy here.\nIt should be obvious\nunless you're\nable to do the minimax\nrecurrence in your head.\nBut this is just an example\nwhich we'll come back to.\nAll right.\nSo now you know what a game is.\nThe question is, do you\nhave to consider discount\nwhere you consider utility?\nSo in this lecture, we're going\nto assume all the utilities\nat the end, which means that\nthere's just one number.\nAnd so discounting\nmakes sense when\nyou're accumulating\nrewards over time,\nand you're discounting\nthe future.\nBut there's only one number.\nSo that's just the number.\nThat's the utility.\nSo let's talk about\ngame evaluation here.\nSo given a game,\nwhich we've defined,\nand a policy for each\nplayer, the value of the game\nis the expected utility\nover all possible rollouts.\nSo this should be very\nfamiliar from MDPs\nwhere we define the value at\na particular state of a policy\nis essentially what the\nexpected utility is.\nSo let's look at a\nparticular policy.\nSo we're still on this\ngame here, the game one.\nWe're going to assume\nthe agent always\nchooses A and here, because in\ngeneral, I'm going to consider\nstochastic policies.\nThis is going to return\na dictionary mapping\neach action to the\nprobability of that action.\nSo if I'm a\ndeterministic policy,\nI just see the action colon 1.\nSo with probability\n1, I'm choosing A.\nThe opponent let's say chooses\nrandomly between 1 and 2.\nSo that's going to\nbe represented by 1,\nhas probability 0.5 and\n2 has probability 0.5.\nOK.\nSo now I am going to pack\nthese policies into policies.\nAnd that's going to determine\nthe policies of all the players.\nAnd now let's play the game.\nSo gameplay is going to be given\nby the simulate function, which\nis very similar to what\nwe've seen in search problems\nas well as for MDPs.\nAnd you start with\na start state.\nAnd then while the game is not\nover, you see whose turn it is.\nAnd then you get the\npolicy of that player.\nYou pass in the state, and you\nget a distribution over actions.\nAnd then you sample an action\ngiven that distribution.\nAnd now once you've\nchosen action,\nthe game dynamics take over.\nAnd you look at the successors\nof that state, which\nremember is a mapping from\naction to successor state.\nAnd you pass in the action and\nthat gives you a new state.\nAnd then you just keep\ntrack of all the steps.\nSo at the very end,\nyou get a utility,\nwhich corresponds to\na particular rollout.\nSo in this case, that\ncorresponds to choosing A.\nAnd then the random policy\nis going to do a coin flip,\nand it happened\nto choose 2 here,\nand that gave me\na utility of 50.\nSo that is one rollout.\nAnd if I do a multiple times in\nAverage, you'll see that\nsometimes I get negative 50,\nsometimes I get 50.\nAnd the average\nof all that is 15.\nSo now 15 is not the\nactual value of the game\nbecause they're sampling error.\nI'm only trying at 20 times.\nIf you increase this number\nto let's say a million,\nwhat do you think the mean\nutility will turn out to be?\nIt should be 0.\nBecause half the time\nyou're choosing negative 50\nand half the time\nyou're choosing 50.\nSo can we compute the game value\nexactly without simulation?\nAnd the answer is\nshould hopefully\nbe yes, because we can just\ndefine a recurrence to do this.\nSo I'm going to use\nthis picture to be\na pictorial representation of\nwhat the recurrence is doing.\nSo here's some\nschematically it represents,\nat a particular state, the\nagent is going to move,\nand then the opponent\nis going to move\nand the agent is going\nto move and so on.\nOK.\nAnd we're going to\nsee variants of this.\nSo given that, I can just define\nthe recurrence as follows.\nSo V eval of s is going to\nbe the game value at state s\nand with respect to the\npolicies pI agent and pi op.\nAnd then if I'm at an\nend state, then I just\nreturn the utility\nof that state.\nThat's the base case.\nIf it's the agent's turn\nto move then what I do\nis I look at all\npossible actions\nthat the agent\ncould take, what is\nthe probability of that\nagent taking that action.\nAnd I recurse on, what is the\ngame value of the successor\nstate.\nAnd then if it's\nthe opponent's turn\nI basically have the same\nsum over all actions.\nThe probability that opponent\ntakes action times the game\nvalue of the successor state.\nThe only difference is\nagent versus opponent here.\nSo this should\nhopefully seem familiar\nfrom MDPs, where I also had a\nsum over actions and also a sum\nover successor states\nmultiplied by the probability.\nSo this is essentially doing\na very similar calculation.\nSo let's see how this\nlooks like in code.\nSo this is V eval.\nIf I'm at the end, I\nreturn the utility.\nOtherwise, I see whose\nturn it is, get the player,\nlook at the policy,\nand then I'm just\ngoing to look over\nall the actions, where\nfor every action with\nprobability prob,\nI'm going to see where\nthe game takes me.\nIf I take action in this\nparticular state, what happens.\nAnd I'm going to\nrecurse on the game\nvalue of the successor state\nmultiplied by the probability.\nAnd if I sum up\nall these values,\nthen I get the expected value.\nSo this is just the\nsame thing but in code.\nAll right.\nSo one note is that this\ncomputation will be exact,\nbut it could take\nexponential time.\nSo in particular, if at every\nnode, you have two actions\nand the game runs for\n100 steps, then you\ntake 2 to the 100 time,\nwhich is not great,\nbut that's what it is.\nSo let's look at\nthis example now.\nSo here, the agent always\nchooses A, and the opponent is\ngoing to be this random policy\nthat chooses 1 or 2 with\nprobability 1/2.\nSo conceptually what\nthe recurrence is doing\nis that for every node from\nthe bottom leaf to the top,\nit's going to compute\na value, which\nI have denoted in green here.\nSo for this node the\nvalue of this node\nis going to be 0.5 times\nnegative 50 plus 0.5 times 50.\nThat's going to be 0.\nHere, it's 0.5 times 1\nplus 0.5 times three.\nThat's going to be 2.\nAnd here it's 0.5 times\nminus 5 plus 0.5 times 15.\nThat's going to be 5.\nAnd then finally,\nthis is just going\nto be choosing the action\naccording to policy.\nThe policy always chooses A.\nSo it's going to be 1 times\n0 plus 0 times 2 plus 0 times\n5, which gives me 0 here.\nSo if I hand you a policy\nfor an agent, our policy\nfor an opponent and\na game, you should\nbe able to compute\nat the root node what\nis the value of the game,\nwhich is the expected\nutility of the agent.\nAnd remember zero\nsum, which means\nthat expected utility of\nopponent is just minus that.\nSo summary.\nSo value is the expected utility\nof the game of the agent.\nWe can simulate the\ngame by just rolling out\nan average, the utilities.\nAnd this provides us\nwith a Monte Carlo\nestimate of the value.\nYou can also compute\nthe value exactly,\nbut this could take\nexponential time.\nAnd this is analogous to\npolicy evaluation in MDPs.\nRemember policy evaluation.\nYou're given a\npolicy of the agent.\nYou're also given\nthe environment\ntransition dynamics, which you\ncan think about as the opponent\nif you want.\nAnd then you're just\ncomputing the value.\nSo now you might wonder\nwhy would you ever do this.\nBecause it takes\nexponential time.\nAnd probably you\nwouldn't actually\ndo this for game evaluation.\nYou would just sample a\nbunch of rollouts and average\nand that'll be converge\nrelatively quickly.\nBut we'll see later\nthat you can't always\nways sampling won't work.\nOK, so now we know\nhow to evaluate\na game given fixed policies.\nLet's try to actually\ncompute optimal policies.\nSo this is going to\nbe called expectimax.\nSo instead of evaluating\na fixed agent policy\nwe're going to find the\noptimal agent policy.\nBut with respect to\na fixed opponent.\nSo the schematic\nlooks like this.\nI'm going to use triangle\nto denote a max node where\nthe agent is in\ncontrol, and a circle\nto denote a node where there\nis a fixed policy that's\nbeing run here.\nSo the agent goes first, then\nthe opponent, and then the agent\nand so on.\nSo here the expectimax\nvalue of a state--\nI'm going to have a\nvery similar recurrence.\nAnd the only thing\nthat's changed\nis the part that's in red.\nBut just to go\nthrough everything.\nIf I'm at the end\nstate, then I'm\njust going to\nreturn the utility.\nThis is the base case.\nIf it's opponent's\nturn then this\nis the same thing as before.\nI just consider the probability\nof the opponent's policy\ntaking various actions,\nuse that to weight\nthe value of the successors.\nBut if it's the\nagent's turn, instead\nof taking a sum\nover actions, I'm\ntaking a max because the\nagent wants to maximize\nthe expected utility.\nSo therefore, the agent\nshould choose the action\nthat maximizes the\ngame expectimax\nvalue of the successor states.\nSo that's it.\nAnd you can see that\nfor the expectimax,\nyou can't just sample\nnaively and get a Monte Carlo\nestimate because of this max.\nWhen you have a\nsum, you can sample\nand that gives you\nan unbiased estimate.\nMax, you can't.\nSo let's see what this looks\nlike for our particular example.\nSo I'm going to bring back this\nrandom policy which chooses 1\nor 2 with probability 1/2.\nSo that corresponds to this\nopponent policy down here.\nAnd intuitively,\nif x back to max\nbasically says, at\nthe opponent note\nI'm doing the same\nthing as before.\nI'm just averaging.\nBut at a max node,\nI'm just going\nto take the maximum\nvalue, in which case\nhere, it's a 5, which\nis larger than 0 or 2.\nSo some of you were\ndoing expectimax.\nThe people who said,\nI'm going to choose C,\nyou probably thought I was\njust going to do a coin flip.\nSo 15 seems pretty\ngood, minus 5.\nWell, hope that doesn't happen.\nAnd you chose C.\nSo in code, this is what\nthis expectimax looks like.\nOnce you see these\nrecurrences, they're\ngoing to be very\nsomewhat repetitive.\nBut hopefully the marginal\ncost of understanding a new one\nshould be going to 0.\nSo expectimax if the game is\nending at a particular state\nthen just return the utility.\nOtherwise, see whose turn it\nis and if it's an agent's turn,\nI'm going to remember choose the\naction that maximizes utility.\nSo I'm going to look\nat the next states.\nHere in this game,\nit's A, B, or C.\nI'm going to recurse and figure\nout what the expected max\nvalues of those states are.\nAnd then I'm going to just\nchoose the maximum one.\nSo the opponent is the\nsame thing as before.\nI've written a\nslightly differently,\nbut it just takes an\naverage with respect\nto the opponent policy.\nSo the optimal action is\nto choose C in this case.\nOK.\nSo expectimax finds the\noptimal agent policy\nwith respect to a\nfixed opponent policy.\nAnd this is analogous to\nvalue iteration in MDPs.\nGame evaluation was analogous\nto policy evaluation.\nExpectimax is analogous\nto value iteration.\nSo far, I haven't actually\ndone anything interesting.\nThis is essentially\nall really MDPs,\nbut just described\nin a game language.\nBut now I'm going to\ndo something different.\nAnd this is where I'm going\nto talk about minimax.\nSo before the opponent\npolicy was known,\nbut the whole point of\ngames is that we don't\nknow the opponent's policy.\nSo what should we do?\nSo there is a\nprinciple here that we\ncan follow called minimax.\nAnd this is to assume that the\nopponent is out to get you.\nThe opponent will play\ntheir best possible strategy\nand is going to\nminimize your utility.\nSo here is the\nminimax recurrence\nthat describes this principle.\nSo now, as before, I\nhave a upward triangle\nto denote where I'm taking\na max in a downward triangle\nto denote where\nI'm taking a min.\nSo first the agent moves, that's\na max, the opponent moves,\nthat's a min, the agent moves,\nthat's a max, and so on.\nAnd the recurrence is\nactually fairly simple.\nIt's actually simpler than the\nother recurrences we've shown.\nSo the minimax value of a\nstate is if I'm at the V end,\nI get the utility.\nIf I'm the agent,\nthen I take the max\noverall actions of the minimax\nvalue of the successor states.\nAnd if the opponent\nis taking a turn,\nthen I take the min\noverall actions.\nAnd that's why it's\ncalled minimax.\nBecause I have max\nand I have Min.\nSo this is what it\nlooks like for game one.\nSo if I have these opponent\nnodes, which are now min nodes,\nthen I take the min\nover negative 50 and 50.\nI get negative 50, take the\nmin, I get one, take the min,\nI get minus 5.\nAnd then the agent is going to\nchoose the max over these min\nvalues, and the max is one.\nSo for those of you\nwho chose B initially,\nyou're probably running\nminimax in your head.\nAnd those of you\nwho chose A, well, I\ndon't have an\nexplanation for that.\nAll right.\nSo this is what it\nlooks like in code.\nCompute the value\nminimax value of a state.\nIf I'm at n and return\nthe utility, here,\nI'm going to take a\nlittle bit of liberty.\nAnd I'm also going to return\nthe associated action, not just\nthe value, because\nI'm going to want\nto actually know what to do.\nSo whose turn it is\nI'm getting the player.\nI'm going to recurse on\nall possible next states\nand get a set of values.\nSo that's going to be\nnegative 51 and minus 5.\nAnd then if I'm the\nagent, I'm going\nto take a max over\nall these values.\nAnd if I'm the opponent I\ntake a min over those values.\nAnd that's going to give\nme in this case action\nB, which gives me value 1.\nSo minimax value\nof a state is what\nthe expected utility\nfor the agent\nwould be if the agent\nplayed optimally\nand maximize utility and the\nopponent played optimally\nand minimize the utility.\nOK, so let's see what happens\nwith a halving game now.\nSo first of all, I'm going to\nturn this minimax recurrence\ninto a policy.\nAnd the way I do that\nis fairly simple.\nA policy remember takes\na state and returns\na distribution over actions.\nAnd so the policy is going to\nsay I'm going to take the state,\nand I'm going to compute the\nminimax value of that state\nand associate action and\njust return that action.\nAnd let's say I'm going\nto play the random policy.\nOK.\nThe random policy is just going\nto choose decrement or half each\nwith probability half.\nOK.\nSo now when I simulate eight.\nI get something that\nlooks like this.\nSo the agent decremented,\nnow, we're in 10\nand now it's opponent's turn\nthe opponent decided to half,\nnow I'm 5.\nAgent up is going to\ndecrement, opponent decrements.\nAgent is going to have,\nand then the opponent\nis going to have to\ndecrement and I get 0.\nAnd now the agent wins.\nOK.\nSo this shouldn't be surprising\nbecause the agent should, well,\nwin if it's possible to win.\nSo let's see what happens if I--\nI'm going to simulate 10\ntimes and see what happens.\nAnd the agent crushes\nthe random policy.\nIt wins every time.\nOK.\nSo a few notes here.\nOne is that when you're actually\nusing the minimax policy,\nyou are actually computing\nthis recurrence at every state.\nAnd so here, just for\nfun, I can show you\nfor each of the first 11 states\nwhat the minimax value is.\nSo the minimax\nvalue for 11 is 1,\nwhich means that\nthe agent will win\nassuming the agent\nplays optimally,\nand even if the opponent\nplays optimally.\nAnd the best action\nis to decrement.\nThis minus 1, meaning what is\nthe minus 1 minimax value mean.\nSo the opponent is guaranteed\nto win if the opponent plays\noptimally.\nBut doesn't mean\nthat all hope is\nlost because if you're\nplaying a weaker opponent,\nyou might still win.\nAnd then on these\nstates, the agent\nis going to win and\nthen 6, the opponent,\nif it plays out optimally\nit's going to win, and so on.\nSo what can I say here?\nIf the value is 1, the agent\nis guaranteed to win no matter\nwhat the opponent does.\nAnd we'll make this\na bit formal later.\nAnd the value is\nminus 1, the opponent\nis guaranteed to win\nif they play optimally.\nOK.\nSo a few notes.\nJust this is more of an aside.\nWhen the agent and opponent\nare playing optimally.\nThis is known as\nperfect play, and you\nmight have heard people\nsaying, checkers is solved\nor a game is solved.\nAnd what that means\nis that the outcome\nof the game under\nperfect play is\nknown, OK, which\nmeans that we know\nthe minimax value of the root.\nThat's what solved\nsolving a game means.\nSo there are some games\nwhich are strongly solved,\nwhich means that we know\nbasically the minimax value\nfor every single state,\ntic-tac-toe, nim, connect four.\nWeekly solve means that from\njust the initial position,\nI know that what the minimax is.\nAnd then there are also games\nthat are unsolved like chess\nand go.\nSo this is an important\ndistinction between--\npeople think that\nchess and go are\nquote unquote solved\nbecause we have computers\nthat can beat us humans.\nBut that could be true.\nBut we don't know the\nminimax value of a node.\nAnd we don't have\nthe optimal policy.\nWe just have policies that\nare better than humans.\nOK.\nTo summarize here, in minimax,\nthe agent maximizes utility.\nOpponent minimizes the utility.\nUnlike the expected max,\nthere's no fixed policies given.\nExpectimax is only optimal\nwith respect to a fixed policy.\nMinimax, as we'll see,\nis agnostic to any\nprior over what the\nopponent is doing.\nAnd this is the part\nthat is unique to games.\nThere's no analogy to MDPs.\nBecause MDPs, we\nonly max in average.\nWe don't Min.\nSo this next part is going\nto be taking account of\nor look at all these\npolicies that we can compute,\nand drawing some\nrelationships between them.\nSo this part is going to be\na little bit more involved.\nAnd we'll have to do\na bit more thinking,\nbut hopefully, it'll give\nyou a lot more insight\ninto the relationship\nbetween expectimax and game\nvalues and minimax.\nSo, so far, what\nwe've done is we\ncomputed these recurrences and\nrecurrences give us policies.\nSo V minmax, the minimax\nvalue, will give us\nthe pi max, which is the\noptimal agent policy.\nAnd pi min which is the\noptimal opponent policy.\nRemember in minimax\nwe have Min and Max.\nAnd if we take the argmin\nand argmax that corresponds\nto the pi max and pi min.\nWe also could do expectimax,\nand that gives us\nan expectimax policy.\nI'm using parentheses 7 here.\nSo pi7, I'm going to assume\nis an arbitrary fixed policy\nthat the opponent is playing.\nAnd expectimax 7 means I'm\nexpectimax with respect to pi7.\nSo you have to be\nvery careful when\nyou talk about optimal policy.\nYou always have to ask\noptimal with respect to what,\nbecause each\noptimal policy bakes\nin some assumptions about how\nthe other player is playing.\nSo in minimax, we have that pi\nmax is optimal against pi min.\nOK.\nAnd we also have that pi Min\nis optimal against pi max\nbecause the min and\nmax are symmetric.\nAnd we know that\nthe pi expectimax\n7 is optimal against whoever\nwe're computing the expect max\nwith respect to which is pi7.\nSo we have four policies here.\nWe have pi min, pi max,\npi expectimax 7, and pi7.\nAnd what happens when\nwe play these policies\nagainst different policies.\nSo I'm going to use the\nnotation V of a particular agent\npolicy and a particular\nfixed opponent policy\nto be the value of a game\nwhen PI agent plays pi op.\nOK.\nAnd we can play the\npolicies against each other.\nSo there's two agent policies\npi max and pi expectimax.\nAnd then there's two opponent\npolicies pi min and pi7.\nAnd for each cell here, I\nhave a particular value,\nwhich is what happens when the\nrow policy plays the column\npolicy.\nSo the question is\nthere any relationship\nbetween these values.\nAnd let me actually just\ndraw this on the board.\nAnd I'll try to mark\nthings off as we go.\nSo we have pi max, pi\nexpectimax, and then\npi min, pi7.\nAnd each of these\nhas some value.\nAnd I'm trying to\nfind the relationship\nbetween these values.\nSo what can we say?\nThere's three properties here.\nSo the first\nproperty remember is\npi max is the best\npolicy against pi min.\nOK.\nAnd in particular,\nthis is saying\nthat this value is at least as\ngreat as if I had substituted\nany other agent.\nIn particular, this\nis the pi max policy.\nIf I substituted pi agent\nthat does something else,\nit can only decrease the value.\nSo using that fact then we can\nconclude that V of pi max is--\npi min is greater or equal\nto this other policy.\nIf this is for all\nother policies,\nthis is just another policy.\nSo the right hand side is\ngreater than the left hand side\nOK.\nWhich means that this US holds.\nSo this value is\ngreater than that value.\nSo second property, pi Min is\nthe best policy against pi max.\nOK.\nSo that means if\nI'm the opponent,\nI shouldn't choose\nanything other than pi min\nif I want to\nminimize the utility.\nAnother way to interpret this is\nthat this provides a lower bound\nagainst any other\nopponent, which\nmeans that if I'm\nplaying pi max,\nthis playing the pi min is\ngoing to be the worse I do.\nIf the opponent does something\nelse, I can only get better.\nOK.\nSo meaning here, this,\nI'm guaranteed a 1.\nIf the opponent does\nsomething different,\nif the opponent\nhappens to do 15,\nthen I'm still going to get--\nopponent choosing 15 isn't\ngoing to decrease this one.\nAnd it might go make it go up\nbecause if the opponent chooses\nthree here, then I get a 3 here.\nOK.\nSo applying this\nproperty, then I\nsee that if I change the\nopponent's policy to something\nelse, I can only\nincrease the value.\nWhich means that this is\nthe relationship between,\nthis number and that number.\nSo hopefully, it\nshould make sense.\nIf I'm at this minimax value,\nif I make the agent worse\nthen it's going to get smaller.\nIf I make the opponent worse,\nit's going to get bigger.\nSo one important\ncorollary of this\nis that if the\nminimax value is 1,\nthat means the agent is\nguaranteed to win no matter\nwhat the opponent does.\nI claim this\nearlier, but now you\ncan see formally\nwhy this is true,\nbecause if the agent\ndoes something else,\nit's going to be at least one.\nAnd well, I guess in these\ngames there's only 1,\nso it has to be 1.\nAnd then so I'm\nguaranteed to win.\nThat's why you can say with\nconfidence that if you compute\nplay the minimax policy and you\nreturn the value and it's 1,\nthen you're guaranteed to win.\nSo property three.\nSo remember what\nexpectimax 7 is.\nExpectimax is optimal against\npi7 So one consequence of this\nis that the minimax value\nis not optimal against--\nif the opponent is known.\nSo I mean just to\nunderstand that.\nSo expectimax is\noptimal against pi7,\nwhich means if I change this\nagent policy to be something\nelse, in particular,\nlike pi max,\nwhich is just another policy,\nthen this can only go down.\nAnd you can see this\nhere, expectimax\nremember was choosing\nC And if I decided,\nwell, I'm just going to play the\nminimax policy, I would choose B\nand 2 is worse than 5.\nAnd this is because\nI'm assuming I'm\nplaying pi7, which is going\nto be the random policy.\nSo based on that,\nthis pi max is set.\nPi 7 is going to be less than\nor equal to this value here.\nSo an important realization\nis that you can actually\ndo better than minimax if\nyou know your opponent.\nIf you're playing\na weak opponent,\nyou can do all sorts\nof things that you\nwouldn't dare do\nif you're playing\na really strong opponent.\nOK, so putting\neverything together,\nthis is what we\nhave on the board.\nSo the minimax value is 1.\nIf you play pi max\nagainst pi7, that's a 2.\nIf you play\nexpectimax, which will\nchoose this branch\nagainst pi min,\nyou're going to get minus 5.\nAnd if you play\nexpectimax against pi 7,\nyou're going to get 5.\nAnd it checks out that\nminus 5 is less than 1,\nwhich is less than 2,\nwhich is less than 5.\nI think it's really cool\nhow all of these values\nare actually kind\nof related together.\nSo let's summarize.\nSo when you think\nabout optimality,\nyou should also be\nvery careful about what\nyour optimal with respect to.\nMinimax provides\ntwo interpretations.\nOne is that it is the optimal\npolicy against pi min, the worst\npossible opponent.\nHowever, another way\nto think about it\nis a lower bound against\nany unknown opponent.\nThe way I've introduced games\nis you don't know your policy.\nAnd I generally like\nthat interpretation\nbetter because I think generally\nperhaps rare that you're\ngoing to get the\nabsolute worst opponent,\nbut you still want\nto use minimax\nwhen you want guarantees against\nanything that could happen.\nSo now I'm going to talk\nabout expectiminimax.\nThis is in some sense\ngoing to be like a desert.\nIt's not that deep,\nbut hopefully it'll\njust give you another\nexample of what\nyou can do with recurrences.\nSo suppose you have this game.\nYou have the three\nbins, A, B, C.\nAnd now you choose one of them.\nBut now I'm going to flip\na coin, and if it's heads,\nthen I'm going to move one bin\nto the left, wrapping around,\nand I'm going to choose\na number from that bin.\nSo if it's tails and I\nstick with the same bin.\nAnd your goal is the maximum\nto maximize the chosen number.\nSo to model this game we\ncan just draw the game tree.\nI'm going to introduce a quote\nunquote policy called \"coin,\"\nwhich chooses one action\nwith left with half and--\nsorry, tails with 1/2\nprobability and heads with\nanother 1/2 probability.\nSo what's happening here is\nthat suppose you choose A,\nthen this is a fixed policy,\nthat's why it's a circle.\nI'm going to choose\neither heads or tails.\nAnd if it's heads, I\nmove one to the left.\nAnd in that I end up in C, which\nis why I have minus 5 and 15.\nAnd then if I choose a\nheads then I-- sorry,\nif I choose tails then I stay in\nthe same bin and I have a here.\nOK.\nAnd if I choose B, then\nI either stay or move\nto the left, stay\nor move to the left.\nOK.\nBy now, hopefully if\nI gave you this tree,\nyou should just be able to\ncompute the value at the top.\nThis is known as\nthe expectiminimax\nbecause there's expectations.\nThere's mins and there's maxs.\nYou have everything here.\nAnd I think it's pretty\nself-explanatory.\nSo the min nodes, these\nnodes, you take the average.\nAnd then at these\nmax nodes, you max.\nSo here's the recurrence.\nThere's three\nrecursive cases now.\nIf it's agent's turn,\nyou take the max.\nIf there's opponent's\nturn, you take them in.\nAnd if there is the\ncoin's turn, then you\ncompute the weighted average\nwith respect to pi coin.\nSo in general, you\nmight imagine all sorts\nof different recurrences.\nHopefully, this will\nunlock your imagination.\nSo you might imagine\nmore than two players.\nSo in the Pac-Man\nassignment you're\ngoing to have a Pac-Man\nand multiple ghosts.\nAnd you're going\nto have to reason\nabout the multiple ghosts.\nYou can also have multiple\nagents in the setting,\nbut in some sense\nit's all can be\nhandled by this general\nrecursion framework.\nYou can even do\nthings like players\ncan take extra turns or choosing\nwho to go next or losing a turn.\nAnd this is just\nbecause all this we're\ndoing is taking a state and\ntransitioning to some successor\nstate, and the player whose turn\nit is and baked into the state.\nAnd you can transition\nto any state you want.\nSo you can brainstorm a game\nwith some crazy rules with it.\nYou can just define\nyour recurrence\nlike we've done before and\nyou're off to the races.\nThere are a few\nthings that aren't\ncovered by this kind of game\ntree recurrence framework.\nAnd this includes\nthings like games\nwith imperfect information such\nas poker or most card games,\nI think.\nAnd the reason this\nis not included\nis that if you think\nabout these game trees,\neverything passes\nthrough the state,\nand the state has to\nhave all the information.\nThis is the distinctive\nproperty of MDPs\nand search problems\nand also these games.\nSo if you have different players\nwith different information,\nyou can't represent\nthis in a tree\nbecause as you pass from\na min to a max node,\nthere's no way to bypass the\nstate, if that makes sense.\nWe're considering\nonly zero-sum games,\nbut there are also\nnon-zero-sum games\nsuch as prisoner's dilemma.\nAnd there's also\ncollaborative games and so on.\nAnd there's also a\nnon-turn-based games.\nSo here, it's turn-based.\nSo someone takes a turn.\nIt's someone else's turn.\nSomeone else takes a turn.\nAnd then there's some games\nlike rock paper scissors\nwhich are simultaneously.\nIf you did turn-based\nrock-paper-scissors\nthat would be pretty boring.\nOK.\nSo now we've concluded the\nmodeling section of the lecture.\nNow I'm going to focus on\nminimax and try to speed it up.\nSo let's talk about\nalpha-beta pruning.\nSo let's revisit the\nminimax formulation.\nNo dice, no weird stuff.\nIt's just a classic\nminimax game.\nAnd so there are max\nnodes, min nodes.\nYou max the max nodes,\nand min at the min nodes.\nAnd now this takes\nexponential time in general.\nExponential in the depth that is\nlinear in the number of nodes,\nbut the number of nodes\ncan be exponential.\nSo how can you speed this up?\nThe key behind this technique\nis a very classic technique\nfrom games called\nalpha-beta pruning,\nis that you don't have to\nvisit all the states before you\nknow that some are just\nnot worth looking at.\nOK.\nSo now the key is\ngoing to figure out\nhow do we know when\nsomething is suboptimal\nif we don't even look at it?\nIt seems maybe a little\nbit kind of magical\nthat you can just prune\nout parts of your tree.\nMaybe there's actually the\noptimal policy or optimal\naction sitting there.\nWho knows?\nSo to give an example of\nwhy this might be possible\nconsidering the following case.\nSuppose you have two\npossible actions, A and B,\nand I tell you a can\ngive you utility,\nsomething between 3 and 5,\nI don't know what exactly,\nbut something between 3 and 5.\nAnd then B is going to deliver\na value between somewhere\nbetween 5 and 100.\nWhich one would you choose?\nHow many of you choose A?\nOK.\nSo why do you choose B?\nWell, it turns\nout you don't need\nto know what the exact value\nor utility of A and B are.\nYou know that no\nmatter what happens,\nB will be better or\nat least as good.\nSo there's this idea\ncalled branch and bound,\nwhich is a general\nprinciple, which\nare used in combinatorial\noptimization, which\nsays whenever you're going to\nmaintain some intervals that\nkeep track of where\nparticular values might lie.\nAnd then you can\nprune out things\nif you have an interval\nthat is strictly larger\nthan some other interval.\nSo here is an example.\nLet's consider the\nfollowing game tree.\nLet's imagine I'm searching.\nOK.\nSo I'm doing minimax search.\nI do a depth first\nsearch, traversal.\nSo I come down here.\nI have a 3 and 5, take\nthe min of 3 and 5.\nI get a 3.\nI go up here, and at this\npoint, my best so far here is 3.\nAnd I come over here,\ncome down and find a 2.\nSo what can I do at this point?\nSo I claim that I\ncan prune this off\nand I don't need to\nexplore anything over here.\nAnd the reason is that the\nroot is the max between 3\nand whatever is over here.\nThis is min of 2 and\nsome x And this is going\nto be 3 no matter what x is.\nThis can be a million.\nThis is still going to be--\nthis is 2.\nAnd this is going to be 3.\nThis could be minus 1,000,000.\nAnd then this is\nminus 1,000,000.\nAnd this is still 3.\nSo in this particular\nsituation, I've\ngiven you one example\nwhere hopefully you\ncan convince yourself, you don't\nneed to look over here no matter\nwhat this value is.\nSo let me try to generalize\nthat principle a bit more.\nSo in general, when\nwe're doing a search,\nor we're computing minmax, I'm\ngoing to be at some node here.\nAnd I'm going to intuitively\nthink about, for every node,\nI'm going to have an\ninterval or a bounds.\nAnd for the max nodes, I'm\ngoing to have a lower bound.\nAnd for the min nodes,\nI have an upper bound.\nOK.\nAnd this is because\nif I discover six,\nthat max value\ncan only increase.\nAnd here, if I\ndiscovered an eight,\nthat number can only decrease.\nSo max nodes, I have\nthese lower bounds.\nMin nodes have upper bounds.\nAll the way down for\nevery node in the tree.\nNow, think about where the\nminimax value comes from.\nIt must have come from\nsome leaf because I'm just\ntaking max and mins\nof successor states.\nAnd so there's\nsome leaf that must\nhave given rise to that value.\nAnd so I'm going to talk\nabout the optimal path\nis a path that's taken by\nthese min and max policies\nto that leaf.\nThat is the thing\nI'm trying to find.\nOK.\nAnd so this path needs\nto be within the lower\nand upper bounds that I have.\nWhich means that\nif a node gives me\nbounds that don't overlap\nwith every ancestor's bounds,\nthen I can prune that away.\nSo for example, this is\ngreater than 6, less than 8,\ngreater than 3.\nIf this is somehow, let's\nsay, less than or equal to 2,\nthen I can prune that\naway because this\nis greater than or equal to 3.\nAnd if the value of this\nis less than or equal to 2,\nthen there's no way that this\ncan be on the optimal path.\nSo the question is,\ncan you prune this?\nBecause this says\nit's greater than six,\nand this says it's less\nthan or equal to 5.\nAnd the answer is yes because\nthis interval does not\noverlap with this one.\nAnd I have to look at the\nentire ancestor strokepath.\nSo let's do an example\non the board here.\nLet me see here and try\nto remember what lines.\nSo I have three nodes, 9 9, 7.\nSo notice that the\ntree doesn't have\nto have the same number\nof levels either.\nSo 6, 3, 4, 7, 9, 3--\nwhoops, 6, 3, 4, 7, 9,\nand then over here 8, 3.\nOK.\nSo suppose we're doing\nminimax or alpha-beta pruning,\nso here initially the intervals,\nwe don't know anything.\nSo we're going to go\nover here, come down\nhere, discover the nine.\nSo now at this point,\nI come up here,\nand I say this has to\nbe greater at most 9.\nCome over here,\nI see that's a 7.\nI update that to be less than 7.\nActually, this is just equal to\n7 because I explored everything.\nSo now I come back here--\nsorry, I can't move\nthis up anymore.\nBut this is going to, I'll\njust write it down here,\nat least seven.\nSo this is the alpha.\nSo I forgot to say this.\nLet me just write this.\nSo for the max nodes,\nI have alpha values.\nAnd the alpha values are going\nto be essentially lower bounds,\nlower bound on the value.\nAnd then for these\nnodes, I have beta values\nwhich are upper bounds.\nSo here, this is\ngreater or equal to 7.\nCome down here, I found\na 6, and I come up here,\nthis is at most six.\nSo what does that mean?\nCan I prune something?\nShould be able to, right?\nSo in this case, I can\nactually prune out--\nI can just stop.\nI can just prune\nout everything here.\nBecause this is already greater\nthan 7, this is less than six,\nthen no matter what\nhappens over here\nI can't actually\nchange the value here.\nOK, so then I come over\nhere, greater or equal 7,\nI find the 8.\nSo this is now less\nthan or equal to 8.\nCan I prune this?\nI can't, right?\nBecause these intervals\nstill overlap,\nso I don't have\nenough information.\nSo I have to explore this.\nI find that's a 3.\nAnd then I have 3.\nAnd then finally\nupdate that to 7.\nAnd I'm done.\nSo notice that\nalpha-beta is going\nto be pretty powerful because\nit's not just pruning one node.\nYou prune entire\nsubtree if you're lucky.\nYeah, so the question is,\ndoes this work for expectimax?\nLet's see.\nThe short answer\nis, though, is no.\nBecause when you\nhave an expectation,\nyou have to consider all\nthe possible things that\ncould happen.\nYou might still be able to\ndo some alpha beta-- you\ncan definitely do some pruning.\nI think there are cases maybe\nwhen, like an expectimax, if you\nhave bounds on the utility, then\nyou can still control how much\neven the utility could be.\nI'll have to think\nabout this exactly,\nbut that's a good question.\nHow did I get to the lower bound\ngreater than or equal to 7 here?\nBecause when I saw this-- this\nvalue of this subtree is 7.\nSo whenever I am at\na node, I'm going\nthrough each of the children\nand updating the max.\nSo what are we calculating?\nQuality function.\nYeah.\nSo it's a top down recurrence,\nbut you go to the bottom\nand then you come up.\nYeah.\nOK.\nSo how do you get lucky?\nSo let's talk about ordering.\nSo the order in which you\nvisit the successors of a state\nmatters for how much you prune.\nSo for example, in this case\nthat we saw before, let's see.\nSo if we had 3, 5, 2, 10,\nthen this 10 would get pruned.\nHowever, if we have 2, 10, 3, 5.\nNow, when you're computing\nthis you get a 2.\nAnd now when you go over here\nthis is greater or equal 2.\nThis is a three, so you\nwon't be able to prune this.\nSo in practice,\nwhat you want to do\nis to go through the child\nnode-- if you're at a max node,\nyou want to go through\nthe child nodes that\nare more likely to be large\nbecause the larger they are,\nthe tighter the bound is and\nthen the more you can prune.\nOK, so if I were able\nto do this one first,\nthree first rather\nthan 2, then I\ncould have pruned it, but\nnot the other way around.\nSo in practice, you can use a\nheuristic evaluation function,\nwhich we'll talk about\nshortly to order the children.\nFor max nodes, you order the\nchildren by decreasing value.\nAnd for the min nodes, you\norder by increasing values.\nIn other words,\nyou're really trying\nto find this optimal\npath, guess the heuristic.\nAnd if you guess, well,\nthen you can be faster.\nSo this is just maybe\na general comment.\nWe've seen many\ncases in this course\nwhere you can have\nexact algorithms still,\neven with a heuristic.\nAnd if your heuristic is good,\nfor example, like in a star,\nif your heuristic is\ngood, then it's great.\nYou are very fast.\nIf your heuristic is bad,\nthen you're not so fast,\nbut you're still correct.\nSo to summarize\nalpha-beta pruning,\nwe speed up minimax search.\nIt's exact.\nAnd how much you\nsave is going to be\ndepend on your ordering\nand your problem.\nIn general, it's still going\nto be exponential time.\nSo it's not like we've\nsolved P equals NP.\nAnd the intuition\nis that you want\nto order your actions to shrink\nthe bounds as fast as possible.\nSo now let's talk about\nfinal thing for today\nis evaluation functions.\nThis is going to be\nan approximate way\nto speed up search.\nSo here's the minimax\nrecurrence again.\nAnd the idea of\nevaluation function\nis that you just say\nforget search I'm just\ngoing to take a wild guess.\nSay, how good is this state?\nSo it is true that in\na game, the only thing\nthat matters is who\nwins at the end.\nBut nonetheless, if\nyou're playing chess,\nyou know in some\ncases who's doing well\nand who's not doing well\nby just looking at it.\nAnd so the evaluate\nfunction is trying\nto capture this prior knowledge\nabout what might be good.\nSo in the case of chess,\nhere is an example\nof a type of evaluation\nfunction you might have.\nSo in general\nevaluation function\nis going to be a sum\nof different terms,\neach term captures some\nintuitive property.\nThink about it as a\nfeature if you want.\nSo you want a lot of pieces.\nThat's material.\nYou want mobility\nto be able to move--\nyou don't want mobility.\nKing to be safe.\nYou want to control\nthe center of the board\nand so on and so forth.\nAnd for material you\nmight think, well,\nthe number of\nkings I have versus\nthe number of kings opponent\nhas, kings are very important.\nQueens are worth 9, Rooks\nare worth 5, and so on.\nSo what do you do with\nan evaluation function?\nSo you could just\nchoose the action\nthat produces a state that\ngives you the highest evaluation\nfunction.\nWell, it depends on what\nevaluation function you are,\nbut if it's something like\nthis is probably not going\nto be a very good chess player.\nIt's just going to\nprobably be too greedy\nand try to save your pieces\nand not really do very well.\nBut you can actually use it in\nevaluation function and search.\nAnd the way to do this is\ncalled depth-limited search.\nAnd it basically\nsays, take minimax.\nI'm going to have a depth, which\nis an integer, let's say 5,\nand say, I'm only going\nto search five steps.\nAnd then if depth is\n0, which means then\nI'm just going to call\nthe evaluation function,\nand say, OK, I'm not\ngoing to search anymore.\nI'm just going to vibe check\nand just give me a number.\nAnd then I still\nhave search budget,\nif the depth is not 0, then when\nI recurse, if I'm the agent,\nthen the depth is, d,\nand if I'm an opponent,\nthe depth is d minus 1.\nAnd this is just to make\nsure that a unit of depth\ncorresponds to both the\nagent and opponent going,\nso I don't subtract twice here.\nSo that's basically it.\nHopefully you've seen this\nis like what sixth recurrence\nyou've seen.\nSo hopefully you're used\nto seeing these things.\nThere's no guarantees that\nyou'll find the optimal policy.\nIt's a complete heuristic.\nAnd how effective it is\ngoing to depend on how good\nyour evaluation function is.\nBut the nice thing is that you\nhave a bit of this control.\nThe deeper you search,\nthe less sensitive\nyou are to the evaluation\nfunction being bad,\nwhereas if you do\na shallow search,\nyour evaluation\nfunction better be good.\nOK.\nEvaluation function,\nprior knowledge\nthat evaluates a state quickly.\nDo search to a certain depth and\nthen use evaluation function.\nThis is depth-limited search.\nAnd the analogy is a bit like\nfuture cost in search problems\nwhere you look a step forward\nand then you approximate.\nSo to wrap up here-- actually,\none other note about evaluation\nfunctions just to prime for\nnext time is that if you think\nabout--\nwhat is evaluation\nfunctions remind you of?\nMaybe something in\nreinforcement learning.\nYeah.\nSo Q values or just more\nsimply values, right?\nSo Q values in\nreinforcement learning.\nLet's just go with\nthat since that's\nwhat we studied, is an\napproximation of the true value.\nAnd so what this is going\nto allow us to think about\nis well this evaluation\nfunction can also be learned.\nIt can be learned\nfrom supervised data.\nIt can be learned from\nreinforcement learning.\nAnd that's exactly what we're\ngoing to do next lecture\nis to learn the\nevaluation function.\nOK.\nBut now to just summarize.\nSo we've introduced games.\nHere, the agent is still\ntrying to maximize utility,\nbut the opponent's\nstrategy is unknown.\nThe minimax principle\nsays, just assume\nthe worst case opponent\nis trying to get you\nand to minimize utility.\nWe define a bunch of\ndifferent recurrences.\nGiven a game and\na policy, we can\ndo game evaluation, expectimax,\nminimax, expectiminimax.\nAnd you can imagine others\nexpectiminimini, expectimax\nor whatever you want.\nAnd we look at two ways\nto speed things up,\nalpha-beta pruning,\nwhich is exact,\nand evaluation function,\nwhich is approximate.\nAnd next time,\nwe're going to look\nat how you can do learning\nin the context of games.\nAnd we're going to look at\nsomething called TD learning.",
+  "segments": [
+    {
+      "text": "So today's lecture is going to be about games. Remember last time, we talked about Markov decision processes and reinforcement learning. And the time before that we talked about search and games will complete our tour of the state space models.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "And so let's dive in with an example. So we're going to play a game. This is called game 1 for lack of a better term. So there are three bins here, A, B, and C. So you are going to choose one of the three bins. And then I choose a number from that bin.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "And your goal is to maximize the chosen number. OK, pretty straightforward. So let's do a poll. How many of you would choose A. OK, a few, some people would choose A. How many of you would choose B? Wait, I think some of you are voting twice, but that's OK.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "Maybe a stochastic policy. And how many of you would choose C. OK, most of you would choose C. So what should your strategy be? And as opposed this is very ill-defined right on purpose. And the whole point of games is that your strategy should",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "depend on what I'm going to do. And for example, if someone chose A, I might be lenient. I just give you 50 or I could be really trying to screw you over and I'll give you negative 50. So the challenge in games is that you don't know what",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "the opponent's going to do. So how do you guard against that? I'm actually surprised more people didn't choose B. I guess you guys don't think I'm as adversarial as I might be but OK. So, MDPs, the agent is trying to maximize utility and the environment",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "is random and unknown. If it's not known, then we do reinforcement learning and it becomes known either implicitly or explicitly. In games, the agent is still trying to maximize the utility, but there is an opponent in the environment and the opponent",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "strategy is unknown. So here is the roadmap for today. We're going to talk about modeling for a while. What's a game? We're going to see how we play a game and what the notion of game value is. And then we're going to look at a bunch of different recurrences",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "that are going to help us understand the optimal values and the optimal policies. And then the last part of the lecture will be about how we speed things up, either exactly or approximately. So let's start with the notion of a game. So the key object you",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "should have in your head is a game tree. So I'm going to use this example throughout the lecture. So let me just draw on the board. So the root of the tree is the starting state of the game. And each edge that's coming out of a node are the particular",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "actions that can be taken. In this case, you can go A B, C And then now, it's my turn. And I choose a number. And that can either end in-- I'll just leave the nodes up there. So minus 50, 1, 3, or minus 5, 15. OK. So every root to leaf path",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "is a rollout or a trajectory or a game outcome of a game. And each node, a player has to make a decision. Some of the nodes are the agent making a decision and some of the nodes are an opponent making a decision. OK, so in this lecture and",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "in this class in general, we're going to focus on two player zero sum games. So what does that mean? Two player means that the number of players is two. Usually, this will be an opponent and an agent. And zero sum means that the utility of an agent",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "is equal to the negative utility of the opponent. So if you add those two things together, you get 0. OK. That's why it's called zero sum. So in particular, if the agent gets utility of 1, the opponent gets a utility of minus 1. Assume it's trying to",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "maximize their utility. So the total utility is 0. So let's look at this example in more detail. We can define this game formally. So a game formally has a start state as before. So this is just going to be the string root. At each state, I can call a function",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "to see if the game is over and that's is end or whether it's a leaf node. This is new. So at every state, I also have a player function that tells me which is the player whose turn it is. And that is, in general, going to be a property of the estate.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "So the state knows whose turn it is. And it's either going to be agent or op for opponent. And then finally, each state is going to give me a set of successors. And I've written the successors for our purposes here as a mapping from an action to a state.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "So taking action A takes me to state A. So let's do one other node here. So from state A, I'm not at the end. So A, just to be clear, is this one. Actually, let me just write this end. So for a reference. And so this is like choosing actions A, B, C.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "And this is 1, 2. I'm just going to label them as 1, 2. OK. So the player at state A is up for opponent. And the successors of this state are-- the opponent can choose either action one to give me get me to A1 or action two to get me to A2. OK.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "And if you're in A1, the game is over, and the utility is minus 50. So these functions I can call on any state. And that tells me what the utilities and the successors are. So what's special about a game? One is that all the utility is at the end state.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "So this is not a hard restriction. Sometimes, you have games that give you points during the middle and the utility is the number of points, then that's fine, but usually I think in a game what matters at the end is whether who wins or not",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "or whether it's a draw. And so even if you have a lot of points, you might still lose the game. And generally, the utility is trying to capture what you want. So this is going to make things challenging. This is in the context of reinforcement learning.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "This is known as a sparse reward problem because you don't really know what's going to happen until you get to the very end. You might seem like you're doing really well and then everything crumbles. And then the more important thing",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "is that different players are in control of different states. So in Markov decision processes, we saw this a little bit. Remember there were agent control nodes, which are ones where the agent is trying to make a decision, and that goes to a chance node where",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "the environment transitions to a successor state. So now we're going to see many other types of nodes where the opponent is controlling some of the nodes now. So just in terms of notation, a policy is still a mapping from states to actions. So a deterministic",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "policy, pi sub p of s is the action that a player p will take in state s, and a stochastic policy, which in general, we're going to assume-- this is going to be the probability that a player p takes an action A in state s. And we'll see some examples of this.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "So here's another example of a game. So this is a very simple called the halving game. So I'm going to start with a number n, like let's say 11, and the agent and opponent are going to take turns choosing actions. And an action can be either",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "decrementing n or replacing it with halving it rounded down. OK. And the person who is left with zero wins. So what this might look like is-- so you start at the starting state, n is 11. It's the agents turn. So here, we're seeing that",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "the state marks whose turn it is explicitly as a field. The player here is obviously the agent. The successors of this state are, I can decrement and that takes me to this state, where n is now 10 and it's opponent's turn, or I can",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "have where I take 11 divided by 2 floor it and that gives me 5. And then here, I haven't ended yet. OK. So you can think about what is the optimal strategy here. It should be obvious unless you're able to do the minimax recurrence in your head.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "But this is just an example which we'll come back to. All right. So now you know what a game is. The question is, do you have to consider discount where you consider utility? So in this lecture, we're going to assume all the utilities",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "at the end, which means that there's just one number. And so discounting makes sense when you're accumulating rewards over time, and you're discounting the future. But there's only one number. So that's just the number. That's the utility. So let's talk about",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "game evaluation here. So given a game, which we've defined, and a policy for each player, the value of the game is the expected utility over all possible rollouts. So this should be very familiar from MDPs where we define the value at",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "a particular state of a policy is essentially what the expected utility is. So let's look at a particular policy. So we're still on this game here, the game one. We're going to assume the agent always chooses A and here, because in",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "general, I'm going to consider stochastic policies. This is going to return a dictionary mapping each action to the probability of that action. So if I'm a deterministic policy, I just see the action colon 1. So with probability 1, I'm choosing A.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "The opponent let's say chooses randomly between 1 and 2. So that's going to be represented by 1, has probability 0.5 and 2 has probability 0.5. OK. So now I am going to pack these policies into policies. And that's going to determine",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "the policies of all the players. And now let's play the game. So gameplay is going to be given by the simulate function, which is very similar to what we've seen in search problems as well as for MDPs. And you start with a start state.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "And then while the game is not over, you see whose turn it is. And then you get the policy of that player. You pass in the state, and you get a distribution over actions. And then you sample an action given that distribution. And now once you've chosen action,",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "the game dynamics take over. And you look at the successors of that state, which remember is a mapping from action to successor state. And you pass in the action and that gives you a new state. And then you just keep track of all the steps. So at the very end,",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "you get a utility, which corresponds to a particular rollout. So in this case, that corresponds to choosing A. And then the random policy is going to do a coin flip, and it happened to choose 2 here, and that gave me a utility of 50. So that is one rollout.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "And if I do a multiple times in Average, you'll see that sometimes I get negative 50, sometimes I get 50. And the average of all that is 15. So now 15 is not the actual value of the game because they're sampling error. I'm only trying at 20 times.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "If you increase this number to let's say a million, what do you think the mean utility will turn out to be? It should be 0. Because half the time you're choosing negative 50 and half the time you're choosing 50. So can we compute the game value",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "exactly without simulation? And the answer is should hopefully be yes, because we can just define a recurrence to do this. So I'm going to use this picture to be a pictorial representation of what the recurrence is doing. So here's some",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "schematically it represents, at a particular state, the agent is going to move, and then the opponent is going to move and the agent is going to move and so on. OK. And we're going to see variants of this. So given that, I can just define",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "the recurrence as follows. So V eval of s is going to be the game value at state s and with respect to the policies pI agent and pi op. And then if I'm at an end state, then I just return the utility of that state. That's the base case.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "If it's the agent's turn to move then what I do is I look at all possible actions that the agent could take, what is the probability of that agent taking that action. And I recurse on, what is the game value of the successor state. And then if it's",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "the opponent's turn I basically have the same sum over all actions. The probability that opponent takes action times the game value of the successor state. The only difference is agent versus opponent here. So this should hopefully seem familiar",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "from MDPs, where I also had a sum over actions and also a sum over successor states multiplied by the probability. So this is essentially doing a very similar calculation. So let's see how this looks like in code. So this is V eval. If I'm at the end, I",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "return the utility. Otherwise, I see whose turn it is, get the player, look at the policy, and then I'm just going to look over all the actions, where for every action with probability prob, I'm going to see where the game takes me. If I take action in this",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "particular state, what happens. And I'm going to recurse on the game value of the successor state multiplied by the probability. And if I sum up all these values, then I get the expected value. So this is just the same thing but in code. All right.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "So one note is that this computation will be exact, but it could take exponential time. So in particular, if at every node, you have two actions and the game runs for 100 steps, then you take 2 to the 100 time, which is not great, but that's what it is.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "So let's look at this example now. So here, the agent always chooses A, and the opponent is going to be this random policy that chooses 1 or 2 with probability 1/2. So conceptually what the recurrence is doing is that for every node from",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "the bottom leaf to the top, it's going to compute a value, which I have denoted in green here. So for this node the value of this node is going to be 0.5 times negative 50 plus 0.5 times 50. That's going to be 0. Here, it's 0.5 times 1 plus 0.5 times three.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "That's going to be 2. And here it's 0.5 times minus 5 plus 0.5 times 15. That's going to be 5. And then finally, this is just going to be choosing the action according to policy. The policy always chooses A. So it's going to be 1 times",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "0 plus 0 times 2 plus 0 times 5, which gives me 0 here. So if I hand you a policy for an agent, our policy for an opponent and a game, you should be able to compute at the root node what is the value of the game, which is the expected utility of the agent.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "And remember zero sum, which means that expected utility of opponent is just minus that. So summary. So value is the expected utility of the game of the agent. We can simulate the game by just rolling out an average, the utilities. And this provides us",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "with a Monte Carlo estimate of the value. You can also compute the value exactly, but this could take exponential time. And this is analogous to policy evaluation in MDPs. Remember policy evaluation. You're given a policy of the agent. You're also given",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "the environment transition dynamics, which you can think about as the opponent if you want. And then you're just computing the value. So now you might wonder why would you ever do this. Because it takes exponential time. And probably you wouldn't actually",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "do this for game evaluation. You would just sample a bunch of rollouts and average and that'll be converge relatively quickly. But we'll see later that you can't always ways sampling won't work. OK, so now we know how to evaluate a game given fixed policies.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "Let's try to actually compute optimal policies. So this is going to be called expectimax. So instead of evaluating a fixed agent policy we're going to find the optimal agent policy. But with respect to a fixed opponent. So the schematic looks like this.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to use triangle to denote a max node where the agent is in control, and a circle to denote a node where there is a fixed policy that's being run here. So the agent goes first, then the opponent, and then the agent and so on. So here the expectimax",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "value of a state-- I'm going to have a very similar recurrence. And the only thing that's changed is the part that's in red. But just to go through everything. If I'm at the end state, then I'm just going to return the utility. This is the base case.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "If it's opponent's turn then this is the same thing as before. I just consider the probability of the opponent's policy taking various actions, use that to weight the value of the successors. But if it's the agent's turn, instead of taking a sum",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "over actions, I'm taking a max because the agent wants to maximize the expected utility. So therefore, the agent should choose the action that maximizes the game expectimax value of the successor states. So that's it. And you can see that for the expectimax,",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "you can't just sample naively and get a Monte Carlo estimate because of this max. When you have a sum, you can sample and that gives you an unbiased estimate. Max, you can't. So let's see what this looks like for our particular example.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to bring back this random policy which chooses 1 or 2 with probability 1/2. So that corresponds to this opponent policy down here. And intuitively, if x back to max basically says, at the opponent note I'm doing the same thing as before.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "I'm just averaging. But at a max node, I'm just going to take the maximum value, in which case here, it's a 5, which is larger than 0 or 2. So some of you were doing expectimax. The people who said, I'm going to choose C, you probably thought I was",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "just going to do a coin flip. So 15 seems pretty good, minus 5. Well, hope that doesn't happen. And you chose C. So in code, this is what this expectimax looks like. Once you see these recurrences, they're going to be very somewhat repetitive.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "But hopefully the marginal cost of understanding a new one should be going to 0. So expectimax if the game is ending at a particular state then just return the utility. Otherwise, see whose turn it is and if it's an agent's turn,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to remember choose the action that maximizes utility. So I'm going to look at the next states. Here in this game, it's A, B, or C. I'm going to recurse and figure out what the expected max values of those states are. And then I'm going to just",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "choose the maximum one. So the opponent is the same thing as before. I've written a slightly differently, but it just takes an average with respect to the opponent policy. So the optimal action is to choose C in this case. OK. So expectimax finds the",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "optimal agent policy with respect to a fixed opponent policy. And this is analogous to value iteration in MDPs. Game evaluation was analogous to policy evaluation. Expectimax is analogous to value iteration. So far, I haven't actually",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "done anything interesting. This is essentially all really MDPs, but just described in a game language. But now I'm going to do something different. And this is where I'm going to talk about minimax. So before the opponent policy was known,",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "but the whole point of games is that we don't know the opponent's policy. So what should we do? So there is a principle here that we can follow called minimax. And this is to assume that the opponent is out to get you. The opponent will play",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "their best possible strategy and is going to minimize your utility. So here is the minimax recurrence that describes this principle. So now, as before, I have a upward triangle to denote where I'm taking a max in a downward triangle to denote where",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "I'm taking a min. So first the agent moves, that's a max, the opponent moves, that's a min, the agent moves, that's a max, and so on. And the recurrence is actually fairly simple. It's actually simpler than the other recurrences we've shown.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "So the minimax value of a state is if I'm at the V end, I get the utility. If I'm the agent, then I take the max overall actions of the minimax value of the successor states. And if the opponent is taking a turn, then I take the min overall actions.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "And that's why it's called minimax. Because I have max and I have Min. So this is what it looks like for game one. So if I have these opponent nodes, which are now min nodes, then I take the min over negative 50 and 50. I get negative 50, take the",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "min, I get one, take the min, I get minus 5. And then the agent is going to choose the max over these min values, and the max is one. So for those of you who chose B initially, you're probably running minimax in your head. And those of you who chose A, well, I",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "don't have an explanation for that. All right. So this is what it looks like in code. Compute the value minimax value of a state. If I'm at n and return the utility, here, I'm going to take a little bit of liberty. And I'm also going to return",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "the associated action, not just the value, because I'm going to want to actually know what to do. So whose turn it is I'm getting the player. I'm going to recurse on all possible next states and get a set of values. So that's going to be",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "negative 51 and minus 5. And then if I'm the agent, I'm going to take a max over all these values. And if I'm the opponent I take a min over those values. And that's going to give me in this case action B, which gives me value 1. So minimax value",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "of a state is what the expected utility for the agent would be if the agent played optimally and maximize utility and the opponent played optimally and minimize the utility. OK, so let's see what happens with a halving game now. So first of all, I'm going to",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "turn this minimax recurrence into a policy. And the way I do that is fairly simple. A policy remember takes a state and returns a distribution over actions. And so the policy is going to say I'm going to take the state, and I'm going to compute the",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "minimax value of that state and associate action and just return that action. And let's say I'm going to play the random policy. OK. The random policy is just going to choose decrement or half each with probability half. OK. So now when I simulate eight.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "I get something that looks like this. So the agent decremented, now, we're in 10 and now it's opponent's turn the opponent decided to half, now I'm 5. Agent up is going to decrement, opponent decrements. Agent is going to have, and then the opponent",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "is going to have to decrement and I get 0. And now the agent wins. OK. So this shouldn't be surprising because the agent should, well, win if it's possible to win. So let's see what happens if I-- I'm going to simulate 10 times and see what happens.",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "And the agent crushes the random policy. It wins every time. OK. So a few notes here. One is that when you're actually using the minimax policy, you are actually computing this recurrence at every state. And so here, just for fun, I can show you",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "for each of the first 11 states what the minimax value is. So the minimax value for 11 is 1, which means that the agent will win assuming the agent plays optimally, and even if the opponent plays optimally. And the best action is to decrement.",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "This minus 1, meaning what is the minus 1 minimax value mean. So the opponent is guaranteed to win if the opponent plays optimally. But doesn't mean that all hope is lost because if you're playing a weaker opponent, you might still win. And then on these",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "states, the agent is going to win and then 6, the opponent, if it plays out optimally it's going to win, and so on. So what can I say here? If the value is 1, the agent is guaranteed to win no matter what the opponent does. And we'll make this",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "a bit formal later. And the value is minus 1, the opponent is guaranteed to win if they play optimally. OK. So a few notes. Just this is more of an aside. When the agent and opponent are playing optimally. This is known as perfect play, and you",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "might have heard people saying, checkers is solved or a game is solved. And what that means is that the outcome of the game under perfect play is known, OK, which means that we know the minimax value of the root. That's what solved solving a game means.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "So there are some games which are strongly solved, which means that we know basically the minimax value for every single state, tic-tac-toe, nim, connect four. Weekly solve means that from just the initial position, I know that what the minimax is.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "And then there are also games that are unsolved like chess and go. So this is an important distinction between-- people think that chess and go are quote unquote solved because we have computers that can beat us humans. But that could be true.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "But we don't know the minimax value of a node. And we don't have the optimal policy. We just have policies that are better than humans. OK. To summarize here, in minimax, the agent maximizes utility. Opponent minimizes the utility. Unlike the expected max,",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "there's no fixed policies given. Expectimax is only optimal with respect to a fixed policy. Minimax, as we'll see, is agnostic to any prior over what the opponent is doing. And this is the part that is unique to games. There's no analogy to MDPs.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "Because MDPs, we only max in average. We don't Min. So this next part is going to be taking account of or look at all these policies that we can compute, and drawing some relationships between them. So this part is going to be a little bit more involved.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "And we'll have to do a bit more thinking, but hopefully, it'll give you a lot more insight into the relationship between expectimax and game values and minimax. So, so far, what we've done is we computed these recurrences and recurrences give us policies.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "So V minmax, the minimax value, will give us the pi max, which is the optimal agent policy. And pi min which is the optimal opponent policy. Remember in minimax we have Min and Max. And if we take the argmin and argmax that corresponds",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "to the pi max and pi min. We also could do expectimax, and that gives us an expectimax policy. I'm using parentheses 7 here. So pi7, I'm going to assume is an arbitrary fixed policy that the opponent is playing. And expectimax 7 means I'm",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "expectimax with respect to pi7. So you have to be very careful when you talk about optimal policy. You always have to ask optimal with respect to what, because each optimal policy bakes in some assumptions about how the other player is playing.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "So in minimax, we have that pi max is optimal against pi min. OK. And we also have that pi Min is optimal against pi max because the min and max are symmetric. And we know that the pi expectimax 7 is optimal against whoever we're computing the expect max",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "with respect to which is pi7. So we have four policies here. We have pi min, pi max, pi expectimax 7, and pi7. And what happens when we play these policies against different policies. So I'm going to use the notation V of a particular agent",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "policy and a particular fixed opponent policy to be the value of a game when PI agent plays pi op. OK. And we can play the policies against each other. So there's two agent policies pi max and pi expectimax. And then there's two opponent",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "policies pi min and pi7. And for each cell here, I have a particular value, which is what happens when the row policy plays the column policy. So the question is there any relationship between these values. And let me actually just draw this on the board.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "And I'll try to mark things off as we go. So we have pi max, pi expectimax, and then pi min, pi7. And each of these has some value. And I'm trying to find the relationship between these values. So what can we say? There's three properties here. So the first",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "property remember is pi max is the best policy against pi min. OK. And in particular, this is saying that this value is at least as great as if I had substituted any other agent. In particular, this is the pi max policy. If I substituted pi agent",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "that does something else, it can only decrease the value. So using that fact then we can conclude that V of pi max is-- pi min is greater or equal to this other policy. If this is for all other policies, this is just another policy. So the right hand side is",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "greater than the left hand side OK. Which means that this US holds. So this value is greater than that value. So second property, pi Min is the best policy against pi max. OK. So that means if I'm the opponent, I shouldn't choose anything other than pi min",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "if I want to minimize the utility. Another way to interpret this is that this provides a lower bound against any other opponent, which means that if I'm playing pi max, this playing the pi min is going to be the worse I do. If the opponent does something",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "else, I can only get better. OK. So meaning here, this, I'm guaranteed a 1. If the opponent does something different, if the opponent happens to do 15, then I'm still going to get-- opponent choosing 15 isn't going to decrease this one.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "And it might go make it go up because if the opponent chooses three here, then I get a 3 here. OK. So applying this property, then I see that if I change the opponent's policy to something else, I can only increase the value. Which means that this is",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "the relationship between, this number and that number. So hopefully, it should make sense. If I'm at this minimax value, if I make the agent worse then it's going to get smaller. If I make the opponent worse, it's going to get bigger. So one important",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "corollary of this is that if the minimax value is 1, that means the agent is guaranteed to win no matter what the opponent does. I claim this earlier, but now you can see formally why this is true, because if the agent does something else,",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "it's going to be at least one. And well, I guess in these games there's only 1, so it has to be 1. And then so I'm guaranteed to win. That's why you can say with confidence that if you compute play the minimax policy and you return the value and it's 1,",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "then you're guaranteed to win. So property three. So remember what expectimax 7 is. Expectimax is optimal against pi7 So one consequence of this is that the minimax value is not optimal against-- if the opponent is known. So I mean just to understand that.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "So expectimax is optimal against pi7, which means if I change this agent policy to be something else, in particular, like pi max, which is just another policy, then this can only go down. And you can see this here, expectimax remember was choosing",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "C And if I decided, well, I'm just going to play the minimax policy, I would choose B and 2 is worse than 5. And this is because I'm assuming I'm playing pi7, which is going to be the random policy. So based on that, this pi max is set.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "Pi 7 is going to be less than or equal to this value here. So an important realization is that you can actually do better than minimax if you know your opponent. If you're playing a weak opponent, you can do all sorts of things that you wouldn't dare do",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "if you're playing a really strong opponent. OK, so putting everything together, this is what we have on the board. So the minimax value is 1. If you play pi max against pi7, that's a 2. If you play expectimax, which will choose this branch against pi min,",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "you're going to get minus 5. And if you play expectimax against pi 7, you're going to get 5. And it checks out that minus 5 is less than 1, which is less than 2, which is less than 5. I think it's really cool how all of these values are actually kind",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "of related together. So let's summarize. So when you think about optimality, you should also be very careful about what your optimal with respect to. Minimax provides two interpretations. One is that it is the optimal policy against pi min, the worst",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "possible opponent. However, another way to think about it is a lower bound against any unknown opponent. The way I've introduced games is you don't know your policy. And I generally like that interpretation better because I think generally",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "perhaps rare that you're going to get the absolute worst opponent, but you still want to use minimax when you want guarantees against anything that could happen. So now I'm going to talk about expectiminimax. This is in some sense going to be like a desert.",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "It's not that deep, but hopefully it'll just give you another example of what you can do with recurrences. So suppose you have this game. You have the three bins, A, B, C. And now you choose one of them. But now I'm going to flip a coin, and if it's heads,",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "then I'm going to move one bin to the left, wrapping around, and I'm going to choose a number from that bin. So if it's tails and I stick with the same bin. And your goal is the maximum to maximize the chosen number. So to model this game we",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "can just draw the game tree. I'm going to introduce a quote unquote policy called \"coin,\" which chooses one action with left with half and-- sorry, tails with 1/2 probability and heads with another 1/2 probability. So what's happening here is",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "that suppose you choose A, then this is a fixed policy, that's why it's a circle. I'm going to choose either heads or tails. And if it's heads, I move one to the left. And in that I end up in C, which is why I have minus 5 and 15. And then if I choose a",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "heads then I-- sorry, if I choose tails then I stay in the same bin and I have a here. OK. And if I choose B, then I either stay or move to the left, stay or move to the left. OK. By now, hopefully if I gave you this tree, you should just be able to",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "compute the value at the top. This is known as the expectiminimax because there's expectations. There's mins and there's maxs. You have everything here. And I think it's pretty self-explanatory. So the min nodes, these nodes, you take the average.",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "And then at these max nodes, you max. So here's the recurrence. There's three recursive cases now. If it's agent's turn, you take the max. If there's opponent's turn, you take them in. And if there is the coin's turn, then you compute the weighted average",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "with respect to pi coin. So in general, you might imagine all sorts of different recurrences. Hopefully, this will unlock your imagination. So you might imagine more than two players. So in the Pac-Man assignment you're going to have a Pac-Man",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "and multiple ghosts. And you're going to have to reason about the multiple ghosts. You can also have multiple agents in the setting, but in some sense it's all can be handled by this general recursion framework. You can even do things like players",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "can take extra turns or choosing who to go next or losing a turn. And this is just because all this we're doing is taking a state and transitioning to some successor state, and the player whose turn it is and baked into the state. And you can transition",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "to any state you want. So you can brainstorm a game with some crazy rules with it. You can just define your recurrence like we've done before and you're off to the races. There are a few things that aren't covered by this kind of game",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "tree recurrence framework. And this includes things like games with imperfect information such as poker or most card games, I think. And the reason this is not included is that if you think about these game trees, everything passes through the state,",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "and the state has to have all the information. This is the distinctive property of MDPs and search problems and also these games. So if you have different players with different information, you can't represent this in a tree because as you pass from",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "a min to a max node, there's no way to bypass the state, if that makes sense. We're considering only zero-sum games, but there are also non-zero-sum games such as prisoner's dilemma. And there's also collaborative games and so on. And there's also a",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "non-turn-based games. So here, it's turn-based. So someone takes a turn. It's someone else's turn. Someone else takes a turn. And then there's some games like rock paper scissors which are simultaneously. If you did turn-based rock-paper-scissors",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "that would be pretty boring. OK. So now we've concluded the modeling section of the lecture. Now I'm going to focus on minimax and try to speed it up. So let's talk about alpha-beta pruning. So let's revisit the minimax formulation. No dice, no weird stuff.",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "It's just a classic minimax game. And so there are max nodes, min nodes. You max the max nodes, and min at the min nodes. And now this takes exponential time in general. Exponential in the depth that is linear in the number of nodes, but the number of nodes",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "can be exponential. So how can you speed this up? The key behind this technique is a very classic technique from games called alpha-beta pruning, is that you don't have to visit all the states before you know that some are just not worth looking at. OK.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "So now the key is going to figure out how do we know when something is suboptimal if we don't even look at it? It seems maybe a little bit kind of magical that you can just prune out parts of your tree. Maybe there's actually the optimal policy or optimal",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "action sitting there. Who knows? So to give an example of why this might be possible considering the following case. Suppose you have two possible actions, A and B, and I tell you a can give you utility, something between 3 and 5, I don't know what exactly,",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "but something between 3 and 5. And then B is going to deliver a value between somewhere between 5 and 100. Which one would you choose? How many of you choose A? OK. So why do you choose B? Well, it turns out you don't need to know what the exact value",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "or utility of A and B are. You know that no matter what happens, B will be better or at least as good. So there's this idea called branch and bound, which is a general principle, which are used in combinatorial optimization, which says whenever you're going to",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "maintain some intervals that keep track of where particular values might lie. And then you can prune out things if you have an interval that is strictly larger than some other interval. So here is an example. Let's consider the following game tree.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "Let's imagine I'm searching. OK. So I'm doing minimax search. I do a depth first search, traversal. So I come down here. I have a 3 and 5, take the min of 3 and 5. I get a 3. I go up here, and at this point, my best so far here is 3. And I come over here,",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "come down and find a 2. So what can I do at this point? So I claim that I can prune this off and I don't need to explore anything over here. And the reason is that the root is the max between 3 and whatever is over here. This is min of 2 and",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "some x And this is going to be 3 no matter what x is. This can be a million. This is still going to be-- this is 2. And this is going to be 3. This could be minus 1,000,000. And then this is minus 1,000,000. And this is still 3. So in this particular",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "situation, I've given you one example where hopefully you can convince yourself, you don't need to look over here no matter what this value is. So let me try to generalize that principle a bit more. So in general, when we're doing a search,",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "or we're computing minmax, I'm going to be at some node here. And I'm going to intuitively think about, for every node, I'm going to have an interval or a bounds. And for the max nodes, I'm going to have a lower bound. And for the min nodes,",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "I have an upper bound. OK. And this is because if I discover six, that max value can only increase. And here, if I discovered an eight, that number can only decrease. So max nodes, I have these lower bounds. Min nodes have upper bounds. All the way down for",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "every node in the tree. Now, think about where the minimax value comes from. It must have come from some leaf because I'm just taking max and mins of successor states. And so there's some leaf that must have given rise to that value. And so I'm going to talk",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "about the optimal path is a path that's taken by these min and max policies to that leaf. That is the thing I'm trying to find. OK. And so this path needs to be within the lower and upper bounds that I have. Which means that if a node gives me",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "bounds that don't overlap with every ancestor's bounds, then I can prune that away. So for example, this is greater than 6, less than 8, greater than 3. If this is somehow, let's say, less than or equal to 2, then I can prune that away because this",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "is greater than or equal to 3. And if the value of this is less than or equal to 2, then there's no way that this can be on the optimal path. So the question is, can you prune this? Because this says it's greater than six, and this says it's less",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "than or equal to 5. And the answer is yes because this interval does not overlap with this one. And I have to look at the entire ancestor strokepath. So let's do an example on the board here. Let me see here and try to remember what lines.",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "So I have three nodes, 9 9, 7. So notice that the tree doesn't have to have the same number of levels either. So 6, 3, 4, 7, 9, 3-- whoops, 6, 3, 4, 7, 9, and then over here 8, 3. OK. So suppose we're doing minimax or alpha-beta pruning,",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "so here initially the intervals, we don't know anything. So we're going to go over here, come down here, discover the nine. So now at this point, I come up here, and I say this has to be greater at most 9. Come over here, I see that's a 7.",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "I update that to be less than 7. Actually, this is just equal to 7 because I explored everything. So now I come back here-- sorry, I can't move this up anymore. But this is going to, I'll just write it down here, at least seven. So this is the alpha.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "So I forgot to say this. Let me just write this. So for the max nodes, I have alpha values. And the alpha values are going to be essentially lower bounds, lower bound on the value. And then for these nodes, I have beta values which are upper bounds.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "So here, this is greater or equal to 7. Come down here, I found a 6, and I come up here, this is at most six. So what does that mean? Can I prune something? Should be able to, right? So in this case, I can actually prune out-- I can just stop. I can just prune",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "out everything here. Because this is already greater than 7, this is less than six, then no matter what happens over here I can't actually change the value here. OK, so then I come over here, greater or equal 7, I find the 8. So this is now less",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "than or equal to 8. Can I prune this? I can't, right? Because these intervals still overlap, so I don't have enough information. So I have to explore this. I find that's a 3. And then I have 3. And then finally update that to 7. And I'm done. So notice that",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "alpha-beta is going to be pretty powerful because it's not just pruning one node. You prune entire subtree if you're lucky. Yeah, so the question is, does this work for expectimax? Let's see. The short answer is, though, is no. Because when you",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "have an expectation, you have to consider all the possible things that could happen. You might still be able to do some alpha beta-- you can definitely do some pruning. I think there are cases maybe when, like an expectimax, if you",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "have bounds on the utility, then you can still control how much even the utility could be. I'll have to think about this exactly, but that's a good question. How did I get to the lower bound greater than or equal to 7 here? Because when I saw this-- this",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "value of this subtree is 7. So whenever I am at a node, I'm going through each of the children and updating the max. So what are we calculating? Quality function. Yeah. So it's a top down recurrence, but you go to the bottom and then you come up. Yeah. OK.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "So how do you get lucky? So let's talk about ordering. So the order in which you visit the successors of a state matters for how much you prune. So for example, in this case that we saw before, let's see. So if we had 3, 5, 2, 10,",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "then this 10 would get pruned. However, if we have 2, 10, 3, 5. Now, when you're computing this you get a 2. And now when you go over here this is greater or equal 2. This is a three, so you won't be able to prune this. So in practice, what you want to do",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "is to go through the child node-- if you're at a max node, you want to go through the child nodes that are more likely to be large because the larger they are, the tighter the bound is and then the more you can prune. OK, so if I were able",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "to do this one first, three first rather than 2, then I could have pruned it, but not the other way around. So in practice, you can use a heuristic evaluation function, which we'll talk about shortly to order the children. For max nodes, you order the",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "children by decreasing value. And for the min nodes, you order by increasing values. In other words, you're really trying to find this optimal path, guess the heuristic. And if you guess, well, then you can be faster. So this is just maybe a general comment.",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "We've seen many cases in this course where you can have exact algorithms still, even with a heuristic. And if your heuristic is good, for example, like in a star, if your heuristic is good, then it's great. You are very fast. If your heuristic is bad,",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "then you're not so fast, but you're still correct. So to summarize alpha-beta pruning, we speed up minimax search. It's exact. And how much you save is going to be depend on your ordering and your problem. In general, it's still going to be exponential time.",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "So it's not like we've solved P equals NP. And the intuition is that you want to order your actions to shrink the bounds as fast as possible. So now let's talk about final thing for today is evaluation functions. This is going to be an approximate way",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "to speed up search. So here's the minimax recurrence again. And the idea of evaluation function is that you just say forget search I'm just going to take a wild guess. Say, how good is this state? So it is true that in a game, the only thing",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "that matters is who wins at the end. But nonetheless, if you're playing chess, you know in some cases who's doing well and who's not doing well by just looking at it. And so the evaluate function is trying to capture this prior knowledge",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "about what might be good. So in the case of chess, here is an example of a type of evaluation function you might have. So in general evaluation function is going to be a sum of different terms, each term captures some intuitive property. Think about it as a",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "feature if you want. So you want a lot of pieces. That's material. You want mobility to be able to move-- you don't want mobility. King to be safe. You want to control the center of the board and so on and so forth. And for material you might think, well,",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "the number of kings I have versus the number of kings opponent has, kings are very important. Queens are worth 9, Rooks are worth 5, and so on. So what do you do with an evaluation function? So you could just choose the action that produces a state that",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "gives you the highest evaluation function. Well, it depends on what evaluation function you are, but if it's something like this is probably not going to be a very good chess player. It's just going to probably be too greedy and try to save your pieces",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "and not really do very well. But you can actually use it in evaluation function and search. And the way to do this is called depth-limited search. And it basically says, take minimax. I'm going to have a depth, which is an integer, let's say 5,",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "and say, I'm only going to search five steps. And then if depth is 0, which means then I'm just going to call the evaluation function, and say, OK, I'm not going to search anymore. I'm just going to vibe check and just give me a number. And then I still",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "have search budget, if the depth is not 0, then when I recurse, if I'm the agent, then the depth is, d, and if I'm an opponent, the depth is d minus 1. And this is just to make sure that a unit of depth corresponds to both the agent and opponent going,",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "so I don't subtract twice here. So that's basically it. Hopefully you've seen this is like what sixth recurrence you've seen. So hopefully you're used to seeing these things. There's no guarantees that you'll find the optimal policy. It's a complete heuristic.",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "And how effective it is going to depend on how good your evaluation function is. But the nice thing is that you have a bit of this control. The deeper you search, the less sensitive you are to the evaluation function being bad, whereas if you do",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "a shallow search, your evaluation function better be good. OK. Evaluation function, prior knowledge that evaluates a state quickly. Do search to a certain depth and then use evaluation function. This is depth-limited search. And the analogy is a bit like",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "future cost in search problems where you look a step forward and then you approximate. So to wrap up here-- actually, one other note about evaluation functions just to prime for next time is that if you think about-- what is evaluation functions remind you of?",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "Maybe something in reinforcement learning. Yeah. So Q values or just more simply values, right? So Q values in reinforcement learning. Let's just go with that since that's what we studied, is an approximation of the true value. And so what this is going",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "to allow us to think about is well this evaluation function can also be learned. It can be learned from supervised data. It can be learned from reinforcement learning. And that's exactly what we're going to do next lecture is to learn the evaluation function.",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "OK. But now to just summarize. So we've introduced games. Here, the agent is still trying to maximize utility, but the opponent's strategy is unknown. The minimax principle says, just assume the worst case opponent is trying to get you and to minimize utility.",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "We define a bunch of different recurrences. Given a game and a policy, we can do game evaluation, expectimax, minimax, expectiminimax. And you can imagine others expectiminimini, expectimax or whatever you want. And we look at two ways to speed things up,",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "alpha-beta pruning, which is exact, and evaluation function, which is approximate. And next time, we're going to look at how you can do learning in the context of games. And we're going to look at something called TD learning.",
+      "start": 1170,
+      "duration": 6
+    }
+  ]
+}

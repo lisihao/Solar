@@ -1,0 +1,244 @@
+{
+  "videoId": "OVnYj_s3RHo",
+  "title": "FAST '26 - CETOFS: A High-Performance File System with Host-Server Collaboration for Remote Storage",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 11400,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. I'm from institute\ninstitute of computing technology\nChinese academic sciences. Now I'm\nworking at bance. I'll introduce our\nwork uh C2FS a high performance file\nsystem with host server collaboration\nfor uh remote storage.\nI'll introduce from the following\naspects. for the background and\nmotivation.\nNVME of fabrics is a block storage\nprotocol that involves access to remote\nSSDs over networks such as TCP uh adm\nexposes remote SSDs as local block\ndevices and users can build local file\nsystem on them. Uh in the work we focus\non high performance SSD for example\noptin SSD and RDMA network.\nThe kernel file system can directly\naccess remote SSD. We show the workflow\nof a right operation. Our applications\nright issues the right sys call on fail.\nThe red request travers the fail system\nstack including the virtual file system\nand block layer. The request is then\nforwarded to the initial interator side\ndriver where it where it is packed as an\noof command and sent to the target via\nadent by the uh envir driver. Upon\nreceiving uh the command, the tag side\nenves\nthe data from the initial\nfrom the initiator vime rate. The target\nthen generates the IO request and writes\nthe data to SSD through the environment\ndriver and block layer. Once the SSD\ndata writing is complete, the target\nsends a completion response to the\ninitiator where admission is send.\nFinally, the application's right is\nnotified about the finish of data\nwriting.\nUh building file system uh based on a\ncon mode of with driver anchor heavy\nsoftware software overhead to show it.\nWe measure access latencies of four KB\nrandom read our raw device and file\nsystem 4. For local file system, the\nsoft stack including sys call f system\nand event driver occupied about half of\nthe total latency.\nHowever, for remote SSDs, software\noverhead accounts for hair proportion\nwhich has performance badly.\nTo further quantify the overhead of main\ncomponents in the software stack, we\nbreak down the software stack latency\nfor f system based on remote SSD. We\nmeasure the latences spent on sys call\nfs like MVME over RDM driver and MVM\ndriver for red operations. We see that\nthe MVME over RDM driver becomes a major\noverhead occupying about 36% of total\nlatency. The root cause is that handling\nRDM interrupts in kernel brings high\nlatency when access when accessing the\nremote storage.\nEx existing kernel file system exhibit\npoor scalability when accessing remote\nstorage. We measure aggregate voodoo\nacross concurren based on S4 and F2\nwhere each thread concurrently updates a\nshared 10GB fail local and remote\nrepresent accessing local locally\nattached SSD and remote SSD. We have two\nobservations. First, accessing remote\nstorage decreases the throughput by 63%\ndue to the network overhead. Second,\nthey show pical scalability especially\nfor remote SSDs decreasing by uh 30%.\nThe execution process of a red operation\ncan be split into three uh single\nphases. First the initiator sends\nrequests to the target and the target\nfetes the associated data from\nsecond the target write data into the\nSSD. Third the target sends a completion\nresponse back to the initiator. The\nfirst and the uh third phases incur\nnetworking latency and the second phase\nincurs SSD write latency to protect\nconcurrent accessing of a shared fail.\nThe and level lock is employed to\nserialize the execution of concurren and\nrights. So they are execu they are\nexecuted sequentially which not only\nhurts the fail system scalability but\nalso and utilize utilize the hardware\nresources.\nUh fat atomic IO is an important feature\nof f system. However it means expensive\ndata movement or remote storage. We take\nthe journaling mechanism as an example.\nThe general mechanism first write logs\ninto the log area on the remote SSD.\nThen the checkpoint process res logs\nfrom the remote SSD to the initiator and\nwrite them back to the target area on\nremote SSD. Furthermore, uh updating\ngenerally related map data requires\nextra IOS across network. Thus the\njourney mechanism incurs more than twice\ndata movements across network which\nperformance.\nUh next I will introduce the design of\nthis work.\nTo address a bio challenges, we propose\nC2FS. We show a high level overview of\nC2S design which mainly contains the\nfollowing components. First, the kernel\nfile system. It handles my data\noperations. Second, user space library.\nIt handles data operations entirely in\nuser space using profile request Q to\nsubmit IO requests. Third, target\nrequest handling. It is responsible for\nhandling IO requests, performing\npermission checking and concurrency\ncontrol.\nFirst, why is permission checking is\nrequired? Uh that because we place the\ndata data operations in user space for\nhigh performance which takes specific\nchallenges for permission checking.\nSince application th use the user space\ndriver to issue IO commands. Application\ncan send requests with any device\naddress to remote storage which may\ncorrupt the file system. For example,\nmodifying the file system metad data.\nTo handle this problem, we offload the\npermission check into the target. It's\nkey idea is letting handle check whether\nthe block address of of request is\nlegal. To achieve this, we design a\nblock granularity rewards permission\ntable as a target. We divide the blocks\nof the file system into three types.\nThree blocks, blocks for storing\nmetadata and blocks for storing file\ndata. We define an owner for each block\nand use the owner ID to identify it. We\nset the owner of any free block and any\nmetadata block to be keys and the owner\nand its owner ID is zero. The owner of\none data block is it corresponding file.\nIt own ID is uh is set to be the file\nend number.\nAlso CFS assigns a request Q to each\nfile. Each open each opened file has a\nrequest Q and the Q's owner is a file.\nEach Q is attached with an access\npermission flag read only, run only or\nrewrite for the application that\naccesses the file. For example,\napplication one opens two files A and B\nwhich maintains two request cues for\ncommunicating with handler.\nT handler performs a prop checking\naccording to the following two rules.\nFirst, the requested operation type\nshould match with the permission flag of\nthe sub submitting request Q. Second,\nthe owner of a requested block should\nmatch with the owner of the submitting\nrequest cues.\nThis rule can pro can prevent\napplications th from accessing illegal\naddresses. We take the read operation as\nan example to show how C2FS performs\npermission checking\nas shown in this figure. When an\napplication strateg\nfirst translates the file offset into\nthe device address then it sends the IO\nrequest to a target server. Ulab sub\nsubsequently post request cues for\ndetecting request completion. The\nworkers write ent handler receives the\nrequest and extracts the request block\naddress. Then a checks the permission\nflag of the request Q and the owner of\nthe request requested block. A match the\nworker thread issues command to the\nunderlying SSD and then post for\ncompletion. Otherwise this error request\nis report reported to incur illegal\npermission error\nto to reduce the network which time we\npropose concurrency control of loading\ntechnique as key idea is allowing the\ninitiator to send request in parallel\neven conflicted request exist.\nMeanwhile, let light letting the target\nperform request serialization to\nguarantee a correct concurrency.\nAs for the traditional traditional\nkofile system, additional networking uh\nlatency exhibits serialization overhead\nin CTO FS sends request in parallel and\nthe target perform request serialization\nto guarantee correct concurrency. It can\nreduce the network waiting waiting time\nsignificantly.\nUh to achieve this we design request\ngroup to control the ordering of I\nrequest as a target. A request group\nconsists of adjacent request accessing\nthe same file but without having\nconflict with each other. We create\nrequest groups at the as initiator. The\nfigure show example of request group\ncreation. There are six six threads T1\nand two T6 that issue read or write\nrequests. Currently they are trying to\nacquire the spin lock and the the order\nof the coin lock is R1 R2 uh W1 R3 R4\nand W2. Thus there uh there are four\nrequest groups totally. After creating\ngroups, these requests can be sub\nsubmitted to the target concurrently,\nwhich greatly saves their waiting time.\nTo guarantee a correct concurrency,\ntaner handles handles this request in\norder.\nTano processes request group by by group\nrestricts concurrent accesses to the\ndisjoint portions of the file from\ndifferent groups thereby limiting\nconcurrency. To address this limitation,\nwe propose a mering group policy as the\ninitiator which allows adjacent groups\nwithout expecting flights to be merged\nwith low overhead. I show in this\nfigure. All requests except W3 are\nmerged into the same group G G G G G G G\nG G G G G G G G G G G G G G1 as they\nthey have no range conflicts. As a\nresult, they can not only be submitted\nin parallel but also be executed in\nparallel at as a target. This greatly\nimproves concurrency and the hardware\nutilization\nto minimize data data movement overhead.\nC2S offloads the field atomic IO support\nto the target. It provides atomic APIs\nto enforce automicity. T handler\nmaintains my data for transaction\nmanagement and performs checkpoints\noperations in the background. C2 FS also\nadopts transaction aware submission and\ncompletion which use a delayed\nsubmission strategy to batch MMO and DO\nrights.\nNext let me talk about evaluation.\nUh we use two server two servers with\ntwo entire CPUs connect X5 RDMA inc and\none option SSD. We compare Case with X4\nafter and UFS. We use the FIO and\nfixmark workloads.\nFirst, can C2FS reduce the kernel\nsoftware over height? In single threaded\nrewrite tests, C2FS eliminates kernel\nsoftware over height reducing latency by\nup to 50%.\nSecond consider ski increasing thric. We\nuse a fixed mark DWM workload where\nconcurrent strides have high condition\nfor writing the same shared fail. CFS\noffloads concurren control to the to the\ntarget reducing network waiting\noverhead. Moreover, C2S merge the\nrequest groups without conflicts to\nallow concurrent accessing to disjoint\nportions of a fail which improves its\nscalability significantly.\nLast part is conclusion.\nWe propose C2FIS a high performance file\nsystem with host server collaboration\nfor remote SSD. It designs a\ncollaborative architecture to place data\nplan entirely in user space. Meanwhile,\nseparated per tracking from internal\ncontrol plan. It exploits the processing\ncapability\nof remote server to offload three tasks\nper checking concurrency control and a\nfailure atomic IO guarantee. The\noffloading mechanism greatly reduce the\nnetworking overhead.\nCurrently I'm working on the balance\nelastic file system a high performance\ndistributed file system file storage\nservice designed to deliver Alexia\nskilling for both cap capacity and\nperformance. It smart applications\nespecially for AI workloads. If you have\ninterested in learning about EFS please\nfeel free to contact us. Uh thank you\nfor listening. Uh, that's all. I'm glad\nto answer the questions.",
+  "segments": [
+    {
+      "text": "Hello everyone. I'm from institute institute of computing technology Chinese academic sciences. Now I'm working at bance. I'll introduce our work uh C2FS a high performance file system with host server collaboration for uh remote storage.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "I'll introduce from the following aspects. for the background and motivation. NVME of fabrics is a block storage protocol that involves access to remote SSDs over networks such as TCP uh adm exposes remote SSDs as local block",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "devices and users can build local file system on them. Uh in the work we focus on high performance SSD for example optin SSD and RDMA network. The kernel file system can directly access remote SSD. We show the workflow of a right operation. Our applications",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "right issues the right sys call on fail. The red request travers the fail system stack including the virtual file system and block layer. The request is then forwarded to the initial interator side driver where it where it is packed as an",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "oof command and sent to the target via adent by the uh envir driver. Upon receiving uh the command, the tag side enves the data from the initial from the initiator vime rate. The target then generates the IO request and writes",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "the data to SSD through the environment driver and block layer. Once the SSD data writing is complete, the target sends a completion response to the initiator where admission is send. Finally, the application's right is notified about the finish of data",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "writing. Uh building file system uh based on a con mode of with driver anchor heavy software software overhead to show it. We measure access latencies of four KB random read our raw device and file system 4. For local file system, the",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "soft stack including sys call f system and event driver occupied about half of the total latency. However, for remote SSDs, software overhead accounts for hair proportion which has performance badly. To further quantify the overhead of main",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "components in the software stack, we break down the software stack latency for f system based on remote SSD. We measure the latences spent on sys call fs like MVME over RDM driver and MVM driver for red operations. We see that",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "the MVME over RDM driver becomes a major overhead occupying about 36% of total latency. The root cause is that handling RDM interrupts in kernel brings high latency when access when accessing the remote storage. Ex existing kernel file system exhibit",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "poor scalability when accessing remote storage. We measure aggregate voodoo across concurren based on S4 and F2 where each thread concurrently updates a shared 10GB fail local and remote represent accessing local locally",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "attached SSD and remote SSD. We have two observations. First, accessing remote storage decreases the throughput by 63% due to the network overhead. Second, they show pical scalability especially for remote SSDs decreasing by uh 30%.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "The execution process of a red operation can be split into three uh single phases. First the initiator sends requests to the target and the target fetes the associated data from second the target write data into the SSD. Third the target sends a completion",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "response back to the initiator. The first and the uh third phases incur networking latency and the second phase incurs SSD write latency to protect concurrent accessing of a shared fail. The and level lock is employed to",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "serialize the execution of concurren and rights. So they are execu they are executed sequentially which not only hurts the fail system scalability but also and utilize utilize the hardware resources. Uh fat atomic IO is an important feature",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "of f system. However it means expensive data movement or remote storage. We take the journaling mechanism as an example. The general mechanism first write logs into the log area on the remote SSD. Then the checkpoint process res logs",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "from the remote SSD to the initiator and write them back to the target area on remote SSD. Furthermore, uh updating generally related map data requires extra IOS across network. Thus the journey mechanism incurs more than twice",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "data movements across network which performance. Uh next I will introduce the design of this work. To address a bio challenges, we propose C2FS. We show a high level overview of C2S design which mainly contains the following components. First, the kernel",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "file system. It handles my data operations. Second, user space library. It handles data operations entirely in user space using profile request Q to submit IO requests. Third, target request handling. It is responsible for handling IO requests, performing",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "permission checking and concurrency control. First, why is permission checking is required? Uh that because we place the data data operations in user space for high performance which takes specific challenges for permission checking.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Since application th use the user space driver to issue IO commands. Application can send requests with any device address to remote storage which may corrupt the file system. For example, modifying the file system metad data.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "To handle this problem, we offload the permission check into the target. It's key idea is letting handle check whether the block address of of request is legal. To achieve this, we design a block granularity rewards permission",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "table as a target. We divide the blocks of the file system into three types. Three blocks, blocks for storing metadata and blocks for storing file data. We define an owner for each block and use the owner ID to identify it. We",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "set the owner of any free block and any metadata block to be keys and the owner and its owner ID is zero. The owner of one data block is it corresponding file. It own ID is uh is set to be the file end number. Also CFS assigns a request Q to each",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "file. Each open each opened file has a request Q and the Q's owner is a file. Each Q is attached with an access permission flag read only, run only or rewrite for the application that accesses the file. For example, application one opens two files A and B",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "which maintains two request cues for communicating with handler. T handler performs a prop checking according to the following two rules. First, the requested operation type should match with the permission flag of the sub submitting request Q. Second,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "the owner of a requested block should match with the owner of the submitting request cues. This rule can pro can prevent applications th from accessing illegal addresses. We take the read operation as an example to show how C2FS performs permission checking",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "as shown in this figure. When an application strateg first translates the file offset into the device address then it sends the IO request to a target server. Ulab sub subsequently post request cues for detecting request completion. The",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "workers write ent handler receives the request and extracts the request block address. Then a checks the permission flag of the request Q and the owner of the request requested block. A match the worker thread issues command to the",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "underlying SSD and then post for completion. Otherwise this error request is report reported to incur illegal permission error to to reduce the network which time we propose concurrency control of loading technique as key idea is allowing the",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "initiator to send request in parallel even conflicted request exist. Meanwhile, let light letting the target perform request serialization to guarantee a correct concurrency. As for the traditional traditional kofile system, additional networking uh",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "latency exhibits serialization overhead in CTO FS sends request in parallel and the target perform request serialization to guarantee correct concurrency. It can reduce the network waiting waiting time significantly. Uh to achieve this we design request",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "group to control the ordering of I request as a target. A request group consists of adjacent request accessing the same file but without having conflict with each other. We create request groups at the as initiator. The figure show example of request group",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "creation. There are six six threads T1 and two T6 that issue read or write requests. Currently they are trying to acquire the spin lock and the the order of the coin lock is R1 R2 uh W1 R3 R4 and W2. Thus there uh there are four",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "request groups totally. After creating groups, these requests can be sub submitted to the target concurrently, which greatly saves their waiting time. To guarantee a correct concurrency, taner handles handles this request in order.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "Tano processes request group by by group restricts concurrent accesses to the disjoint portions of the file from different groups thereby limiting concurrency. To address this limitation, we propose a mering group policy as the",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "initiator which allows adjacent groups without expecting flights to be merged with low overhead. I show in this figure. All requests except W3 are merged into the same group G G G G G G G G G G G G G G G G G G G G G1 as they they have no range conflicts. As a",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "result, they can not only be submitted in parallel but also be executed in parallel at as a target. This greatly improves concurrency and the hardware utilization to minimize data data movement overhead. C2S offloads the field atomic IO support",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "to the target. It provides atomic APIs to enforce automicity. T handler maintains my data for transaction management and performs checkpoints operations in the background. C2 FS also adopts transaction aware submission and completion which use a delayed",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "submission strategy to batch MMO and DO rights. Next let me talk about evaluation. Uh we use two server two servers with two entire CPUs connect X5 RDMA inc and one option SSD. We compare Case with X4 after and UFS. We use the FIO and fixmark workloads.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "First, can C2FS reduce the kernel software over height? In single threaded rewrite tests, C2FS eliminates kernel software over height reducing latency by up to 50%. Second consider ski increasing thric. We use a fixed mark DWM workload where",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "concurrent strides have high condition for writing the same shared fail. CFS offloads concurren control to the to the target reducing network waiting overhead. Moreover, C2S merge the request groups without conflicts to allow concurrent accessing to disjoint",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "portions of a fail which improves its scalability significantly. Last part is conclusion. We propose C2FIS a high performance file system with host server collaboration for remote SSD. It designs a collaborative architecture to place data",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "plan entirely in user space. Meanwhile, separated per tracking from internal control plan. It exploits the processing capability of remote server to offload three tasks per checking concurrency control and a failure atomic IO guarantee. The",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "offloading mechanism greatly reduce the networking overhead. Currently I'm working on the balance elastic file system a high performance distributed file system file storage service designed to deliver Alexia skilling for both cap capacity and",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "performance. It smart applications especially for AI workloads. If you have interested in learning about EFS please feel free to contact us. Uh thank you for listening. Uh, that's all. I'm glad to answer the questions.",
+      "start": 270,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,344 @@
+{
+  "videoId": "svCnShDvgQg",
+  "title": "Two Roads to Durable Agents: Replay vs. Snapshot — Eric Allam, CEO, Trigger.dev",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 16510,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[music]\n>> How's everyone doing?\nIt's a full room. Look at this thing.\n>> [laughter]\n>> Um okay, let's get started.\nUm okay. So, here is our, you know,\nagent. You know, it's got the turn loop,\nit's got the LM loop. You know, this\nlittle example sort of works well enough\nrunning on your own machine, but what if\nwe want to sort of deploy these two\nproduction backends and, you know, run\nthem on our servers?\nSo, what do we want them to do, right?\nWhen they run on our servers, we want\nthem to do, you know, long-running\nmeaningful work. Uh should be durable\nacross turns and and versions of our\ncode, and it should be able to, you\nknow, recover from errors.\nSo, I'm Eric, I'm one of the founders of\ntrigger.dev, and we've been sort of\ntrying to make it easy to deploy these\ntypes of agents to production for the\nlast few years. Um what I like about\nthis uh little meme here is, which one\nis the agent and which one is the human?\nI think I think.\n>> [laughter]\n>> Yeah.\nUh yeah. So, uh this talk is sort of\nabout like the fundamental shift that\nagents are like posing to backend\ninfrastructure and some of the ideas for\nsort of how to achieve these durable\nagents.\nSo, before we go into that, I want to do\na little history lesson here.\nUm take a step back and see sort of how\nwe got here. So, the very first dynamic\nweb backend was CGI back in 1993. Anyone\nhere ever done CGI stuff?\n>> [laughter]\n>> Cool. Nice.\nUh so, the model was really simple. Uh\nHTTP HTTP request comes in, the server\nforks a whole new process. Request data\ngoes in, the process does some stuff,\nand then it writes the response to\nstandard out, and then the process goes\naway. Go So, it's completely stateless.\nUm shortly after that, uh PHP came out,\nwhich sort of turned into the LAMP\nstack.\nand oops. Um\nso, sort of uh\nthe LAMP stack sort of reused the PHP\nprocess, right? Um but, it kept sort of\nthe principle that like all you needed\nto do to create a response was the\nrequest, some state from the database,\num and then it would do the request. So,\nthe second request would come in, and it\nwould do all the same work again, and it\nwould produce the response. So, this is\nsort of request plus DB equals the\nresponses sort of became known as the\nshared nothing architecture, right?\nSo, looking at another way, shared\nnothing sort of means that the compute\nlayer is stateless, right? There's\nnothing There's no meaningful state like\nin the compute. The state is in the in\nthe database, right?\nSo, this became the dominant backend\ninfrastructure for the last 30 years,\nright? Everything that followed from\nthis, like uh Ruby on Rails, Node.js,\nserverless, it all follows the same\nparadigm, right?\nUm as web applications became more uh\nyou know, complicated and sophisticated,\nthey started performing these like sort\nof side effects outside of the request\nand DB life cycle.\nUm these side effects are async tasks.\nSo, they you know, started out simple,\nlet's send an email, charge a credit\ncard, you know, resize an image.\nBut soon they became sort of these like\nmulti-step side effects, right? That\nlike this process order example here.\nUm where you sort of do things in\nsequence, right?\nUh you'd quickly run into a problem how\nto handle failures in something like\nthis, right? So, if send receipt fails,\nuh you can't just retry the whole\nprocess order thing again\num without charging the credit card\nagain twice, which is bad.\nSo, about 10 to 15 years ago, workflow\nand durable execution engines were sort\nof adopted to solve this problem, right?\nSo, you'd write your code like this now,\nwhere\nyou sort of uh wrap every single side\neffect in like a step that becomes\ncached as it's uh executed.\nSo, now that, you know, solves the\nproblem nicely. When you call process\norder for the second time, uh you skip\nthe things you've already done, and then\nyou do the thing that you want to do\noriginally, right? And you don't charge\nthe credit card twice. So, this is uh I\ncall this model sort of the replay\nmodel.\nUm so, it builds durable execution on\ntop of existing like stateless compute\narchitecture, which is I covered was the\nyou know, that's how everything works,\nright? So, you know, you get this nice\nside effect of you get this execution\nhistory, this audit trail of everything\nthat happened.\nUm and also by being able to sort of\nresume to a specific point in time, you\ncan Yeah, you can re- recover from a\nfailure for that, but you can also like\nwait for something else to happen,\nright?\nUm so, you can wait for like a human to\ndo something, and then you can resume\nexecution.\nUm some of the downsides of this replay\nsystem is like because now you sort of\nhave to wrap everything in in these\nsteps, and then everything outside of\nsteps is has to be deterministic, you\nkind of get this like uh rigid\nstructure. You have to write your code\nin a certain way, or things break. Um\nand also like replay journaling uh re-\nthe replay journal versioning is is kind\nof tricky if you deploy a new version.\nSo, this is sort of the very simple and\ntruncated history of like sort of the\nstate of the world in 2023 when LLMs\ncame out. Um\nAt first, they really fit neatly into\nthis paradigm, right? They would just\nbecome another step in a workflow,\nright? Um they would uh they would\nclassify some text or something, but it\nwas still in this old workflow era,\nright?\nUh not long after that, we sort of got\ntool calling, and tool calling got good,\nand we were sort of introduced to the\nagent loop, right? The big difference\nthere is code is sort of no longer\norchestrating the LLM. LLM sort of\norchestrates the code, right?\nSo, we're back at our agent loop, right?\nAnd like what happens if we uh Yeah, you\ncan see that. Um if you can If basically\nwe want to, you know, make this agent\nloop durable, and can we do it with this\nreplay model, right? What does that look\nlike?\nso, what does that look like? Every LLM\ncall, right, becomes a a step in in the\nreplay uh journal.\nUh every tool call becomes a step. Uh on\nresume, you know, the function\nre-executes on top and sort of replays\nall that stuff, right?\nUm so, after a single turn of uh the LLM\nnot doing too much, you know, this is\nsort of what the uh the replay log looks\nlike, right?\nAnd as you sort of keep interacting with\nthe agent, the log grows and grows and\ngrows. At a certain point, you might hit\ninto some sort of like fundamental limit\nof your replay system. Um that could be\neither like too many actual entries, or\nit could be like the entries get grow\ntoo large.\nbut yeah, this sort of kind of falls\nover once you hit that limit.\nAnd sort of uh\nthere's a this measure of like how long\nagents uh can actually do meaningful\nwork, and apparently it's doubling every\n4 to 7 months. So, right now we're on\nabout like a few hours, but like not too\nlong from now we'll be on like multiple\ndays of length as these agents build to\nactually do meaningful work.\nSo, you know, replay gave us these like\nsort of durable transactions, but you\nknow, an agent isn't like a transaction,\nit's like a session, right? And it lasts\nlike as long as the user wants it to\nlast. Uh multi-step workflows are sort\nof start and end, and sessions keep\ngoing for as long as possible.\nSo, if we sort of take a step back and\nthink about what an agent needs to be\ndurable for like from first principles,\num I think of it as like an agent sort\nof has these two halves, right?\nUm the first half is the context. So,\nthis is all all your your system\nmessages, user messages, tool calls,\ntool results, assistant responses,\nright? So, this is all like the actual\ncontext, everything that went in and out\nof the LLM.\nso, this is extremely valuable,\nobviously. You want to make that\ndurable, right?\nUm but, you also have this sort of\nexecution layer. And as agents are like\nmore complicated, doing more things,\nthey kind of want a machine, right? They\nwant to be able to do stuff like they\ncould do on your laptop, right? They\nwant to be able to write files, use\nmemory, like create subprocesses.\nAnd so, I I we I think of both of these\num as super valuable pieces of state,\nbut they can be treated separately.\nSo, the context is first and the most\nimportant, and it's just an append-only\nlog of sort of everything that happened,\nright? Like I said.\nUm and you can make this log durable\nusing any sort of like primitive that\nalready exists, like a database, object\nstorage, like distributed file system.\nYou know, there's a a ton of like\ntechnologies that are coming out that\nthat are specialized in making this sort\nof thing durable, right?\nAnd when that is durable, you When that\ncontext log is saved somewhere, now you\ncan have durability across versions of\nyour code, right? So, you upgrade your\nharness, and you can still use that same\ncontext, right? Um maybe the machine\ncrashes, and you can still that saved\nsomewhere, so you can pick up where you\nleft off, right?\nUm and append-only logs scale really\nwell.\nUh but, what about making this sort of\nexecution side durable, right? Uh for\nthese, you know, as I was saying, the\ntypes of agents right now that are doing\nmeaningful work, we there's a lot of\nstate that happens in the compute layer\nthat we might want to save. Maybe you've\ncloned a GitHub repo, you know, you've\ninstalled some packages, you've got some\ndata sets in memory, you're running a\ndev server, right? You sandbox in a\nsubprocess, whatever it is, right?\nYou can't really make that uh durable\nusing a log.\nAnd\nhow do we get this to work, right?\nSo, you you have to wait for some amount\nof time for the next user message,\nright? And we can't just keep the\nmachine running. It'd be nice, but we\ncan't. It'd be too expensive.\nSo, instead of recreating the execution\nstate from a log, we should use snapshot\nand restore. So, this allows us to\nsnapshot the machine, shut it down, save\nit to disk, and then when the user\nmessage comes in, we restore it, right?\nSo, this gives us durability across\nturns. So, when the user goes to lunch,\nright? We don't have to\nrun the machine the whole time. Uh it\nallows us to preserve everything that\nthe agent was doing. Uh, and you know,\neffectively compared to running the\nmachine um, live, it's pretty cheap.\nSo, I think if you combine these two\nthings, then you sort of get a durable\nagent, right? Um, you've got the\ncontext, so you're sort of\nuh, yeah, you're context durability and\nexecution durability, right?\nUm, and this also allows you to cover\nrecover from errors. So, one of the\nwhole whole points of having these like\ndurability guarantees is to recover,\nright? And so, it depends on what\nhappened, what went wrong, you can come\nrecover in different ways. So, say the\nLLM isn't working for some reason. That\nnever happens, but you never know, it\ncould happen. Um, and it takes a long\ntime to like retry. Maybe it says like\nwait wait, you know, 15 minutes, so you\nretry your next message. Well, you don't\nwant to wait in memory, so you snapshot,\nand then you restore when you can retry.\nBut, if there's something wrong with the\nmachine, uh, maybe you've like\nshipped a bug, or maybe there's just a\nan issue with the machine, right? It\ncrashes. You have the context log, and\nyou can recover that.\nSo, I think, you know, for 30 years we\nsort of had this, uh, stateless compute\nas the sort of core of back-end\ninfrastructure. And I think agents are\nsort of forcing this,\nuh,\nmove to become stateful compute.\nSo,\nand sort of at the heart of that, I\nthink, is is going to have to be this\nsnapshot and restore, uh, capability.\nUm, but sort of, you know, this isn't\nactually new. Um, this is an IBM\nmainframe from 1966, and it actually has\ncheckpoint and and restore. Um, cuz they\nwould run these super expensive jobs for\nhours, and, you know, something went\nwrong, and they could couldn't afford to\nrun it all again, so they would add\nthese like checkpoints into their code,\nright?\nFast forward to 2011,\na thing called CRIU was um,\ndeveloped. It was a way to like suspend\nand restore a\nuh, a process like from user space. So,\nit would basically like inject a process\nwith this like a parasite, basically.\nAnd then they would force the process to\nlike dump everything to memory, and then\nit would remove all the traces of the\nparasite, and it actually worked.\nUm, in 2024, we actually shipped this,\num,\nand we've done millions of snapshot\nrestores since. You know, it's\ntransparent to the process, so the\nprocess doesn't have to like participate\nin it, and it's compatible with\ncontainer runtimes, which is good.\nSo, the downsides are you sort of can\nonly checkpoint like a process. So, if\nyou're doing stuff with like FFmpeg, or\nlike you've got a Chrome instance\nrunning, or anything else, right? It\nsort of doesn't work. Uh, it only\ncaptures open files, so if you're\nworking with the file system, it has to\nbe open at the time of snapshot, or you\nwon't get snapshot. And then it also, if\nyou it yeah, it's nice that it's\ncompatible with containers, but once you\nare compatible with containers, you have\nto work with registries and push and\npull, and then it gets very slow.\nUh, so last year we moved to, um,\nFirecracker micro VMs.\nAnd this allows us to sort of snapshot\nlike the entire machine, right? So,\neverything that's is on a machine on a\nVM, we can snapshot it, and then we can\nrestore it, and it pick up right where\nit left off, no matter what was\nhappening in the machine, right?\nBut, if you do that it's sort of, uh, in\na naive way, uh,\nit can be quite expensive. So, say you\nhave a\ndefault machine size of 512 megabytes,\nyou know, uh, if you do a snapshot, it's\n512 megabytes on disk. So, that's that's\nnot great.\nUm, so obviously you've got like network\nnetwork transfer costs, you've got\nstorage costs, and there's a lot of\nmemory there that's not actually being\nused.\nUh, so we actually solved this with, uh,\ncompressing it.\nUh,\nwe actually use a a seekable\ncompression. Um, so when we restore, we\nactually\ndon't restore all the memory pages at\nonce. We actually like capture when it\nneeds to be restored, and just like\ndecompress like that little bit that\nneeds to be um, restored at time. We\nalso have a couple other techniques for\nlayering the snapshot, and we can get\nthe the, um, snapshot down to like 14\nmegabytes compressed. And that's sort of\nlike a knob you can tweak, and\num, depending on how perform what kind\nof performance you want. Um, you can\ncompress more or less.\nUm, so that's pretty much all we had to\ndo other than all of that.\nUm,\nand once we did that, uh, we we got\nsuper fast snapshot and restore times.\nSo, this is a sort of a stupid graph,\nuh, comparing CRIU and Firecracker, but\nit's basically the the moral of the\nstory is that snapshots are like\nslightly under a second, and restores\nare a couple hundred milliseconds.\nUm, we've actually bundled all of this\ninto, uh, tool that's going to be open\nsource here soon.\nUh, it's called FC Run, or F Crun,\ndepending on who you ask. Um, so this\nallows you it's like a Docker-like CLI,\nso you can drop in replacement for like\nthe Docker command,\nuh, for running containers in in\nFirecracker VMs, and snapshotting and\nrestoring them.\nSo, for example,\num, you can run Alpine, and it's super\nfast, and\nyou can snapshot running VM, and it's\nsuper fast.\nYou can like fork a VM, also very fast.\nUm, this is a little benchmark for TTI,\nso basically how long it takes for the\nVM to become, uh, interactable with the\ninternet.\nSo, this is, uh,\nbut we're doing like 15,000\nVM starts per minute. Um, you can almost\nrender, uh,\nlike a video. The the FPS would be about\n30 FPS. Um,\nso it's it's extremely extremely fast.\nUm,\nso this is going to be powering sort of\nour future like compute layer, but it's\nopen source. Um, not yet, but very soon.\nUm,\nso kind of back to where we started with\nour little agent loop here,\nand, um, we've sort of made it durable\nnow by doing two different things,\ncontext log and execution snapshot. So,\nwe got durability across versions,\ndurability across turns, across\nfailures, and I think this will lead to\na future of, you know, stateful compute.\nThat's it.\nYeah.\n>> [applause]\n[music]",
+  "segments": [
+    {
+      "text": "[music] >> How's everyone doing? It's a full room. Look at this thing. >> [laughter] >> Um okay, let's get started. Um okay. So, here is our, you know, agent. You know, it's got the turn loop, it's got the LM loop. You know, this",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "little example sort of works well enough running on your own machine, but what if we want to sort of deploy these two production backends and, you know, run them on our servers? So, what do we want them to do, right? When they run on our servers, we want",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "them to do, you know, long-running meaningful work. Uh should be durable across turns and and versions of our code, and it should be able to, you know, recover from errors. So, I'm Eric, I'm one of the founders of trigger.dev, and we've been sort of",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "trying to make it easy to deploy these types of agents to production for the last few years. Um what I like about this uh little meme here is, which one is the agent and which one is the human? I think I think. >> [laughter] >> Yeah.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Uh yeah. So, uh this talk is sort of about like the fundamental shift that agents are like posing to backend infrastructure and some of the ideas for sort of how to achieve these durable agents. So, before we go into that, I want to do",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "a little history lesson here. Um take a step back and see sort of how we got here. So, the very first dynamic web backend was CGI back in 1993. Anyone here ever done CGI stuff? >> [laughter] >> Cool. Nice. Uh so, the model was really simple. Uh",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "HTTP HTTP request comes in, the server forks a whole new process. Request data goes in, the process does some stuff, and then it writes the response to standard out, and then the process goes away. Go So, it's completely stateless.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "Um shortly after that, uh PHP came out, which sort of turned into the LAMP stack. and oops. Um so, sort of uh the LAMP stack sort of reused the PHP process, right? Um but, it kept sort of the principle that like all you needed",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "to do to create a response was the request, some state from the database, um and then it would do the request. So, the second request would come in, and it would do all the same work again, and it would produce the response. So, this is",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "sort of request plus DB equals the responses sort of became known as the shared nothing architecture, right? So, looking at another way, shared nothing sort of means that the compute layer is stateless, right? There's nothing There's no meaningful state like",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "in the compute. The state is in the in the database, right? So, this became the dominant backend infrastructure for the last 30 years, right? Everything that followed from this, like uh Ruby on Rails, Node.js, serverless, it all follows the same",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "paradigm, right? Um as web applications became more uh you know, complicated and sophisticated, they started performing these like sort of side effects outside of the request and DB life cycle. Um these side effects are async tasks.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "So, they you know, started out simple, let's send an email, charge a credit card, you know, resize an image. But soon they became sort of these like multi-step side effects, right? That like this process order example here. Um where you sort of do things in",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "sequence, right? Uh you'd quickly run into a problem how to handle failures in something like this, right? So, if send receipt fails, uh you can't just retry the whole process order thing again um without charging the credit card again twice, which is bad.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "So, about 10 to 15 years ago, workflow and durable execution engines were sort of adopted to solve this problem, right? So, you'd write your code like this now, where you sort of uh wrap every single side effect in like a step that becomes",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "cached as it's uh executed. So, now that, you know, solves the problem nicely. When you call process order for the second time, uh you skip the things you've already done, and then you do the thing that you want to do originally, right? And you don't charge",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "the credit card twice. So, this is uh I call this model sort of the replay model. Um so, it builds durable execution on top of existing like stateless compute architecture, which is I covered was the you know, that's how everything works,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "right? So, you know, you get this nice side effect of you get this execution history, this audit trail of everything that happened. Um and also by being able to sort of resume to a specific point in time, you can Yeah, you can re- recover from a",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "failure for that, but you can also like wait for something else to happen, right? Um so, you can wait for like a human to do something, and then you can resume execution. Um some of the downsides of this replay system is like because now you sort of",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "have to wrap everything in in these steps, and then everything outside of steps is has to be deterministic, you kind of get this like uh rigid structure. You have to write your code in a certain way, or things break. Um and also like replay journaling uh re-",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "the replay journal versioning is is kind of tricky if you deploy a new version. So, this is sort of the very simple and truncated history of like sort of the state of the world in 2023 when LLMs came out. Um At first, they really fit neatly into",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "this paradigm, right? They would just become another step in a workflow, right? Um they would uh they would classify some text or something, but it was still in this old workflow era, right? Uh not long after that, we sort of got",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "tool calling, and tool calling got good, and we were sort of introduced to the agent loop, right? The big difference there is code is sort of no longer orchestrating the LLM. LLM sort of orchestrates the code, right? So, we're back at our agent loop, right?",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "And like what happens if we uh Yeah, you can see that. Um if you can If basically we want to, you know, make this agent loop durable, and can we do it with this replay model, right? What does that look like? so, what does that look like? Every LLM",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "call, right, becomes a a step in in the replay uh journal. Uh every tool call becomes a step. Uh on resume, you know, the function re-executes on top and sort of replays all that stuff, right? Um so, after a single turn of uh the LLM",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "not doing too much, you know, this is sort of what the uh the replay log looks like, right? And as you sort of keep interacting with the agent, the log grows and grows and grows. At a certain point, you might hit into some sort of like fundamental limit",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "of your replay system. Um that could be either like too many actual entries, or it could be like the entries get grow too large. but yeah, this sort of kind of falls over once you hit that limit. And sort of uh there's a this measure of like how long",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "agents uh can actually do meaningful work, and apparently it's doubling every 4 to 7 months. So, right now we're on about like a few hours, but like not too long from now we'll be on like multiple days of length as these agents build to",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "actually do meaningful work. So, you know, replay gave us these like sort of durable transactions, but you know, an agent isn't like a transaction, it's like a session, right? And it lasts like as long as the user wants it to",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "last. Uh multi-step workflows are sort of start and end, and sessions keep going for as long as possible. So, if we sort of take a step back and think about what an agent needs to be durable for like from first principles,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "um I think of it as like an agent sort of has these two halves, right? Um the first half is the context. So, this is all all your your system messages, user messages, tool calls, tool results, assistant responses, right? So, this is all like the actual",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "context, everything that went in and out of the LLM. so, this is extremely valuable, obviously. You want to make that durable, right? Um but, you also have this sort of execution layer. And as agents are like more complicated, doing more things,",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "they kind of want a machine, right? They want to be able to do stuff like they could do on your laptop, right? They want to be able to write files, use memory, like create subprocesses. And so, I I we I think of both of these",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "um as super valuable pieces of state, but they can be treated separately. So, the context is first and the most important, and it's just an append-only log of sort of everything that happened, right? Like I said. Um and you can make this log durable",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "using any sort of like primitive that already exists, like a database, object storage, like distributed file system. You know, there's a a ton of like technologies that are coming out that that are specialized in making this sort of thing durable, right?",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "And when that is durable, you When that context log is saved somewhere, now you can have durability across versions of your code, right? So, you upgrade your harness, and you can still use that same context, right? Um maybe the machine",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "crashes, and you can still that saved somewhere, so you can pick up where you left off, right? Um and append-only logs scale really well. Uh but, what about making this sort of execution side durable, right? Uh for these, you know, as I was saying, the",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "types of agents right now that are doing meaningful work, we there's a lot of state that happens in the compute layer that we might want to save. Maybe you've cloned a GitHub repo, you know, you've installed some packages, you've got some",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "data sets in memory, you're running a dev server, right? You sandbox in a subprocess, whatever it is, right? You can't really make that uh durable using a log. And how do we get this to work, right? So, you you have to wait for some amount",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "of time for the next user message, right? And we can't just keep the machine running. It'd be nice, but we can't. It'd be too expensive. So, instead of recreating the execution state from a log, we should use snapshot and restore. So, this allows us to",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "snapshot the machine, shut it down, save it to disk, and then when the user message comes in, we restore it, right? So, this gives us durability across turns. So, when the user goes to lunch, right? We don't have to run the machine the whole time. Uh it",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "allows us to preserve everything that the agent was doing. Uh, and you know, effectively compared to running the machine um, live, it's pretty cheap. So, I think if you combine these two things, then you sort of get a durable agent, right? Um, you've got the",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "context, so you're sort of uh, yeah, you're context durability and execution durability, right? Um, and this also allows you to cover recover from errors. So, one of the whole whole points of having these like durability guarantees is to recover,",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "right? And so, it depends on what happened, what went wrong, you can come recover in different ways. So, say the LLM isn't working for some reason. That never happens, but you never know, it could happen. Um, and it takes a long",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "time to like retry. Maybe it says like wait wait, you know, 15 minutes, so you retry your next message. Well, you don't want to wait in memory, so you snapshot, and then you restore when you can retry. But, if there's something wrong with the",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "machine, uh, maybe you've like shipped a bug, or maybe there's just a an issue with the machine, right? It crashes. You have the context log, and you can recover that. So, I think, you know, for 30 years we sort of had this, uh, stateless compute",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "as the sort of core of back-end infrastructure. And I think agents are sort of forcing this, uh, move to become stateful compute. So, and sort of at the heart of that, I think, is is going to have to be this snapshot and restore, uh, capability.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "Um, but sort of, you know, this isn't actually new. Um, this is an IBM mainframe from 1966, and it actually has checkpoint and and restore. Um, cuz they would run these super expensive jobs for hours, and, you know, something went",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "wrong, and they could couldn't afford to run it all again, so they would add these like checkpoints into their code, right? Fast forward to 2011, a thing called CRIU was um, developed. It was a way to like suspend and restore a",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "uh, a process like from user space. So, it would basically like inject a process with this like a parasite, basically. And then they would force the process to like dump everything to memory, and then it would remove all the traces of the",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "parasite, and it actually worked. Um, in 2024, we actually shipped this, um, and we've done millions of snapshot restores since. You know, it's transparent to the process, so the process doesn't have to like participate in it, and it's compatible with",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "container runtimes, which is good. So, the downsides are you sort of can only checkpoint like a process. So, if you're doing stuff with like FFmpeg, or like you've got a Chrome instance running, or anything else, right? It sort of doesn't work. Uh, it only",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "captures open files, so if you're working with the file system, it has to be open at the time of snapshot, or you won't get snapshot. And then it also, if you it yeah, it's nice that it's compatible with containers, but once you",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "are compatible with containers, you have to work with registries and push and pull, and then it gets very slow. Uh, so last year we moved to, um, Firecracker micro VMs. And this allows us to sort of snapshot like the entire machine, right? So,",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "everything that's is on a machine on a VM, we can snapshot it, and then we can restore it, and it pick up right where it left off, no matter what was happening in the machine, right? But, if you do that it's sort of, uh, in a naive way, uh,",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "it can be quite expensive. So, say you have a default machine size of 512 megabytes, you know, uh, if you do a snapshot, it's 512 megabytes on disk. So, that's that's not great. Um, so obviously you've got like network network transfer costs, you've got",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "storage costs, and there's a lot of memory there that's not actually being used. Uh, so we actually solved this with, uh, compressing it. Uh, we actually use a a seekable compression. Um, so when we restore, we actually don't restore all the memory pages at",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "once. We actually like capture when it needs to be restored, and just like decompress like that little bit that needs to be um, restored at time. We also have a couple other techniques for layering the snapshot, and we can get",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "the the, um, snapshot down to like 14 megabytes compressed. And that's sort of like a knob you can tweak, and um, depending on how perform what kind of performance you want. Um, you can compress more or less. Um, so that's pretty much all we had to",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "do other than all of that. Um, and once we did that, uh, we we got super fast snapshot and restore times. So, this is a sort of a stupid graph, uh, comparing CRIU and Firecracker, but it's basically the the moral of the story is that snapshots are like",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "slightly under a second, and restores are a couple hundred milliseconds. Um, we've actually bundled all of this into, uh, tool that's going to be open source here soon. Uh, it's called FC Run, or F Crun, depending on who you ask. Um, so this",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "allows you it's like a Docker-like CLI, so you can drop in replacement for like the Docker command, uh, for running containers in in Firecracker VMs, and snapshotting and restoring them. So, for example, um, you can run Alpine, and it's super fast, and",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "you can snapshot running VM, and it's super fast. You can like fork a VM, also very fast. Um, this is a little benchmark for TTI, so basically how long it takes for the VM to become, uh, interactable with the internet. So, this is, uh,",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "but we're doing like 15,000 VM starts per minute. Um, you can almost render, uh, like a video. The the FPS would be about 30 FPS. Um, so it's it's extremely extremely fast. Um, so this is going to be powering sort of our future like compute layer, but it's",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "open source. Um, not yet, but very soon. Um, so kind of back to where we started with our little agent loop here, and, um, we've sort of made it durable now by doing two different things, context log and execution snapshot. So,",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "we got durability across versions, durability across turns, across failures, and I think this will lead to a future of, you know, stateful compute. That's it. Yeah. >> [applause] [music]",
+      "start": 390,
+      "duration": 6
+    }
+  ]
+}

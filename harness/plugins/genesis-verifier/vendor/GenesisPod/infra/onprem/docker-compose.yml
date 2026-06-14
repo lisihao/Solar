@@ -1,0 +1,158 @@
+# GenesisPod - On-Prem / 客户离线部署 Compose（初稿）
+#
+# 详细使用步骤见同目录 README.md。
+#
+# 与根目录 docker-compose.yml（开发用）的关键区别：
+#   - 不暴露 postgres / redis / flaresolverr 的宿主机端口（防客户直连 DB 读业务数据）
+#   - 只有 frontend (3000) 对外暴露，作为唯一入口（建议客户再套一层 nginx + TLS）
+#   - 使用 image: 引用预编译镜像，不带 build:（避免客户拿到 src/ 源码）
+#   - backend volume 挂载 /app/public/thumbnails 和 /app/exports 做持久化
+
+services:
+  # ── 基础设施 ──────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: genesis-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-genesis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-genesis}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-genesis}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # 故意不写 ports —— DB 仅 docker network 内可见，客户不应 psql 直连
+
+  redis:
+    image: redis:7-alpine
+    container_name: genesis-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: genesis-flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - TZ=${TZ:-Asia/Shanghai}
+    restart: unless-stopped
+
+  # ── 业务服务（预编译镜像，不暴露源码）────────────────────
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/genesis-release/genesis-backend:latest}
+    container_name: genesis-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      # 数据库 / 缓存 —— 走 docker network，服务名解析
+      DATABASE_URL: postgresql://${POSTGRES_USER:-genesis}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-genesis}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # ★ 2026-05-27: BullMQ / cache.module 走 REDIS_URL (host:port 单字符串不识别);
+      #   不设这个 backend 默认 fallback 127.0.0.1:6379 ECONNREFUSED 风暴。
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379/0
+      # 应用密钥（详见 .env.production.example）
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (>= 32 chars random)}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET must be set}
+      # 用户数据加密密钥（BYOK key / settings / secrets 都用它加密落 DB）
+      # NODE_ENV=production 时强制要求，生成方式：openssl rand -hex 32
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:?SETTINGS_ENCRYPTION_KEY must be set (openssl rand -hex 32)}
+      # 存储管理 API 访问令牌（StorageGovernanceController 启动时强校验）
+      STORAGE_ADMIN_KEY: ${STORAGE_ADMIN_KEY:?STORAGE_ADMIN_KEY must be set (openssl rand -hex 32)}
+      # 管理员邮箱白名单（仅 warn，不阻塞启动，但生产建议设）
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-${ADMIN_INITIAL_EMAIL}}
+      # 前端 URL（backend 拼跳转链接用）
+      FRONTEND_URL: ${FRONTEND_URL:-${PUBLIC_BASE_URL:-http://localhost:${FRONTEND_PORT:-3000}}}
+      ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-admin@genesis.local}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:?ADMIN_INITIAL_PASSWORD must be set for first boot}
+      # ★ Google OAuth (可选): 想用 "Continue with Google" 必须在 Google Cloud
+      #   Console 创建 OAuth 2.0 Client ID + 加 redirect URI 到 GOOGLE_CALLBACK_URL,
+      #   然后填这 3 个 env vars。空值时 Google 登录按钮点击会失败 (401 from Google)。
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-}
+      # 本地模型友好的 mission liveness 阈值 (可选, 默认 frontier model 严格阈值)
+      PLAYGROUND_WALL_TIME_CAP_MS: ${PLAYGROUND_WALL_TIME_CAP_MS:-}
+      PLAYGROUND_STALE_THRESHOLD_MIN: ${PLAYGROUND_STALE_THRESHOLD_MIN:-}
+      PLAYGROUND_SOFT_WARN_THRESHOLD_MIN: ${PLAYGROUND_SOFT_WARN_THRESHOLD_MIN:-}
+      # 外部依赖
+      FLARESOLVERR_URL: http://flaresolverr:8191/v1
+      # 品牌（可选自定义；不填用 GenesisPod 默认）
+      BRAND_NAME: ${BRAND_NAME:-GenesisPod}
+      BRAND_FULL_NAME: ${BRAND_FULL_NAME:-GenesisPod}
+      # LLM 由用户 BYOK（admin 后台配置），不要在这里塞 OPENAI_API_KEY 等
+    volumes:
+      - backend_thumbnails:/app/public/thumbnails
+      - backend_exports:/app/exports
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+
+  ai-service:
+    image: ${AI_SERVICE_IMAGE:-ghcr.io/genesis-release/genesis-ai-service:latest}
+    container_name: genesis-ai-service
+    environment:
+      PORT: 8000
+      # ai-service 同样应该走 BYOK / 从 backend 拿配置，不在此塞 key
+    restart: unless-stopped
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/genesis-release/genesis-frontend:latest}
+    container_name: genesis-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      # server-side rewrites 用的内网地址（Next.js 进程内代理转发）
+      # 这两个变量在 next.config.js 里被 server runtime 读，浏览器拿不到
+      API_INTERNAL_URL: http://backend:4000
+      NEXT_PUBLIC_AI_URL: http://ai-service:8000
+      # 浏览器侧 API URL：客户只需配对外域名 / 留空走同源
+      NEXT_PUBLIC_API_URL: ${PUBLIC_BASE_URL:-}
+      # 品牌透传
+      NEXT_PUBLIC_BRAND_NAME: ${BRAND_NAME:-GenesisPod}
+      NEXT_PUBLIC_BRAND_FULL_NAME: ${BRAND_FULL_NAME:-GenesisPod}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+    # 注意：NEXT_PUBLIC_* 是 build-time 注入的。如果客户要改品牌名，
+    # 需要重新 build frontend 镜像。初稿先用 runtime env 覆盖，
+    # 品牌名运行时改不动的情况告知客户。
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_thumbnails:
+  backend_exports:
+
+networks:
+  default:
+    name: genesis-network

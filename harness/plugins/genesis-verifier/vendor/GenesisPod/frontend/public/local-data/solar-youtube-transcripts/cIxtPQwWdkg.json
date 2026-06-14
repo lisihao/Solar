@@ -1,0 +1,324 @@
+{
+  "videoId": "cIxtPQwWdkg",
+  "title": "SREcon26 Americas - Observability for LLMs: Understanding What’s Happening Under the Hood",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 15652,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi everyone. Today I will be giving a\ntalk on the observability for LLMs. Uh\nthis uh\ntalk is about a very practical question.\nOnce we put LLM systems uh LLMs into\nreal-world systems, how do we operate\nthem reliably?\nMost of us in this room are familiar and\nhave a very strong mental model about uh\nobservability and how to monitor metrics\nsuch as latency, uh error rate, uh\nresource health, etc. That knowledge is\nhelpful, but when your uh\ncore dependency of the system is a\nmodel,\nthe entire shape of the system changes.\nUh today I will be going over uh a\npractical uh\nmodel on how to observe these systems,\nuh what key signals that uh we need to\nmonitor, what new failure modes show up,\nand uh lastly, how can we start building\nan observability stack uh for those\nsystems.\nSo, why does this matter now? Uh\nincreasingly, LLM systems are moving\ninto real-world systems and out of\nexperiments. So, uh\nproducts like support uh systems,\ncopilots, search, uh and user-facing\nproducts are increasingly being powered\nby LLMs.\nHowever, the teams are still uh\nmonitoring them using traditional\nservice dashboards, and that creates a\nblind spot.\na request can be successful. However, uh\nthe model output can still be incorrect,\nuh can be uh\nun-useful to the user, or can be unsafe.\nAnd\nit does not even show the whole picture.\nLike for instance, did the model\ncall the right tool? Did the model\ngot the right\ndid we retrieve the right context, right\ndocuments to answer the answer the\nuser question?\nSo, the key\nmental model for LLM applications is to\nobserve the entire workflow, not just\nthe endpoint.\nSo, let's talk about how an LLM\napplication actually works.\nUsually,\npeople think of LLM applications as user\nsends a request and the model\nresponds with a\nwith an answer.\nHowever, more realistic\nworkflow looks like the following. User\nsends a request, the application creates\na prompt,\nit may also create embeddings, it may\nretrieve relevant documents from using a\nuh vector database, searching through a\nvector database, and then it may re-rank\nthose documents. Then it sends the\nprompt and the relevant context to the\nmodel.\nThe model may decide to use a tool.\nAnother model may be called to construct\nthe answer.\nThe app then formats the response and\nthen the app might run evaluations and\nsafety checks before returning the\nresponse to the user.\nthe back end workflow\ncomplex.\nSo,\nwhat is LLM observability? I like to\ndefine it as classical observability\nplus AI workflow visibility.\nSo, we still monitor the traditional\nmetrics like latency, errors,\navailability, throughput,\nbut we also monitor additional metrics\nsuch as model calls,\ntoken usage, cost,\nretrievals,\ntool calls, and also semantic health\nmetrics like quality signals, safety\ncheck, a safety\ngrounding score,\nusefulness through use user feedback.\nSo, operational health\nfocuses on did the application run? Did\nit return?\nDid it run fast? Whereas semantic health\nfocuses on\ndid the model did the application give\nthe correct response? Was was it\nfollowing the policy? Was and was it\nanswering based on the context?\nSo, how is LLM observability different?\nSo, firstly,\na 200 response only shows that uh\nthe\nuh the transport path was succeeded.\nHowever, it does not really show if the\noutput was\ncorrect. Was it useful to the user?\nSecondly,\nuh work now scales with token as well,\nnot just a request count. So, two\nuh similar requests uh\nwhat so\ntwo requests can have different\nuh amount of work. One request can be\ntiny and can just be a direct answer\nfrom the model. The second could be\nmultiple tool calls, multiple model\ncalls to to basically\nconstruct that answer. Thirdly,\nstreaming changes the latency\nuh since these applications are usually\nstreaming oriented. So,\ninstead of just looking at the end\nend-to-end latency of the application,\nuh usually in these type of applications\nthe time to first token matters more\nand has a higher impact on\nuser experience.\nFourth,\nuh the uh the pipeline it's a complex\npipeline as we\nwent through earlier.\nThese are\na set a series of\nlong chains of calls and it's not a few\nend API calls\nlike\nwe used to have in conventional\napplication.\nAnd lastly, the same endpoint can\ntrigger many different workflows. So,\nthis is especially important for us as\nan SREs\nbecause in traditional applications\nif you are tracing\nmultiple calls\nthrough an endpoint,\nthose usually follow a similar path.\nWhereas in whereas\nin an LLM application,\nthe the those multiple requests can have\nvery different paths and very varying\npaths and that leads to\ncomplexity.\nSo,\nI will go over\na practical example of what we learned\nat TikTok.\nInitially, we were\nuh monitoring the LLM application as a\nconventional application using\ntraditional service metrics like\nmonitoring like\nrequest rate, latency,\nerror rate,\nand resource usages.\nThe service\nthe service\nhealth usually looked healthy. However,\nuser experience told a different story.\nAnd we\nobserved that there was inconsistent\nquality,\nunexpected cost costs, and unpredictable\nbehavior\nworkflow behavior.\nAnd we quickly realized that we were\nmissing key metrics such as token usage,\ntime to first token,\nretrieval behavior, tool success rate,\nfinish reason, and quality signals.\nSo,\nthis slide basically shows\nhow\na classical service might be arranged.\nSo, for instance,\nfor instance, classical service would be\nsomething like there is a user request.\nIt goes to the back end and the back end\nbasically\ncompute does follow basically\ndoes the application\ndoes the application logic and then that\nrequest flows to a database\nand then once the database call is\nreturned, the response is returned to\nthe user. However, as we discussed\nearlier, the LLM application has\na long chain of steps\nthat it has to go through and that also\nleads to unpredictability into LLM\napplications.\nSo, what are the sources of\nunpredictability for LLM applications?\nSo,\nthe first is\nthe tokens are generated through a\nprobability distribution. So, each next\ntoken is generated\nthe model uses probability distribution\nand basically\ntries to\nfind the best find the token with the\nmost highest probability. That means\nthe same input can lead to different\noutputs.\nSecondly, small changes in prompts can\nlead to\nhighly variable outputs.\nThirdly,\ntwo requests can have\ndiffering\ndifferent context and different\ndocuments being injected into the into\nthe into the prompt and that could be\ndue to because the vector\nthe vector\ndatabase search is actually a nearest\nneighbor search. So, you can't So, the\nit is not really deterministic.\nFourth, uh\nas conversations get longer,\nuh context window increases, and this\nleads to higher\nuh memory usage, higher cache usage,\nuh that can also lead to\nincreased risk of truncations, and that\ncould lead to\nuh applications performing\nunpredictability.\nLastly,\nuh the underlying model or the provider\nchanges could lead to uh unpredictable\noutputs.\nSo,\nI like to basically divide the\nobservability of LLM applications into\nfour layers.\nThe first is user experience, what the\nuser actually feels.\nSecond is models and tokens. Basically,\nwhat did the model do, and how much work\nit had to do.\nRetrieval and tools, what context uh\ndid the application require\nuh to basically build the answer.\nAnd lastly, infrastructure and uh\nserving, what uh happened in the\nunderlying hardware\nuh while generating the response.\nSo,\nlet's uh look at the\nuh first layer, user experience signals.\nSo, in this uh layer, we focus on these\nkey metrics, end-to-end latency, time to\nfirst token,\ntime per output token, success rate, uh\nuser feedback, retry rate, and\nabandonment rate.\nUh the key over here is that in\nstreaming systems,\ntime to first token\nuh is highly important to measure, and\nnot just end-to-end latency.\nSecond layer is model and token signals.\nIn this, we measure token usage, cost\nper request, finish reason,\nuh model provider underlying, uh prompt\nversion, and number of model calls per\nrequest.\nSo, this layer basically focuses on\nuh observing tokens. So, we instead of\nthinking of in terms of requests, uh we\nstart thinking about tokens\nin this layer.\nThird layer is retrieval and tool\nsignals.\nIt focuses on\nthe signal the key signals for this\nlayer is basically retrieval latency,\nempty retrieval rate, retrieval doc\ncount, uh tool success count,\ntool success rate,\ntool latency, etc.\nSo, this basically\ngives us a picture that\nthat\nthe model might not be the problem. It\ncould be the\nretrieval flow that might be the\nproblem. So, often\na bad output can be\na model can be blamed for that. However,\nit could be\nthe bad output could be due to\nempty\nempty retrievals,\nuh no\nappropriate documents being fetched. So,\nthose could also be the reasons for a\nbad output.\nSo, the last layer is basically\ninfrastructure and serving signals.\nSo, this basically\nSo, the key signals for this layer is\nbasically focuses on resource\nand node server\nnode server metrics. So, for instance,\nGPU utilization, GPU memory, KV cache\nusage, queue time, waiting request,\nrunning requests, node health. So, a lot\nof times user experience signals will\ngive us what the user actually\nexperienced. However, it might not show\nwhy it really happened. And this is\nwhere\nthese signals help in basically figuring\nout what really actually happened and\nthat might have caused that.\nSo, putting the layers together. So, for\ninstance, if we\nobserve\na rise in latency, that could be due to\nthe prompts might just have gotten\nbigger.\nRetrieval might be slower.\nOr there might be\nlots of\nrequests being queued.\nAnother\nexample could be we observe a\ndrop in quality. That could be due to\nthe retrieval might have weakened. The\nretrieval score might have dropped.\nTruncation might have increased.\nTools\ntool failure rate might have increased\nor the underlying model might have\nchanged.\nWhat\nthe cost\nfor a\na few reasons for rising cost could be\ngrowth in tokens.\nExtra model calls.\nOr prompt load.\nThroughput drop can be due to\nincrease in traffic,\nincrease in context, or GPU memory\npressure.\nSo,\nwhen instrumenting LLM workloads, we\nshould not just instrument the model\ncall,\nthe request to the model and the\nresponse. We should\ntrace the entire workflow. So, like as\nwe discussed earlier,\ngoing through the going through all\nthese steps, the prompt construction,\nretrieval steps,\nmodel call steps,\nand then the\nresponse construction steps.\nAnd evaluations. And for each for the\nentire trace, we should attach\nmetadata such as model name, provider,\nprompt version, the time the request\ntook, the tenant, and retrieve doc IDs.\nSo, this is\nhow a good trace should\nlook like. It should show the entire\nstory\nof the request of how\nbasically over here instead of just\nmonitoring the endpoint we are\nmonitoring the entire flow\nof the application\nand\nsince the\nLM applications take different paths it\nis extremely valuable\nfor LM applications to\nmonitor traces because in when debugging\nwhen debugging these systems it is\nthe traces matter more than because\nthe request can take different paths.\nLet's talk about\nsafe logging so by default we should log\nmetadata and\ncounts so for instance token counts\nmodel identity prompt version document\nIDs finish reason\nbut we should be careful\nuh uh when logging\nraw prompts raw completions\nsensitive user data we should\nemploy sampling and reduction to ensure\nthat we are not\nlogging sensitive user data.\napp signals\nfocus on user experience but\nwe also need to correlate with those\nsignals\nto GPUs\nor infrastructure metrics\nand\nthe way we do the way we base the way we\ncorrelate these app traces to resource\nand infrastructure signals is through\ncommon labels such as service\nuh pod namespace\nuh node\nuh model uh model name.\nSo,\nuh let's go over to some example\nincidents. So, for instance, in this\ncase,\nuh the uh\nsystem experienced\nuh a drop in quality.\nAnd uh the completion the user complaint\nstarted to increase. However,\nwe observe that the error rate is\ncompletely normal.\nBut digging deeper, we realize that GPU\nmemory usage has risen, cache usage has\nincreased, and the number of waiting\nrequests has also increased.\nSo, the fewer documents are being fit\ninto the requests, and more responses\nare being\nare basically being uh truncated. As a\nresult, the user\nuh the quality score has dropped for the\napplication. Uh so, this is a very AI\nkind of specific incident.\nthe model did not suddenly become\nuh dumb. The workflow degraded with\nuh uh with high with increasing\npressure.\nSecondly,\nuh another example is basically\nuh the request rate is stable. However,\nwe notice uh throughput uh uh drop, and\ntime to first token increase.\nAnd uh\ndigging deeper, we we realize that the\nuh number of input tokens per request\nhas increased.\nSessions have gotten long as sessions\nmight have gotten longer,\nuh or more documents were\nuh were attached to the uh requests,\nleading to\nhigher cache usage. Uh and as a result,\nuh the concurrency\nuh dropped, leading to uh lower\nthroughput\nand increasing latency.\nSo, in LLM systems,\nbigger requests often hurt more than\nmore requests.\nUh so, some of the practical\nmetrics and alerts\nthat we should uh\nthat we should have for LLM applications\nis uh\ntime to first token rising.\nUh the queue\nuh the number of requests waiting in the\nqueue\nthe\nGPU memory\nbeing near limit.\nUh tool success rate dropping.\nOther things that we should watch for\nregression are input tokens per request,\nuh empty retrieval rate, finish reason,\nlength increasing.\nAnd quality score dropping.\nSo,\nuh an observability stack uh that a\nsimple observability stack that can be\nbuilt\ncould be\nSo, for instance, for monitoring\napplication traces, we can\nuh use Open Telemetry standards to\ngenerate a metrics standards to\nto basically\nuh observe traces.\nAnd we should observe the entire\nworkflow rather than just the model\ncall.\nSecond is we can monitor\nuh metrics such as time to first token,\ntime per output token,\nuh queue time, model metrics through\nvLLM\nuh metrics.\nFor infrastructure,\nuh we can monitor GPU metrics such as\nutilization, memory through\nuh DCGM exporter.\nFor quality, we can run lightweight\nevaluations and\nalso monitor user feedback.\nand\nwe can combine these\nall these signals\nusing\nPrometheus and dashboard them using\nGrafana or any other\nany other\nvendors that you\nthat you might be comfortable with.\nSo the mental model for LLM applications\nso we have traditional observability\nwhere we focused on is the application\nup is the application fast and is it\nerror-free?\nBut LLM observability\nalso includes did the workflow behave\ncorrectly and in an expected manner?\nDid it answer well?\nDid it stay efficient?\nAnd\ndid the\nserving and infrastructure layer support\nthat outcome?\nat the end\nI would like to end with the three key\npoints that\nfor LLM applications\nwe need to we need to observe the entire\nworkflow not just the endpoint metrics.\nTokens\nretrieval and quality are first-class\nsignals here.\nThirdly\nwe should combine app traces with model\nserver metrics and GPU telemetry to get\nthe entire picture of the request.\nThis will help in\ndebugging the\nincidents that you encounter.\nSo this is all\nI had for today. Thank you.",
+  "segments": [
+    {
+      "text": "Hi everyone. Today I will be giving a talk on the observability for LLMs. Uh this uh talk is about a very practical question. Once we put LLM systems uh LLMs into real-world systems, how do we operate them reliably? Most of us in this room are familiar and",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "have a very strong mental model about uh observability and how to monitor metrics such as latency, uh error rate, uh resource health, etc. That knowledge is helpful, but when your uh core dependency of the system is a model,",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "the entire shape of the system changes. Uh today I will be going over uh a practical uh model on how to observe these systems, uh what key signals that uh we need to monitor, what new failure modes show up, and uh lastly, how can we start building",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "an observability stack uh for those systems. So, why does this matter now? Uh increasingly, LLM systems are moving into real-world systems and out of experiments. So, uh products like support uh systems, copilots, search, uh and user-facing",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "products are increasingly being powered by LLMs. However, the teams are still uh monitoring them using traditional service dashboards, and that creates a blind spot. a request can be successful. However, uh the model output can still be incorrect, uh can be uh",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "un-useful to the user, or can be unsafe. And it does not even show the whole picture. Like for instance, did the model call the right tool? Did the model got the right did we retrieve the right context, right documents to answer the answer the user question?",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "So, the key mental model for LLM applications is to observe the entire workflow, not just the endpoint. So, let's talk about how an LLM application actually works. Usually, people think of LLM applications as user sends a request and the model responds with a",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "with an answer. However, more realistic workflow looks like the following. User sends a request, the application creates a prompt, it may also create embeddings, it may retrieve relevant documents from using a uh vector database, searching through a",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "vector database, and then it may re-rank those documents. Then it sends the prompt and the relevant context to the model. The model may decide to use a tool. Another model may be called to construct the answer. The app then formats the response and",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "then the app might run evaluations and safety checks before returning the response to the user. the back end workflow complex. So, what is LLM observability? I like to define it as classical observability plus AI workflow visibility.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "So, we still monitor the traditional metrics like latency, errors, availability, throughput, but we also monitor additional metrics such as model calls, token usage, cost, retrievals, tool calls, and also semantic health metrics like quality signals, safety",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "check, a safety grounding score, usefulness through use user feedback. So, operational health focuses on did the application run? Did it return? Did it run fast? Whereas semantic health focuses on did the model did the application give",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "the correct response? Was was it following the policy? Was and was it answering based on the context? So, how is LLM observability different? So, firstly, a 200 response only shows that uh the uh the transport path was succeeded.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "However, it does not really show if the output was correct. Was it useful to the user? Secondly, uh work now scales with token as well, not just a request count. So, two uh similar requests uh what so two requests can have different",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "uh amount of work. One request can be tiny and can just be a direct answer from the model. The second could be multiple tool calls, multiple model calls to to basically construct that answer. Thirdly, streaming changes the latency",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "uh since these applications are usually streaming oriented. So, instead of just looking at the end end-to-end latency of the application, uh usually in these type of applications the time to first token matters more and has a higher impact on user experience.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "Fourth, uh the uh the pipeline it's a complex pipeline as we went through earlier. These are a set a series of long chains of calls and it's not a few end API calls like we used to have in conventional application. And lastly, the same endpoint can",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "trigger many different workflows. So, this is especially important for us as an SREs because in traditional applications if you are tracing multiple calls through an endpoint, those usually follow a similar path. Whereas in whereas in an LLM application,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "the the those multiple requests can have very different paths and very varying paths and that leads to complexity. So, I will go over a practical example of what we learned at TikTok. Initially, we were uh monitoring the LLM application as a",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "conventional application using traditional service metrics like monitoring like request rate, latency, error rate, and resource usages. The service the service health usually looked healthy. However, user experience told a different story. And we",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "observed that there was inconsistent quality, unexpected cost costs, and unpredictable behavior workflow behavior. And we quickly realized that we were missing key metrics such as token usage, time to first token, retrieval behavior, tool success rate,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "finish reason, and quality signals. So, this slide basically shows how a classical service might be arranged. So, for instance, for instance, classical service would be something like there is a user request. It goes to the back end and the back end basically",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "compute does follow basically does the application does the application logic and then that request flows to a database and then once the database call is returned, the response is returned to the user. However, as we discussed earlier, the LLM application has",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "a long chain of steps that it has to go through and that also leads to unpredictability into LLM applications. So, what are the sources of unpredictability for LLM applications? So, the first is the tokens are generated through a",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "probability distribution. So, each next token is generated the model uses probability distribution and basically tries to find the best find the token with the most highest probability. That means the same input can lead to different outputs.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "Secondly, small changes in prompts can lead to highly variable outputs. Thirdly, two requests can have differing different context and different documents being injected into the into the into the prompt and that could be due to because the vector the vector",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "database search is actually a nearest neighbor search. So, you can't So, the it is not really deterministic. Fourth, uh as conversations get longer, uh context window increases, and this leads to higher uh memory usage, higher cache usage,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "uh that can also lead to increased risk of truncations, and that could lead to uh applications performing unpredictability. Lastly, uh the underlying model or the provider changes could lead to uh unpredictable outputs. So, I like to basically divide the",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "observability of LLM applications into four layers. The first is user experience, what the user actually feels. Second is models and tokens. Basically, what did the model do, and how much work it had to do. Retrieval and tools, what context uh",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "did the application require uh to basically build the answer. And lastly, infrastructure and uh serving, what uh happened in the underlying hardware uh while generating the response. So, let's uh look at the uh first layer, user experience signals.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "So, in this uh layer, we focus on these key metrics, end-to-end latency, time to first token, time per output token, success rate, uh user feedback, retry rate, and abandonment rate. Uh the key over here is that in streaming systems, time to first token",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "uh is highly important to measure, and not just end-to-end latency. Second layer is model and token signals. In this, we measure token usage, cost per request, finish reason, uh model provider underlying, uh prompt version, and number of model calls per",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "request. So, this layer basically focuses on uh observing tokens. So, we instead of thinking of in terms of requests, uh we start thinking about tokens in this layer. Third layer is retrieval and tool signals. It focuses on the signal the key signals for this",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "layer is basically retrieval latency, empty retrieval rate, retrieval doc count, uh tool success count, tool success rate, tool latency, etc. So, this basically gives us a picture that that the model might not be the problem. It could be the",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "retrieval flow that might be the problem. So, often a bad output can be a model can be blamed for that. However, it could be the bad output could be due to empty empty retrievals, uh no appropriate documents being fetched. So,",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "those could also be the reasons for a bad output. So, the last layer is basically infrastructure and serving signals. So, this basically So, the key signals for this layer is basically focuses on resource and node server node server metrics. So, for instance,",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "GPU utilization, GPU memory, KV cache usage, queue time, waiting request, running requests, node health. So, a lot of times user experience signals will give us what the user actually experienced. However, it might not show why it really happened. And this is",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "where these signals help in basically figuring out what really actually happened and that might have caused that. So, putting the layers together. So, for instance, if we observe a rise in latency, that could be due to the prompts might just have gotten",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "bigger. Retrieval might be slower. Or there might be lots of requests being queued. Another example could be we observe a drop in quality. That could be due to the retrieval might have weakened. The retrieval score might have dropped.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "Truncation might have increased. Tools tool failure rate might have increased or the underlying model might have changed. What the cost for a a few reasons for rising cost could be growth in tokens. Extra model calls. Or prompt load.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "Throughput drop can be due to increase in traffic, increase in context, or GPU memory pressure. So, when instrumenting LLM workloads, we should not just instrument the model call, the request to the model and the response. We should",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "trace the entire workflow. So, like as we discussed earlier, going through the going through all these steps, the prompt construction, retrieval steps, model call steps, and then the response construction steps. And evaluations. And for each for the",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "entire trace, we should attach metadata such as model name, provider, prompt version, the time the request took, the tenant, and retrieve doc IDs. So, this is how a good trace should look like. It should show the entire story of the request of how",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "basically over here instead of just monitoring the endpoint we are monitoring the entire flow of the application and since the LM applications take different paths it is extremely valuable for LM applications to monitor traces because in when debugging",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "when debugging these systems it is the traces matter more than because the request can take different paths. Let's talk about safe logging so by default we should log metadata and counts so for instance token counts model identity prompt version document",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "IDs finish reason but we should be careful uh uh when logging raw prompts raw completions sensitive user data we should employ sampling and reduction to ensure that we are not logging sensitive user data. app signals focus on user experience but",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "we also need to correlate with those signals to GPUs or infrastructure metrics and the way we do the way we base the way we correlate these app traces to resource and infrastructure signals is through common labels such as service uh pod namespace uh node",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "uh model uh model name. So, uh let's go over to some example incidents. So, for instance, in this case, uh the uh system experienced uh a drop in quality. And uh the completion the user complaint started to increase. However, we observe that the error rate is",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "completely normal. But digging deeper, we realize that GPU memory usage has risen, cache usage has increased, and the number of waiting requests has also increased. So, the fewer documents are being fit into the requests, and more responses are being",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "are basically being uh truncated. As a result, the user uh the quality score has dropped for the application. Uh so, this is a very AI kind of specific incident. the model did not suddenly become uh dumb. The workflow degraded with",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "uh uh with high with increasing pressure. Secondly, uh another example is basically uh the request rate is stable. However, we notice uh throughput uh uh drop, and time to first token increase. And uh digging deeper, we we realize that the",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "uh number of input tokens per request has increased. Sessions have gotten long as sessions might have gotten longer, uh or more documents were uh were attached to the uh requests, leading to higher cache usage. Uh and as a result, uh the concurrency",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "uh dropped, leading to uh lower throughput and increasing latency. So, in LLM systems, bigger requests often hurt more than more requests. Uh so, some of the practical metrics and alerts that we should uh that we should have for LLM applications is uh",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "time to first token rising. Uh the queue uh the number of requests waiting in the queue the GPU memory being near limit. Uh tool success rate dropping. Other things that we should watch for regression are input tokens per request,",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "uh empty retrieval rate, finish reason, length increasing. And quality score dropping. So, uh an observability stack uh that a simple observability stack that can be built could be So, for instance, for monitoring application traces, we can",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "uh use Open Telemetry standards to generate a metrics standards to to basically uh observe traces. And we should observe the entire workflow rather than just the model call. Second is we can monitor uh metrics such as time to first token,",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "time per output token, uh queue time, model metrics through vLLM uh metrics. For infrastructure, uh we can monitor GPU metrics such as utilization, memory through uh DCGM exporter. For quality, we can run lightweight evaluations and also monitor user feedback.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "and we can combine these all these signals using Prometheus and dashboard them using Grafana or any other any other vendors that you that you might be comfortable with. So the mental model for LLM applications so we have traditional observability",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "where we focused on is the application up is the application fast and is it error-free? But LLM observability also includes did the workflow behave correctly and in an expected manner? Did it answer well? Did it stay efficient? And did the",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "serving and infrastructure layer support that outcome? at the end I would like to end with the three key points that for LLM applications we need to we need to observe the entire workflow not just the endpoint metrics. Tokens",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "retrieval and quality are first-class signals here. Thirdly we should combine app traces with model server metrics and GPU telemetry to get the entire picture of the request. This will help in debugging the incidents that you encounter. So this is all",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "I had for today. Thank you.",
+      "start": 366,
+      "duration": 6
+    }
+  ]
+}

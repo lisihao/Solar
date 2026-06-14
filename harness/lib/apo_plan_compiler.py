@@ -29,7 +29,18 @@ HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
 LOGICAL_OPERATORS_PATH = HARNESS_DIR / "config" / "logical-operators.json"
 PHYSICAL_OPERATORS_PATH = HARNESS_DIR / "config" / "physical-operators.json"
 ARTIFACT_ADAPTER_REGISTRY_PATH = HARNESS_DIR / "config" / "artifact-adapter-capsules.registry.yaml"
-EFFECT_KEYS = ("read", "write", "execute", "network", "cost", "risk")
+EFFECT_KEYS = (
+    "read",
+    "write",
+    "execute",
+    "network",
+    "cost",
+    "risk",
+    "secret",
+    "verify",
+    "evidence",
+    "shell",
+)
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
@@ -150,6 +161,68 @@ def _union_effect_profiles(profiles: List[Dict[str, Any]]) -> Dict[str, List[str
         for key in EFFECT_KEYS:
             merged[key].extend(str(item) for item in (profile.get(key) or []))
     return {key: _dedupe(values) for key, values in merged.items()}
+
+
+def _annotate_execution_candidates(
+    candidates: List[Dict[str, Any]],
+    *,
+    selected_operator_id: str,
+) -> List[Dict[str, Any]]:
+    selected = str(selected_operator_id)
+    out: List[Dict[str, Any]] = []
+    for idx, candidate in enumerate(candidates):
+        operator_id = str(candidate.get("operator_id") or "")
+        is_selected = bool(operator_id) and operator_id == selected
+        out.append(
+            {
+                **candidate,
+                "selected": is_selected,
+                "rank": idx + 1,
+                "rejection_reason": "" if is_selected else (
+                    "no selected operator" if not selected else f"lower priority than {selected}"
+                ),
+            }
+        )
+    return out
+
+
+def _derive_enforcers_from_effects(*, effects: Dict[str, Any], node_id: str = "") -> List[Dict[str, Any]]:
+    payload = dict(effects or {})
+    enforcers: List[Dict[str, Any]] = []
+    if any(item.strip() for item in payload.get("secret", []) or []):
+        enforcers.append(
+            {
+                "enforcer_type": "secret_scrubber",
+                "insertion_point": "before_execution",
+                "enforcer_id": "guard.secret-leak-guard",
+                "policy_ref": "guard.secret-leak-guard",
+            }
+        )
+    for kind in ("network", "shell", "write", "cost"):
+        if any(item.strip() for item in payload.get(kind, []) or []):
+            enforcers.append(
+                {
+                    "enforcer_type": f"{kind}_governance_guard",
+                    "insertion_point": "before_execution",
+                    "policy_ref": str(node_id) or "node.policy",
+                }
+            )
+    return enforcers
+
+
+def _capsule_graph_for_plan_node(capsule_plan_node: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from capsule_graph import capsule_plan_node_to_capsule_graph  # noqa: WPS433
+
+        return capsule_plan_node_to_capsule_graph(capsule_plan_node)
+    except Exception as exc:
+        return {
+            "schema_version": "solar.capsule_graph.v1",
+            "original_capsule_plan_node": dict(capsule_plan_node or {}),
+            "nodes": [],
+            "edges": [],
+            "projection_error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def _proof_obligations(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -781,6 +854,12 @@ def build_physical_plan_for_capsule_node(
         )
         if execution_candidates:
             selected_operator_id = str(execution_candidates[0]["operator_id"])
+            execution_candidates = _annotate_execution_candidates(
+                execution_candidates,
+                selected_operator_id=selected_operator_id,
+            )
+        else:
+            execution_candidates = []
 
     verifier_plans = []
     for stage in verifier_stages:
@@ -873,6 +952,7 @@ def compile_execution_plan_for_node(
         registry_path=registry_path,
         goal_text=goal_text,
     )
+    capsule_graph = _capsule_graph_for_plan_node(capsule_plan)
 
     # ── Stage 4: Physical plan ────────────────────────────────────────────────
     physical_plan = build_physical_plan_for_capsule_node(
@@ -966,6 +1046,7 @@ def compile_execution_plan_for_node(
         "skill_plan": skill_plan,
         "mcp_plan": mcp_plan,
         "capsule_plan": capsule_plan,
+        "capsule_graph": capsule_graph,
         "capsule_plan_artifact": capsule_plan_artifact,
         "physical_plan": physical_plan,
         "physical_plan_artifact": physical_plan_artifact,
@@ -977,4 +1058,197 @@ def compile_execution_plan_for_node(
             "fallback_used": fallback_used,
             "fallback_reason": fallback_reason,
         },
+    }
+
+
+def compile_four_layer_chain(
+    node: Dict[str, Any],
+    *,
+    request_type: str = "",
+    lane_hint: str = "",
+    prefer_operator: str = "",
+    registry_path: Optional[Path] = None,
+    require_dispatchable: bool = False,
+    operators_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Compile one node through all four APO IR layers.
+
+    Returns TaskIR -> LogicalPlanIR -> CapsulePlanIR -> PhysicalPlanIR
+    with cross-layer trace IDs linking each layer.
+    """
+    import uuid
+
+    node_id = str(node.get("id") or "")
+    goal_text = str(node.get("goal") or request_type or "")
+
+    trace_id = str(uuid.uuid4())[:8]
+
+    # ── Layer 1: TaskIR ──────────────────────────────────────────────────────
+    task_ir_id = f"tir-{trace_id}"
+    task_classification = classify_task_goal(goal_text)
+    task_ir = {
+        "schema_version": "solar.task_ir.v1",
+        "task_ir_id": task_ir_id,
+        "goal": goal_text,
+        "success_criteria": list(node.get("acceptance") or []),
+        "task_types": [str(node.get("logical_operator") or "")],
+        "domain": task_classification.get("primary_class") or "",
+        "risk_level": (
+            "P0" if str(node.get("priority", "")).upper() == "P0" else
+            str(node.get("priority", "")).lower() if str(node.get("priority", "")).lower() in {"low", "medium", "high", "p0"} else "medium"
+        ),
+        "source_trace": {
+            "raw_intent_ref": str(node.get("goal") or ""),
+            "parent_epic_id": "",
+            "requirement_ids": list(node.get("requirement_ids") or []),
+        },
+    }
+
+    # ── Layer 2: LogicalPlanIR ───────────────────────────────────────────────
+    logical_plan_id = f"lpir-{trace_id}"
+    logical_operator = str(node.get("logical_operator") or "")
+    logical_plan_ir_node = {
+        "node_id": node_id,
+        "logical_operator": logical_operator,
+        "depends_on": list(node.get("depends_on") or []),
+        "goal": goal_text,
+        "acceptance": list(node.get("acceptance") or []),
+        "verifier_required": bool(node.get("verifier_required", False)),
+    }
+    logical_plan_ir = {
+        "schema_version": "solar.logical_plan_ir.v1",
+        "logical_plan_id": logical_plan_id,
+        "task_ir_id": task_ir_id,
+        "nodes": [logical_plan_ir_node],
+        "edges": [],
+        "required_gates": list(node.get("required_gates") or []),
+    }
+
+    # ── Layer 3: CapsulePlanIR ──────────────────────────────────────────────
+    capsule_plan_id = f"cpir-{trace_id}"
+    capsule_plan_node = build_capsule_plan_node(
+        node,
+        request_type=request_type,
+        lane_hint=lane_hint,
+        registry_path=registry_path,
+        goal_text=goal_text,
+    )
+    capsule_graph = _capsule_graph_for_plan_node(capsule_plan_node)
+    selected_capsule_id = capsule_plan_node.get("capability_capsule_id") or ""
+
+    capsule_candidates = []
+    if task_classification.get("primary_class"):
+        signals = [s["signal"] for s in task_classification.get("signals_detected", []) if s.get("weight", 0) > 0]
+        raw_candidates = query_capability_capsules(
+            task_type=task_classification["primary_class"],
+            signals=signals,
+            capsule_kind="capability",
+            registry_path=registry_path,
+        )
+        for cand in raw_candidates:
+            cid = cand["entry"]["capability_capsule_id"]
+            is_selected = bool(selected_capsule_id) and cid == selected_capsule_id
+            capsule_candidates.append({
+                "capsule_id": cid,
+                "match_reason": f"Score {cand['score']}",
+                "rejection_reason": "" if is_selected else f"lower score than {selected_capsule_id}" if selected_capsule_id else "not selected",
+                "rank": len(capsule_candidates) + 1,
+            })
+    if not capsule_candidates and selected_capsule_id:
+        capsule_candidates.append({
+            "capsule_id": selected_capsule_id,
+            "match_reason": "static_default_fallback",
+            "rank": 1,
+        })
+
+    capsule_plan_ir_node = {
+        "node_id": node_id,
+        "selected_capsule_id": selected_capsule_id,
+        "capsule_kind": "capability",
+        "candidate_capsules": capsule_candidates,
+        "effect_model": dict(capsule_plan_node.get("effect_union") or {}),
+        "explain": {
+            "why_selected": (capsule_plan_node.get("selection_mode") or "logical_operator_default") if isinstance(capsule_plan_node, dict) else "logical_operator_default",
+            "why_rejected": [],
+            "compat_fallback": bool(capsule_plan_node.get("fallback_used", False)),
+        },
+    }
+    capsule_plan_ir = {
+        "schema_version": "solar.capsule_plan_ir.v1",
+        "capsule_plan_id": capsule_plan_id,
+        "logical_plan_id": logical_plan_id,
+        "nodes": [capsule_plan_ir_node],
+    }
+
+    # ── Layer 4: PhysicalPlanIR ──────────────────────────────────────────────
+    physical_plan_id = f"ppir-{trace_id}"
+    physical_plan_node = build_physical_plan_for_capsule_node(
+        capsule_plan_node,
+        prefer_operator=prefer_operator,
+        require_dispatchable=require_dispatchable,
+        operators_path=operators_path,
+    )
+
+    selected_operator_id = physical_plan_node.get("selected_operator_id", "")
+    execution_candidates = physical_plan_node.get("execution_candidates", [])
+    rejected_candidates = [
+        {
+            "operator_id": c["operator_id"],
+            "selected": False,
+            "rejection_reason": c.get("rejection_reason") or ("lower priority" if c.get("operator_id") != selected_operator_id else ""),
+            "rank": idx + 1,
+        }
+        for idx, c in enumerate(execution_candidates)
+        if c.get("operator_id") != selected_operator_id
+    ]
+
+    effect_derived_enforcers = _derive_enforcers_from_effects(
+        effects=dict(capsule_plan_node.get("effect_union") or {}),
+        node_id=node_id,
+    )
+
+    physical_plan_ir_node = {
+        "node_id": node_id,
+        "selected_operator_id": selected_operator_id,
+        "execution_candidates": [
+            {
+                "operator_id": c["operator_id"],
+                "selected": c.get("selected", c.get("operator_id") == selected_operator_id),
+                "rejection_reason": c.get("rejection_reason", "" if c.get("operator_id") == selected_operator_id else "lower priority"),
+                "rank": idx + 1,
+            }
+            for idx, c in enumerate(execution_candidates)
+        ],
+        "binding_evidence": {
+            "traits_match": bool(selected_operator_id),
+            "skills_match": bool(selected_operator_id),
+            "evidence_score": float(execution_candidates[0]["priority"]) / 30 if execution_candidates else 0,
+        },
+        "attached_enforcers": effect_derived_enforcers,
+        "evidence_obligations": [
+            {
+                "obligation_type": "test_result",
+                "artifact_path": f"tests/results-{node_id}.json",
+                "ledger_event": f"apo.node.{node_id}.completed",
+            }
+        ],
+    }
+    physical_plan_ir = {
+        "schema_version": "solar.physical_plan_ir.v1",
+        "physical_plan_id": physical_plan_id,
+        "capsule_plan_id": capsule_plan_id,
+        "nodes": [physical_plan_ir_node],
+    }
+
+    return {
+        "trace_id": trace_id,
+        "task_ir": task_ir,
+        "logical_plan_ir": logical_plan_ir,
+        "capsule_plan_ir": capsule_plan_ir,
+        "physical_plan_ir": physical_plan_ir,
+        "capsule_graph": capsule_graph,
+        "selected_operator_id": selected_operator_id,
+        "selected_capsule_id": selected_capsule_id,
+        "rejected_candidates": rejected_candidates,
+        "effect_derived_enforcers": effect_derived_enforcers,
     }

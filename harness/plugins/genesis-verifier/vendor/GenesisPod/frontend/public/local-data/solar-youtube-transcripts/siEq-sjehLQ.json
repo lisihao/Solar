@@ -1,0 +1,504 @@
+{
+  "videoId": "siEq-sjehLQ",
+  "title": "Configuring and Debugging the Physical Layer in SONiC",
+  "channelName": "Open Compute Project",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 24309,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "1 2, 1 2. Okay, welcome back after our\ncoffee break.\nYou still\nif you had a chance to scan and get us a\nget us a feedback,\nyou will have that chance to maybe do it\nagain in the end.\nMaybe before we will start and I will\ngive the voice to to to Bobby. Once\nagain, I reminding that we have some\nnice t-shirt, maybe not around right\nnow, but there will be definitely a time\nafter.\nThe Sonic t-shirts are really limited. I\neven I don't have my one yet and\nhopefully one will stay or will left,\nyeah. So,\nstage is yours.\n>> Thank you very much. Hi, everyone. My\nname is Bobby McAuliffe. I'm a software\nengineer at Next up AI in the layer one\nteam.\nToday my talk is on configuring and\ndebugging the physical layer in Sonic,\nso that's everything from ASIC series\nand optics through to the CLIs that\nyou'll actually use when you when you\nhave a link issue.\nThere's some theory that we'll need to\ngo through, but I'm not going to go\nthrough stuff like the the L1 sublayers.\nIt's going to keep it just kind of to\nthe to the bare minimum that's needed to\nunderstand the the debug outputs that\nSonic has.\nWe'll look a little bit at what's\nchanging L1 and you know, what what's\nbeen added to Sonic in the last year.\nSo, adding all that together into some\nform of repeatable debug workflows.\nSo, why does layer one matter now, you\nknow, in this AI world? Well, every\npacket, every sensor,\nevery tensor rides on layer one. So, for\nAI training that means GPU the GPU\nfabric latency and loss directly hit\ntimes train.\nBursts and marginal links are tail\nlatency killers. Tail latency being the\nmeasurement of the delay experienced by\nthe slowest packets.\nSo, if L1 is broken, nothing else works,\nyou know, and that's where AI is\ndifferent as it has desynchronization\npoints that are tightly coupled to GPU\nutilization. So, tail latency almost\ndirectly translates into worse job\ncompletion time and GPU burn.\nYou know, in a in a general cloud or or\nenterprise, the same tail effects do\nexist, but you know, they might be\nspread across independent user requests\nrather than a a single global training\nstep.\nWhen we're talking about layer one in\nSONiC, I'm talking about pretty much\neverything from the ASICs internal\nserdes out to the cable or the fiber.\nYou know, so that's the electrical\nlanes, that's FEC, that's modulation,\nthat's transceiver control, and and the\npath that programs them in SONiC.\nReally getting L1 right means that all\nof these different hardware pieces\nuse the exact same configuration and the\nhardware state actually correctly\nreflects that.\nSo, SONiC's kind of L1 origins are\nobviously kind of baked into hyperscale,\nand it did all kind of just work, you\nknow, with a with a couple caveats. One\nbeing that you're using these kind of\nfixed static configurations, you'd load\nthem onto the device, and you wouldn't\nreally change them.\nYou're generally using kind of copper\nDACs at lower speeds, which were kind of\nforgiving, and you weren't using optics\nwith DSPs or using any kind of breakout\nconfigurations.\nOnce the the configuration was there,\nyou know, you weren't doing anything\ndynamic really at runtime, no CLI, no\nspeed change, those kind of things.\nAnd it all kind of worked happily as\nlong as you didn't go too far off the\nbeaten path. So, I talked about, you\nknow, the internal the internal phi\nserdes, and you know, something like\nhaving an external phi where there's\nanother phi chip sitting in between the\ninternal ASIC and the front panel. That\ncan be there for a couple different\nreasons like, you know, if there's too\nmuch trace loss, you know, you might\nneed to retime the signal. You might\nwant to convert X number of lanes to Y\nnumber of lanes on the front panel.\nThere's a few different reasons, but it\njust adds another configuration\nparameter, and you know, those type of\nthings diverting off the happy path just\ndidn't really play well with kind of\nSONiC's early early origins.\nSo, it did have some quirks, and they\nwere all kind of generally fine as long\nas you you knew its limits, so.\nBreakout limitations. When I'm talking\nabout breakouts, I mean, you have say an\n800G front panel port and you logically\nsplit that up into sub interfaces. So,\nyou know, an 800G port can be broken up\ninto 2 by 400G or 8 by 100G, for\nexample.\nTo actually get these front panel port\nconfigurations, you have the concept of\na hard rescue and a hard rescue profile.\nSo, these are kind of, you know, fixed\nfront panel port configurations and you\nhave to change them and request a new\nhard rescue from a vendor when you want\na different front panel port layout.\nAnd generally,\nyou know, that could take some time or\nyou could try to come up with your own,\nbut if you don't know much about the\nhardware underneath, it's kind of tough\nto do that.\nFrom an operator's point of view, it was\nsomewhat inconsistent. So, you know,\ninterface ranges is a good example.\nSome supported interface ranges, some\ndon't. So, you kind of have this lack\nconsistency across across the device.\nAnd it also lacked some of the essential\ncommands that you'd need. So, changing\nhard rescue, maybe inspecting\ntransceivers, maybe trying to take a\nlook at serdes statistics. It was just\nsomewhat easy in in the beginning to\ndrift from the happy path. You know,\ncouple of pain points, some awkward\nworkflows, but\nit assumed, you know, a basic simple L1\nworld, which is completely fair because\nit was. But, like everything, hardware\nmoved on.\nWhich brings us kind of to today, where\nthe environment's not too different, but\nthis might be somewhat familiar for for\npeople who have worked on Sonic. You\nknow, you have a a config DB with your\ndesired configuration.\nGets pushed into app DB and a cycle will\nhappen.\nSyncd will program your internal ASIC\nPHY and then concurrently you'll have\nPMON kicking off a transceiver daemon,\nwhich will take that same config from\nconfig DB and, you know, hopefully\nprogram the transceiver.\nSo, the end goal is hopefully these two\nthings are programmed correctly and you\nend up with a stable link that's\noperationally up.\nSo, this is just a reminder us that the\nphysical world is pretty hostile when\nyou get to these new speeds. You know,\nyou're fighting against loss on the\npath, reflections from every bad\nimpedance transitions, crosstalk between\nlanes, interference, you know, etc.\nWhich was completely fine at, you know,\nlower speeds, 10G, you could get away\nwith this kind of stuff, but once you\nget to these 100G, 200G per lane,\nthe physical world is just going to call\nyour bluff, and it's not very forgiving.\nSo, what has changed? It's It's not\nreally that just the links have gotten\nfaster.\nThe whole stack has evolved. So, you\nknow, we've switched modulations from\nNRZ to PAM4. Lane rates have increased.\nWe've started relying pretty heavily on\noptics with DSPs.\nFEC inside modules, you know,\nmore complex management and monitoring\nof transceivers using CMOS.\nSo, L1 today is really just a\ncombination of smarter transceivers,\nmore capable SERDES, different\nmodulation, and a heavier reliance on\nFEC to make those links viable.\nSo, when you're debugging, you you\nreally need to know what form factor\nyou're dealing with. And this These are\nkind of some of the common ones you\nmight see in in current switches. So,\nyou know, you have an SFP one lane, QSFP\nfour lanes, QSFP-DD eight lanes. You\nknow, you might have the same faceplate\nthat has QSFP as well as QSFP-DD. So,\nknowing that like which one is which is\npretty important for knowing the\ncapabilities of this one has four lanes,\nthis one has eight lanes. They might not\nbe capable of the same speeds.\nUnder the hood, pretty much every single\nport has these SERDES blocks.\nThey're serializer-deserializers, and\nthey turn parallel data inside the ASIC\ninto serial bits in serial signals on\neach lane.\nReally, they define the capabilities of\na of a device. So, instead of thinking,\nyou know, I have a 102.4 terabit per\nsecond switch, from an L1 point of view,\nyou're really saying, I've 64 ports at\n1.6T. Each of those are capable of\n200G per lane.\nSo, really every port problem kind of\nstarts with a\nper lane SERDES problem first for from\nthe L1 point of view.\nSo, once we understand that, you know,\nSERDES are just an RX and a TX pair,\nthere's two ways that we can make it\nfaster. We can increase the speed of the\nlane, add more lanes, and you know, with\ndifferent generations we've done that\nalong the way or a combination of the\ntwo.\nBut, these serdes just aren't static.\nThere's a bunch of different\nconfiguration knobs that are important\nand,\nyou know, we have things like auto\nnegotiation where you have two peers,\nthey advertise their capabilities and\nthey'll come to some form of an an\nagreement on those settings. And then we\nhave stuff like link training\nwhere the transmitter will figure out\nthe proper equalization taps,\ncoefficients of a small FIR filter, and\nthey pre-distort the waveform to kind of\ncounteract and cancel the channel's\nloss, somewhat similar to stuff like um\nnoise-canceling headphones.\nWhich brings us to modulation. There's\ntwo different types, you know, in the\npast for lower speeds we had NRZ,\nfairly simple, high is equal to one, low\nis equal to zero. It was well\nunderstood, it worked well, 10G, 25G.\nAnd then we got to PAM4.\nSo, this is used at 50G, 100G, 200G per\nlane. This is kind of your you're now\ngetting into the high speed.\nIt has four signal levels instead of\ntwo, so 00, 01, 10, 11.\nObviously, we can now encode two bits\nper symbol like per symbol, which is\ngreat. We double the throughput without\ndoubling the signaling rate, but it\nbrings some challenges.\nSo, obviously, it packs in more data,\nbut the signal levels are 3x closer. So,\ntrying to differentiate between them,\nthere's a lot less room for noise.\nWhich which is why, you know, sometimes\nwe have cables that work perfectly fine\nat NRZ speeds, but when you bump them to\n50G per lane, you start seeing some\nissues.\nIt's also why FEC went from nice to have\nto absolutely required. And it is\nrequired by 802.3 spec from any speeds\n100G and greater.\nSo, FEC or forward error correction,\nit's this\ntransmitter adds redundancy bits to\nevery block of data called a codeword,\nand I'll talk about codewords a little\nbit in what comprises a codeword and a\nsymbol in the next slide, but the\nreceiver uses that redundancy to detect\nand correct any errors without\nretransmission. So, some ways it's\nsimilar to a checksum except it can\nactually fix the data.\nYou know, the math behind it is pretty\ncomplex, so I'm not going to get into\nit, just the bare minimum of of what's\nneeded to to understand FEC histogram,\npre-FEC BER, and all those kind of debug\ntools that you'll need.\nYou'll see a couple couple different\ntypes in SONiC, but 99% you're just\ngoing to see RS-FEC from now, but at\nlower speeds like 10G, you know, there\nis firecode FEC as well as no FEC as a\nas a viable configuration in SONiC.\nSo, the important point really with FEC\nis that there is a hard limit. You know,\neach FEC symbol is 10 bits.\nA codeword is either 528 or 544 of these\nsymbols including parity symbols.\nSo, for lower speeds, 10G, 25G at that\nNRZ modulation,\nwe can correct up to seven errors, and\nat faster speeds, we can correct up to\n15.\nSo, this corresponds exactly with FEC\nhistograms if you've seen the debug\noutput for those. Bin zero is, you know,\nzero symbols needed to be corrected,\nwhereas 15 is 15 symbols needed to be\ncorrected.\nAnything after 15, FEC couldn't do its\njob, and you'll get uncorrectable\ncodewords and ultimately a link flap.\nSo, in terms of actually debugging layer\none, you know, we have a mental model\nnow of you know, the physics and the\nhardware and what's actually changed,\nbut the rest of the talk is going to be\nabout how to actually debug now in\nSONiC. So, what's been added in the last\nyear, you know, commands you'll lean on,\nand\nhow to essentially interpret the results\nso that you can decide for yourself, do\nyou want to re-seat, reconfigure, or\nreplace a module?\nYeah, so I just want to take a little\nsecond to pause and just what's actually\nlanded in the last year. So, if you were\ntake this and, you know, compare it to\nprevious years, the numbers would be\nsignificantly less. Like, the number of\ncontributions from multiple different\nvendors and companies at the moment is\nis significantly more than it was in the\npast. So, the community is thriving in\nthat regard and constantly improving the\nL1 area.\nObviously, there's still work to be\ndone, but it's it's on a definitely on\nupward trajectory.\nSo, as someone debugging a link issue,\nwhat do you need to know? So, really\njust couple things you you absolutely\nneed to know about and Sonic needs to\nprovide. You need to be able to check\nlink state. So, you need to be able to\ncheck speed, FEC, all these different\nconfiguration parameters for the 30s, as\nwell as transceiver.\nTransceiver presence, you know,\nbeing able to inspect whether or not the\noptic you're using is correct for this\ntype of, you know, requirement, whether\nthat's speed or some other\nconfiguration.\nAnd then you also need to be able to\ninspect the transceiver itself. So,\ndata path state, being able to see is\nthe ASIC talking to the module, being\nable to see is there light coming into\nthe module,\nCDR lock, alarms, whether that's power\nvoltage.\nShow interface status. So, this is\npretty basic, you know, this has been\naround for a long time. It gives you a\nsnapshot of the operational status. We\ncan see left to right, you know, we can\nsee the 30s lanes being used. We can see\nthat it's operationally up, admin up,\nyou know, this is great as a starting\npoint, but you know, a link could be\nflapping and you don't realize just cuz\nthe time you actually run this command,\nit was it so happened to be up.\nWhich kind of brings you to if the show\ninterface status commands look weird,\nthis is generally when you'll go to dump\nstate port. And it kind of works as like\na a truth serum command. It'll dump all\nthe information from config DB,\napplication DB, as well as ASIC DB for a\nport.\nAnd you can kind of cross\ncross-reference the three. So, you can\ncheck that the configuration that you\nthought you were applying actually did\nget applied as well in both the ASIC and\nin app DB.\nAnd if you look in all this information\nand, you know, they all agree between\nthe three databases and the link is\nstill misbehaving, then you can pretty\nconfidently move on to the physical\naspects and start debugging the physical\nside.\nWhich brings me to L1 summary. So, this\nis more kind of like show interface\nstatus and what it should be for layer\none specifically. You know, we can see\nnot just that the link is operationally\nopera admin up. We can see if it's\nflapped. We can see when it was last up.\nWe can see the transceiver, the part\nnumber, and the\nvendor itself. So, all of these kind of\nthings that you want to see as a general\nsnapshot before deep debugging to check\nwhether or not all your links are\nhealthy, you know. And you can make some\nsome correlations to spot sick sick\nports pretty quickly in a big system\nhere. So, you know, you might be able to\ncorrelate all of the vendor vendor X\ntransceivers are having link flaps.\nMaybe some other issue with vendor Y.\nThose type of things. And it gives you\nan opportunity to at a high level\nsee what's going on.\nWhich then brings me to FEC counters.\nSo, starting from left to right, this is\nkind of how you're going to measure\ngenerally what's the health of my link.\nSo, you'll see FEC corrected code words\non the left. Absolutely normal at PAM4\nspeeds, you know. The FEC engine is\ndoing its job. You're going to see those\nincrementing.\nWhere you don't want to see is any FEC\nuncorrected code words, which is the\nsecond from the left. So, if you see\nanything there, that means that there\nwas more than 15 symbol errors in your\nFEC output and FEC wasn't able to\ncorrect it and you've got a link flap.\nOne that's used pretty pretty\nextensively to like measure the link\nquality is the pre-FEC BER. So, we can\nsee here it's\nE to the minus 11, E to the minus nine,\nE to the minus 10. You know, generally\nwe want to see that being E to the minus\n11 or E to the minus 12. But,\nyou know, that's just not the nature.\nMaybe\nmedia settings, those TX FIR filters\naren't aren't applied, you know.\nThis is your measure of how well is the\nserdes able to actually how well is FEC\nable to do its job.\nSo, looking a little closer at that,\nwe have the FEC histogram output. So, on\nthe left, this is, you know, I think\nthis link was e to the minus nine from\nthe previous snapshot. We see FEC bins\ntwo and three incrementing, which we\ndon't really want to see. In an ideal\nworld, it'd be zero and one, but two and\nthree is okay. FEC is still doing its\njob. It's able to get to 15, but\nrealistically, if you want to have these\nlinks in in operation for a long time,\nthey can't be they can't be\nincrementing.\nSnapshot on the right is actually a link\nthat when you look that show interface\nstatus was operationally up, but behind\nthe scenes, it was it was flapping\npretty consistently. So, we can see that\nall the FEC bins were were completely\nincrementing.\nBin 15 incrementing, so obviously bin 16\nwas incrementing, too, which meant that\nwe were getting link flaps.\nSo, then to check the link flaps, we go\nback to show interface flap or\nshow interface L1 summary again, like\nbefore, which shows, you know, okay,\nthis link actually was flapping 91\ntimes, which makes sense when we go back\nand look at the fact that the FEC\nhistograms were were\nwere pretty bad.\nSo, show interface transceiver is how\nyou're going to interrogate the module\nitself in terms of\nyou're going to look at the application\nadvertisements. Does it say it can\nsupport 1.6T when I'm trying to\nlike set 1.6T on on the port?\nIt's going to tell you what application\nis is currently loaded. It's going to\ntell you the part number, the vendor,\netc.\nHow many lanes, the para class, and so\non. So, you're going to use this pretty\nmuch to confirm that you're using the\nright optic or module for the job.\nTransceiver status kind of concentrates\non live CMIS state and alarms. CMIS is\nthe common management interface spec\nthat's been introduced from OSFP and\nQSFP-DD kind of generation of eight-lane\nspeeds.\nIt's pretty good. You'll be able to see,\nyou know,\nwas there any failed transitions? You'll\nbe able to see the data path. You'll be\nable to see the configuration. You'll be\nable to see is there any alarms, whether\nthat's loss of light or maybe\ntemperature and so on. So, this is kind\nof really a good a good way to tell\nwhether or not your module is in a\nhealthy state.\nThings you don't see in terms of\nimprovements,\nthere's a lot happening pretty much\nunder the covers that, you know,\nhopefully as a user you don't really\nhave to think about. So, there's been\nsome configuration and initialization\nsequencing changes that, you know,\nrespect maybe seem as timing quirks and\nsome module specific behavior. So,\nthere's retry and debouncing logic. So,\nhopefully that keeps what\nare or can be transient blips in\nconfiguration from turning into kind of\npermanent faults, whereas they may have\nin the past.\nAnother example is a lot of the debug\nability stuff that's going on,\nincreasing the amount of timestamps that\nare in the outputs, new CLIs, etc.\nSo, looking forward,\nthere's a deeper push for 30-side\nvisibility. There's a been a bit of a a\nshift where, you know, it's great that\nwe have these transceiver debug outputs\nand we can take a look at the module,\nbut a lot of that information comes from\nthe digital signal processor that's on\nthese optics. And a lot of the emerging\ntechnologies right now are getting away\nwith the DSP from these modules and\npretty much putting all of the work of\ncleaning up the signal on both the TX\nand the RX path on the 30s now that\nthey're more capable. So, having that\n30s statistics and being able to look at\nwhat's going on in the 30s is incredibly\nimportant for what's going on and what's\ncoming in the future.\nAnd then as well as, you know,\nsupporting these new technologies like\nCPO, LPO, LRO, and then other diagnostic\ntools.\nSo, in terms of call to action, there's\nthere's a few things here really, you\nknow, engage with the community on on\nGitHub, the same as other other people\nhave said before, you know, join the L1\nsubgroup work group meetings, you know,\ncontribute code and documentation.\nUm a big one is testing in the L1 area.\nThere's only two tests right now that\nexist upstream.\nAnd, you know, that's obviously, you\nknow, there's different testing in other\nways, but that's one area that could\ndefinitely could definitely improve if\nif there was a call to action.\nSo, I guess I'll kind of start ending\nwith how the L1 story is no longer\nreally experimental in SONiC. You know,\nthere is enough there to be able to\ndebug these links. So, there's a\ndata-driven config path. You know, we\nhave tools that FEC histogram, CMIS,\nstate dumps, you know, pre-FEC BER,\nbeing able to read the DOM, and all the\nstuff from the D- DSP on the\ntransceivers.\nSo, we do run this in in real production\ntoday with, you know,\noperators can decide receipt,\nreconfigure, replace modules on clear\nsignals from these commands.\nAnd in terms of closing the gaps with\ntraditional network operating systems,\nthere's obviously some areas where SONiC\nis still weaker today.\nMany of the CLIs are kind of expert CLIs\nwhere you really need to know what\nyou're looking for, and there's no\nsingle pane dashboards or easy ways to\nkind of for someone not\nvery familiar with the L1 to, you know,\ntake a look and figure out what's going\non.\nAgain, the community test that I talked\nabout before is another area. And again,\ngeneral operational polish. So, event\ncorrelation, alerts, you know, RCA RCA\nflows are a little less turnkey.\nBut, we are doing stuff about it in the\nL1 the L1 subgroup. We're standardizing\nCLIs. So,\ntime stamps and increased debuggability\nacross platforms,\nand hardening transceiver and init\nsequences, and fault recovery. So, the\ngoal really is to make SONiC L1 as easy\nto operate as a traditional network\noperating system, and hopefully more\ntransparent than any of them.\nThank you. That's it.\n>> [applause]\n>> Any questions? Yeah.\nHello. Um David Roy from HP. Uh is there\nuh any ongoing uh or work in progress\nfor exposing um\nuh coherent optic uh KPIs like OSNR or\nstuff like that? Yeah, that's pretty\nmuch already existent today. Yeah.\nThere's some of the work that's gone on\nrecently for, you know, 400 GZR and 800\nGZR, there's debuggability for those\nmodules. Okay, thanks.\nAnyone else any extra question?\nSo, maybe I have one.\nIf I can. Of course.\nSpeaking about the cables, I know how\ntricky that is, especially, you know,\ncopper when we are going to those\nextremely high speeds. So, what is your\nexperience? I am not talking about all\nthe details, but there is a couple of\nvendors, obviously, but let's say going\nwith such as 800 G, what you saw on your\nall tests like a maximum, let's say,\nreasonable stable length\non, for example, such as DACs, yeah? And\nthen going to 1.6, it is a new for\nalmost all of us, yeah? Yeah. Yeah,\ngenerally we've seen, especially with\nthe the bridge from 800 to 1.6, is that\nDACs\nneces- just don't have a good enough uh\nPR. You know, essentially, the actual\nsignal needs to be re-timed. So, you\nknow, whether that's an AEC or switching\nto AOCs or optics, then that's kind of\nwhat's what's happened, yeah. Generally,\nthe performance of DACs at these higher\nspeeds is just not not good enough.\nOkay. How about the eight 400 G? That's\nCompletely fine, yeah. And 800 G is fine\nin many cases.\nYeah. Thank you.\nThank you. Applause. Thank you.\n>> [applause]",
+  "segments": [
+    {
+      "text": "1 2, 1 2. Okay, welcome back after our coffee break. You still if you had a chance to scan and get us a get us a feedback, you will have that chance to maybe do it again in the end. Maybe before we will start and I will give the voice to to to Bobby. Once",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "again, I reminding that we have some nice t-shirt, maybe not around right now, but there will be definitely a time after. The Sonic t-shirts are really limited. I even I don't have my one yet and hopefully one will stay or will left, yeah. So, stage is yours.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": ">> Thank you very much. Hi, everyone. My name is Bobby McAuliffe. I'm a software engineer at Next up AI in the layer one team. Today my talk is on configuring and debugging the physical layer in Sonic, so that's everything from ASIC series",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "and optics through to the CLIs that you'll actually use when you when you have a link issue. There's some theory that we'll need to go through, but I'm not going to go through stuff like the the L1 sublayers. It's going to keep it just kind of to",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "the to the bare minimum that's needed to understand the the debug outputs that Sonic has. We'll look a little bit at what's changing L1 and you know, what what's been added to Sonic in the last year. So, adding all that together into some",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "form of repeatable debug workflows. So, why does layer one matter now, you know, in this AI world? Well, every packet, every sensor, every tensor rides on layer one. So, for AI training that means GPU the GPU fabric latency and loss directly hit times train.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "Bursts and marginal links are tail latency killers. Tail latency being the measurement of the delay experienced by the slowest packets. So, if L1 is broken, nothing else works, you know, and that's where AI is different as it has desynchronization",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "points that are tightly coupled to GPU utilization. So, tail latency almost directly translates into worse job completion time and GPU burn. You know, in a in a general cloud or or enterprise, the same tail effects do exist, but you know, they might be",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "spread across independent user requests rather than a a single global training step. When we're talking about layer one in SONiC, I'm talking about pretty much everything from the ASICs internal serdes out to the cable or the fiber.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "You know, so that's the electrical lanes, that's FEC, that's modulation, that's transceiver control, and and the path that programs them in SONiC. Really getting L1 right means that all of these different hardware pieces",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "use the exact same configuration and the hardware state actually correctly reflects that. So, SONiC's kind of L1 origins are obviously kind of baked into hyperscale, and it did all kind of just work, you know, with a with a couple caveats. One",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "being that you're using these kind of fixed static configurations, you'd load them onto the device, and you wouldn't really change them. You're generally using kind of copper DACs at lower speeds, which were kind of forgiving, and you weren't using optics",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "with DSPs or using any kind of breakout configurations. Once the the configuration was there, you know, you weren't doing anything dynamic really at runtime, no CLI, no speed change, those kind of things. And it all kind of worked happily as",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "long as you didn't go too far off the beaten path. So, I talked about, you know, the internal the internal phi serdes, and you know, something like having an external phi where there's another phi chip sitting in between the",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "internal ASIC and the front panel. That can be there for a couple different reasons like, you know, if there's too much trace loss, you know, you might need to retime the signal. You might want to convert X number of lanes to Y",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "number of lanes on the front panel. There's a few different reasons, but it just adds another configuration parameter, and you know, those type of things diverting off the happy path just didn't really play well with kind of SONiC's early early origins.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "So, it did have some quirks, and they were all kind of generally fine as long as you you knew its limits, so. Breakout limitations. When I'm talking about breakouts, I mean, you have say an 800G front panel port and you logically",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "split that up into sub interfaces. So, you know, an 800G port can be broken up into 2 by 400G or 8 by 100G, for example. To actually get these front panel port configurations, you have the concept of a hard rescue and a hard rescue profile.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "So, these are kind of, you know, fixed front panel port configurations and you have to change them and request a new hard rescue from a vendor when you want a different front panel port layout. And generally, you know, that could take some time or",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "you could try to come up with your own, but if you don't know much about the hardware underneath, it's kind of tough to do that. From an operator's point of view, it was somewhat inconsistent. So, you know, interface ranges is a good example.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Some supported interface ranges, some don't. So, you kind of have this lack consistency across across the device. And it also lacked some of the essential commands that you'd need. So, changing hard rescue, maybe inspecting transceivers, maybe trying to take a",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "look at serdes statistics. It was just somewhat easy in in the beginning to drift from the happy path. You know, couple of pain points, some awkward workflows, but it assumed, you know, a basic simple L1 world, which is completely fair because",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "it was. But, like everything, hardware moved on. Which brings us kind of to today, where the environment's not too different, but this might be somewhat familiar for for people who have worked on Sonic. You know, you have a a config DB with your",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "desired configuration. Gets pushed into app DB and a cycle will happen. Syncd will program your internal ASIC PHY and then concurrently you'll have PMON kicking off a transceiver daemon, which will take that same config from config DB and, you know, hopefully",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "program the transceiver. So, the end goal is hopefully these two things are programmed correctly and you end up with a stable link that's operationally up. So, this is just a reminder us that the physical world is pretty hostile when",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "you get to these new speeds. You know, you're fighting against loss on the path, reflections from every bad impedance transitions, crosstalk between lanes, interference, you know, etc. Which was completely fine at, you know,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "lower speeds, 10G, you could get away with this kind of stuff, but once you get to these 100G, 200G per lane, the physical world is just going to call your bluff, and it's not very forgiving. So, what has changed? It's It's not",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "really that just the links have gotten faster. The whole stack has evolved. So, you know, we've switched modulations from NRZ to PAM4. Lane rates have increased. We've started relying pretty heavily on optics with DSPs. FEC inside modules, you know,",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "more complex management and monitoring of transceivers using CMOS. So, L1 today is really just a combination of smarter transceivers, more capable SERDES, different modulation, and a heavier reliance on FEC to make those links viable.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "So, when you're debugging, you you really need to know what form factor you're dealing with. And this These are kind of some of the common ones you might see in in current switches. So, you know, you have an SFP one lane, QSFP",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "four lanes, QSFP-DD eight lanes. You know, you might have the same faceplate that has QSFP as well as QSFP-DD. So, knowing that like which one is which is pretty important for knowing the capabilities of this one has four lanes,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "this one has eight lanes. They might not be capable of the same speeds. Under the hood, pretty much every single port has these SERDES blocks. They're serializer-deserializers, and they turn parallel data inside the ASIC into serial bits in serial signals on",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "each lane. Really, they define the capabilities of a of a device. So, instead of thinking, you know, I have a 102.4 terabit per second switch, from an L1 point of view, you're really saying, I've 64 ports at 1.6T. Each of those are capable of 200G per lane.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "So, really every port problem kind of starts with a per lane SERDES problem first for from the L1 point of view. So, once we understand that, you know, SERDES are just an RX and a TX pair, there's two ways that we can make it",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "faster. We can increase the speed of the lane, add more lanes, and you know, with different generations we've done that along the way or a combination of the two. But, these serdes just aren't static. There's a bunch of different",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "configuration knobs that are important and, you know, we have things like auto negotiation where you have two peers, they advertise their capabilities and they'll come to some form of an an agreement on those settings. And then we have stuff like link training",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "where the transmitter will figure out the proper equalization taps, coefficients of a small FIR filter, and they pre-distort the waveform to kind of counteract and cancel the channel's loss, somewhat similar to stuff like um noise-canceling headphones.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "Which brings us to modulation. There's two different types, you know, in the past for lower speeds we had NRZ, fairly simple, high is equal to one, low is equal to zero. It was well understood, it worked well, 10G, 25G. And then we got to PAM4.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So, this is used at 50G, 100G, 200G per lane. This is kind of your you're now getting into the high speed. It has four signal levels instead of two, so 00, 01, 10, 11. Obviously, we can now encode two bits per symbol like per symbol, which is",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "great. We double the throughput without doubling the signaling rate, but it brings some challenges. So, obviously, it packs in more data, but the signal levels are 3x closer. So, trying to differentiate between them, there's a lot less room for noise.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "Which which is why, you know, sometimes we have cables that work perfectly fine at NRZ speeds, but when you bump them to 50G per lane, you start seeing some issues. It's also why FEC went from nice to have to absolutely required. And it is",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "required by 802.3 spec from any speeds 100G and greater. So, FEC or forward error correction, it's this transmitter adds redundancy bits to every block of data called a codeword, and I'll talk about codewords a little bit in what comprises a codeword and a",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "symbol in the next slide, but the receiver uses that redundancy to detect and correct any errors without retransmission. So, some ways it's similar to a checksum except it can actually fix the data. You know, the math behind it is pretty",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "complex, so I'm not going to get into it, just the bare minimum of of what's needed to to understand FEC histogram, pre-FEC BER, and all those kind of debug tools that you'll need. You'll see a couple couple different types in SONiC, but 99% you're just",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "going to see RS-FEC from now, but at lower speeds like 10G, you know, there is firecode FEC as well as no FEC as a as a viable configuration in SONiC. So, the important point really with FEC is that there is a hard limit. You know, each FEC symbol is 10 bits.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "A codeword is either 528 or 544 of these symbols including parity symbols. So, for lower speeds, 10G, 25G at that NRZ modulation, we can correct up to seven errors, and at faster speeds, we can correct up to 15. So, this corresponds exactly with FEC",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "histograms if you've seen the debug output for those. Bin zero is, you know, zero symbols needed to be corrected, whereas 15 is 15 symbols needed to be corrected. Anything after 15, FEC couldn't do its job, and you'll get uncorrectable",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "codewords and ultimately a link flap. So, in terms of actually debugging layer one, you know, we have a mental model now of you know, the physics and the hardware and what's actually changed, but the rest of the talk is going to be",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "about how to actually debug now in SONiC. So, what's been added in the last year, you know, commands you'll lean on, and how to essentially interpret the results so that you can decide for yourself, do you want to re-seat, reconfigure, or replace a module?",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, so I just want to take a little second to pause and just what's actually landed in the last year. So, if you were take this and, you know, compare it to previous years, the numbers would be significantly less. Like, the number of",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "contributions from multiple different vendors and companies at the moment is is significantly more than it was in the past. So, the community is thriving in that regard and constantly improving the L1 area. Obviously, there's still work to be",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "done, but it's it's on a definitely on upward trajectory. So, as someone debugging a link issue, what do you need to know? So, really just couple things you you absolutely need to know about and Sonic needs to provide. You need to be able to check",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "link state. So, you need to be able to check speed, FEC, all these different configuration parameters for the 30s, as well as transceiver. Transceiver presence, you know, being able to inspect whether or not the optic you're using is correct for this",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "type of, you know, requirement, whether that's speed or some other configuration. And then you also need to be able to inspect the transceiver itself. So, data path state, being able to see is the ASIC talking to the module, being",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "able to see is there light coming into the module, CDR lock, alarms, whether that's power voltage. Show interface status. So, this is pretty basic, you know, this has been around for a long time. It gives you a snapshot of the operational status. We",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "can see left to right, you know, we can see the 30s lanes being used. We can see that it's operationally up, admin up, you know, this is great as a starting point, but you know, a link could be flapping and you don't realize just cuz",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "the time you actually run this command, it was it so happened to be up. Which kind of brings you to if the show interface status commands look weird, this is generally when you'll go to dump state port. And it kind of works as like",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "a a truth serum command. It'll dump all the information from config DB, application DB, as well as ASIC DB for a port. And you can kind of cross cross-reference the three. So, you can check that the configuration that you thought you were applying actually did",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "get applied as well in both the ASIC and in app DB. And if you look in all this information and, you know, they all agree between the three databases and the link is still misbehaving, then you can pretty confidently move on to the physical",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "aspects and start debugging the physical side. Which brings me to L1 summary. So, this is more kind of like show interface status and what it should be for layer one specifically. You know, we can see not just that the link is operationally",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "opera admin up. We can see if it's flapped. We can see when it was last up. We can see the transceiver, the part number, and the vendor itself. So, all of these kind of things that you want to see as a general snapshot before deep debugging to check",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "whether or not all your links are healthy, you know. And you can make some some correlations to spot sick sick ports pretty quickly in a big system here. So, you know, you might be able to correlate all of the vendor vendor X",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "transceivers are having link flaps. Maybe some other issue with vendor Y. Those type of things. And it gives you an opportunity to at a high level see what's going on. Which then brings me to FEC counters. So, starting from left to right, this is",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "kind of how you're going to measure generally what's the health of my link. So, you'll see FEC corrected code words on the left. Absolutely normal at PAM4 speeds, you know. The FEC engine is doing its job. You're going to see those incrementing.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "Where you don't want to see is any FEC uncorrected code words, which is the second from the left. So, if you see anything there, that means that there was more than 15 symbol errors in your FEC output and FEC wasn't able to",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "correct it and you've got a link flap. One that's used pretty pretty extensively to like measure the link quality is the pre-FEC BER. So, we can see here it's E to the minus 11, E to the minus nine, E to the minus 10. You know, generally",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "we want to see that being E to the minus 11 or E to the minus 12. But, you know, that's just not the nature. Maybe media settings, those TX FIR filters aren't aren't applied, you know. This is your measure of how well is the",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "serdes able to actually how well is FEC able to do its job. So, looking a little closer at that, we have the FEC histogram output. So, on the left, this is, you know, I think this link was e to the minus nine from the previous snapshot. We see FEC bins",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "two and three incrementing, which we don't really want to see. In an ideal world, it'd be zero and one, but two and three is okay. FEC is still doing its job. It's able to get to 15, but realistically, if you want to have these",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "links in in operation for a long time, they can't be they can't be incrementing. Snapshot on the right is actually a link that when you look that show interface status was operationally up, but behind the scenes, it was it was flapping",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "pretty consistently. So, we can see that all the FEC bins were were completely incrementing. Bin 15 incrementing, so obviously bin 16 was incrementing, too, which meant that we were getting link flaps. So, then to check the link flaps, we go",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "back to show interface flap or show interface L1 summary again, like before, which shows, you know, okay, this link actually was flapping 91 times, which makes sense when we go back and look at the fact that the FEC histograms were were were pretty bad.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "So, show interface transceiver is how you're going to interrogate the module itself in terms of you're going to look at the application advertisements. Does it say it can support 1.6T when I'm trying to like set 1.6T on on the port?",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "It's going to tell you what application is is currently loaded. It's going to tell you the part number, the vendor, etc. How many lanes, the para class, and so on. So, you're going to use this pretty much to confirm that you're using the",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "right optic or module for the job. Transceiver status kind of concentrates on live CMIS state and alarms. CMIS is the common management interface spec that's been introduced from OSFP and QSFP-DD kind of generation of eight-lane speeds.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "It's pretty good. You'll be able to see, you know, was there any failed transitions? You'll be able to see the data path. You'll be able to see the configuration. You'll be able to see is there any alarms, whether that's loss of light or maybe",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "temperature and so on. So, this is kind of really a good a good way to tell whether or not your module is in a healthy state. Things you don't see in terms of improvements, there's a lot happening pretty much under the covers that, you know,",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "hopefully as a user you don't really have to think about. So, there's been some configuration and initialization sequencing changes that, you know, respect maybe seem as timing quirks and some module specific behavior. So,",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "there's retry and debouncing logic. So, hopefully that keeps what are or can be transient blips in configuration from turning into kind of permanent faults, whereas they may have in the past. Another example is a lot of the debug ability stuff that's going on,",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "increasing the amount of timestamps that are in the outputs, new CLIs, etc. So, looking forward, there's a deeper push for 30-side visibility. There's a been a bit of a a shift where, you know, it's great that we have these transceiver debug outputs",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "and we can take a look at the module, but a lot of that information comes from the digital signal processor that's on these optics. And a lot of the emerging technologies right now are getting away with the DSP from these modules and",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "pretty much putting all of the work of cleaning up the signal on both the TX and the RX path on the 30s now that they're more capable. So, having that 30s statistics and being able to look at what's going on in the 30s is incredibly",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "important for what's going on and what's coming in the future. And then as well as, you know, supporting these new technologies like CPO, LPO, LRO, and then other diagnostic tools. So, in terms of call to action, there's there's a few things here really, you",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "know, engage with the community on on GitHub, the same as other other people have said before, you know, join the L1 subgroup work group meetings, you know, contribute code and documentation. Um a big one is testing in the L1 area.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "There's only two tests right now that exist upstream. And, you know, that's obviously, you know, there's different testing in other ways, but that's one area that could definitely could definitely improve if if there was a call to action.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "So, I guess I'll kind of start ending with how the L1 story is no longer really experimental in SONiC. You know, there is enough there to be able to debug these links. So, there's a data-driven config path. You know, we have tools that FEC histogram, CMIS,",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "state dumps, you know, pre-FEC BER, being able to read the DOM, and all the stuff from the D- DSP on the transceivers. So, we do run this in in real production today with, you know, operators can decide receipt, reconfigure, replace modules on clear",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "signals from these commands. And in terms of closing the gaps with traditional network operating systems, there's obviously some areas where SONiC is still weaker today. Many of the CLIs are kind of expert CLIs where you really need to know what",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "you're looking for, and there's no single pane dashboards or easy ways to kind of for someone not very familiar with the L1 to, you know, take a look and figure out what's going on. Again, the community test that I talked",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "about before is another area. And again, general operational polish. So, event correlation, alerts, you know, RCA RCA flows are a little less turnkey. But, we are doing stuff about it in the L1 the L1 subgroup. We're standardizing CLIs. So,",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "time stamps and increased debuggability across platforms, and hardening transceiver and init sequences, and fault recovery. So, the goal really is to make SONiC L1 as easy to operate as a traditional network operating system, and hopefully more",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "transparent than any of them. Thank you. That's it. >> [applause] >> Any questions? Yeah. Hello. Um David Roy from HP. Uh is there uh any ongoing uh or work in progress for exposing um uh coherent optic uh KPIs like OSNR or stuff like that? Yeah, that's pretty",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "much already existent today. Yeah. There's some of the work that's gone on recently for, you know, 400 GZR and 800 GZR, there's debuggability for those modules. Okay, thanks. Anyone else any extra question? So, maybe I have one. If I can. Of course.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "Speaking about the cables, I know how tricky that is, especially, you know, copper when we are going to those extremely high speeds. So, what is your experience? I am not talking about all the details, but there is a couple of",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "vendors, obviously, but let's say going with such as 800 G, what you saw on your all tests like a maximum, let's say, reasonable stable length on, for example, such as DACs, yeah? And then going to 1.6, it is a new for almost all of us, yeah? Yeah. Yeah,",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "generally we've seen, especially with the the bridge from 800 to 1.6, is that DACs neces- just don't have a good enough uh PR. You know, essentially, the actual signal needs to be re-timed. So, you know, whether that's an AEC or switching",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "to AOCs or optics, then that's kind of what's what's happened, yeah. Generally, the performance of DACs at these higher speeds is just not not good enough. Okay. How about the eight 400 G? That's Completely fine, yeah. And 800 G is fine in many cases.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. Thank you. Thank you. Applause. Thank you. >> [applause]",
+      "start": 582,
+      "duration": 6
+    }
+  ]
+}

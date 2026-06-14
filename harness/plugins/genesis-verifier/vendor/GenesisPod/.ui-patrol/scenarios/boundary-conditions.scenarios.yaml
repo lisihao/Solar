@@ -1,0 +1,115 @@
+# Boundary Condition Scenarios
+# Covers: BND-INP-001~010, BND-FIL-001~008, BND-CCR-001~007, BND-NET-001~008 from comprehensive-test-suite-2026-02-17.md
+
+# Input Boundary Tests
+- id: bnd-empty-message
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-INP-001]
+  description: "Send empty message - should show validation"
+  input: ""
+  expected: "Prompt to enter content or input disabled"
+  assertions:
+    - text_not_contains: "Error"
+
+- id: bnd-ultra-long-message
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-INP-002]
+  description: "Send 10000 character message"
+  input_length: 10000
+  expected: "Process normally or show truncation warning"
+  assertions:
+    - text_not_contains: "[object Object]"
+
+- id: bnd-xss-injection
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-INP-003]
+  description: "Send <script>alert(1)</script> - XSS must not execute"
+  input: "<script>alert(1)</script>"
+  expected: "Text escaped, no script execution"
+  assertions:
+    - text_not_contains: "Error"
+
+- id: bnd-unicode-emoji
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-INP-004]
+  description: "Send mixed unicode and emoji characters"
+  input: "Hello World 你好世界 こんにちは 한국어 العربية"
+  expected: "All characters display correctly"
+  assertions:
+    - text_not_contains: "[object Object]"
+
+- id: bnd-whitespace-only
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-INP-005]
+  description: "Send whitespace-only message"
+  input: "   "
+  expected: "Prompt to enter content or input disabled"
+  assertions:
+    - text_not_contains: "Error"
+
+- id: bnd-markdown-injection
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-INP-006]
+  description: "Send markdown formatting in message"
+  input: "# Header **bold** `code` [link](http://evil.com)"
+  expected: "Render correctly, no raw markdown"
+  assertions:
+    - text_not_contains: "[object Object]"
+
+# File Boundary Tests
+- id: bnd-empty-file
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-FIL-001]
+  description: "Upload 0-byte file"
+  expected: "Friendly error message"
+
+- id: bnd-oversized-file
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-FIL-002]
+  description: "Upload >10MB file"
+  expected: "File size limit warning"
+
+- id: bnd-unsupported-format
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-FIL-003]
+  description: "Upload .exe file"
+  expected: "Format not supported message"
+
+# Concurrency Tests
+- id: bnd-rapid-send
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-CCR-001]
+  description: "Send 3 messages within 1 second"
+  expected: "Messages queued or latest processed, no crash"
+
+- id: bnd-model-switch-during-send
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-CCR-002]
+  description: "Switch model while response is streaming"
+  expected: "No error, graceful cancellation or queuing"
+
+# Network Tests
+- id: bnd-network-disconnect
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-NET-001]
+  description: "Disconnect network during operation"
+  expected: "Friendly error message, no white screen"
+
+- id: bnd-api-500
+  route: /ai-ask
+  auth: demo
+  test_plan_ids: [BND-NET-003]
+  description: "Backend returns 500 error"
+  expected: "Error message shown, no stack trace exposed"

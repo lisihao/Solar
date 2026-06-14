@@ -1,0 +1,363 @@
+// ════════════════════════════════════════════════════════════════════
+// LLM Wiki (v1.5.3) — 10 tables for ai-app/library/wiki
+// ════════════════════════════════════════════════════════════════════
+//
+// Karpathy LLM Wiki pattern: existing KnowledgeBase + KnowledgeBaseDocument
+// serve as the wiki scope and raw content respectively. Tables below
+// capture the editable wiki layer (compiled markdown pages, diffs, lint
+// findings, revisions, embeddings, operation log, per-KB config).
+//
+// Capability ownership (v1.5.3 §3.1):
+//  - link parsing / slug normalization → ai-engine/content/markdown/ (P0a-1)
+//  - contradiction / data gap detection → CrossCuttingSynthesisService (P0a-3)
+//  - stale detection → ai-engine/knowledge/consistency/ (P0a-3)
+//  - everything else (ingest / diff / page / revision / lint orch) → ai-app/library/wiki/
+
+/// 一页 wiki：markdown 是唯一权威
+/// P3 (2026-05-12 multi-locale base layer): locale + translationGroupId
+/// columns land here, but the unique constraint stays single-locale
+/// ([knowledgeBaseId, slug]) until P3 commit 3 swaps it to be locale-aware
+/// (([knowledgeBaseId, slug, locale])). This split keeps the rollout to
+/// three forward-only steps (add columns / build locale-aware index
+/// CONCURRENTLY / swap unique).
+model WikiPage {
+  id                 String           @id @default(uuid())
+  knowledgeBaseId    String           @map("knowledge_base_id")
+  slug               String           @db.VarChar(200)
+  locale             String           @default("zh") @db.VarChar(8)
+  translationGroupId String?          @map("translation_group_id")
+  title              String           @db.VarChar(500)
+  category           WikiPageCategory
+  body               String           @db.Text
+  oneLiner           String           @map("one_liner") @db.VarChar(280)
+  contentHash        String           @map("content_hash") @db.VarChar(64)
+  lastEditedBy       WikiPageEditedBy @map("last_edited_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  knowledgeBase KnowledgeBase          @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  outboundLinks WikiPageLink[]         @relation("FromPage")
+  sources       WikiPageSource[]
+  revisions     WikiPageRevision[]
+  embeddings    WikiPageEmbedding[]
+  opLogPages    WikiOperationLogPage[]
+  lintFindings  WikiLintFinding[]
+
+  @@unique([knowledgeBaseId, slug, locale])
+  @@index([knowledgeBaseId, category])
+  @@index([knowledgeBaseId, updatedAt])
+  @@index([knowledgeBaseId, translationGroupId])
+  @@map("wiki_pages")
+}
+
+enum WikiPageCategory {
+  ENTITY
+  CONCEPT
+  SUMMARY
+  SOURCE
+}
+
+enum WikiPageEditedBy {
+  USER
+  LLM
+  IMPORT
+}
+
+/// page → KnowledgeBaseDocument 的可验证 citation。quote 冗余存原文片段
+/// 防 doc rawContent 改导致溯源失效。
+model WikiPageSource {
+  id         String @id @default(uuid())
+  pageId     String @map("page_id")
+  documentId String @map("document_id")
+  spanStart  Int    @map("span_start")
+  spanEnd    Int    @map("span_end")
+  quote      String @db.Text
+
+  page     WikiPage              @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  document KnowledgeBaseDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, documentId, spanStart])
+  @@index([documentId])
+  @@map("wiki_page_sources")
+}
+
+/// Tracks which source documents are actually represented by the current wiki
+/// state. Auto-ingest must key off applied coverage, not diff proposal time:
+/// a PENDING/DISMISSED diff is not proof that the latest doc update was
+/// absorbed. Coverage is refreshed after each successful diff apply by
+/// scanning current wiki_page_sources for the KB.
+model WikiDocumentCoverage {
+  knowledgeBaseId              String   @map("knowledge_base_id")
+  documentId                   String   @map("document_id")
+  lastCoveredDocumentUpdatedAt DateTime @map("last_covered_document_updated_at")
+  lastAppliedDiffId            String   @map("last_applied_diff_id")
+  lastAppliedAt                DateTime @map("last_applied_at")
+  updatedAt                    DateTime @updatedAt @map("updated_at")
+
+  knowledgeBase   KnowledgeBase         @relation("WikiDocumentCoverageKnowledgeBase", fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  document        KnowledgeBaseDocument @relation("WikiDocumentCoverageDocument", fields: [documentId], references: [id], onDelete: Cascade)
+  lastAppliedDiff WikiDiff              @relation("WikiDocumentCoverageLastAppliedDiff", fields: [lastAppliedDiffId], references: [id], onDelete: Cascade)
+
+  @@id([knowledgeBaseId, documentId])
+  @@index([knowledgeBaseId, lastAppliedAt])
+  @@index([documentId])
+  @@map("wiki_document_coverages")
+}
+
+/// `[[slug]]` 解析结果。toSlug 软引用，目标可能尚不存在 → lint 报 missing_xref。
+/// P3 (2026-05-12): toLocale 加入 PK 以支持多 locale 共存的 link 解析。
+/// 这里选择 NOT NULL DEFAULT 'zh' 而不是 nullable —— PostgreSQL 复合 PK 含
+/// NULL 列时 NULL ≠ NULL 会破坏唯一性（同 fromPage+toSlug+NULL 可重复行）。
+/// "任意 locale" 的 fallback 语义未来用应用层 sentinel（例如 '*'）实现，
+/// 而不是依赖 NULL 语义。Migration 给所有现存行 backfill 'zh' 后约束 NOT NULL。
+model WikiPageLink {
+  fromPageId String @map("from_page_id")
+  toSlug     String @map("to_slug") @db.VarChar(200)
+  toLocale   String @default("zh") @map("to_locale") @db.VarChar(8)
+
+  fromPage WikiPage @relation("FromPage", fields: [fromPageId], references: [id], onDelete: Cascade)
+
+  @@id([fromPageId, toSlug, toLocale])
+  @@index([toSlug])
+  @@map("wiki_page_links")
+}
+
+/// apply / edit / revert 前的 body 快照（解决 revert + stale lint 历史比对）。
+/// opId nullable —— page 删除后 op 行 SetNull，revision 仍保留作为审计。
+/// body off-load (2026-05-09): 极冷数据（仅 revert 时读），24h cron 搬到
+/// `wiki-revisions/{revisionId}/body.md`，DB body 列置 ""，bodyUri 写入 key。
+/// 读路径走 PrismaService hydrate 透明回填。
+model WikiPageRevision {
+  id          String   @id @default(uuid())
+  pageId      String   @map("page_id")
+  body        String   @db.Text
+  bodyUri     String?  @map("body_uri")
+  bodySize    Int?     @map("body_size")
+  contentHash String   @map("content_hash") @db.VarChar(64)
+  opId        String?  @map("op_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  page WikiPage          @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  op   WikiOperationLog? @relation(fields: [opId], references: [id], onDelete: SetNull)
+
+  @@index([pageId, createdAt(sort: Desc)])
+  @@index([opId])
+  @@map("wiki_page_revisions")
+}
+
+/// 大库分支：wiki page 整页 embedding（独立于 ChildEmbedding，不走 chunk 管道）。
+/// 一个 page 至多两条：oneLiner + body。embedding 字段 Json（Railway 不支持 pgvector）。
+/// model 字段 @default("") —— 由 EmbeddingService 写入实际 model 名（防硬编码）。
+model WikiPageEmbedding {
+  id         String                  @id @default(uuid())
+  pageId     String                  @map("page_id")
+  resolution WikiPageEmbedResolution
+  embedding  Json
+  model      String                  @default("")
+  dimensions Int                     @default(1536)
+  createdAt  DateTime                @default(now()) @map("created_at")
+  updatedAt  DateTime                @updatedAt @map("updated_at")
+
+  page WikiPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, resolution])
+  @@map("wiki_page_embeddings")
+}
+
+enum WikiPageEmbedResolution {
+  ONELINER
+  BODY
+}
+
+/// ingest 提议的 diff（用户审阅后 apply 或 dismiss）。
+/// items: { creates, updates, deletes } — apply 入事务前 zod parse。
+/// affectedKeys: diff 涉及 (slug, locale) 联合集合，format `slug:locale`
+/// （service 层用于"集合冲突"并发判定；P3 BLOCKER C2 修订——旧 affectedSlugs
+/// 在 (slug, locale) 多 locale 下假阴性放行、FOR UPDATE 反锁污染）。
+/// 配套 GIN partial index `WHERE status = 'PENDING'` 在手写 SQL migration 中追加。
+/// items off-load (2026-05-09): 终态行（APPLIED/DISMISSED）30 天后搬到
+/// `wiki-diffs/{id}/items.json`，DB items 列写 JSON null（'null'::jsonb）。
+/// 读路径走 PrismaService hydrate JSON 变体（与 dimensionAnalysis.dataPoints 同形）。
+model WikiDiff {
+  id              String         @id @default(uuid())
+  knowledgeBaseId String         @map("knowledge_base_id")
+  status          WikiDiffStatus @default(PENDING)
+  items           Json
+  itemsUri        String?        @map("items_uri")
+  itemsSize       Int?           @map("items_size")
+  baselineHash    String         @map("baseline_hash") @db.VarChar(64)
+  affectedKeys    String[]       @map("affected_keys")
+  createdByUserId String         @map("created_by_user_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  appliedAt       DateTime?      @map("applied_at")
+  dismissedAt     DateTime?      @map("dismissed_at")
+
+  knowledgeBase     KnowledgeBase          @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  documentCoverages WikiDocumentCoverage[] @relation("WikiDocumentCoverageLastAppliedDiff")
+
+  @@index([knowledgeBaseId, status])
+  @@map("wiki_diffs")
+}
+
+enum WikiDiffStatus {
+  PENDING
+  APPLIED
+  DISMISSED
+  CONFLICTED
+}
+
+/// log.md 的 DB 形态（append-only）。pageIds 拆为关系表 WikiOperationLogPage。
+model WikiOperationLog {
+  id              String   @id @default(uuid())
+  knowledgeBaseId String   @map("knowledge_base_id")
+  op              WikiOp
+  title           String   @db.VarChar(500)
+  meta            Json     @default("{}")
+  actorUserId     String?  @map("actor_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  knowledgeBase KnowledgeBase          @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  pages         WikiOperationLogPage[]
+  revisions     WikiPageRevision[]
+
+  @@index([knowledgeBaseId, createdAt(sort: Desc)])
+  @@map("wiki_operation_logs")
+}
+
+enum WikiOp {
+  INGEST
+  LINT
+  EDIT
+  REVERT
+}
+
+/// op → page 关系表。pageId nullable 是因为 page 删除后 SetNull 保留 op 历史。
+/// Prisma 复合主键不允许 nullable 字段 → 用独立 id PK + composite unique 兼容。
+model WikiOperationLogPage {
+  id     String         @id @default(uuid())
+  opId   String         @map("op_id")
+  pageId String?        @map("page_id")
+  role   WikiOpPageRole
+
+  op   WikiOperationLog @relation(fields: [opId], references: [id], onDelete: Cascade)
+  page WikiPage?        @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  @@unique([opId, pageId, role])
+  @@index([pageId, opId])
+  @@map("wiki_operation_log_pages")
+}
+
+enum WikiOpPageRole {
+  CREATED
+  UPDATED
+  DELETED
+  AFFECTED
+}
+
+/// lint 找到的问题（5 类 + 解决标记）。
+/// pageId nullable + onDelete: SetNull —— page 删除后 finding 不连带删（保留历史）。
+/// ORPHAN/MISSING_XREF 类天然允许 pageId=null。
+model WikiLintFinding {
+  id              String       @id @default(uuid())
+  knowledgeBaseId String       @map("knowledge_base_id")
+  type            WikiLintType
+  pageId          String?      @map("page_id")
+  detail          Json
+  resolvedAt      DateTime?    @map("resolved_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  page          WikiPage?     @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  @@index([knowledgeBaseId, resolvedAt, type])
+  @@index([pageId])
+  @@map("wiki_lint_findings")
+}
+
+enum WikiLintType {
+  CONTRADICTION
+  STALE
+  ORPHAN
+  MISSING_XREF
+  DATA_GAP
+}
+
+/// 阈值持久化（每 KB 独立配，admin UI 后期可暴露）。
+/// 默认 inlinePageCount=200, inlineTokenBudget=500_000, ingestMaxTokens=80_000。
+model WikiKnowledgeBaseConfig {
+  knowledgeBaseId                    String             @id @map("knowledge_base_id")
+  inlinePageCount                    Int                @default(200) @map("inline_page_count")
+  inlineTokenBudget                  Int                @default(500000) @map("inline_token_budget")
+  ingestMaxTokens                    Int                @default(80000) @map("ingest_max_tokens")
+  cronLintEnabled                    Boolean            @default(true) @map("cron_lint_enabled")
+  cronLintDailyBudgetCalls           Int                @default(50) @map("cron_lint_daily_budget_calls")
+  /// PR-1 (auto-ingest after raw refresh) — drive the Karpathy "compounding"
+  /// loop. KB doc add/update emits an event; the per-KB scheduler debounces
+  /// for `autoIngestDebounceSeconds` then enqueues an ingest if the KB has
+  /// not consumed its `autoIngestDailyBudgetCalls` quota for the day. The
+  /// ingest still produces a PENDING WikiDiff (governance preserved); user
+  /// must accept to land changes — auto-apply is intentionally not done.
+  autoIngestEnabled                  Boolean            @default(true) @map("auto_ingest_enabled")
+  autoIngestDailyBudgetCalls         Int                @default(20) @map("auto_ingest_daily_budget_calls")
+  autoIngestDebounceSeconds          Int                @default(300) @map("auto_ingest_debounce_seconds")
+  /// P2 multi-pass orchestration (2026-05-12 consensus §P2).
+  /// `ingestPassMode` schema default is SINGLE for backward compat; KB-create
+  /// service will overwrite to MULTI for fresh KBs in a later commit. The 4
+  /// section/outline/ratio/budget knobs back the outline → section-fill →
+  /// cross-link pipeline. `autoIngestDailyChatCallBudget` splits the daily
+  /// chat-completion budget from `autoIngestDailyBudgetCalls` (BLOCKER #4):
+  /// ingest may issue 1 outline + N section + 1 crosslink calls per cycle,
+  /// while chat-style consumption (ask / refine) is metered separately.
+  ingestPassMode                     WikiIngestPassMode @default(SINGLE) @map("ingest_pass_mode")
+  ingestSectionConcurrency           Int                @default(3) @map("ingest_section_concurrency")
+  ingestSectionFailureToleranceRatio Float              @default(0.2) @map("ingest_section_failure_tolerance_ratio")
+  ingestOutlineMaxPages              Int                @default(30) @map("ingest_outline_max_pages")
+  autoIngestDailyChatCallBudget      Int                @default(50) @map("auto_ingest_daily_chat_call_budget")
+  /// W3 v2.0 rebuild：admin 选 KB 启用的语种集合（zh / en / 二者）。
+  /// 单语 KB → ingest 只产源语种 page；双语 KB → 跨语种翻译 pass（按 translationGroupId 关联）。
+  /// 默认 ['zh']（保 backward compat）。前端 KB 设置面板暴露 segmented control。
+  enabledLocales                     String[]           @default(["zh"]) @map("enabled_locales")
+  updatedAt                          DateTime           @updatedAt @map("updated_at")
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@map("wiki_knowledge_base_configs")
+}
+
+/// Pass mode for ingest pipeline (2026-05-12 consensus §P2).
+/// SINGLE = legacy one-shot prompt (wiki-ingest.skill.md).
+/// MULTI  = outline pass → section-fill pass (parallel, fail-tolerant) →
+///          cross-link pass. Toggleable per KB so SINGLE remains fallback.
+enum WikiIngestPassMode {
+  SINGLE
+  MULTI
+}
+
+/// Section-fill intermediate state for the MULTI ingest pipeline.
+///
+/// During section-fill pass we may run up to N=30 page generations in
+/// parallel; with a 20% failure tolerance we accept up to 6 failures and
+/// still commit the rest. This table is the partial-progress checkpoint —
+/// each successful page is upserted here BEFORE the final diff commit, so
+/// a mid-pass crash (or a later cross-link failure) can recover the work
+/// already done instead of re-running every page.
+///
+/// Lifecycle: rows are written by section-fill, consumed by cross-link +
+/// final diff assembly, and reaped by a 24h TTL cron. The `(diffSessionId,
+/// pageSlug, locale)` unique guards against double-fill in retry storms.
+model WikiIngestDraft {
+  id              String   @id @default(uuid())
+  knowledgeBaseId String   @map("knowledge_base_id")
+  diffSessionId   String   @map("diff_session_id")
+  pageSlug        String   @map("page_slug") @db.VarChar(200)
+  locale          String   @default("zh") @db.VarChar(8)
+  body            Json
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@unique([diffSessionId, pageSlug, locale])
+  @@index([knowledgeBaseId, createdAt])
+  @@map("wiki_ingest_drafts")
+}

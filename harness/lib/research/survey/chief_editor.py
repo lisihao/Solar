@@ -12,9 +12,12 @@ from typing import Any
 
 from research.report_metrics import append_model_usage_event, build_model_usage_event, parse_model_cli_output
 
+from .browser_agent_model import BrowserAgentModelError, browser_agent_task_dir, run_chatgpt_browser_agent
+
 
 INTRO_HEADINGS = {"核心结论", "证据基础"}
 FOOTNOTE_HEADING = "证据脚注"
+INSIGHT_HEADINGS = {"本节判断", "证据链", "影响与行动", "反证和观察", "Figure Spec", "SectionRender JSON"}
 FORBIDDEN_PATTERNS = [
     re.compile(r"\[claim:", re.I),
     re.compile(r"\[evidence:", re.I),
@@ -63,7 +66,31 @@ def _chapter_prompt(title: str, heading: str, body: str) -> str:
 - 不要输出 Prompt Packet、Claim Map、Evidence Map、Source Map、Contribution Matrix。
 - 不要出现 `[claim:...]` 或 `[evidence:...]` 调试标签。
 - 不要编造论文、URL、benchmark 数字、发布日期。
-- 删除“本节立场/本节绑定/本节通过”这类生成器口吻，改成自然论述。
+- 删除"本节立场/本节绑定/本节通过"这类生成器口吻，改成自然论述。
+- 保留明确判断、争议、局限和未解问题，不要写成宣传稿。
+
+报告题目：
+{title}
+
+待重写章节：
+## {heading}
+
+{body}
+"""
+
+
+def _insight_chapter_prompt(title: str, heading: str, body: str) -> str:
+    return f"""你是 Solar DeepDive 洞察报告的 Chief Insight Editor。请把下面章节重写成自然、专业、可发表的洞察章节。
+
+硬规则：
+- 只输出该章节 Markdown，从 `## {heading}` 开始。
+- 必须保留以下结构：本节判断、证据链、影响与行动、反证和观察。
+- 保留 Figure Spec 和 SectionRender JSON 块，不做格式修改。
+- 保留事实边界和脚注标记。
+- 不要出现 `[claim:...]` 或 `[evidence:...]` 调试标签。
+- 不要编造论文、URL、benchmark 数字、发布日期。
+- 删除"本节立场/本节绑定/本节通过"这类生成器口吻，改成自然论述。
+- 保留 Solar 吸收映射和预测引用。
 - 保留明确判断、争议、局限和未解问题，不要写成宣传稿。
 
 报告题目：
@@ -131,6 +158,26 @@ def _run_claude(prompt: str, *, model: str, timeout: int, max_budget_usd: float)
     return output, usage
 
 
+def _run_browser_agent(prompt: str, *, model: str, timeout: int, task_dir: Path, purpose: str) -> tuple[str, dict[str, int]]:
+    try:
+        result = run_chatgpt_browser_agent(
+            prompt,
+            task_dir=task_dir,
+            purpose=purpose,
+            expected_output="markdown_chief_editor_section",
+            model=model or "chatgpt-5.5",
+            reasoning_effort="high",
+            timeout_seconds=timeout or 1800,
+            require_deep_research=False,
+        )
+    except BrowserAgentModelError as exc:
+        raise RuntimeError(exc.reason) from exc
+    output = str(result.get("text") or "").strip()
+    if not output:
+        raise RuntimeError("browser_agent_empty_output")
+    return output, {}
+
+
 def _model_candidates(model: str, fallback_models: str) -> list[str]:
     candidates: list[str] = []
     for raw in [model, *re.split(r"[, ]+", fallback_models or "")]:
@@ -195,6 +242,11 @@ def _first_heading(path: Path) -> str:
         if stripped.startswith("#"):
             return stripped.lstrip("#").strip()
     return ""
+
+
+def _is_insight_section(heading: str, body: str) -> bool:
+    combined = f"{heading}\n{body}"
+    return any(marker in combined for marker in INSIGHT_HEADINGS)
 
 
 def _status_projection_status(root: Path, chief_payload: dict[str, Any]) -> str:
@@ -324,7 +376,9 @@ def run_chief_editor(
     chapter_results: list[dict[str, Any]] = []
     for idx, chapter in enumerate(chapters, start=1):
         heading = chapter["heading"]
-        prompt = _chapter_prompt(title, heading, chapter["body"])
+        use_insight_prompt = _is_insight_section(heading, chapter["body"])
+        prompt_fn = _insight_chapter_prompt if use_insight_prompt else _chapter_prompt
+        prompt = prompt_fn(title, heading, chapter["body"])
         prompt_path = prompt_dir / f"{idx:02d}-{re.sub(r'[^0-9A-Za-z_-]+', '-', heading).strip('-') or 'chapter'}.md"
         out_path = chapter_dir / f"{idx:02d}.md"
         prompt_path.write_text(prompt, encoding="utf-8")
@@ -333,6 +387,20 @@ def run_chief_editor(
             chapter_usage: dict[str, int] = {}
         elif normalized_backend in {"local-command", "command"}:
             chapter_text, chapter_usage = _normalize_model_result(_run_command(command, prompt, timeout))
+        elif normalized_backend in {"browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent"}:
+            active_model = model or "chatgpt-5.5"
+            purpose_prefix = "ai-influence-report-deepdive-chief-editor" if use_insight_prompt else "survey-chief-editor"
+            task_dir = browser_agent_task_dir(chapter_dir, stage="chief-editor", key=f"{idx:02d}-{heading}")
+            chapter_text, chapter_usage = _normalize_model_result(
+                _run_browser_agent(
+                    prompt,
+                    model=active_model,
+                    timeout=timeout,
+                    task_dir=task_dir,
+                    purpose=f"{purpose_prefix}-{idx:02d}",
+                )
+            )
+            model_attempts.append({"chapter": heading, "model": active_model, "ok": True, "backend": normalized_backend})
         elif normalized_backend in {"claude-cli", "opus", "claude"}:
             last_error = ""
             chapter_text = ""
@@ -375,7 +443,11 @@ def run_chief_editor(
                 usage_path,
                 build_model_usage_event(
                     backend=normalized_backend,
-                    model=active_model if normalized_backend in {"claude-cli", "opus", "claude"} else command,
+                    model=(
+                        active_model
+                        if normalized_backend in {"claude-cli", "opus", "claude", "browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent"}
+                        else command
+                    ),
                     prompt=prompt,
                     output=chapter_text,
                     usage=chapter_usage,
@@ -406,7 +478,11 @@ def run_chief_editor(
     payload: dict[str, Any] = {
         "ok": bool(quality["ok"]),
         "backend": normalized_backend,
-        "model": active_model if normalized_backend in {"claude-cli", "opus", "claude"} else model,
+        "model": (
+            active_model
+            if normalized_backend in {"claude-cli", "opus", "claude", "browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent"}
+            else model
+        ),
         "requested_model": requested_model,
         "fallback_models": model_candidates[1:],
         "model_attempts": model_attempts,

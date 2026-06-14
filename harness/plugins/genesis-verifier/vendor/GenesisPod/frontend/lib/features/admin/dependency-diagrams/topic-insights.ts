@@ -1,0 +1,252 @@
+import type { DiagramConfig } from './types';
+
+/**
+ * Topic Insights dependency diagram config.
+ * Shows L4 (Topic Insights) -> L3 (AI Engine) -> L2 (AI Kernel) -> L1 (AI Infra).
+ */
+export const topicInsightsDiagram: DiagramConfig = {
+  slug: 'topic-insights',
+  titleKey: 'admin.architecture.dependencies.topicInsights.title',
+  subtitleKey: 'admin.architecture.dependencies.topicInsights.subtitle',
+  layers: [
+    {
+      level: 4,
+      tag: 'TI',
+      name: 'Topic Insights',
+      path: 'modules/ai-app/topic-insights/',
+      stats: '~200 files, 60+ providers',
+      items: [
+        { name: 'controllers/', detail: '6 controllers + gateway' },
+        {
+          name: 'services/core/',
+          detail: 'leader(4) mission(5) research(7) topic(5)',
+        },
+        {
+          name: 'services/data/',
+          detail: 'router, planner, fetcher, connectors(4)',
+        },
+        {
+          name: 'services/dimension/',
+          detail: 'mission, search, writing, section-writer',
+        },
+        {
+          name: 'services/report/',
+          detail: 'synthesis, editor, annotation, export',
+        },
+        { name: 'handlers/', detail: '5 workflow handlers (Engine pattern)' },
+        {
+          name: 'services/search/',
+          detail: 'orchestrator, 11 adapters, fusion',
+        },
+        { name: 'services/quality/', detail: 'critique, gate, trace, defect' },
+        { name: 'agents/ + teams/', detail: 'TopicInsightsAgent, TeamConfig' },
+        { name: 'types/ + dto/', detail: '9 types, 16 DTOs' },
+      ],
+      registrations: [
+        'AgentRegistry.register(TopicInsightsAgent)',
+        'TeamRegistry.registerConfig(TEAM_CONFIG)',
+        'WorkflowHandlerRegistry.register(5 handlers)',
+        'DataSourceConnectorRegistry.register(4 connectors)',
+        'PromptSkillBridge.registerDomain("insights")',
+      ],
+    },
+    {
+      level: 3,
+      tag: 'AE',
+      name: 'AI Engine',
+      path: 'modules/ai-engine/',
+      stats: '~400 files, @Global() module',
+      items: [
+        { name: 'llm/', detail: 'AiChatService, adapters, prompts' },
+        { name: 'tools/', detail: 'ToolRegistry, 200+ tools, 8 categories' },
+        {
+          name: 'agents/',
+          detail: 'AgentRegistry, orchestrator, base classes',
+        },
+        {
+          name: 'teams/',
+          detail: 'TeamRegistry, orchestrator, DAG/Sequential',
+        },
+        { name: 'skills/', detail: 'SkillRegistry, runtime, sandbox' },
+        {
+          name: 'orchestration/',
+          detail: 'DAGExecutor, state machine, planner',
+        },
+        { name: 'knowledge/', detail: 'RAG, memory, evidence management' },
+        { name: 'content/', detail: 'fetch, image, synthesis' },
+        { name: 'safety/', detail: 'guardrails, constraint validation' },
+        { name: 'mcp/', detail: 'MCPManager, stdio/http/sse clients' },
+        { name: 'infra/', detail: 'observability, realtime, A2A protocol' },
+        { name: 'facade/', detail: '11 files, 120+ exports, 539 lines index' },
+      ],
+      facade: {
+        title: 'AI Engine Facade (ai-engine/facade/index.ts)',
+        exports: [
+          { label: 'ChatFacade', kind: 'service' },
+          { label: 'AgentFacade', kind: 'service' },
+          { label: 'TeamFacade', kind: 'service' },
+          { label: 'ToolFacade', kind: 'service' },
+          { label: 'RAGFacade', kind: 'service' },
+          { label: 'ToolRegistry', kind: 'registry' },
+          { label: 'AgentRegistry', kind: 'registry' },
+          { label: 'TeamRegistry', kind: 'registry' },
+          { label: 'SkillRegistry', kind: 'registry' },
+          { label: 'AiChatService', kind: 'service' },
+          { label: 'SearchService', kind: 'service' },
+          { label: 'MCPManager', kind: 'service' },
+          { label: 'TraceCollectorService', kind: 'service' },
+          { label: 'DAGExecutor', kind: 'service' },
+          { label: 'ExecutionContext', kind: 'type' },
+          { label: 'ToolContext', kind: 'type' },
+          { label: 'TaskProfile', kind: 'type' },
+          { label: 'WorkflowConfig', kind: 'type' },
+          { label: 'TeamConfig', kind: 'type' },
+          { label: 'inferIsReasoning', kind: 'util' },
+          { label: '+90 more', kind: 'muted' },
+        ],
+      },
+    },
+    {
+      level: 2,
+      tag: 'AK',
+      name: 'AI Kernel',
+      path: 'modules/ai-kernel/',
+      stats: '~100 files, 33 providers, @Global()',
+      items: [
+        { name: 'process/', detail: 'ProcessManager, state transition' },
+        { name: 'journal/', detail: 'EventJournal, CheckpointManager' },
+        { name: 'memory/', detail: 'WorkingMemory, PersistentStore' },
+        { name: 'ipc/', detail: 'EventBus, MessageBus, A2A, Progress' },
+        {
+          name: 'resource/',
+          detail: 'CircuitBreaker, CostController, RateLimiter',
+        },
+        {
+          name: 'observability/',
+          detail: 'EventLog, Metrics, CostAttribution',
+        },
+        { name: 'supervisor/', detail: 'ProcessSupervisor, state mgmt' },
+        { name: 'security/', detail: 'CapabilityGuard' },
+        {
+          name: 'mission/ + scheduler/',
+          detail: 'MissionExecutor, KernelScheduler',
+        },
+      ],
+      facade: {
+        title: 'AI Kernel Facade (ai-kernel/facade/index.ts)',
+        exports: [
+          { label: 'CircuitBreakerService', kind: 'service' },
+          { label: 'ProcessEventLogService', kind: 'service' },
+          { label: 'CheckpointManager', kind: 'service' },
+          { label: 'EventBusService', kind: 'service' },
+          { label: 'MessageBusService', kind: 'service' },
+          { label: 'WorkingMemoryStore', kind: 'service' },
+          { label: 'ConstraintEngine', kind: 'service' },
+          { label: 'CostController', kind: 'service' },
+          { label: 'RateLimiter', kind: 'service' },
+          { label: 'KernelMetricsService', kind: 'service' },
+          { label: 'CostAttributionService', kind: 'service' },
+          { label: 'CapabilityGuardService', kind: 'service' },
+          { label: 'ProcessSupervisorService', kind: 'service' },
+          { label: 'A2AClientService', kind: 'service' },
+          { label: 'ProgressTrackerService', kind: 'service' },
+          { label: 'StateTransitionMap', kind: 'type' },
+          { label: '+15 more', kind: 'muted' },
+        ],
+      },
+      footer:
+        'Depends only on PrismaModule (database) - No outbound module dependencies',
+    },
+    {
+      level: 1,
+      tag: 'IF',
+      name: 'AI Infrastructure',
+      path: 'modules/ai-infra/',
+      stats:
+        'BillingContext, CreditsModule, SecretsService, R2StorageService, NotificationService',
+      items: [],
+    },
+  ],
+  arrows: [
+    {
+      segments: [
+        { label: 'ai-engine/facade', count: '112+', color: 'blue' },
+        { label: 'ai-kernel/facade', count: '19', color: 'purple' },
+        { label: 'ai-infra/facade', count: '14', color: 'amber' },
+      ],
+    },
+    {
+      segments: [{ label: 'ai-kernel/facade', count: '142+', color: 'purple' }],
+    },
+    {
+      segments: [],
+    },
+  ],
+  depCards: [
+    {
+      from: 'Topic Insights',
+      fromColor: 'text-blue-600',
+      to: 'AI Engine',
+      toColor: 'text-teal-600',
+      rows: [
+        { label: 'ChatFacade', count: '26 files', level: 'high' },
+        { label: 'ToolRegistry', count: '12 files', level: 'high' },
+        { label: 'ToolFacade', count: '9 files', level: 'mid' },
+        { label: 'ExecutionContext (type)', count: '6 files', level: 'mid' },
+        { label: 'ToolContext (type)', count: '5 files', level: 'low' },
+        { label: 'AgentFacade', count: '4 files', level: 'low' },
+        { label: 'TeamFacade', count: '3 files', level: 'low' },
+        { label: 'TraceCollectorService', count: '2 files', level: 'low' },
+        {
+          label: 'DAGExecutor, RAGFacade, etc.',
+          count: '1 each',
+          level: 'low',
+        },
+      ],
+      total: '112+ imports',
+    },
+    {
+      from: 'Topic Insights',
+      fromColor: 'text-blue-600',
+      to: 'AI Kernel',
+      toColor: 'text-purple-600',
+      rows: [
+        { label: 'CircuitBreakerService', count: '12 files', level: 'high' },
+        { label: 'CapabilityGuardService', count: '2 files', level: 'low' },
+        { label: 'StateTransitionValidator', count: '1 file', level: 'low' },
+        { label: 'StateTransitionMap (type)', count: '1 file', level: 'low' },
+        { label: 'HealthCheckRunner', count: '1 file', level: 'low' },
+      ],
+      total: '19 imports',
+      note: 'Kernel usage is focused: resilience (CircuitBreaker) and security (CapabilityGuard).',
+    },
+    {
+      from: 'AI Engine',
+      fromColor: 'text-teal-600',
+      to: 'AI Kernel',
+      toColor: 'text-purple-600',
+      rows: [
+        { label: 'ProcessEventLogService', count: '15+ files', level: 'high' },
+        { label: 'CircuitBreakerService', count: '10+ files', level: 'high' },
+        { label: 'CheckpointManager', count: '8 files', level: 'mid' },
+        { label: 'WorkingMemoryStore', count: '6 files', level: 'mid' },
+        { label: 'ConstraintEngine', count: '5 files', level: 'mid' },
+        { label: 'MessageBusService', count: '4 files', level: 'low' },
+        { label: 'CostController', count: '3 files', level: 'low' },
+        { label: 'KernelMetricsService', count: '3 files', level: 'low' },
+        { label: 'MissionExecutorService', count: '2 files', level: 'low' },
+        { label: 'EventJournalService, etc.', count: '1-2 each', level: 'low' },
+      ],
+      total: '142+ imports',
+    },
+  ],
+  footerNote:
+    'No reverse dependencies detected. AI Kernel depends only on PrismaModule. All cross-layer imports pass through Facade (0 violations in production code).',
+  legend: [
+    { label: 'L4 AI App', color: 'bg-blue-400' },
+    { label: 'L3 AI Engine', color: 'bg-teal-400' },
+    { label: 'L2 AI Kernel', color: 'bg-purple-400' },
+    { label: 'L1 Infrastructure', color: 'bg-amber-400' },
+    { label: 'Facade boundary', color: 'border-blue-300', dashed: true },
+  ],
+};

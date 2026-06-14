@@ -1,0 +1,419 @@
+{
+  "videoId": "BIPiWnyzi60",
+  "title": "SREcon26 Americas - It's Not Always the Network (But Here's How to Prove It): Kubernetes Packet...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 20322,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone and welcome to my\nsession. So I'm so excited to be here at\nso a conference I've always respected. H\nthank you so much for giving me this\nopportunity.\nSo this is the agenda for today and let\nme start from the introduction part\nfirst.\nuh for nearly a decade I've been a\nnecessary focused on keeping complex\ndistributed systems running but recently\nmy career took an interesting turn. So I\njoined a platform network team.\nSo it's an interesting place to be\nbecause it's where our fellow developers\noften come to us with a very familiar\nphrase.\nWe think it might be a network issue.\nYeah. So we are expected to to have an\nanswer because we are supposed to be\nexperts.\nSo we look into the issue and very\nfrequently.\nSo it has nothing to do with the\nnetwork.\nSo yeah because we run this with\nsystems. So every interaction involves\nthe network. So the network friend\npeople learn of other cruise.\nI want to change that. So I believe we\nall need a way to provide definitive\ndatadriven answers. So not just to prove\nthe network's innocence but to find the\ntrue root cause wherever it might be.\nSo this talk is the result of that\nexperience. So it's not about turning\nyou into a network expert. So it's about\nequipping you as a fellow SR. So with a\nset of tech practical techniques to get\nthe data you need. So which are ready to\nuse in your next investigation.\nAnd before we dive in so I want to set\ntwo clear expectations for our session\ntoday. First, our focus is specifically\non the Kubernetes environment. So, we\nwon't be covering general packet capture\non bare metal or VMs.\nSecond, this talk is about one thing.\nSo, how to reliably capture the right\npackets. So, deep packet analysis with\ntools like wireshark is a huge topic\ndeserving its own dedicated session. So\nour goal today is to get to the raw data\nyou need to start the analysis\nand also I have a disclaimer. So packet\ncapture can expose sensitive\ninformation. So please be mindful of\ndata privacy and security implications\nand always follow your organization's\npolicies.\nSo with those in mind let's begin.\nSo let's look at what's nearly happening\nbetween your applications and the\nnetwork.\nSo as site engineers, a huge part of our\njob is managing systems built on layers\nof abstraction.\nSo our application code is written with\na certain set of expectations about how\nthe world works.\nFor networking, it expects to send and\nreceive a reliable ordered stream of\ndata.\nSo we achieve this through abstractions\nlike the TCP socket. So our code\ninteracts with this screen API assuming\nit will handle the details.\nHowever, beneath this screen API lies\nthe complex reality of the network.\nSo we use a term best effort to describe\nthis underlying reality\nand it the nature of this best effort uh\nsystem leaks through our abstraction\nthat many of the most difficult\nproduction issues occur creating complex\nfailure modes.\nSo let me tell you two examples of this\nspace effort reality to illustrate why\nthis necessitates pat observation.\nUh first so there is no guaranteed\nlatency or delivery order. So parts can\nbe delayed dropped or reorder due to\ncountless factors like buffer broad in a\nswitch or routing changes\nto your application. This doesn't look\nlike potato loss. So it manifests as a\nmysterious uh digital report in\nexecution. So you see the effect but not\nthe cause.\nSecond there is no guarantee throughput.\nSo the rate at which your application\ncan send data is not a fixed value. So\nit's a dynamic variable controlled by\nTCP's congestion control algorithms.\nSo if the current passes packet loss it\nwill automatically shrink the congestion\nwindow. So your application metric will\nsimply show a sudden drop in throughput.\nBut the decision was made deep inside\nthe corner.\nSo these are not val. So this is a\nnetwork operating as designed\nuh to diagnose problems that originate\nfrom this inherent probabilistic nature.\nSo we need a tool that can observe it\ndirectly.\nSo we need a project.\nSo then let's move on to the main topic.\nUh we will look into how we can perform\np capture in a kubernetes environment.\nSo we will explore three primary\nstrategies ordered by their increasing\nproximity to the application.\nSo our first strategy involves the\ntechniques executed directly on the\nkubernetes nodes. So this is the least\nintrusive approach as it doesn't modify\nthe learning board at all.\nA critical predicate for this entire\nstrategy is that you must have share\naccess to the command nodes uh typically\nby SSH with sufficient privileges which\nis often rude or to learn diagnostic\ntools. So this is a significant\nrequirement and may not be possible in\nall environments. So especially in\nmanage Kubernetes services.\nSo assuming you have this access the un\non node strategy offers two distinct\nobservation points. So each for\ndifferent purposes.\nSo this diagram illustrates the nodes uh\nnetwork structure. So there are ports\nwhich have their own network name space\nand the L network name space for the\nnode itself.\nAnd the first observation point is\noutside the port network name space. So\nby capturing on the n main network inter\nwhich is usually e zero and filtering by\nthe port's IP address.\nSorry.\nSo the workflow uh looks like this. So\nfirst so you will so identify the name\nof the uh uh uh yeah node and IP address\nof the target port and then so you will\ns into that node and finally on the node\nso you will run TCP dump uh on the main\nnetwork interface and with filtering by\nthe port IP address.\nSo let's break down that TCP dump\ncommand. So hyphen I tells TCP dump to\nlisten on our target network interface\nand hyphen N tells it to skip DNS name\nto prevent it from generating extra DN\nDNS traffic of its own\nand hyphoon W tells it to write the low\npackets to a file named capture.pap PP\nuh which we can later analyze with tools\nlike wireshark\nand finally so the expression host and\nport IP so this is a BPF filter so it's\na small expression to tell the kernel to\nonly send us the packets that match this\nfilter in this case we asking for\nbudgets where the source or destination\nIP is our B IP\nSo this technique is essential. So when\nyou suspect the problem is not inside\nthe application container but in the\ninfrastructure that the node provides to\nthe container.\nSo let me give you some examples of\nthese node level issues.\nSo first one will be that port A can't\nreach port B on a different node. So\nyour hypothesis might be that the\noverlay network is failing. The\ncaptioning on the no phys physical\ninterface allows you to see the\nencapsulated traffic like VX\nand verify if they are being sent\nunreceived correctly.\nAnd another example will be that network\npolicy is unexpectedly broken traffic.\nYour hypothesis is that the CNI plugin\nlike Calico or CM is misconfigured\nsince network policy enforcement happens\nat the node level. So often using IP\ntables or EVPF\nthe capturing on the V is interface. Let\nus see if packets are being duped before\nthey have even they even have a chance\nto enter the port's name space.\nSo in those cases the problem lies in\nthe fabric connecting the port not not\nin the port themselves\nand the next observation point is inside\nthe port's name space. So we use any\ncenter on the node to execute TCP D\nwithin the context of the port's network\nname space.\nSo this technique is for you suspect the\nproblem is happening inside the port's\nown network stack.\nUh this time the workflow looks like\nthis. So again so you will SSH into the\nnode first and then on the node so you\nwill somey somehow identify the uh photo\ntarget uh p I so process ID so using the\ncommand cect\nso you don't need to dig this deeper for\nnow and I am not super familiar about\nthis but so you will somehow So look up\nthe uh process ID of the uh target port\nand then so you use n center to run tcp\ndump inside the port's network name\nspace.\nSo when to use this so in contrast with\nthe previous approach so you use this\nwhen you suspect the problem is inside\nyour application controller. So here are\nsome examples of these input issues. Uh\nfirst it will be that your application\nfails to start or complaining it can't\nfind to port 8080. So your hypothesis is\nthat another process inside the same\nport is already using that port. So\nusing n center to run net start inside\nthe port name space can confirm this.\nAnd or another example maybe that uh\nservice side like STO is causing issues.\nSo your hypothesis is that the\napplication is sending correct plain\ntext traffic but the cyoca is\nmishandling it. So you must be inside\nthe port name space to capture traffic\non the local host interface between the\napplication and the proxy.\nSo capturing on the ether zero from the\noutside would only show you the\nencrypted MTS traffic which is useless\nfor this kind of debuging.\nSo to summarize the on strategy. So you\nuse the outside approach to debuck CNI\nand overlay network issues and you use\ninside approach. You're using N center\nto debug the application direct network\nbehavior.\nSo main uh the main tradeoff for both is\nthat they require L access on the node.\nSo now, so let's look at approaches that\nrely more on the Kubernetes API.\nExcuse me.\nSo yeah, our second strategy is an\ninteresting approach. So centered on\nconvenience. So exemplified by tools\nlike JSN.\nSo the core idea is to run the capture\nprocess inside the target container\nwithout requiring a pre-installed of TCP\ndump. So it does this by using a\ncombination of cubectl primitives. So\ncubectl CP to uh upload a static TCP\ndump binary into the running containers\nfile system and cubectl exec to run it.\nSo it's a cubit plug-in and you can\ninstall it easily using a crew. So a\ncubic plug-in manager. So once installed\nyou can invoke it easily in a very\nsimilar way with other cubic commands.\nSo this provides a very appealing one\ncommand to wire workflow and gives a\nsame network at the airport by capturing\ninside the port.\nSo the workflow looks like this. So yeah\nfirst so you will identify the target\nport and then so you you will so do uh\nlearn the QClick\nand give the name space and give the\nname of the target port and that's it.\nSo by doing so so the uh JSN will launch\na TCP D process so with interp\nand then so its output will be piped\ninto locally done wires.\nSo yeah wires will start locally and the\ncaps will start very soon. So it's uh\nvery convenient.\nSo however it's important to understand\nthe downsides first. So it is stated as\nnon-production ready. So it may not be a\ngood idea to use it to investigate\nproduction issues. Second so you are\nmodifying a landing container file\nsystem uh which may have security\nimplications\nand third there can be a compatibility\nissues between the static binary and the\ncontainers environment.\nSo, it's a clever technique, but one to\nuse with awareness of its trade-offs.\nSo, this brings us to our third and most\nuseful strategy. So, using ephemeral\ncontainers via cubect debac.\nSo this is the offsh supported\nKubernetes native way to attach a\ndebuging envir environment to a running\nport.\nIt's worth noting that this feature\nrequires a relatively modern Kubernetes\ncluster. So a familiar containers were\nenabled by default starting in\nKubernetes 1.25.\nSo if you are on an older cluster so\nthis specific technique may not be\navailable to you.\nSo now let's pause and understand what\nthis command actually does. So when you\nrun this you are telling the Kubernetes\ncontrol plane to perform a special\naction. So it does not modify your\noriginal container. So instead the\ncontrol plane to use the new temporary\ncontainer and if you add container to\nrun inside the target.\nSo the key mechanism here is that this\nnew container is launched into the same\nnetwork name space as application\ncontainer. So but it has its own mount\nname space uh which means it has a\nseparate file system tree from the\napplication containers. So this is what\nmakes it perfect for our task. So we get\na clean free feature debuging\nenvironment that has the exact same\nnetwork view as our pages\nand we can achieve this by using the\npurpose speed image net suit. So it's\nessentially a docker container packed\nwith dozens of networking tools uh TCP\ndump dig map. So everything you might\nneed for network troubleshooting.\nTo give you a real sense of how this\nworks, I prepared a live demo of this\nstrategy. But so this is a live demo. So\nplease don't expect that this works.\nFlawlessly.\nSo yeah, I have\nYeah. So for this scenario our objective\nis to troubleshoot high latency in an\napplication\nand I have a a simple application\ndeployed in a local kubernetes cluster.\nSo I borrowed uh the dim application\nfrom the popular book. So it's still in\naction. So let's see how it looks.\nYeah, here I have it opened. Uh, and I\nam hitting the reload here.\nIt's loading. So, yeah, it it works. But\nso, it was a bit slow. So, right. So,\nalso I can open it in the thumbnail.\nSo,\nusing code.\nSo throwing away the out food\nand and\nyeah it took 4 seconds to read the\nresponse. So and it isn't expected. So\nas the application is very simple. So\nwhat's going on?\nSo we have a several seconds of delay\nbut no no other cl. So let's see QCD\ndebug to the inside the port understand\nthe general project capture to see\neverything that's happening on the\nnetwork.\nSo I execute CD debug command. So I have\nthe command prepared\nthis. So in this video learn cubec debug\non the target port and giving some\noptions and using the uh net suit image\nand launching TCP down process and\nletting it\ngenerate output to standard output and\npiping it to local data wire shack. So\nlet's let's do this.\nSo the Y s started and the chapter also\nstarted. So let me reproduce the slow\nrequest.\nThis\nI think we got\nit chapter. So stop in the chapter.\nSo yeah. So the output of wire sack\nlooks like this. So yeah\nnow so we have our evidence in the via\nscreen. So the chapter started and we\ngot uh we received the HTTP request from\nthe browser. this one and\nuh this so demo application is built on\na microservices architecture. So several\nrequests are made\nand finally\nso it is so giving uh response uh to the\nbrowser. So that is what's happening. Uh\nbut uh as you can see we we have several\nDNS requests\nuh right\nso yeah it didn't go so smoothly like so\nuh I got a histic request in in between\nso the output is uh uh got a bit\nconfusing but So basically so uh the DNS\nrequest was made to so\nhere and I can find better place. So\nyeah so DNS requests are being made\nmultiple times but so they are going to\ndifferent IP address\nuh first so we have DNS request to a\nstrange IP address so which is to\n10.42.42.42\n42. So then 1 second of silence. So you\nsee the time stamp. So there's one\nsecond job between this and this and\nthen the DNS request is made to uh\ndisapped\nand from this web app service several\nrequests are made resulting in the total\nof 4 seconds.\nSo now that the packets have given us a\nproof so we can confirm this by looking\nat the port DNS configuration. So we\nwill get into the port now\nplease hold on.\nOkay, I am learning cubic\nand I am showing the uh what a\ndissolve.com.\nYeah. So, and there's the answer.\nSo, as you can see the first name server\nis a black IP. So, the problem I\nintentionally configured for this deal.\nSo the dissolver tries this server waits\nfor the time out and only then for back\nto the working server.\nSo yeah as the demo show debug allowed\nus to get into the location needed to\ncapture the truth. So the pit data\ndidn't just show slowness. So it showed\na specific DNS query timing after one\nsecond before successively to a\nsecondary server. So this level of\ndetail is what allows us to move from\nthe network is throw to an actionable\nroot cause.\nUh finally so I want to touch on the\nfuture so which is already here. So EVPF\nso EVPF changes the game by allowing us\nto learn sandboxed programs directly in\nthe CA. So there are also standalone\nEVPs tracing tools like BPF trace. So\nthey are great for understanding what\nthe CA is doing but they are not\nreplacement for packet capture.\nNow the more trans transformative part\nis what happens when evpf is integrated\ninto the platform uh to show you what I\nmean. So let's jump into a quick live\ndemo with Sim and Her\nuh for this demo I am using a cluster\nwith CDM CNI installed.\nSo, I'm going to open half the UI and\nalso\nsorry.\nOkay.\nOkay. So, what\nWhat\nwhat you are seeing here is a half\nservice map. So this one is too small\nbut\nso this is generated automatically\nand in real time based on network\ntraffic. So it instantly shows us what\nis talking to what.\nSo now so remember the slow application\nfrom our last demo. So I have it uh\nlanding here as well. So let me send a\nrequest to the application. Okay. on on\nthe map.\nSo we can see web he's talking to uh uh\ncatalog for and cube DNS\nuh but also so another box so lab as\non 53. So this world represent traffic\nleaving the cluster to an IP address uh\nthat have doesn't recognize other port.\nSo let's look at the low flow data uh at\nthe bottom. Do you see what's really\nhappening? So it's a bit small.\nOkay. What the\nYeah.\nSo let's see this entries.\nSo yeah.\nSo we can see web app is sending uh uh\nDNS query to uh destination\nIP 10.42.4242\n42 42 on port 53\nand yeah this is a black copy from our\nDNS misconfiguration\nand right after it we see another\nrequest going to cubs service\nand we have a time st here but it isn't\nvisible but so between this and this so\nthere's one second of jump\nso yeah we are seeing evidence of the\nfallback behavior\nand this table can get noisy so but h is\nalso good at fing so let's say if we\nwant to prove that the problem is this\nblack IP so I can go to the bar and ask\nto show me only the traffic going to\nthat specific IP P.\nYeah, like this. So the table are now\nfilter to show only the f DN attempts.\nSo we can see web app is a source.\nSo this confirms feature application is\naffected by this misconfiguration.\nSo how does this connect back to the\ntheme of fate capture? So this shows us\na new workflow. So we use the high level\ntools to have to visually confirm the\nDNS isue. So now that we know the we\nknow the what and where so we no longer\nhave to guess.\nSo if we still need the low packets for\nexample to measure the precise timing.\nSo we can now perform a surgical 30\ncapture. So filtering for port or 53 on\nthe rever with confidence.\nSo this is a key point. So using high\nlevel observability observability to\nmove from speculative capture to\ntargeted capture.\nSo what is the takeaway?\nYeah. So there is no single best tool.\nSo there is a tool kit and a set of\nstrategies tailored for different\nproblems. So let's recap. So the first\nstrategy was the on node approach. So\nthis requires a loot access on the node.\nSo and you use e0 on nodes when you need\nto see traffic as a node sees it. So\nwhich is perfect for debuging CNI or\noverlay issues\nand not you use any center uh when you\nneed to see the traffic as the\napplication see it without modifying the\nport\nand the second strategy was the uh the\nbinary appro approach using case.\nSo consider this as a convenience\nfocused tool. So it's an interesting\ntechnique and comes with convenience but\nbe mindful of its intrusiveness which\nyou might not want for production\nclusters.\nAnd the third strategy was the input\napproach using cub debug. So this is the\nrecommended kubernetes native approach\nbecause it offers the best balance of\nflexibility and ease of use.\nAnd finally, so keep an eye on EVPF. So\nit represents the future of low overhead\nintelligent network observability.\nSo my goal today was to give you that\ntool kit to arm you with the techniques\nto get the data you need.\nSo now so you should be an S and with a\ntool kit to prove data. So you will be\nready to answer the question. So is it\nnetwork?\nSo it may or may not be the network. But\nnow you have the way to answer.\nThat's it from me. Thank you.",
+  "segments": [
+    {
+      "text": "Hello everyone and welcome to my session. So I'm so excited to be here at so a conference I've always respected. H thank you so much for giving me this opportunity. So this is the agenda for today and let me start from the introduction part first.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "uh for nearly a decade I've been a necessary focused on keeping complex distributed systems running but recently my career took an interesting turn. So I joined a platform network team. So it's an interesting place to be",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "because it's where our fellow developers often come to us with a very familiar phrase. We think it might be a network issue. Yeah. So we are expected to to have an answer because we are supposed to be experts. So we look into the issue and very frequently.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "So it has nothing to do with the network. So yeah because we run this with systems. So every interaction involves the network. So the network friend people learn of other cruise. I want to change that. So I believe we all need a way to provide definitive",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "datadriven answers. So not just to prove the network's innocence but to find the true root cause wherever it might be. So this talk is the result of that experience. So it's not about turning you into a network expert. So it's about",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "equipping you as a fellow SR. So with a set of tech practical techniques to get the data you need. So which are ready to use in your next investigation. And before we dive in so I want to set two clear expectations for our session",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "today. First, our focus is specifically on the Kubernetes environment. So, we won't be covering general packet capture on bare metal or VMs. Second, this talk is about one thing. So, how to reliably capture the right packets. So, deep packet analysis with",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "tools like wireshark is a huge topic deserving its own dedicated session. So our goal today is to get to the raw data you need to start the analysis and also I have a disclaimer. So packet capture can expose sensitive information. So please be mindful of",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "data privacy and security implications and always follow your organization's policies. So with those in mind let's begin. So let's look at what's nearly happening between your applications and the network. So as site engineers, a huge part of our",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "job is managing systems built on layers of abstraction. So our application code is written with a certain set of expectations about how the world works. For networking, it expects to send and receive a reliable ordered stream of data.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "So we achieve this through abstractions like the TCP socket. So our code interacts with this screen API assuming it will handle the details. However, beneath this screen API lies the complex reality of the network. So we use a term best effort to describe",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "this underlying reality and it the nature of this best effort uh system leaks through our abstraction that many of the most difficult production issues occur creating complex failure modes. So let me tell you two examples of this",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "space effort reality to illustrate why this necessitates pat observation. Uh first so there is no guaranteed latency or delivery order. So parts can be delayed dropped or reorder due to countless factors like buffer broad in a switch or routing changes",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "to your application. This doesn't look like potato loss. So it manifests as a mysterious uh digital report in execution. So you see the effect but not the cause. Second there is no guarantee throughput. So the rate at which your application",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "can send data is not a fixed value. So it's a dynamic variable controlled by TCP's congestion control algorithms. So if the current passes packet loss it will automatically shrink the congestion window. So your application metric will",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "simply show a sudden drop in throughput. But the decision was made deep inside the corner. So these are not val. So this is a network operating as designed uh to diagnose problems that originate from this inherent probabilistic nature.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "So we need a tool that can observe it directly. So we need a project. So then let's move on to the main topic. Uh we will look into how we can perform p capture in a kubernetes environment. So we will explore three primary",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "strategies ordered by their increasing proximity to the application. So our first strategy involves the techniques executed directly on the kubernetes nodes. So this is the least intrusive approach as it doesn't modify the learning board at all.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "A critical predicate for this entire strategy is that you must have share access to the command nodes uh typically by SSH with sufficient privileges which is often rude or to learn diagnostic tools. So this is a significant",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "requirement and may not be possible in all environments. So especially in manage Kubernetes services. So assuming you have this access the un on node strategy offers two distinct observation points. So each for different purposes.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "So this diagram illustrates the nodes uh network structure. So there are ports which have their own network name space and the L network name space for the node itself. And the first observation point is outside the port network name space. So",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "by capturing on the n main network inter which is usually e zero and filtering by the port's IP address. Sorry. So the workflow uh looks like this. So first so you will so identify the name of the uh uh uh yeah node and IP address",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "of the target port and then so you will s into that node and finally on the node so you will run TCP dump uh on the main network interface and with filtering by the port IP address. So let's break down that TCP dump command. So hyphen I tells TCP dump to",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "listen on our target network interface and hyphen N tells it to skip DNS name to prevent it from generating extra DN DNS traffic of its own and hyphoon W tells it to write the low packets to a file named capture.pap PP uh which we can later analyze with tools",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "like wireshark and finally so the expression host and port IP so this is a BPF filter so it's a small expression to tell the kernel to only send us the packets that match this filter in this case we asking for budgets where the source or destination",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "IP is our B IP So this technique is essential. So when you suspect the problem is not inside the application container but in the infrastructure that the node provides to the container. So let me give you some examples of these node level issues.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "So first one will be that port A can't reach port B on a different node. So your hypothesis might be that the overlay network is failing. The captioning on the no phys physical interface allows you to see the encapsulated traffic like VX",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "and verify if they are being sent unreceived correctly. And another example will be that network policy is unexpectedly broken traffic. Your hypothesis is that the CNI plugin like Calico or CM is misconfigured since network policy enforcement happens",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "at the node level. So often using IP tables or EVPF the capturing on the V is interface. Let us see if packets are being duped before they have even they even have a chance to enter the port's name space. So in those cases the problem lies in",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "the fabric connecting the port not not in the port themselves and the next observation point is inside the port's name space. So we use any center on the node to execute TCP D within the context of the port's network name space.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "So this technique is for you suspect the problem is happening inside the port's own network stack. Uh this time the workflow looks like this. So again so you will SSH into the node first and then on the node so you will somey somehow identify the uh photo",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "target uh p I so process ID so using the command cect so you don't need to dig this deeper for now and I am not super familiar about this but so you will somehow So look up the uh process ID of the uh target port and then so you use n center to run tcp",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "dump inside the port's network name space. So when to use this so in contrast with the previous approach so you use this when you suspect the problem is inside your application controller. So here are some examples of these input issues. Uh",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "first it will be that your application fails to start or complaining it can't find to port 8080. So your hypothesis is that another process inside the same port is already using that port. So using n center to run net start inside",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "the port name space can confirm this. And or another example maybe that uh service side like STO is causing issues. So your hypothesis is that the application is sending correct plain text traffic but the cyoca is mishandling it. So you must be inside",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "the port name space to capture traffic on the local host interface between the application and the proxy. So capturing on the ether zero from the outside would only show you the encrypted MTS traffic which is useless for this kind of debuging.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So to summarize the on strategy. So you use the outside approach to debuck CNI and overlay network issues and you use inside approach. You're using N center to debug the application direct network behavior. So main uh the main tradeoff for both is",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "that they require L access on the node. So now, so let's look at approaches that rely more on the Kubernetes API. Excuse me. So yeah, our second strategy is an interesting approach. So centered on convenience. So exemplified by tools like JSN.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So the core idea is to run the capture process inside the target container without requiring a pre-installed of TCP dump. So it does this by using a combination of cubectl primitives. So cubectl CP to uh upload a static TCP",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "dump binary into the running containers file system and cubectl exec to run it. So it's a cubit plug-in and you can install it easily using a crew. So a cubic plug-in manager. So once installed you can invoke it easily in a very",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "similar way with other cubic commands. So this provides a very appealing one command to wire workflow and gives a same network at the airport by capturing inside the port. So the workflow looks like this. So yeah first so you will identify the target",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "port and then so you you will so do uh learn the QClick and give the name space and give the name of the target port and that's it. So by doing so so the uh JSN will launch a TCP D process so with interp and then so its output will be piped",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "into locally done wires. So yeah wires will start locally and the caps will start very soon. So it's uh very convenient. So however it's important to understand the downsides first. So it is stated as non-production ready. So it may not be a",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "good idea to use it to investigate production issues. Second so you are modifying a landing container file system uh which may have security implications and third there can be a compatibility issues between the static binary and the containers environment.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "So, it's a clever technique, but one to use with awareness of its trade-offs. So, this brings us to our third and most useful strategy. So, using ephemeral containers via cubect debac. So this is the offsh supported Kubernetes native way to attach a",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "debuging envir environment to a running port. It's worth noting that this feature requires a relatively modern Kubernetes cluster. So a familiar containers were enabled by default starting in Kubernetes 1.25. So if you are on an older cluster so",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "this specific technique may not be available to you. So now let's pause and understand what this command actually does. So when you run this you are telling the Kubernetes control plane to perform a special action. So it does not modify your",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "original container. So instead the control plane to use the new temporary container and if you add container to run inside the target. So the key mechanism here is that this new container is launched into the same network name space as application",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "container. So but it has its own mount name space uh which means it has a separate file system tree from the application containers. So this is what makes it perfect for our task. So we get a clean free feature debuging environment that has the exact same",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "network view as our pages and we can achieve this by using the purpose speed image net suit. So it's essentially a docker container packed with dozens of networking tools uh TCP dump dig map. So everything you might need for network troubleshooting.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "To give you a real sense of how this works, I prepared a live demo of this strategy. But so this is a live demo. So please don't expect that this works. Flawlessly. So yeah, I have Yeah. So for this scenario our objective is to troubleshoot high latency in an",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "application and I have a a simple application deployed in a local kubernetes cluster. So I borrowed uh the dim application from the popular book. So it's still in action. So let's see how it looks. Yeah, here I have it opened. Uh, and I",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "am hitting the reload here. It's loading. So, yeah, it it works. But so, it was a bit slow. So, right. So, also I can open it in the thumbnail. So, using code. So throwing away the out food and and yeah it took 4 seconds to read the",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "response. So and it isn't expected. So as the application is very simple. So what's going on? So we have a several seconds of delay but no no other cl. So let's see QCD debug to the inside the port understand the general project capture to see",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "everything that's happening on the network. So I execute CD debug command. So I have the command prepared this. So in this video learn cubec debug on the target port and giving some options and using the uh net suit image and launching TCP down process and",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "letting it generate output to standard output and piping it to local data wire shack. So let's let's do this. So the Y s started and the chapter also started. So let me reproduce the slow request. This I think we got it chapter. So stop in the chapter.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "So yeah. So the output of wire sack looks like this. So yeah now so we have our evidence in the via screen. So the chapter started and we got uh we received the HTTP request from the browser. this one and uh this so demo application is built on",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "a microservices architecture. So several requests are made and finally so it is so giving uh response uh to the browser. So that is what's happening. Uh but uh as you can see we we have several DNS requests uh right so yeah it didn't go so smoothly like so",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "uh I got a histic request in in between so the output is uh uh got a bit confusing but So basically so uh the DNS request was made to so here and I can find better place. So yeah so DNS requests are being made multiple times but so they are going to",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "different IP address uh first so we have DNS request to a strange IP address so which is to 10.42.42.42 42. So then 1 second of silence. So you see the time stamp. So there's one second job between this and this and then the DNS request is made to uh disapped",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "and from this web app service several requests are made resulting in the total of 4 seconds. So now that the packets have given us a proof so we can confirm this by looking at the port DNS configuration. So we will get into the port now please hold on.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "Okay, I am learning cubic and I am showing the uh what a dissolve.com. Yeah. So, and there's the answer. So, as you can see the first name server is a black IP. So, the problem I intentionally configured for this deal. So the dissolver tries this server waits",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "for the time out and only then for back to the working server. So yeah as the demo show debug allowed us to get into the location needed to capture the truth. So the pit data didn't just show slowness. So it showed a specific DNS query timing after one",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "second before successively to a secondary server. So this level of detail is what allows us to move from the network is throw to an actionable root cause. Uh finally so I want to touch on the future so which is already here. So EVPF",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "so EVPF changes the game by allowing us to learn sandboxed programs directly in the CA. So there are also standalone EVPs tracing tools like BPF trace. So they are great for understanding what the CA is doing but they are not replacement for packet capture.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "Now the more trans transformative part is what happens when evpf is integrated into the platform uh to show you what I mean. So let's jump into a quick live demo with Sim and Her uh for this demo I am using a cluster with CDM CNI installed.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "So, I'm going to open half the UI and also sorry. Okay. Okay. So, what What what you are seeing here is a half service map. So this one is too small but so this is generated automatically and in real time based on network traffic. So it instantly shows us what",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "is talking to what. So now so remember the slow application from our last demo. So I have it uh landing here as well. So let me send a request to the application. Okay. on on the map. So we can see web he's talking to uh uh catalog for and cube DNS",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "uh but also so another box so lab as on 53. So this world represent traffic leaving the cluster to an IP address uh that have doesn't recognize other port. So let's look at the low flow data uh at the bottom. Do you see what's really",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "happening? So it's a bit small. Okay. What the Yeah. So let's see this entries. So yeah. So we can see web app is sending uh uh DNS query to uh destination IP 10.42.4242 42 42 on port 53 and yeah this is a black copy from our DNS misconfiguration",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "and right after it we see another request going to cubs service and we have a time st here but it isn't visible but so between this and this so there's one second of jump so yeah we are seeing evidence of the fallback behavior",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "and this table can get noisy so but h is also good at fing so let's say if we want to prove that the problem is this black IP so I can go to the bar and ask to show me only the traffic going to that specific IP P. Yeah, like this. So the table are now",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "filter to show only the f DN attempts. So we can see web app is a source. So this confirms feature application is affected by this misconfiguration. So how does this connect back to the theme of fate capture? So this shows us",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "a new workflow. So we use the high level tools to have to visually confirm the DNS isue. So now that we know the we know the what and where so we no longer have to guess. So if we still need the low packets for example to measure the precise timing.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So we can now perform a surgical 30 capture. So filtering for port or 53 on the rever with confidence. So this is a key point. So using high level observability observability to move from speculative capture to targeted capture. So what is the takeaway?",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. So there is no single best tool. So there is a tool kit and a set of strategies tailored for different problems. So let's recap. So the first strategy was the on node approach. So this requires a loot access on the node.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "So and you use e0 on nodes when you need to see traffic as a node sees it. So which is perfect for debuging CNI or overlay issues and not you use any center uh when you need to see the traffic as the application see it without modifying the port",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "and the second strategy was the uh the binary appro approach using case. So consider this as a convenience focused tool. So it's an interesting technique and comes with convenience but be mindful of its intrusiveness which you might not want for production",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "clusters. And the third strategy was the input approach using cub debug. So this is the recommended kubernetes native approach because it offers the best balance of flexibility and ease of use. And finally, so keep an eye on EVPF. So",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "it represents the future of low overhead intelligent network observability. So my goal today was to give you that tool kit to arm you with the techniques to get the data you need. So now so you should be an S and with a tool kit to prove data. So you will be",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "ready to answer the question. So is it network? So it may or may not be the network. But now you have the way to answer. That's it from me. Thank you.",
+      "start": 480,
+      "duration": 6
+    }
+  ]
+}

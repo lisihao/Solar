@@ -31,10 +31,10 @@ def test_standard_tracks_found():
     assert len(standard) >= 2  # en + zh-Hans
 
 
-def test_asr_tracks_found():
+def test_auto_tracks_found():
     tracks = discover_subtitle_tracks("dQw4w9WgXcQ")
-    asr = [t for t in tracks if t.track_kind == "asr"]
-    assert len(asr) >= 2  # en + ja
+    auto = [t for t in tracks if t.track_kind == "auto"]
+    assert len(auto) >= 2  # en + ja
 
 
 def test_track_id_format():
@@ -52,11 +52,11 @@ def test_language_priority_sorting():
         assert langs.index("en") < langs.index("zh-Hans")
 
 
-def test_standard_before_asr():
+def test_standard_before_auto():
     tracks = discover_subtitle_tracks("dQw4w9WgXcQ")
     kinds = [t.track_kind for t in tracks]
-    if "standard" in kinds and "asr" in kinds:
-        assert kinds.index("standard") < kinds.index("asr")
+    if "standard" in kinds and "auto" in kinds:
+        assert kinds.index("standard") < kinds.index("auto")
 
 
 def test_offline_fixture_missing(monkeypatch, tmp_path):

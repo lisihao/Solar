@@ -45,6 +45,42 @@ PROFESSOR_GRADE_WRITING_POLICY = {
     ],
 }
 
+SECTION_RENDER_WRITING_POLICY = {
+    "policy_id": "solar.deepdive.section_render_writing.v1",
+    "purpose": "Turn evidence packs into thesis-first DeepDive insight sections that can compile into SectionRender cards.",
+    "section_template": [
+        "本节判断",
+        "证据链",
+        "影响与行动",
+        "反证和观察",
+        "Figure Spec",
+        "SectionRender JSON",
+    ],
+    "synthesis_rules": [
+        "Start with a clear thesis, not background.",
+        "Bind important factual claims to [claim:<id>] and [evidence:<id>] tags.",
+        "Separate facts, interpretation, action, and falsification conditions.",
+        "Use evidence callouts and takeaways that can be compiled into SectionRender cards.",
+        "Choose figure_spec.type from the provided figure_type guidance; do not always emit a generic card diagram.",
+        "If evidence is weak, downgrade the conclusion instead of making it sound decisive.",
+    ],
+    "forbidden_patterns": [
+        "Do not use generic survey headings such as Literature Lineage or Method Taxonomy.",
+        "Do not write a source-by-source summary.",
+        "Do not publish unsupported strategy or product recommendations.",
+    ],
+}
+
+FIGURE_TYPE_GUIDANCE = {
+    "architecture_map": "Use when the section explains components, runtime structure, schema/operator/gate mapping, or system absorption.",
+    "roadmap_timeline": "Use when the section turns signals into next steps, forecast horizons, watchlist, or implementation roadmap.",
+    "process_flow": "Use when the section explains a pipeline, workflow, sequence, or operational loop.",
+    "comparison_matrix": "Use when the section compares options, camps, tradeoffs, disagreements, or competing routes.",
+    "evidence_map": "Use when the section mainly maps evidence strength, source coverage, signal clusters, or claim support.",
+    "risk_map": "Use when the section focuses on counter-evidence, failure modes, uncertainty, gaps, or downgrade conditions.",
+    "insight_argument_map": "Use as the default when the section is a thesis-first argument with evidence and action but no stronger visual type.",
+}
+
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -79,6 +115,14 @@ def _load_ledgers(root: Path) -> dict[str, dict[str, dict]]:
     evidence = {_row_id(row, "id", "evidence_id"): row for row in _read_jsonl(root / "evidence.jsonl")}
     claims = {_row_id(row, "id", "claim_id"): row for row in _read_jsonl(root / "claims.jsonl")}
     return {"sources": sources, "evidence": evidence, "claims": claims}
+
+
+def _is_insight_run(root: Path) -> bool:
+    plan = _read_json(root / "survey_plan.json")
+    ast = _read_json(root / "survey_report_ast.json")
+    planner_mode = str(plan.get("planner_mode") or ast.get("planner_mode") or "").lower()
+    title = str(ast.get("title") or "").lower()
+    return planner_mode in {"insight", "conference_insight"} or "deepdive 洞察报告" in title or "insight" in title
 
 
 def _evidence_text(row: dict) -> str:
@@ -192,26 +236,43 @@ def build_section_prompt_packet(root: Path, section_id: str, round_index: int = 
     pack = _read_json(section_dir / "evidence_pack.json")
     source_types = [str(item) for item in pack.get("source_types", []) if str(item)] if isinstance(pack.get("source_types"), list) else []
     chapter_context = _chapter_context(root, section_id, spec)
+    insight_mode = _is_insight_run(root)
+    writing_policy = SECTION_RENDER_WRITING_POLICY if insight_mode else PROFESSOR_GRADE_WRITING_POLICY
+    suggested_figure_type = str(spec.get("suggested_figure_type") or "insight_argument_map")
     packet = SectionPromptPacket(
         section_id=section_id,
         round_index=round_index,
         writer_backend=writer_backend,
-        role="professor-grade technical survey section writer",
-        task=f"Write or revise section '{spec.get('title') or section_id}' from the provided evidence pack only.",
+        role="DeepDive insight section writer" if insight_mode else "professor-grade technical survey section writer",
+        task=(
+            f"Write or revise SectionRender-ready insight section '{spec.get('title') or section_id}' from the provided evidence pack only."
+            if insight_mode
+            else f"Write or revise section '{spec.get('title') or section_id}' from the provided evidence pack only."
+        ),
         constraints=[
             "Use the section evidence pack as the source of truth.",
             "Bind important factual claims to [claim:<id>] and [evidence:<id>] tags.",
-            "Separate architecture synthesis, evaluation limits, contradiction slots, and open problems.",
+            "Separate thesis, evidence, action, and falsification conditions." if insight_mode else "Separate architecture synthesis, evaluation limits, contradiction slots, and open problems.",
             "Do not invent sources, results, paper names, URLs, or benchmark numbers.",
             "Preserve uncertainty when evidence is weak or contradictory.",
         ],
-        output_contract=[
+        output_contract=(
+            [
+                "Markdown section draft that is directly convertible to SectionRender cards.",
+                "Include headings: 本节判断, 证据链, 影响与行动, 反证和观察, Figure Spec, SectionRender JSON.",
+                "SectionRender JSON must include thesis, evidence_callouts, takeaways, figure_spec, claim_ids, evidence_ids, solar_absorption, and prediction_packet_refs.",
+                f"figure_spec.type should be `{suggested_figure_type}` unless the evidence strongly requires another supported figure type.",
+                "All core claims must reference claim_id and evidence_id tags.",
+            ]
+            if insight_mode
+            else [
             "Markdown section draft.",
             "At least six second-level headings.",
             "Follow the professor-grade section template in writing_policy.section_template.",
             "Include Literature Lineage, Method Taxonomy, Architecture Synthesis, Comparative Positioning, Terminology Evolution, Evaluation Protocol Matrix, Evaluation And Risk Boundary, Limitations And Failure Modes, Controversy Matrix, Contradiction Slots, and Open Problems.",
             "All core claims must reference claim_id and evidence_id tags.",
-        ],
+            ]
+        ),
         artifact_paths={
             "section_spec": str(section_dir / "section.spec.json"),
             "evidence_pack": str(section_dir / "evidence_pack.json"),
@@ -229,16 +290,33 @@ def build_section_prompt_packet(root: Path, section_id: str, round_index: int = 
     payload["section_spec"] = spec
     payload["evidence_pack"] = pack
     payload["chapter_context"] = chapter_context
-    payload["writing_policy"] = PROFESSOR_GRADE_WRITING_POLICY
+    payload["writing_policy"] = writing_policy
+    payload["insight_mode"] = insight_mode
+    payload["figure_type_guidance"] = {
+        "suggested_figure_type": suggested_figure_type if insight_mode else "",
+        "supported_types": FIGURE_TYPE_GUIDANCE if insight_mode else {},
+    }
     payload["source_type_guidance"] = _source_type_guidance(source_types)
-    payload["synthesis_outline"] = [
+    payload["synthesis_outline"] = (
+        [
+            "State the section thesis first.",
+            "Convert evidence into evidence_callouts, not source-by-source summaries.",
+            "Turn implications into concrete actions, design options, experiments, or watchlist items.",
+            "State counter-evidence, uncertainty, and falsification conditions.",
+            "Map Solar absorption paths: which signals become new operators, schemas, or gates.",
+            "Reference prediction packets for falsifiable forecasts with leading indicators.",
+            "Emit SectionRender JSON so downstream renderers do not infer structure from free prose.",
+        ]
+        if insight_mode
+        else [
         "Define the local research question and scope.",
         "Map claims to evidence and source types.",
         "Synthesize architecture mechanisms before evaluation claims.",
         "Compare source families instead of flattening them into citations.",
         "State evaluation limits and failure modes.",
         "End with open problems that can feed chapter-level synthesis.",
-    ]
+        ]
+    )
     payload["required_claim_ids"] = list(pack.get("claim_ids", [])[:6])
     payload["required_evidence_ids"] = list(pack.get("evidence_ids", [])[:8])
     return payload
@@ -326,6 +404,12 @@ def _write_prompt_packet(section_dir: Path, packet: dict) -> None:
     md.extend(f"- {item}" for item in packet.get("source_type_guidance", []))
     md.extend(["", "## Synthesis Outline", ""])
     md.extend(f"- {item}" for item in packet.get("synthesis_outline", []))
+    figure_guidance = packet.get("figure_type_guidance") if isinstance(packet.get("figure_type_guidance"), dict) else {}
+    if figure_guidance.get("suggested_figure_type"):
+        md.extend(["", "## Figure Type Guidance", ""])
+        md.append(f"- Suggested: {figure_guidance.get('suggested_figure_type')}")
+        supported = figure_guidance.get("supported_types") if isinstance(figure_guidance.get("supported_types"), dict) else {}
+        md.extend(f"- {key}: {value}" for key, value in sorted(supported.items()))
     md.extend(["", "## Required Claims", ""])
     md.extend(f"- {item}" for item in packet.get("required_claim_ids", []))
     md.extend(["", "## Required Evidence", ""])
@@ -357,12 +441,110 @@ def build_section_draft(root: Path, section_id: str, round_index: int = 0) -> st
     evidence_ids = [eid for eid in pack.get("evidence_ids", []) if eid]
     title = spec.get("title") or section_id
     question = spec.get("research_question") or ""
+    suggested_figure_type = str(spec.get("suggested_figure_type") or "insight_argument_map")
     source_type_list = [str(item) for item in pack.get("source_types", []) if str(item)] if isinstance(pack.get("source_types"), list) else []
     source_types = ", ".join(source_type_list) or "N/A"
     anchor = _section_anchor(section_id, str(title), chapter_context)
     lens = _section_lens(str(title), str(question), source_type_list, int(chapter_context.get("section_order_in_chapter") or 0))
     primary_claims = claims[: max(3, min(len(claims), 6))]
     primary_evidence = evidence[: max(4, min(len(evidence), 8))]
+
+    if _is_insight_run(root):
+        first_claim = claim_ids[0] if claim_ids else "claim_missing"
+        first_evidence = evidence_ids[0] if evidence_ids else "evidence_missing"
+        second_claim = claim_ids[1] if len(claim_ids) > 1 else first_claim
+        second_evidence = evidence_ids[1] if len(evidence_ids) > 1 else first_evidence
+        third_claim = claim_ids[2] if len(claim_ids) > 2 else first_claim
+        third_evidence = evidence_ids[2] if len(evidence_ids) > 2 else first_evidence
+        fourth_claim = claim_ids[3] if len(claim_ids) > 3 else first_claim
+        fourth_evidence = evidence_ids[3] if len(evidence_ids) > 3 else first_evidence
+        evidence_callouts = []
+        for idx, row in enumerate(primary_evidence[:4], start=1):
+            eid = evidence_ids[idx - 1] if idx - 1 < len(evidence_ids) else f"evidence_{idx}"
+            text = _inline_text(_evidence_text(row), limit=240) or f"{title} evidence span."
+            evidence_callouts.append({
+                "evidence_id": eid,
+                "summary": text,
+                "source_type": str((ledgers["sources"].get(str(row.get("source_id") or ""), {}) or {}).get("source_type") or "unknown"),
+            })
+        render_json = {
+            "schema_version": "solar.deepdive.section_render_card.v1",
+            "section_id": section_id,
+            "chapter_id": str(chapter_context.get("chapter_id") or ""),
+            "title": str(title),
+            "thesis": [
+                f"{anchor} 的核心判断是：{lens['focus']} 正在成为本章论证的承重点，而不是背景材料。"
+            ],
+            "evidence_callouts": evidence_callouts,
+            "takeaways": [
+                f"把 {lens['axis']} 结论限定在 `{source_types}` 能直接支持的范围内。",
+                f"围绕 {lens['focus']} 形成行动、设计或实验入口。",
+                f"如果出现 `{lens['risk']}`，本节结论必须降级为观察项。",
+            ],
+            "figure_spec": {
+                "type": suggested_figure_type,
+                "title": str(title),
+                "rationale": FIGURE_TYPE_GUIDANCE.get(suggested_figure_type, FIGURE_TYPE_GUIDANCE["insight_argument_map"]),
+                "claim_ids": claim_ids[:5],
+                "evidence_ids": evidence_ids[:5],
+            },
+            "claim_ids": claim_ids[:6],
+            "evidence_ids": evidence_ids[:8],
+            "solar_absorption": [
+                f"Map {lens['axis']} implications to Solar runtime operators, schemas, or gates.",
+                f"Identify which {lens['focus']} signals require new Solar capabilities.",
+            ],
+            "prediction_packet_refs": [
+                f"pred_{section_id}_forecast_1",
+            ],
+        }
+        if round_index >= 1:
+            render_json["takeaways"].append("修订版需要减少材料复述，增强因果解释、行动映射和反证条件。")
+        if round_index >= 2:
+            render_json["takeaways"].append("最终版必须明确哪些判断可以进入路线图，哪些只能留在 watchlist。")
+        draft = f"""# {title}
+
+## 本节判断
+
+{anchor} 的核心判断是：{lens['focus']} 正在成为本章论证的承重点，而不是背景材料。本节只允许把 `{source_types}` 能直接支持的内容写成结论；如果出现 `{lens['risk']}`，结论必须降级为观察项。 [claim:{first_claim}] [evidence:{first_evidence}]
+
+本节采用“分类/方法谱系 → 机制解释 → 评估协议 → 复现边界”的结构展开：先确认材料属于哪类技术路线，再判断它能否进入可复现实验、产品设计或路线图。 [claim:{second_claim}] [evidence:{second_evidence}]
+
+## 证据链
+
+- {anchor} 证据 1：`{first_evidence}` 支撑本节 thesis 的事实边界，不能被扩写成无来源的行业判断。 [claim:{first_claim}] [evidence:{first_evidence}]
+- {anchor} 证据 2：`{second_evidence}` 用来校准 {lens['axis']} 的适用范围和不确定性。 [claim:{second_claim}] [evidence:{second_evidence}]
+- {anchor} 证据 3：`{third_evidence}` 用来检查来源之间是否存在口径差、时间差或实现差。 [claim:{third_claim}] [evidence:{third_evidence}]
+- {anchor} 证据 4：`{fourth_evidence}` 用来补足发布前的可见证据覆盖，避免核心判断只依赖前三条材料。 [claim:{fourth_claim}] [evidence:{fourth_evidence}]
+- 对照与消融：如果材料没有 baseline、ablation 或替代路线比较，本节只能给出弱判断，不能把局部 evidence 写成确定趋势。 [claim:{third_claim}] [evidence:{third_evidence}]
+- 可复现边界：如果缺少 replication 路径、benchmark 设置或生产部署条件，本节只保留实验建议，不进入强路线图。 [claim:{fourth_claim}] [evidence:{fourth_evidence}]
+
+## 影响与行动
+
+- 行动建议：围绕 {lens['focus']} 设计一个可验证实验或路线图入口，并把成功标准绑定到 evidence pack，而不是绑定到主观叙事。 [claim:{first_claim}] [evidence:{first_evidence}]
+- 设计建议：将 `{lens['axis']}` 相关判断拆成事实、解释、行动三层，后续 renderer 才能把它编成 SectionRender card。 [claim:{second_claim}] [evidence:{second_evidence}]
+- 观察建议：继续追踪 `{lens['primary_source']}` 与 `{lens['secondary_source']}` 是否形成交叉支撑；若没有，只能保留为 watchlist。 [claim:{third_claim}] [evidence:{third_evidence}]
+
+## 反证和观察
+
+- 反证条件：如果后续材料显示 `{lens['risk']}`，本节 thesis 失效或降级。 [claim:{third_claim}] [evidence:{third_evidence}]
+- 观察指标：看 {lens['focus']} 是否同时出现在论文、代码、评测、产品或社区讨论里；单一来源不能支撑强趋势。 [claim:{second_claim}] [evidence:{second_evidence}]
+
+## Figure Spec
+
+- figure_type: {suggested_figure_type}
+- figure_title: {title}
+- figure_rationale: {FIGURE_TYPE_GUIDANCE.get(suggested_figure_type, FIGURE_TYPE_GUIDANCE["insight_argument_map"])}
+- claim_ids: {", ".join(claim_ids[:5]) or "N/A"}
+- evidence_ids: {", ".join(evidence_ids[:5]) or "N/A"}
+
+## SectionRender JSON
+
+```json
+{json.dumps(render_json, ensure_ascii=False, indent=2)}
+```
+"""
+        return _dedupe_sentences(draft)
 
     claim_lines = []
     for idx, row in enumerate(primary_claims, start=1):
@@ -552,6 +734,7 @@ def build_section_draft(root: Path, section_id: str, round_index: int = 0) -> st
 def review_section_text(root: Path, section_id: str, text: str, min_chars: int = 1200) -> SectionReview:
     section_dir = root / "sections" / section_id
     pack = _read_json(section_dir / "evidence_pack.json")
+    insight_mode = _is_insight_run(root)
     issues: list[str] = []
     if pack.get("status") != "ready":
         issues.extend(pack.get("blockers") or ["evidence_pack_blocked"])
@@ -568,16 +751,29 @@ def review_section_text(root: Path, section_id: str, text: str, min_chars: int =
     if missing_evidence:
         issues.append("missing_evidence_tags:" + ",".join(missing_evidence))
     headings = len(re.findall(r"^##\s+", text, flags=re.M))
-    if headings < 6:
-        issues.append(f"section_structure_shallow:{headings}<6")
-    if not re.search(r"Contradiction|反证|争议", text, flags=re.I):
-        issues.append("contradiction_section_missing")
-    if not re.search(r"Evaluation|评价|评估", text, flags=re.I):
-        issues.append("evaluation_section_missing")
-    if not re.search(r"Comparative Positioning|比较|对比", text, flags=re.I):
-        issues.append("comparative_positioning_missing")
-    if not re.search(r"Limitations|Failure Modes|局限|失败模式", text, flags=re.I):
-        issues.append("limitations_failure_modes_missing")
+    if insight_mode:
+        if headings < 5:
+            issues.append(f"section_render_structure_shallow:{headings}<5")
+        for label, pattern in [
+            ("thesis_missing", r"本节判断"),
+            ("evidence_callouts_missing", r"证据链"),
+            ("action_takeaways_missing", r"影响与行动|行动建议|设计建议"),
+            ("falsification_missing", r"反证和观察|反证条件|观察指标"),
+            ("section_render_json_missing", r"SectionRender JSON|section_render_card"),
+        ]:
+            if not re.search(pattern, text, flags=re.I):
+                issues.append(label)
+    else:
+        if headings < 6:
+            issues.append(f"section_structure_shallow:{headings}<6")
+        if not re.search(r"Contradiction|反证|争议", text, flags=re.I):
+            issues.append("contradiction_section_missing")
+        if not re.search(r"Evaluation|评价|评估", text, flags=re.I):
+            issues.append("evaluation_section_missing")
+        if not re.search(r"Comparative Positioning|比较|对比", text, flags=re.I):
+            issues.append("comparative_positioning_missing")
+        if not re.search(r"Limitations|Failure Modes|局限|失败模式", text, flags=re.I):
+            issues.append("limitations_failure_modes_missing")
     source_types = pack.get("source_types", [])
     source_diversity = min(len(source_types) / 4, 1.0)
     if source_diversity < 0.5:

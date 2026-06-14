@@ -15,26 +15,33 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from capability_token import CapabilityToken
+from capability_token import CapabilityToken, PolicyDecision
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
+HARNESS_STATE_DIR = Path(
+    os.environ.get("SOLAR_HARNESS_STATE_DIR")
+    or os.environ.get("BROWSER_AGENT_STATE_DIR")
+    or (HOME / ".solar" / "harness")
+)
 BROWSER_JOBS_DIR = HARNESS_DIR / "run" / "browser-jobs"
 OPERATOR_RESULTS_DIR = HARNESS_DIR / "run" / "operator-results"
 BROWSER_USE_ROOT = HOME / ".claude" / "mcp-servers" / "browser-use"
 BROWSER_USE_PYTHON = BROWSER_USE_ROOT / ".venv" / "bin" / "python"
-PROFILE_CACHE_ROOT = HARNESS_DIR / "state" / "browser-profile-cache"
-PROFILE_RUNTIME_ROOT = HARNESS_DIR / "state" / "browser-profile-runtime"
+PROFILE_CACHE_ROOT = HARNESS_STATE_DIR / "state" / "browser-profile-cache"
+PROFILE_RUNTIME_ROOT = HARNESS_STATE_DIR / "state" / "browser-profile-runtime"
 _CHATGPT_CAPTURE_MODULE = HARNESS_DIR / "lib" / "chatgpt-conversation-ingest.py"
 CHATGPT_MONTHLY_PROJECT_PREFIX = "需求研究"
 CHATGPT_FRONTDOOR_URL = "https://chatgpt.com/"
 _STAGED_PROFILE_PREFIX = "browser-use-user-data-dir-"
-_PERSISTENT_PROFILE_PREFIX = "browser-use-persistent-user-data-dir-"
+_PERSISTENT_PROFILE_PREFIX = "browser-use-user-data-dir-persistent-"
+_LEGACY_PERSISTENT_PROFILE_PREFIX = "browser-use-persistent-user-data-dir-"
 _RESTORE_ARTIFACTS = {
     "Current Session",
     "Current Tabs",
@@ -70,6 +77,7 @@ _SECRET_PATTERNS = [
 ]
 
 _CHATGPT_INGEST_CACHE: Any = None
+_STAGED_PROFILE_CLEANUP_GRACE_SECONDS = 15 * 60
 
 
 def scrub_secrets(text: str) -> str:
@@ -100,7 +108,64 @@ def scrub_dict(d: Any) -> Any:
     return d
 
 
-def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Optional[CapabilityToken] = None) -> None:
+def _write_capability_decision(
+    envelope: Dict[str, Any],
+    *,
+    actor: str,
+    decision: PolicyDecision,
+    event_type: str = "capability_decision",
+    kind: str = "",
+) -> None:
+    """Best-effort policy decision event without leaking raw secrets."""
+    try:
+        from event_ledger import EventLedger
+
+        EventLedger(str(HARNESS_DIR / "run")).append(
+            {
+                "event_type": event_type,
+                "sprint_id": str(envelope.get("sprint_id") or envelope.get("task_id") or "browser_job"),
+                "node_id": str(envelope.get("node_id") or ""),
+                "actor": actor,
+                "payload": {
+                    "task_id": str(envelope.get("task_id") or ""),
+                    "kind": kind,
+                    "allowed": bool(decision.allowed),
+                    "reason": decision.reason,
+                    "detail": decision.detail,
+                    "rule": decision.rule,
+                    "audit": decision.audit,
+                },
+            }
+        )
+    except Exception:
+        return
+
+
+def _deny_browser_job(
+    envelope: Dict[str, Any],
+    *,
+    actor: str,
+    decision: PolicyDecision,
+    message: str,
+    kind: str,
+    event_type: str = "capability_decision",
+) -> None:
+    _write_capability_decision(
+        envelope,
+        actor=actor,
+        decision=decision,
+        event_type=event_type,
+        kind=kind,
+    )
+    raise PermissionError(message)
+
+
+def validate_browser_job_policy(
+    envelope: Dict[str, Any],
+    capability_token: Optional[CapabilityToken] = None,
+    *,
+    actor_id: str = "browser_job_runtime",
+) -> None:
     """Enforces capability-token policy checks for browser jobs.
 
     Denies payment, secrets form fill, and destructive actions.
@@ -111,7 +176,13 @@ def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Opti
     payment_keywords = ["payment", "checkout", "buy ", "purchase", "billing", "subscribe", "pay ", "credit card"]
     for kw in payment_keywords:
         if kw in objective:
-            raise PermissionError(f"Denying browser job submission: objective requests prohibited payment action '{kw}'")
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=PolicyDecision(False, "payment_denied", rule=f"payment_keywords:{kw}"),
+                message=f"Denying browser job submission: objective requests prohibited payment action '{kw}'",
+                kind="payment",
+            )
 
     # 2. Deny secrets form fill / secrets access unless explicitly allowed by token
     secrets_keywords = ["password", "secret", "private key", "api_key", "api-key", "credentials"]
@@ -126,12 +197,24 @@ def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Opti
 
     if secrets_requested:
         if not capability_token:
-            raise PermissionError("Denying browser job submission: secrets/credentials access requested but no capability token provided")
-        token_dict = capability_token.to_dict()
-        secrets_allowed = token_dict.get("secrets", {}).get("allowed", False) or \
-                          token_dict.get("file_scope", {}).get("secret_paths_allowed", False)
-        if not secrets_allowed:
-            raise PermissionError("Denying browser job submission: secrets/credentials access requested but capability token denies it")
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=PolicyDecision(False, "missing_token"),
+                message="Denying browser job submission: secrets/credentials access requested but no capability token provided",
+                kind="secrets",
+                event_type="capability_decision_missing_token",
+            )
+        secret_ref = str(envelope.get("secret_ref") or envelope.get("secret_form") or "*")
+        decision = capability_token.check_secrets(secret_ref)
+        if not decision.allowed:
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=decision,
+                message="Denying browser job submission: secrets/credentials access requested but capability token denies it",
+                kind="secrets",
+            )
 
     # 3. Deny destructive actions unless explicitly allowed by token
     destructive_keywords = ["delete", "rm -rf", "drop database", "destructive", "uninstall", "format "]
@@ -144,12 +227,29 @@ def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Opti
 
     if destructive_requested:
         if not capability_token:
-            raise PermissionError("Denying browser job submission: destructive action requested but no capability token provided")
-        token_dict = capability_token.to_dict()
-        destructive_allowed = token_dict.get("file_scope", {}).get("destructive_allowed", False) or \
-                              token_dict.get("shell_scope", {}).get("destructive_commands_allowed", False)
-        if not destructive_allowed:
-            raise PermissionError("Denying browser job submission: destructive action requested but capability token denies it")
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=PolicyDecision(False, "missing_token"),
+                message="Denying browser job submission: destructive action requested but no capability token provided",
+                kind="file",
+                event_type="capability_decision_missing_token",
+            )
+        target_path = str(
+            envelope.get("destructive_path")
+            or envelope.get("path")
+            or envelope.get("target_path")
+            or "/"
+        )
+        decision = capability_token.check_file("destructive", target_path)
+        if not decision.allowed:
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=decision,
+                message="Denying browser job submission: destructive action requested but capability token denies it",
+                kind="file",
+            )
 
 
 class BrowserSessionBroker:
@@ -431,6 +531,77 @@ def _browser_profile_runtime_path(user_data_dir: str | Path, profile_directory: 
     return PROFILE_RUNTIME_ROOT / f"{_PERSISTENT_PROFILE_PREFIX}{runtime_key}"
 
 
+def _is_persistent_profile_root(path: str | Path | None) -> bool:
+    raw = str(path or "")
+    return _PERSISTENT_PROFILE_PREFIX in raw or _LEGACY_PERSISTENT_PROFILE_PREFIX in raw
+
+
+def _active_browser_use_profile_dirs() -> set[Path]:
+    """Best-effort snapshot of active browser-use staged profile directories."""
+    try:
+        output = subprocess.check_output(
+            ["ps", "-axo", "command="],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return set()
+    active: set[Path] = set()
+    for raw_line in output.splitlines():
+        if _STAGED_PROFILE_PREFIX not in raw_line:
+            continue
+        for part in raw_line.split():
+            if _STAGED_PROFILE_PREFIX not in part:
+                continue
+            candidate = part
+            if candidate.startswith("--user-data-dir="):
+                candidate = candidate.split("=", 1)[1]
+            candidate = candidate.strip().strip('"').strip("'")
+            path = Path(candidate)
+            if _STAGED_PROFILE_PREFIX not in path.name:
+                continue
+            active.add(path)
+    return active
+
+
+def cleanup_stale_staged_browser_profiles(
+    *,
+    temp_root: str | Path | None = None,
+    grace_seconds: int = _STAGED_PROFILE_CLEANUP_GRACE_SECONDS,
+) -> list[str]:
+    """Remove abandoned browser-use staged profiles left in the temp directory.
+
+    These isolated Chrome profile copies are safe to reap when they are both:
+    1. older than the grace window, and
+    2. not referenced by any live Chrome/browser-use process.
+    """
+    root = Path(temp_root or tempfile.gettempdir())
+    if not root.exists():
+        return []
+    now = time.time()
+    active = _active_browser_use_profile_dirs()
+    removed: list[str] = []
+    try:
+        candidates = list(root.glob(f"{_STAGED_PROFILE_PREFIX}*"))
+    except OSError:
+        return removed
+    for path in candidates:
+        try:
+            if not path.is_dir():
+                continue
+            if path in active:
+                continue
+            age_seconds = now - path.stat().st_mtime
+            if age_seconds < max(0, int(grace_seconds)):
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+            if not path.exists():
+                removed.append(str(path))
+        except OSError:
+            continue
+    return removed
+
+
 def _remove_profile_restore_artifacts(root: Path, profile_directory: str) -> None:
     profile_dir = root / profile_directory
     for name in _RESTORE_ARTIFACTS | _LOCK_ARTIFACTS:
@@ -540,13 +711,15 @@ def _stage_browser_profile(
     if not user_data_dir or not profile_directory:
         return user_data_dir, None
 
+    cleanup_stale_staged_browser_profiles()
+
     source_root = Path(user_data_dir)
-    if _STAGED_PROFILE_PREFIX in str(source_root):
-        return str(source_root), None
-    if _PERSISTENT_PROFILE_PREFIX in str(source_root):
+    if _is_persistent_profile_root(source_root):
         if strategy == "persistent":
             return str(source_root), None
         strategy = "isolated"
+    elif _STAGED_PROFILE_PREFIX in str(source_root):
+        return str(source_root), None
     if strategy == "persistent":
         runtime_root = prepare_browser_profile_runtime(source_root, profile_directory)
         return (str(runtime_root), None) if runtime_root else (None, None)
@@ -828,7 +1001,7 @@ def submit_browser_job(
     Enforces capability-token policy checks and scrubs secrets.
     """
     # Enforce policy checks
-    validate_browser_job_policy(envelope, capability_token)
+    validate_browser_job_policy(envelope, capability_token, actor_id=actor_id)
 
     _ensure_jobs_dir()
     job_id = f"job-{uuid.uuid4()}"

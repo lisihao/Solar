@@ -56,6 +56,201 @@ from operator_persona import (  # noqa: E402  (import after path setup)
     resolve_persona,
 )
 
+
+# ---------------------------------------------------------------------------
+# Capability pre-dispatch
+# ---------------------------------------------------------------------------
+
+
+def _load_capability_token(token_ref: dict[str, Any]) -> "CapabilityToken":
+    """Load a CapabilityToken from a capability_token_ref dict."""
+    from capability_token import CapabilityToken
+
+    path = token_ref.get("path")
+    if path:
+        p = Path(path)
+        if not p.is_absolute():
+            p = HARNESS_DIR / path
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return CapabilityToken.from_dict(data)
+    pid = token_ref.get("packet_id") or token_ref.get("token_id")
+    if pid:
+        from context_store import ContextStore
+
+        cs = ContextStore()
+        data = cs.load(pid)
+        if data:
+            return CapabilityToken.from_dict(data)
+    return None
+
+
+def _dispatch_check(token: "CapabilityToken", req: dict[str, Any]) -> "PolicyDecision":
+    """Dispatch a single policy_request to the appropriate check method."""
+    kind = str(req.get("kind", "")).strip()
+    if kind == "file":
+        return token.check_file(
+            op=str(req.get("op", "read")),
+            path=str(req.get("path", "")),
+        )
+    if kind == "shell":
+        return token.check_shell(
+            command=str(req.get("command", "")),
+            argv=req.get("argv") or [],
+        )
+    if kind == "network":
+        return token.check_network(
+            mode=str(req.get("mode", "http")),
+            host=str(req.get("host", "")),
+            port=req.get("port"),
+        )
+    if kind == "git":
+        return token.check_git(
+            op=str(req.get("op", "push")),
+            remote=req.get("remote"),
+        )
+    if kind == "secrets":
+        return token.check_secrets(
+            ref=str(req.get("ref", "")),
+        )
+    from capability_token import PolicyDecision
+
+    return PolicyDecision(
+        allowed=False,
+        reason="unknown_policy_kind",
+        detail=f"kind={kind}",
+    )
+
+
+def _write_capability_decision_event(
+    envelope: dict[str, Any],
+    operator_id: str,
+    task_id: str,
+    decision: "PolicyDecision",
+    *,
+    event_type: str = "capability_decision",
+    kind: str = "",
+) -> None:
+    """Append a scrubbed capability decision event without blocking dispatch."""
+    try:
+        from event_ledger import EventLedger
+
+        EventLedger(str(HARNESS_DIR / "run")).append(
+            {
+                "event_type": event_type,
+                "sprint_id": str(envelope.get("sprint_id") or task_id or "operatord"),
+                "node_id": str(envelope.get("node_id") or ""),
+                "actor": operator_id,
+                "payload": {
+                    "task_id": task_id,
+                    "kind": kind,
+                    "allowed": bool(decision.allowed),
+                    "reason": decision.reason,
+                    "detail": decision.detail,
+                    "rule": decision.rule,
+                    "audit": decision.audit,
+                },
+            }
+        )
+    except Exception as exc:
+        _info(f"capability_pre_dispatch: event write failed: {exc}")
+
+
+def _capability_pre_dispatch(
+    envelope: dict[str, Any],
+    operator_id: str,
+    task_id: str,
+) -> "PolicyDecision | None":
+    """Pre-dispatch capability check.
+
+    Returns a denied PolicyDecision if any policy request is denied,
+    or None if all pass (or no token/policy_requests present).
+    """
+    from capability_token import PolicyDecision
+
+    enforcement = os.environ.get("SOLAR_CAPABILITY_ENFORCEMENT", "on").strip().lower()
+    audit_only = os.environ.get("SOLAR_CAPABILITY_AUDIT_ONLY", "").strip() in ("1", "true", "yes")
+
+    token_ref = envelope.get("capability_token_ref")
+    policy_requests = envelope.get("policy_requests") or []
+
+    if not token_ref:
+        decision = PolicyDecision(False, "missing_token", detail="capability_token_ref missing")
+        _write_capability_decision_event(
+            envelope,
+            operator_id,
+            task_id,
+            decision,
+            event_type="capability_decision_missing_token",
+            kind="token",
+        )
+        _info(
+            f"capability_pre_dispatch: no capability_token_ref in envelope "
+            f"(task={task_id}); wrote missing_token warning"
+        )
+        return None
+
+    token = _load_capability_token(token_ref)
+    if token is None:
+        decision = PolicyDecision(False, "missing_token", detail="capability_token_ref unresolved")
+        _write_capability_decision_event(
+            envelope,
+            operator_id,
+            task_id,
+            decision,
+            event_type="capability_decision_missing_token",
+            kind="token",
+        )
+        _info(
+            f"capability_pre_dispatch: could not load token from ref "
+            f"(task={task_id}); wrote missing_token warning"
+        )
+        return None
+
+    if not policy_requests:
+        return None
+
+    for req in policy_requests:
+        decision = _dispatch_check(token, req)
+        if not decision.allowed:
+            _write_capability_decision_event(
+                envelope,
+                operator_id,
+                task_id,
+                decision,
+                kind=str(req.get("kind") or ""),
+            )
+            _info(
+                f"capability_pre_dispatch: DENIED kind={req.get('kind')} "
+                f"reason={decision.reason} rule={decision.rule} "
+                f"(task={task_id})"
+            )
+            if enforcement == "off":
+                _info("capability_pre_dispatch: enforcement off, continuing")
+                return None
+            if audit_only:
+                _info("capability_pre_dispatch: audit_only mode, not aborting")
+                return None
+            return decision
+
+    return None
+
+
+def _load_run_pre_dispatch_envelope(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Load an optional run-time envelope for one-shot capability validation."""
+    envelope_path = (
+        getattr(args, "envelope", None)
+        or os.environ.get("SOLAR_OPERATORD_RUN_ENVELOPE")
+        or os.environ.get("SOLAR_OPERATOR_ENVELOPE")
+    )
+    if not envelope_path:
+        return None
+    path = Path(str(envelope_path)).expanduser()
+    if not path.is_absolute():
+        path = HARNESS_DIR / path
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 # ---------------------------------------------------------------------------
 # Registry helpers
 # ---------------------------------------------------------------------------
@@ -477,6 +672,28 @@ def _apply_failure_runtime_override(
     )
 
 
+def _tail_text(path: Path, limit: int = 4000) -> str:
+    try:
+        if not path.exists() or not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8", errors="replace")[-limit:]
+    except Exception:
+        return ""
+
+
+def _failure_text_for_flow_control(result_dir: Path, log_lines: list[str]) -> str:
+    """Include backend sidecar logs so quota/auth lines are not lost in wrapper output."""
+    parts: list[str] = []
+    base_tail = "\n".join(log_lines[-50:]).strip()
+    if base_tail:
+        parts.append(base_tail)
+    for name in ("codex-cli-output.log", "codex-last-message.md"):
+        text = _tail_text(result_dir / name).strip()
+        if text:
+            parts.append(f"[{name}]\n{text}")
+    return "\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Subcommand: daemon
 # ---------------------------------------------------------------------------
@@ -605,6 +822,24 @@ def cmd_daemon(args: argparse.Namespace) -> int:
 
     processed: int = 0
     loop_started_at = time.monotonic()
+
+    def _release_matching_actor_lease(task_id_value: str, *, reason: str) -> bool:
+        """Release the actor-runtime lease that mirrors this operator task."""
+        try:
+            from actor_lease import LeaseBroker  # noqa: E402
+
+            broker = LeaseBroker(_RT_HARNESS_DIR / "run" / "actor-leases")
+            lease = broker.get(operator_id)
+            if lease is None or lease.task_id != task_id_value:
+                return False
+            if lease.state not in {"LEASED", "RUNNING", "FINALIZING"}:
+                return False
+            broker.transition(operator_id, "READY")
+            _info(f"Released matching actor lease for task {task_id_value} ({reason})")
+            return True
+        except Exception as exc:
+            _info(f"Unable to release matching actor lease for task {task_id_value}: {exc}")
+            return False
 
     def _once_wait_expired() -> bool:
         if not once or processed > 0:
@@ -797,6 +1032,34 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                 model_route=model_route,
             )
 
+            # ── Capability pre-dispatch ──────────────────────────────────────────
+            _cap_decision = _capability_pre_dispatch(envelope, operator_id, task_id)
+            if _cap_decision is not None:
+                _info(
+                    f"Capability denied for task {task_id}: "
+                    f"reason={_cap_decision.reason} detail={_cap_decision.detail}"
+                )
+                release_operator_lease(operator_id, reason="capability_denied")
+                _release_matching_actor_lease(task_id, reason="capability_denied")
+                write_result(
+                    operator_id=operator_id,
+                    task_id=task_id,
+                    sprint_id=str(envelope.get("sprint_id", "")),
+                    node_id=str(envelope.get("node_id", "")),
+                    status="capability_denied",
+                    exit_code=126,
+                    started_at=_now_utc(),
+                    finished_at=_now_utc(),
+                    log_tail=(
+                        "capability_denied: "
+                        f"reason={_cap_decision.reason} detail={_cap_decision.detail}"
+                    ),
+                )
+                if _once_wait_expired():
+                    break
+                time.sleep(poll_interval)
+                continue
+
             # ── Execute ───────────────────────────────────────────────────────────
             sprint_id: str = str(envelope.get("sprint_id", ""))
             node_id: str = str(envelope.get("node_id", ""))
@@ -981,14 +1244,15 @@ def cmd_daemon(args: argparse.Namespace) -> int:
             # ── Write result artifact ─────────────────────────────────────────────
             log_tail = "\n".join(log_lines[-50:])
             flow_control_decision: dict[str, Any] | None = None
-            if result_status not in {"completed", "draining"} and log_tail.strip():
+            failure_text = _failure_text_for_flow_control(result_dir, log_lines)
+            if result_status not in {"completed", "draining"} and failure_text.strip():
                 try:
                     flow_control_decision = _apply_failure_runtime_override(
                         operator_id=operator_id,
                         config=config,
                         envelope=envelope,
                         task_dir=result_dir,
-                        failure_text=log_tail,
+                        failure_text=failure_text,
                     )
                 except Exception as exc:
                     log_lines.append(f"[WARN] failure flow control hook failed: {exc}")
@@ -1052,6 +1316,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                 release_operator_lease(operator_id, reason=result_status)
             except Exception:
                 pass
+            _release_matching_actor_lease(task_id, reason=result_status)
 
             processed += 1
             _state["current_state"] = "idle"
@@ -1116,6 +1381,17 @@ def cmd_run(args: argparse.Namespace) -> int:
             "Pass --force to proceed anyway."
         )
         return 1
+
+    run_envelope = _load_run_pre_dispatch_envelope(args)
+    if run_envelope is not None:
+        task_id = str(run_envelope.get("task_id") or "operatord-run")
+        _cap_decision = _capability_pre_dispatch(run_envelope, operator_id, task_id)
+        if _cap_decision is not None:
+            _info(
+                f"Capability denied for run bootstrap {task_id}: "
+                f"reason={_cap_decision.reason} detail={_cap_decision.detail}"
+            )
+            return 126
 
     # ── Canonical ID ─────────────────────────────────────────────────────────
     canon_id = canonical_operator_id(operator_id, config)
@@ -1263,6 +1539,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Emit the ready signal as JSON.",
+    )
+    run_p.add_argument(
+        "--envelope",
+        metavar="PATH",
+        default=None,
+        help="Optional task envelope JSON to capability-check before the ready signal.",
     )
 
     # ── list ─────────────────────────────────────────────────────────────────

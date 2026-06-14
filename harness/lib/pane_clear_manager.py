@@ -151,6 +151,8 @@ class PaneClearManager:
         """Check three-signal success criteria per architecture.md §6.3."""
         output = self._detector._capture(pane_id)
         lines = output.splitlines()
+        while lines and not lines[-1].strip():
+            lines.pop()
         window = lines[-12:] if lines else []
         tail = list(reversed(window))
         signal_empty = any(PATTERN_EMPTY_PROMPT.match(line.strip()) for line in tail)

@@ -144,6 +144,34 @@ class TestVerifyClearSuccess:
         assert s_no_queued
         assert s_no_confirm
 
+    def test_clean_pane_with_trailing_blank_screen_lines(self, registry):
+        from recover_detector import RecoverDetector
+
+        capture = lambda _: """
+────────────────────────────────────────
+❯\u00a0
+────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+
+
+
+
+
+
+
+
+
+
+
+"""
+        det = RecoverDetector(capture_fn=capture)
+        mgr = PaneClearManager(registry, det)
+        s_empty, s_no_queued, s_no_confirm = mgr.verify_clear_success("test")
+        assert s_empty
+        assert s_no_queued
+        assert s_no_confirm
+
     def test_queued_fails_no_queued_signal(self, registry, dirty_capture):
         from recover_detector import RecoverDetector
         det = RecoverDetector(capture_fn=dirty_capture)

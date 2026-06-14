@@ -1,0 +1,69 @@
+# Local app containers (backend + frontend), layered on top of docker-compose.yml
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.apps.yml up -d --build
+#
+# Notes:
+# - DB/Redis are overridden to the local compose containers (host = service name),
+#   so this never touches the remote Railway DB even though backend/.env points there.
+# - Backend command is overridden to `node dist/main` to skip the entrypoint's
+#   `prisma migrate deploy` (the 301-migration chain is broken on a fresh DB);
+#   the schema is applied out-of-band via `prisma db push` + seed.
+# - Frontend bakes NEXT_PUBLIC_API_URL at build time → host browser → localhost:4000.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: genesis-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://genesis:${POSTGRES_PASSWORD:-genesis_dev_password}@postgres:5432/genesis
+      REDIS_URL: redis://:${REDIS_PASSWORD:-genesis_redis_dev_password}@redis:6379
+    command: ["node", "dist/main"]
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 客户端（浏览器）烧进的值：必须宿主机可达 → socket.io 直连 localhost:4000
+        NEXT_PUBLIC_API_URL: http://localhost:4000
+        NEXT_PUBLIC_AI_URL: http://localhost:5000
+    container_name: genesis-frontend
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      # REST 走前端容器内的 Next rewrites 代理 → 用 API_INTERNAL_URL（仅服务端）
+      # 指向 compose 服务名；浏览器 socket.io 用客户端烧进的 localhost:4000 直连。
+      API_INTERNAL_URL: http://backend:4000
+      NEXT_PUBLIC_AI_URL: http://ai-service:8000
+    ports:
+      # host 3000 已被一个遗留的 next-server 占用 → 映射到 3300，避免冲突
+      - "3300:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: genesis-ai-service
+    environment:
+      PORT: "8000"
+    ports:
+      - "5000:8000"
+    restart: unless-stopped

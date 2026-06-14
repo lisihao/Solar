@@ -1,0 +1,94 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Patch,
+  Param,
+  Body,
+  UseGuards,
+  Request,
+  Logger,
+} from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { CollectionsService } from './collections.service';
+
+/**
+ * 收藏控制器
+ */
+@Controller('collections')
+@UseGuards(AuthGuard('jwt'))
+export class CollectionsController {
+  private readonly logger = new Logger(CollectionsController.name);
+
+  constructor(private collectionsService: CollectionsService) {}
+
+  /**
+   * 创建收藏夹
+   * POST /api/v1/collections
+   */
+  @Post()
+  async create(@Request() req, @Body('name') name: string, @Body('description') description?: string) {
+    this.logger.log(`Creating collection for user ${req.user.id}`);
+    return this.collectionsService.createCollection(req.user.id, name, description);
+  }
+
+  /**
+   * 获取用户所有收藏夹
+   * GET /api/v1/collections
+   */
+  @Get()
+  async getUserCollections(@Request() req) {
+    return this.collectionsService.getUserCollections(req.user.id);
+  }
+
+  /**
+   * 获取收藏夹详情
+   * GET /api/v1/collections/:id
+   */
+  @Get(':id')
+  async getCollection(@Param('id') id: string, @Request() req) {
+    return this.collectionsService.getCollection(id, req.user.id);
+  }
+
+  /**
+   * 更新收藏夹
+   * PATCH /api/v1/collections/:id
+   */
+  @Patch(':id')
+  async updateCollection(
+    @Param('id') id: string,
+    @Request() req,
+    @Body('name') name?: string,
+    @Body('description') description?: string,
+  ) {
+    return this.collectionsService.updateCollection(id, req.user.id, name, description);
+  }
+
+  /**
+   * 删除收藏夹
+   * DELETE /api/v1/collections/:id
+   */
+  @Delete(':id')
+  async deleteCollection(@Param('id') id: string, @Request() req) {
+    return this.collectionsService.deleteCollection(id, req.user.id);
+  }
+
+  /**
+   * 添加资源到收藏夹
+   * POST /api/v1/collections/:id/resources
+   */
+  @Post(':id/resources')
+  async addResource(@Param('id') id: string, @Request() req, @Body('resourceId') resourceId: string) {
+    return this.collectionsService.addResourceToCollection(id, resourceId, req.user.id);
+  }
+
+  /**
+   * 从收藏夹移除资源
+   * DELETE /api/v1/collections/:id/resources/:resourceId
+   */
+  @Delete(':id/resources/:resourceId')
+  async removeResource(@Param('id') id: string, @Param('resourceId') resourceId: string, @Request() req) {
+    return this.collectionsService.removeResourceFromCollection(id, resourceId, req.user.id);
+  }
+}

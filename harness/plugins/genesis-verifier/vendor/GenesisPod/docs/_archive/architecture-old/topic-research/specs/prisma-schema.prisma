@@ -1,0 +1,436 @@
+// ============================================================================
+// Topic Research Module - Prisma Schema Design
+// ============================================================================
+// Version: 1.0
+// Created: 2026-01-11
+// Module: topic-research
+//
+// 说明：
+// 1. 这是专题研究模块的数据库设计文件，仅用于设计参考
+// 2. 不要直接复制到 backend/prisma/schema.prisma
+// 3. 实际集成时需要手动合并，避免冲突
+// ============================================================================
+
+// ==================== Enums ====================
+
+/// 研究专题类型
+enum ResearchTopicType {
+  MACRO        // 宏观洞察：国家/行业/领域分析 (如"美国 AI 宏观洞察")
+  TECHNOLOGY   // 技术专项：技术深度分析 (如"空芯光纤技术洞察")
+  COMPANY      // 企业洞察：企业/初创分析 (如"OpenAI 企业洞察")
+}
+
+/// 研究专题状态
+enum ResearchTopicStatus {
+  DRAFT        // 草稿：已创建但未开始研究
+  ACTIVE       // 活跃：正在使用，定期刷新
+  PAUSED       // 暂停：临时停止刷新
+  ARCHIVED     // 归档：不再使用
+}
+
+/// 刷新频率
+enum RefreshFrequency {
+  MANUAL       // 手动刷新：用户主动触发
+  DAILY        // 每日刷新
+  WEEKLY       // 每周刷新
+  BIWEEKLY     // 双周刷新（每两周）
+  MONTHLY      // 每月刷新
+}
+
+/// 维度研究状态
+enum DimensionStatus {
+  PENDING      // 待处理：维度已定义但未研究
+  RESEARCHING  // 研究中：正在执行研究任务
+  COMPLETED    // 已完成：研究完成
+  FAILED       // 失败：研究过程出错
+}
+
+/// 刷新日志状态
+enum RefreshLogStatus {
+  PENDING      // 待处理：已计划但未开始
+  RUNNING      // 运行中：正在执行刷新
+  COMPLETED    // 已完成：刷新成功
+  FAILED       // 失败：刷新出错
+  CANCELLED    // 已取消：手动取消
+}
+
+// ==================== Core Models ====================
+
+/// 研究专题主表
+/// 存储专题的基本信息和配置
+model ResearchTopic {
+  id          String              @id @default(uuid())
+  userId      String              @map("user_id")
+
+  // ========== 基本信息 ==========
+  name        String              @db.VarChar(200)          // 专题名称，如"美国 AI 宏观洞察"
+  description String?             @db.Text                  // 专题描述
+  icon        String?             @db.VarChar(10)           // Emoji 图标
+  color       String?             @db.VarChar(20)           // 十六进制颜色代码
+  type        ResearchTopicType                             // 专题类型
+  status      ResearchTopicStatus @default(DRAFT)           // 专题状态
+
+  // ========== 类型特定配置 ==========
+  // JSON 字段，根据 type 存储不同的配置
+  // MACRO: { country, industry, domain, focusAreas }
+  //   - country: 国家/地区
+  //   - industry: 行业领域
+  //   - domain: 细分领域
+  //   - focusAreas: 关注重点
+  //
+  // TECHNOLOGY: { technology, maturityLevel, applicationAreas }
+  //   - technology: 技术名称
+  //   - maturityLevel: 成熟度 (research/early/growth/mature)
+  //   - applicationAreas: 应用领域
+  //
+  // COMPANY: { companyName, companyType, industry, foundedYear }
+  //   - companyName: 公司名称
+  //   - companyType: 公司类型 (startup/scaleup/enterprise)
+  //   - industry: 所属行业
+  //   - foundedYear: 成立年份
+  topicConfig Json                @map("topic_config") @default("{}")
+
+  // ========== 刷新设置 ==========
+  refreshFrequency RefreshFrequency @default(MANUAL)       @map("refresh_frequency")  // 刷新频率
+  lastRefreshAt    DateTime?        @map("last_refresh_at")                           // 上次刷新时间
+  nextRefreshAt    DateTime?        @map("next_refresh_at")                           // 下次计划刷新时间
+
+  // ========== AI Team 配置 ==========
+  // 未来扩展：可以让用户自定义 AI Team 配置
+  teamConfigId     String?          @map("team_config_id")
+
+  // ========== 统计数据 ==========
+  totalReports     Int              @default(0) @map("total_reports")    // 生成的报告总数
+  totalSources     Int              @default(0) @map("total_sources")    // 收集的来源总数
+
+  // ========== 时间戳 ==========
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  // ========== 关系 ==========
+  user             User             @relation("UserResearchTopics", fields: [userId], references: [id], onDelete: Cascade)
+  dimensions       TopicDimension[]
+  reports          TopicReport[]
+  schedules        TopicSchedule[]
+  refreshLogs      TopicRefreshLog[]
+
+  // ========== 索引 ==========
+  @@index([userId, status])                    // 按用户和状态查询
+  @@index([type])                              // 按类型过滤
+  @@index([nextRefreshAt])                     // 定时任务查询
+  @@index([createdAt(sort: Desc)])             // 按创建时间排序
+  @@map("research_topics")
+}
+
+/// 专题维度定义
+/// 每个专题由多个维度组成，如"政策法规"、"市场概览"等
+model TopicDimension {
+  id          String           @id @default(uuid())
+  topicId     String           @map("topic_id")
+
+  // ========== 维度信息 ==========
+  name        String           @db.VarChar(200)           // 维度名称，如"政策法规"
+  description String?          @db.Text                   // 维度描述
+  sortOrder   Int              @default(0) @map("sort_order")  // 排序顺序，数字越小越靠前
+  isEnabled   Boolean          @default(true) @map("is_enabled") // 是否启用（用户可禁用某些维度）
+
+  // ========== 研究配置 ==========
+  // 建议的搜索查询词
+  // 例如：["美国 AI 政策", "AI regulation USA 2025", "AI executive order"]
+  searchQueries    Json?       @map("search_queries")
+
+  // 首选数据源
+  // 例如：["web", "local_policy", "news"]
+  searchSources    Json?       @map("search_sources")
+
+  // 最小来源数量要求
+  minSources       Int         @default(5) @map("min_sources")
+
+  // ========== 最新状态 ==========
+  status           DimensionStatus @default(PENDING)
+  lastResearchedAt DateTime?       @map("last_researched_at")
+
+  // ========== 关系 ==========
+  topic            ResearchTopic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  analyses         DimensionAnalysis[]
+
+  // ========== 索引 ==========
+  @@index([topicId, sortOrder])                // 按专题和顺序查询
+  @@index([status])                            // 按状态过滤
+  @@map("topic_dimensions")
+}
+
+/// 维度分析结果
+/// 每次报告生成时，每个维度都会有一个对应的分析结果
+model DimensionAnalysis {
+  id           String          @id @default(uuid())
+  dimensionId  String          @map("dimension_id")
+  reportId     String          @map("report_id")
+
+  // ========== 分析内容 ==========
+  // 维度摘要（2-3 段文字）
+  summary      String          @db.Text
+
+  // 关键发现（结构化数据）
+  // 格式：[{ title: "发现标题", content: "发现内容", importance: "high/medium/low" }]
+  keyFindings  Json            @map("key_findings")
+
+  // 数据点（可选，用于图表展示）
+  // 格式：[{ metric: "指标名", value: "数值", unit: "单位", source: "来源" }]
+  dataPoints   Json?           @map("data_points")
+
+  // ========== 来源追踪 ==========
+  sourcesUsed  Int             @default(0) @map("sources_used")  // 使用的来源数量
+
+  // ========== AI 元数据 ==========
+  modelUsed    String?         @map("model_used")                // 使用的模型
+  tokensUsed   Int?            @map("tokens_used")               // 消耗的 tokens
+
+  // ========== 时间戳 ==========
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  // ========== 关系 ==========
+  dimension    TopicDimension  @relation(fields: [dimensionId], references: [id], onDelete: Cascade)
+  report       TopicReport     @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  evidences    TopicEvidence[]
+
+  // ========== 索引 ==========
+  @@index([dimensionId])
+  @@index([reportId])
+  @@map("dimension_analyses")
+}
+
+/// 研究报告（版本化）
+/// 每次刷新生成一个新版本的报告
+model TopicReport {
+  id           String         @id @default(uuid())
+  topicId      String         @map("topic_id")
+
+  // ========== 版本信息 ==========
+  version      Int            @default(1)                        // 版本号，从 1 开始递增
+  versionLabel String?        @map("version_label")              // 版本标签，如"2026-01 更新"
+
+  // ========== 报告内容 ==========
+  // 执行摘要（高层次总结）
+  executiveSummary String     @map("executive_summary") @db.Text
+
+  // 完整报告（Markdown 格式，包含引用）
+  // 使用 [1], [2] 格式引用 evidences
+  fullReport       String     @map("full_report") @db.Text
+
+  // 核心亮点（结构化）
+  // 格式：[{ title: "亮点标题", content: "亮点内容", category: "类别" }]
+  highlights       Json       @default("[]")
+
+  // ========== 统计数据 ==========
+  totalDimensions  Int        @default(0) @map("total_dimensions")  // 研究的维度数量
+  totalSources     Int        @default(0) @map("total_sources")     // 使用的来源总数
+  totalTokens      Int        @default(0) @map("total_tokens")      // 消耗的总 tokens
+
+  // ========== 生成元数据 ==========
+  generatedAt      DateTime   @default(now()) @map("generated_at")
+  generationTimeMs Int?       @map("generation_time_ms")            // 生成耗时（毫秒）
+
+  // ========== 刷新追踪 ==========
+  isIncremental    Boolean    @default(false) @map("is_incremental")  // 是否增量刷新
+  // 与上一版本的变化摘要
+  // 格式：{ dimensionsRefreshed: ["维度1", "维度2"], newSourcesCount: 10, summary: "变化总结" }
+  changesFromPrev  Json?      @map("changes_from_prev")
+
+  // ========== 关系 ==========
+  topic            ResearchTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  dimensionAnalyses DimensionAnalysis[]
+  evidences        TopicEvidence[]
+
+  // ========== 唯一约束 ==========
+  @@unique([topicId, version])
+
+  // ========== 索引 ==========
+  @@index([topicId, generatedAt(sort: Desc)])   // 按专题查询最新报告
+  @@index([generatedAt(sort: Desc)])            // 按时间排序
+  @@map("topic_reports")
+}
+
+/// 证据/引用
+/// NotebookLM 风格的来源管理
+model TopicEvidence {
+  id           String         @id @default(uuid())
+  reportId     String         @map("report_id")
+  analysisId   String?        @map("analysis_id")               // 可选：关联到特定维度分析
+
+  // ========== 来源信息 ==========
+  title        String         @db.VarChar(500)                  // 来源标题
+  url          String         @db.Text                          // 来源 URL
+  domain       String?        @db.VarChar(200)                  // 域名（用于显示来源网站）
+  snippet      String?        @db.Text                          // 内容片段/摘要
+
+  // ========== 元数据 ==========
+  publishedAt  DateTime?      @map("published_at")              // 发布时间
+  accessedAt   DateTime       @default(now()) @map("accessed_at")  // 访问/收集时间
+  sourceType   String?        @map("source_type")               // 来源类型：web, academic, news, github, etc.
+
+  // ========== 质量评估 ==========
+  // 可信度评分 (0-100)
+  // 基于：域名权威性、来源类型、引用次数、内容深度
+  credibilityScore Int?       @map("credibility_score")
+
+  // ========== 引用索引 ==========
+  // 用于报告正文中的引用标记，如 [1], [2]
+  citationIndex    Int?       @map("citation_index")
+
+  // ========== 关系 ==========
+  report       TopicReport    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  analysis     DimensionAnalysis? @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+
+  // ========== 索引 ==========
+  @@index([reportId])
+  @@index([analysisId])
+  @@index([sourceType])
+  @@index([credibilityScore(sort: Desc)])
+  @@map("topic_evidences")
+}
+
+// ==================== Refresh Scheduling ====================
+
+/// 定时刷新配置
+/// 管理专题的自动刷新计划
+model TopicSchedule {
+  id           String         @id @default(uuid())
+  topicId      String         @map("topic_id")
+
+  // ========== 计划配置 ==========
+  frequency    RefreshFrequency                               // 刷新频率
+
+  // 对于 WEEKLY：0-6 表示周日到周六
+  dayOfWeek    Int?           @map("day_of_week")
+
+  // 对于 MONTHLY：1-31 表示每月几号
+  dayOfMonth   Int?           @map("day_of_month")
+
+  // UTC 时间的小时数（0-23）
+  hourOfDay    Int            @default(9) @map("hour_of_day")
+
+  // ========== 状态 ==========
+  isActive     Boolean        @default(true) @map("is_active")  // 是否启用
+  lastRunAt    DateTime?      @map("last_run_at")               // 上次执行时间
+  nextRunAt    DateTime?      @map("next_run_at")               // 下次计划执行时间
+
+  // ========== 关系 ==========
+  topic        ResearchTopic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  // ========== 索引 ==========
+  @@index([isActive, nextRunAt])                // 定时任务查询
+  @@index([topicId])
+  @@map("topic_schedules")
+}
+
+/// 刷新执行日志
+/// 记录每次刷新的执行情况
+model TopicRefreshLog {
+  id           String         @id @default(uuid())
+  topicId      String         @map("topic_id")
+
+  // ========== 执行信息 ==========
+  triggerType  String         @map("trigger_type")              // manual, scheduled
+  startedAt    DateTime       @default(now()) @map("started_at")
+  completedAt  DateTime?      @map("completed_at")
+
+  // ========== 结果 ==========
+  status       RefreshLogStatus @default(PENDING)               // 执行状态
+  reportId     String?        @map("report_id")                 // 生成的报告 ID（如果成功）
+  error        String?        @db.Text                          // 错误信息（如果失败）
+
+  // ========== 统计 ==========
+  dimensionsRefreshed Int?    @map("dimensions_refreshed")      // 刷新的维度数量
+  sourcesFound        Int?    @map("sources_found")             // 发现的来源数量
+  tokensUsed          Int?    @map("tokens_used")               // 消耗的 tokens
+
+  // ========== 关系 ==========
+  topic        ResearchTopic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  // ========== 索引 ==========
+  @@index([topicId, startedAt(sort: Desc)])     // 按专题查询历史
+  @@index([status])
+  @@index([startedAt(sort: Desc)])
+  @@map("topic_refresh_logs")
+}
+
+// ==================== MongoDB Collections (Reference) ====================
+//
+// 以下为 MongoDB 集合的数据结构参考（不是 Prisma schema）
+// 用于存储大型原始数据和非结构化内容
+//
+// Collection: evidence_raw_data
+// {
+//   _id: ObjectId,
+//   evidenceId: "uuid",              // 关联 PostgreSQL TopicEvidence.id
+//   topicId: "uuid",
+//   dimensionId: "uuid",
+//
+//   // 完整内容
+//   fullContent: "完整抓取的内容...",  // 不截断
+//
+//   // 来源元数据
+//   source: {
+//     type: "web" | "arxiv" | "github" | "hackernews" | "rss" | "local",
+//     externalId?: "arXiv:2401.12345 或 GitHub repo ID",
+//     apiResponse?: { ... }           // 原始 API 响应（调试用）
+//   },
+//
+//   // 提取元数据
+//   extraction: {
+//     method: "search_result" | "scraper" | "api",
+//     extractedAt: ISODate,
+//     processingTime: 1234            // 毫秒
+//   },
+//
+//   // 时间戳
+//   createdAt: ISODate,
+//   updatedAt: ISODate
+// }
+
+// ==================== User Relation Extension ====================
+//
+// 在实际集成时，需要在 User model 中添加以下关系：
+//
+// model User {
+//   // ... 现有字段 ...
+//
+//   // Topic Research 相关
+//   researchTopics ResearchTopic[] @relation("UserResearchTopics")
+//
+//   @@map("users")
+// }
+
+// ==================== Integration Notes ====================
+//
+// 1. 索引策略：
+//    - 所有外键都添加了索引以优化查询性能
+//    - 时间字段使用降序索引以支持最新优先的查询
+//    - 复合索引用于常见的查询模式
+//
+// 2. 数据完整性：
+//    - 使用 onDelete: Cascade 确保删除专题时级联删除所有相关数据
+//    - 使用 onDelete: SetNull 保留历史记录但允许孤立引用
+//
+// 3. JSON 字段使用场景：
+//    - topicConfig: 灵活存储不同类型专题的特定配置
+//    - keyFindings/highlights: 结构化但数量不固定的数据
+//    - searchQueries/searchSources: 数组类型数据
+//    - changesFromPrev: 版本变更的复杂描述
+//
+// 4. MongoDB 集成：
+//    - 使用 evidenceId 字段关联 PostgreSQL 和 MongoDB 记录
+//    - PostgreSQL 存储元数据和索引，MongoDB 存储大内容
+//    - 查询时先从 PostgreSQL 获取元数据，再按需加载完整内容
+//
+// 5. 性能考虑：
+//    - fullReport 可能很长，考虑分页加载
+//    - evidences 使用 citationIndex 预排序，避免前端排序
+//    - refreshLogs 定期归档旧记录以控制表大小
+//
+// 6. 扩展点：
+//    - teamConfigId 预留给未来的自定义 AI Team 配置
+//    - metadata 字段可在需要时添加到各模型以支持灵活扩展
+//
+// ============================================================================

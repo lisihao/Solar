@@ -1,0 +1,1439 @@
+{
+  "videoId": "vmwq4w53e9Q",
+  "title": "Stanford AA228 Decision Making Under Uncertainty | Autumn 2025 | Offline Belief State Planning",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 73718,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "All right, we'll get started.\nGood morning, everyone.\nThanks for braving the\nrain to be here at 9:00 AM.\nSuper appreciated.\nOK, so yeah, obviously\nI'm not Michael.\nI'll be filling in\ntoday for lecture.\nMy name is [? Sydney. ?]\nI'm currently\na postdoc in Michael's lab.\nI also did my PhD\nwith him, so I've\nbeen working with\nhim for a while.\nAnd yeah, I'll be talking today\nabout offline POMDP solutions.\nBut just quickly\nbefore I get into that,\nI want to give a quick\nlittle plug for a course\nthat I teach in\nthe winter quarter.\nIt's actually just this\nexact same course number,\nbut with a V at the end.\nAnd it's a nice\nfollow-on, I would say.\nIt's called Validation of\nSafety Critical Systems.\nSo you should be able to enroll\nin that for winter quarter.\nIt uses a textbook that's\nvery similar to the textbook\nfor this class.\nBut instead of algorithms\nfor decision-making,\nit's algorithms for validation.\nAnd I was a co-author\non this book.\nAnd as you maybe have\nrealized, there's\na series of these algorithm\nbooks that Michael has written.\nAnd they all have corresponding\ncourses at Stanford.\nSo this is obviously the course\nfor the decision-making book.\nAnd then in the\nspring, Michael also\nteaches an optimization course.\nAnd the way that I see\nall of these fitting\ntogether is that\nin these first two,\nwe basically learn\nhow to design stuff.\nSo in this class,\nyou're learning\nhow to design\ndecision-making systems.\nAnd then you can take a class\nin the spring that teaches you\nhow to optimize them.\nAnd then once you're\ndone with those classes,\nin the class that I\nteach in the winter,\nwe talk about how to check\nif what you designed actually\ndoes what you intended it to do,\nwhich can be really important,\nespecially when you're deploying\nthese things in industry.\nYou want to check that\nthey're doing what they're\nsupposed to before you\nactually go deploy them\nin the real-world.\nAnd just in case this setup\ndoesn't resonate with you,\nhere's one more way to put it.\nSo in this class-- and\nthank you for laughing.\nI'm so appreciative.\nHonestly, the jokes throughout\nthe rest of this lecture\nare just going to get\nprogressively worse,\nso I'm happy you at least\nlaughed at that one.\nOK, but in this\nclass, we're just\nmessing around a little bit.\nBut if you want to find\nout, you can take my class\nin the winter quarter.\nIt will be structured very\nsimilarly to this class.\nSo if you like the structure of\nthis class, it'll be similar.\nLectures will be similar to the\nlecture I'm going to give today.\nAnd yeah, I hope to\nsee many of you there.\nOh, and I was told to say that\nit will count towards the MSCS\nAI depth requirement.\nSo if that also helps convince\nyou to take the class,\nyou have that piece\nof knowledge as well.\nOK, so yes, coming\nup in next quarter.\nAll right, so\nlet's jump in here.\nSo last lecture, you learned\nabout exact POMDP solutions.\nBut probably towards\nthe end of lecture,\nyou learned something which is\nthat basically these methods are\ntypically just completely\nintractable even\nfor moderate problem sizes.\nSo you probably learned about\na couple of different ways\nto exactly solve POMDPs.\nOne was this idea of a belief\nstate Markov decision process,\nwhere you just said, OK,\nwe have beliefs now instead\nof knowing our actual state.\nSo let's just make the\nstate of our Markov decision\nprocess the belief.\nAnd we could do that.\nBut then the big problem\nthere is that the belief space\nis continuous.\nSo then the state\nspace is continuous.\nAnd then when we have a\ncontinuous state space,\nit's pretty hard to\nsolve anything exactly.\nAnd so then we have\na problem there.\nThe other option\nfor solving POMDPs\nexactly is exact\nvalue iteration.\nAnd so when you guys talked\nabout this last time,\nyou were probably talking\nabout conditional plans,\nand these alpha vectors,\nand all this stuff.\nAnd you probably quickly\nsaw that the number of alpha\nvectors that we had to keep\ntrack of grows exponentially\nwith the time horizon.\nAnd this just becomes\nintractable, super, super fast.\nSo for example, this is a figure\nfrom the textbook for a POMDP,\nwhere we only have two actions\nand two possible observations.\nSo super small, you can think\nof the crying baby problem.\nBut even just for a time horizon\nof 10 steps into the future,\nthe possible number of\nconditional plans or alpha\nvectors that we may have to\nkeep track of is 10 to the 338.\nSo there's just absolutely\nno way we can do this.\nAnd it grows insanely fast.\nSo in general,\nthese exact methods,\nwe can try to do them\nfor smaller problems.\nSometimes we can prune\nenough alpha vectors\nthat it will work out.\nBut in general, it's really\nhard to solve POMDPs exactly.\nSo today, we're\ngoing to be talking\nabout approximate methods\nfor solving POMDPs.\nSo these are much more scalable.\nUnfortunately, we won't get\nthe exact optimal policy,\nbut we can at least try to\nget an approximation that's\nas good as possible.\nAnd today, we're going to\ntalk about approximate offline\nmethods.\nMeaning, we do all\nthe computation\nbefore we actually\ndeploy the system.\nAnd then once we\ndeploy the system,\nit just executes this policy\nthat we computed offline.\nNext week, you'll talk\nabout online methods.\nAll right, so I\nwant to zoom out.\nSo I know last time you\nwere talking a bunch\nabout these things called\nconditional plans and all\nthis stuff.\nForget about that for a\nsecond and just zoom out\nand think of the\nmost obvious thing\nyou might do when\nsolving a POMDP,\ngiven your knowledge of MDPs.\nSo let's use this aircraft\ncollision avoidance\nexample, which hopefully\nyou've seen a number of times\nin this class.\nAnd so we have this\nblue aircraft here.\nIt's got some collision\navoidance system that\nneeds to select\nactions like climb\nor descend to avoid colliding\nwith this red aircraft\nover here.\nAnd of course, we could\nhave any number of states\nthat this aircraft could be in.\nWe're going to keep it really\nsimple just for this example.\nWe're going to say there's just\nfive possible states that it\ncould be in that describes its\nrelative geometry with respect\nto the intruder aircraft,\nthis red aircraft over here.\nOK, and so for an MDP\nearlier in the quarter,\nyou learned about\nhow to create an MDP\npolicy for a system like this.\nAnd one of the techniques\nyou probably learned about\nwas to solve for this state\naction value function, this Q\nfunction here, that for every\nsingle state action pair,\nwe solve for a value\nthat says, if we were\nto take that action\nfrom that state\nand follow our optimal policy,\nwhat would be our expected\nutility or expected return.\nAnd so to execute\nthis policy online--\nso here, I'm showing it for\neach of our particular states.\nSo for this state, here's\nthe value associated\nwith the climb action.\nHere's the expected\nutility associated\nwith just staying level.\nAnd then here's the expected\nutility with descending.\nAnd then so on for all of these.\nSo it should make sense here.\nFor the climb action,\nthat's probably\nthe best thing we can do here.\nSo we'll have the highest\nexpected utility for that.\nOh, also, there's one\ntiny mistake on this slide\nthat I forgot to fix.\nCan anyone spot it?\nI will say, when I showed\nMichael these slides last week,\nhe spotted it almost instantly\nbefore I said any words.\nIt has nothing to\ndo with the math.\nOK, well, basically,\nthe problem,\nwhich Michael will\nharp on you for,\nis that this should\nactually be in math mode\nso that the dash should\nactually be a minus sign.\nBut because it's\nnot in math mode,\nthey're just a little too short.\nAnd Michael will\nspot these things.\nI worked with him\nfor seven years now,\nand he'll see it as\nfast as possible.\nBut anyway.\nMichael, if you're\nwatching this back later,\nI'm really sorry for doing that.\nI didn't fix it.\nOK, anyway.\nSo here's our policy.\nAnd so now, if we were going\nto execute this policy--\nwith an MDP, we actually know\nwhat state we're currently in.\nSo let's say that we knew that\nwe're in S2 because for MDPs we\nhave full observability.\nWe know our state.\nSo then we'll just look at\nour action values for that\nand then we'll just pick the\naction with the highest value\nand we'll take that.\nAnd that's how we\nexecute our policy.\nOK, so the problem here, though,\nis that we're not in MDP land\nanymore.\nSo we don't actually know the\nexact state that we're in.\nAnd we have to go\noff something else\nto actually decide\nwhat action we want\nto take at every time step.\nSo we can think about\nwhat do we know.\nThese are things that\nyou've talked about before.\nSo really, all we have\nis like this history\nof observations and actions.\nSo we don't get\nto know the state.\nWe do get noisy\nobservations of that state.\nAnd then we also what\naction we took at every time\nstep leading up to\nwhere we currently are.\nAnd then a couple\nlectures ago, you\nlearned how to take that\nhistory and summarize it\nas a belief state,\nwhich basically is just\na probability distribution\nover what state we're in.\nSo typically, what we do\nis that we make decisions\nwhen we're executing our\nPOMDP policy by looking\nat our current belief and\ndeciding what action is best\nto take based on the belief or\nthis probability distribution\nover what state we're in.\nSo if we go back to\nthis problem, this time,\nwe don't know which\nstate we're in.\nWe only have a belief over\nwhich state we might be in.\nSo for example, we still\nhave the highest probability\nthat we're in S2, but we also\nhave some probability that we're\nactually in S1 or S3 and so on.\nAnd so you can see\nthe weighting here.\nAnd so instead of knowing\nwe're in this state,\nwe have a full distribution\nover the states\nthat we could possibly be in.\nAnd now let's\nstart with the idea\nthat you're probably\nall like itching to do.\nOr at least if you're me,\nwhen I first saw POMDPs,\nI was like, why don't\nwe just do this?\nThis just seems like the\nmost obvious thing to do.\nAnd I would say\nthat is to-- well,\nwe have all these Q values if\nwe just solved it like an MDP.\nSo why don't we just\nweight the Q values\nthe same way that\nwe weight the belief\nand then just\ncombine all of those\nin some weighted average\nof all the Q values\ndepending on how likely it was\nto be in each state for those Q\nvalues?\nSo that's all I've done here.\nAnd then just pick\nthe action that's\nthe highest for that\nweighted average.\nAnd so this equation is just\ndescribing exactly what I did.\nWe're just saying take the Q\nvalues for a particular state\nand then weight it by how likely\nwe are to be in that state.\nWe'll take that weighted\naverage and then\nwe'll pick our action based\non that weighted average.\nSo all we're doing really is\ninterpolating all the Q values\nbased on our belief\nover where we are.\nOK, and so unsurprisingly, this\nmethod is actually called QMDP.\nIt is a POMDP method.\nAnd it does actually work pretty\nwell in a number of scenarios.\nWe're going to talk shortly\nabout some scenarios\nwhere it breaks down.\nBut one thing that's\ncool is Michael\nhas probably talked about the\nACAS X collision avoidance\nsystem a little bit\nthroughout this course,\nand this is actually the method\nthat they use for ACAS X.\nSo that's pretty cool.\nOK, so to recap how\nQMDP works, first, we'll\njust pretend it's an MDP.\nPretend we have\nfull observability.\nIgnore the observation\nmodel, all that stuff.\nAnd then we'll just get the\noptimal state action value\nfunction for that, so for\nexample, using value iteration.\nAnd then we're\ngoing to just take\nthe weighted sum\nof those Q values\nbased on our current belief.\nAnd that's going to be\nhow we execute our policy.\nSo again, here's\nwhat that looks like.\nSo this is just taking\nthat weighted average\nthat I showed before\nof our Q values.\nAnd then we're going to look\nat what that looks like for all\nof our possible actions.\nAnd we're going to pick\nthe action that maximizes\nthat weighted average.\nOK, any questions\nup to this point?\nOK, cool.\nSo now I'm going to do--\nso this is the crux of QMDP.\nThis is all that's going on.\nI'm going to now introduce\nQMDP in terms of alpha vectors.\nBut all we're doing is\nchanging up notation.\nAnd the reason for\nthat is because when\nwe talk about POMDPs, we often\ntalk about alpha vectors.\nAnd so for the rest of the\nlecture, once we get away\nfrom QMDP, we're still going to\nbe talking about alpha vectors.\nSo we want all of these things\nto relate nicely to each other.\nBut I think it's also\neasy to get really\ntripped up as soon as we start\nswitching over to alpha vectors.\nSo I'm going to try to\ngo slow and explain it\nin a lot of different ways.\nBut yeah, I just want you to\nkeep in mind this whole time,\nwe're still just doing\nexactly what I said,\njust interpolating Q values.\nBut I'm going to talk about it\nin terms of alpha vectors now.\nAnd so to do that, all I'm going\nto do is, in this equation here,\ninstead of calling\nthis QS, I'm just\ngoing to call it\nan alpha vector.\nSo I'm going to say I have an\nalpha vector for each action\nand then it has an entry\nfor every single state.\nSo all I did here\nis replace this QSA\nwith new notation that's\njust alpha subscript of S.\nSo it's an alpha vector now.\nThat's it.\nOK, so these are the\nexact same thing.\nIt's just that we're changing\nup the notation a little bit.\nAnd then what we're\nsaying here basically\nis QMDP gives us a\nPOMDP policy where\nwe have 1 alpha vector\nfor every single action\nand it just corresponds\nto the state action value\nfunction for that action\nat each possible state.\nOK, any questions on that?\nAll right, OK, so-- oh,\nyou have a question.\nSo if your view is of dimensions\nlike 50 states in four actions,\nthen you'd have four alpha\nvectors each [? of one ?]\n[? 50? ?]\nYeah, exactly, yeah.\nYeah, and so I think\nalpha vector is like--\nI don't know.\nWhen I first heard about them,\nI was like, what is this?\nIt didn't really\nclick in my mind.\nSo I'm going to\ntry to explain them\nin a whole bunch of different\nways during this lecture.\nSo that leads me into a\nreminder on alpha vectors here.\nOK, so here's an alpha vector.\nPlease don't confuse it\nwith a millennial vector.\nOh, my goodness.\nThank you for laughing.\nOK, I'm so relieved that\nyou laughed at this, OK.\nAnyway.\nAll right, here's an\nactual alpha vector.\nI'll send out the slides after\nif you want that graphic.\nOK, here's an\nactual alpha vector\nthat we could have for our\ncollision avoidance example.\nOK, so alpha vectors, they\nhave one entry for every state.\nSo just like the question we\njust got, if we have 50 states,\nwe'll have 50 entries\nin our alpha vector.\nAnd so in the example I've been\nshowing you, we had five states.\nSo we'll have one entry\nfor each of those states.\nAnd what you want\nto keep in mind here\nis that, basically,\neach of these entries\nrepresent the expected\nutility of if we were actually\nin this state, so if we\nwere actually in state S1\nand we executed\nour POMDP policy.\nSo when we're actually\nexecuting the policy,\nwe don't know what\nstate we're in.\nBut if we were in this state,\nthis is the expected utility\nthat we would have gotten\nfor all future utilities.\nOK, and so it has this nice\nmapping to the q-values for MDPs\nbecause those are also\nthe expected utility.\nOK, and so then the POMDP\nvalue function estimate\nis just a weighted sum\nof these alpha vectors.\nSo we say like, OK, this is\nthe expected utility of being\nin that particular state.\nI'll take the weighted\nsum with the likelihood\nthat we actually are in\nthat particular state.\nAnd that gives us\nour expected utility,\ngiven that we don't know the\ncurrent state that we're in.\nWe just have this\ndistribution over it.\nAnd then we'll just take the\naction that maximizes that.\nSo we'll try this for all of\nour different alpha vectors,\none for each action, and\nwe'll take the action\nthat corresponds to the max.\nAnd that will give us our\nactual POMDP value function.\nAny questions on that?\nOK, so just some\nmore intuition here.\nSo what I want\nyou to remember is\nthat if we had the alpha vectors\nfor the optimal value function,\nthen each entry in\nthat alpha vector\nwould represent the expected\nutility of if we were\nin that state and we followed\nthe optimal policy from there\non out.\nSo basically, the idea here\nis just that each entry\nis just corresponding\nto our expected utility\nif we were in that state.\nThere's some set\nof alpha vectors\nthat actually makes up the\noptimal policy, which will give\nus the optimal value function.\nBut as we saw in\nthe last lecture,\nthat's typically intractable\nto find because it required\neither a belief state MDP\nor exact value iteration,\nand those super quickly\nbecame intractable.\nSo typically, we can't actually\nfind those alpha vectors\nthat we want to find.\nAnd so what we do with these\noffline approximate techniques\nis basically we're just trying\nto find a set of alpha vectors\nthat approximate the optimal\nones as best as we can.\nSo again, we don't know what\nthe optimal ones are typically.\nAnd so we're just\ngoing to try to come up\nwith all these different\nheuristics and ideas\nthat get us a good set\nof alpha vectors that's\nclose to the optimal\npolicy so that we can get\nas good a policy as possible.\nSo if you're getting tripped up\nwith all the dimensions and math\nof alpha vectors, hopefully you\ncan go back to this intuition\nbecause that's really all\nthat's going on there.\nWe're just trying to get some\ngood sets of alpha vectors,\nand there's lots of different\nways to try to do that.\nSo that's a reminder\non alpha vectors.\nWe'll come back to it a\nfew more times as well.\nBut OK.\nSo now let's look\nat what QMDP looks\nlike in terms of alpha vectors.\nSo again, this is just\nchanging up notation.\nWe're not doing anything\ndifferent than what I showed you\nbefore.\nBut here would be an alpha\nvector actually for the climb\naction.\nAnd all we're\ndoing is we're just\ntaking the Q value that\ncorresponds to the climb\naction for each possible state.\nAnd we're just stacking\nthem all together.\nAnd then we have\nan alpha vector.\nWe're going to have\nthree alpha vectors\nfor this particular\nexample because there's\nthree actions-- climb,\nstay the same, or descend.\nSo then for stay the\nsame or stay level,\nthen we're going to\ntake all the state\naction values for that\nparticular action across all\nthe states.\nJust stack them together.\nAnd then we'll have\na third alpha vector\nfor the descend action that\nwe get in a similar way.\nAnd then all we do is just--\nnow these Q values are\njust squashed into\ndifferent vectors,\nbut we just do the\nsame exact thing.\nWe just take the\nweighted average of them,\nand that gives us one\nvalue for each action.\nSo we're going to\nget-- doing this,\nwe get one value\nfor each action.\nAnd then we're going\nto take the max.\nAnd that's how we'll\ndecide what action to take.\nOK, so this is all\nexactly the same\nas interpolating the Q values.\nThis is what it looks like\nin terms of alpha vectors.\nAny questions there?\nOK, cool.\nOK, so this is QMDP.\nThere is one problem with QMDP.\nSo like I said, we're going\nto set our alpha vectors,\none for each action\nequal to the Q values.\nAnd if you remember how\nyou compute Q values,\nthinking back to value\niteration for MDPs\nand the Bellman equation, you\nhave your immediate reward\nplus this expected\nfuture utility.\nAnd when we calculate this\nexpected future utility,\nthere's no notion of\nobservations or beliefs\nor anything like that.\nAnd in fact, basically\nwhat this is doing\nis making the assumption\nthat at the next time step,\nwe just know what\nour true state is.\nAnd so that can be an issue.\nCan anyone think of what\nmight be the problem there?\nSo I'll try to make it\na little more concrete.\nSay I told you that I'll\ngive you option A and B\nnext Thursday.\nAnd if you pick the right\noption, I'll give you $1,000.\nAnd if you pick\nthe wrong option,\nthen I'm not going\nto give you anything.\nAnd you could actually drive,\nlet's say, down to San Jose\nand go to this one\nlocation and it'll\ntell you whether A or B\nis the correct answer.\nThis is getting\nreally convoluted.\nBut let's say that this is the\nscenario I presented you with.\nBut either you can do that, you\ncan take that action sometime\nbefore next Thursday when\nyou have to pick A or B,\nor tomorrow you'll\njust know just\nmagically whether A or\nB is the correct answer.\nAre you going to go\ndrive down to San Jose?\nProbably not.\nThere's no reason to.\nBecause tomorrow, magically,\napparently, you're\njust going to know what\nthe right answer is.\nSo if we're doing\nthat here, we're just\nsaying our value\nfunction is just\nassuming that at\nthe next time step\nwe're going to know\nthe true state,\nthen we're never\nincentivized to actually take\ninformation gathering actions\nthat would otherwise be costly.\nBut in POMDPs, that can\nactually be a really good thing\nto do because you're not\nactually magically going\nto know whether A or B is\nthe correct answer tomorrow.\nAnd so you actually would\nprobably want to go drive down\nto San Jose, depending on how\nmuch you care about getting\n$1,000.\nAnd so in general,\nthe thing with QMDP\nis just that the\npolicy is not really\never incentivized to take\ninformation gathering actions.\nBecause if it thinks\nthat it's going\nto the true state of\nthe next time step,\nwhy would it ever\ntake an action to try\nto get more information\non what state it's in?\nSo that's one thing to\nkeep in mind with QMDP.\nIt does still work well.\nLike I said, they\nactually use it for ACAS X\nbecause they didn't really\nhave a need necessarily\nto take information gathering\nactions for collision avoidance.\nIf you just keep\nfiltering, you'll\nget a better state estimate.\nBut for other problems like,\nfor example, hide and seek\nor something, maybe\nit actually matters\nto try to take these\ninformation gathering actions.\nAny questions on that?\nOK, and then another thing\nthat comes as a result of this\nis that since QMDP assumes\nthis full observability\nat the next time\nstep, it's going\nto end up providing us an\nupper bound on the true value\nfunction.\nSo those alpha vectors we\nget out from the Q values,\nthey're going to represent\nupper bound on the true value\nfunction.\nAnd the way to think of\nthis is just that we're not\ngoing to be able to do better\nthan the full observability\ncase.\nIf you actually knew\nyour state, then you\nwould be able to do\na much better job.\nSo that's why it's going\nto give us an upper bound.\nOK, so let's actually\nlook at what this looks\nlike in terms of an example.\nWe'll use the simplified\ncrying baby problem.\nSo we have two states, the baby\nis either not hungry or hungry,\ntwo observations, so we don't\nget to know whether or not\nthe baby is hungry.\nWe just get to observe\nwhether or it's crying--\nAnd then two actions.\nWe can either feed\nthe baby or ignore it.\nOK, so let's talk about one more\nangle to look at alpha vectors.\nSo let's see what the\nalpha vectors would\nlook like for this\nproblem, particularly,\nfor example, for QMDP.\nSo an alpha vector\nfor this problem,\nagain, we have one entry\nfor each possible state.\nSo we just have two\nstates, stated and hungry.\nAnd then each one is going to\nrepresent the expected utility\nfor being in that state and\nfollowing our policy, so\nthe expected utility when\nthe baby is not hungry.\nAnd then the second entry\nwill be the expected utility\nwhen the baby is hungry.\nSo if we were going to\ndo QMDP for this problem,\nwe have two actions.\nSo we would have two\nalpha vectors each\nwith two entries,\none for each state.\nSo let's say, for\nexample, maybe we\nhave these two alpha\nvectors, this for action 1,\nwhere we feed the baby, and then\nthis alpha vector for action 2,\nwhere we don't feed the baby.\nAnd probably, earlier\nthis week, you\nsaw some plots that\nlook like this.\nBasically, because the\nproblem is so low dimensional,\nwe can actually plot what\nthese alpha vectors look like,\nwhich is helpful, I\nthink, for visualization.\nSo on this axis, we're just\ngoing to be plotting B of S2.\nSo our belief of being\nin the state hungry.\nSo in other words, the\nprobability that the baby\nis hungry.\nAnd because there's only two\nstates, if we're not hungry,\nwe know that we're\nin the other state.\nSo this basically entirely\nrepresents the belief space.\nBecause if our P of being\nhungry was 0.8 or something,\nthen we automatically\nknow what the probability\nof the other state is.\nIt'll just be 0.2.\nSo we really only\nneed one dimension\nto represent our\nwhole belief space\nfor this particular\nproblem, which is nice\nbecause then we can plot it.\nOK, so then we'll plot what\nthese alpha vectors look like,\nand this is our\nexpected utility,\nconsidering what these different\npoints represent on the plot.\nSo when P of hungry is equal to\n1, we basically know for a fact\nthat the baby is hungry.\nSo we know that\nwe're in state S2.\nAnd then on the flip side,\nwhen P of hungry is 0,\nwe know that the baby is sated.\nWe know for sure that\nwe're in that state.\nAnd because these values\nrepresent the expected utility,\nwhen we know for sure that\nwe're in those states,\nwe can just plot these values.\nSo for the feed\naction, for example,\nwe know that when the\nbaby is not hungry\nand we're in that\nstate for sure, then\nwe get an expected\nutility of minus 4.\nSo we can just plot\nthat for that point.\nAnd then we also know that when\nthe baby is hungry, for sure,\nwe get an expected\nutility of minus 10.\nAnd then somewhere in between,\nall we do with the alpha vector\nis interpolate those values\nbecause all we're doing\nis taking our belief\nvector and multiplying it\nby this alpha vector,\nwhich just equates\nto interpolating those values.\nSo that makes sense?\nBecause as our probability\nof being hungry\nis closer to knowing for\nsure that it's hungry,\nour expected utility is\nprobably also closer to that.\nAnd it turns out it's\nliterally just a straight line\nin between those two.\nSo that's another way\nto visually picture\nan alpha vector.\nIt's like cutting the space\nof the utility function.\nAnd then this corresponds to\nthe action of feeding the baby.\nOK, then we can\ndo the same thing\nfor our other alpha vector.\nSo minus 1 when we know\nthe baby is not hungry.\nMinus 15 if we know\nthe baby is hungry\nand we choose to ignore it.\nSo that makes sense.\nIf we know the baby is hungry\nand we choose to feed it,\nthen we do much better\nthan if we know it's hungry\nand we choose to not\nchoose to ignore it.\nOK, and then again, we just\ncan connect these values\nand we get another\noutput vector.\nAnd then the optimal policy is\njust the maximum over these.\nSo it'll be this.\nAnd then, for example, the way\nwe execute this policy is we\nsay, OK, well let's\nsay that we actually\nbelieve that there's a 0.1\nprobability that the baby is\nhungry.\nAnd so we'll go to the alpha\nvector that dominates there.\nAnd that tells us\nto ignore the baby.\nAnd then unsurprisingly, if\nwe have a 0.9 probability\nthat the baby is hungry,\nthen this other alpha vector\ndominates and we\ndecide to feed it.\nOK, so I think for\nsome reason this\ntook me a while to get in\nmy head, what all of this\nactually represents.\nBut hopefully, this helps\nwith some intuition here.\nAre there any questions on that?\nOK, awesome.\nFor QMDP, when we have all of\nthese alpha vectors, so again,\nwe'll initialize\nour Q function as\nif we were doing like value\niteration for example.\nAnd then we do this iteration.\nThis is just exactly value\niteration on the underlying MDP.\nBut in terms of alpha vectors,\nit would look like this.\nSo all we did was replace\nthe Qs with alphas.\nThat's it.\nJust changed up the notation.\nBut then we can\nsee what this looks\nlike in terms of\nalpha vectors when we\ndo value iteration over time.\nSo this is what it looks\nfor the crying baby problem.\nFor the crying baby problem, we\nactually can solve it exactly.\nSo that's cool.\nSo we can actually\nsee how close we're\ngetting to the optimal\nvalue function, which is\nthe one that's shown in black.\nAnd then here, we initialize\nto an upper bound.\nAnd then we slowly move\ntowards a tighter and tighter\nupper bound on the\ntrue value function.\nAnd then we converge down here.\nOK, and so as I just\nslipped in there, basically,\nas long as we initialize our\nalpha vectors to an upper bound,\nno matter how many iterations\nwe do a value iteration,\neven if we don't go all\nthe way to convergence,\nwe're always going to have an\nupper bound on the true value\nfunction.\nOK, and so, yeah, actually are\nthere any questions on that?\nYeah.\nIsn't it dangerous\n[? above ?] your estimate\nbe an overly optimistic\nestimate of your value function?\nBecause in my safety\ncritical scenarios,\nyou wouldn't want to\noverestimate the likelihood\nof not crashing the plane.\nEspecially if you can't go\nall the way to convergence,\nhow can you have a\nmetric for knowing,\nOK, my upper estimate\nis reasonably\nclose to the actual one?\nYeah, that's a great question.\nSo you're right.\nSo the question was what\ndo we do about the fact\nthat if it's an upper bound,\nisn't that maybe not the best\nthing to go off,\nespecially if we\nwant to be conservative in\na safety critical setting?\nAnd I would say, yeah,\nyou're absolutely right.\nWe're going to talk\nin a minute about how\nto get some lower bounds.\nSo that's also\nanother way to know\nhow off you might be, because\nyou can have the upper bound\nand the lower\nbound, and then you\nknow exactly the gap of where\nthe optimal value function can\nlie.\nSo we'll talk in a bit about\nhow to get lower bounds.\nAnother thing to\nthink about, though,\nis even though this upper bound\nhas a big gap, if you actually\nthink about the difference\nbetween the optimal policy\nfor our optimal value function\nand the optimal policy\nfor this value function,\nthey're not that different.\nBecause for the\noptimal value function,\nit's basically we have\none alpha vector--\nI'm going to guess\nthis is for not feeding\nthe baby because\ndown here, we don't\nhave a very high probability\nthat the baby is hungry.\nSo this alpha vector is\nfor not feeding the baby.\nSo we wouldn't feed\nthe baby as long\nas this alpha vector dominates.\nSo that's still\nabout right here.\nSo that means until\nwe get to I belief,\nI don't know, around\n0.28 or something,\nwe would not feed the baby.\nAnd then if we had\nmore than a 0.28 belief\nthat the baby was hungry,\nwe would feed the baby.\nAnd if we look at the\noptimal alpha vector here,\nI don't know, maybe that\ntransitions at 0.33.\nSo it's not that\ndifferent of a policy.\nSo there is a difference\nbetween getting the right value\nfunction.\nBut also, these value functions\njust correspond to the policies\nwe're going to execute.\nAnd so even though\nthere's a big gap here,\nthere's not a huge gap\nin the optimal policy.\nAnd so, really,\nwhat matters more\nis how much your vertices shift\nas you carry through closer\nto convergence.\nIt would be a bigger issue\nif that corner between\n[INAUDIBLE]--\nWas over here.\n--and the [INAUDIBLE]\nwere really far away.\nYeah, that's exactly\nright, as long\nas all you're doing\nwith the value function\nis using it to decide how\nto execute your policy,\nwhich is typically\nwhat you're doing.\nBut yeah.\nYeah.\nI don't get why the value\nfunction would decrease\nfor every iteration\nbecause you're\ncomputing the maximum over\nall the potential [INAUDIBLE].\nSo the question is, why\nis the value function\ndecrease at every iteration if\nyou're maximizing over actions?\nThis will only happen if you\ninitialize to an upper bound\non the value function.\nSo for example, think about\ndoing MDP value iteration.\nSay you just initialize\nto some upper bound\nwhere you know that your policy\ncould never do better than that,\nyou're getting to the\noptimal policy for that MDP.\nSo you're going to\nhave to move down\ntowards what's actually true.\nAny other questions?\nThose are great questions.\nOK, cool.\nOK, so like I said\nthough, you have\nto initialize to some\ninitial upper bound.\nAnd so you might be wondering\nhow could we actually get\nthis initial upper bound?\nAnd so one common\nway to do it is\nthis idea of a best-action\nbest-state upper bound,\nwhere we just say like, OK,\nimagine if-- this is probably\nnot possible, but\nlet's imagine that we\nwere able to take the\nbest-action from the best-state\nforever.\nSo we look at all our RSA\npairs, all our reward pairs,\nand we just say, what if I could\njust stay in this one state--\nmaybe it's the goal\nstate or something,\nand take the same\naction forever,\nand I just keep accumulating\nthat reward forever\ninto the future?\nSo probably we can't do\nthat given the transition\nmodel of our MDP.\nBut if we could,\nyou would probably\nagree that that's\nthe best we could do.\nWe could never do better\nthan taking the best-action\nfrom the best-state forever.\nSo to do that, we just\nsay, OK, let's look\nfor that RSA pair\nthat corresponds\nto that best-state action pair.\nLet's assume we do it forever.\nSo that means we're going\nto apply our discount factor\nbut just sum it up\nforever into the future.\nAnd if you remember for the\nformula for infinite sums,\nit comes out to this.\nSo you can actually\ncalculate analytically\nwhat that upper bound would be.\nAny questions on that?\nOK, OK, so again, QMDP is\ngoing to provide an upper bound\non the true value function.\nBut it's actually possible\nto get a tighter upper bound\nby taking the observation model\ninto account to some extent.\nSo with QMDP, we\njust ignored the fact\nthat we're in POMDP land at\nall, and we were just like,\nlet's just solve for the value\nfunction as if it were an MDP.\nWe can actually\ndo a little better\nif we somewhat take into\naccount the observation model.\nAnd the technique that does this\nis called fast informed bound.\nAnd it's super similar.\nWe're doing something very\nsimilar to the Bellman equation\nthat we were doing before.\nBut now we're actually\ngoing to take into account\nthis observation model.\nSo everything's\nexactly the same,\nexcept we're now going to take\ninto account the information\nthat at the next\ntime step, we're\nnot going to our true state.\nWe're actually going to get some\nobservation of our true state.\nAnd we'll actually sum over\nall of the different possible\nobservations that we might get.\nSo that's all that's going on.\nWe're just saying at\nthe next time step,\nwe'll actually consider the\nobservation model a little bit,\nand we'll say that we actually\nget some observations.\nOK, and so just comparing\nQMDP and fast informed bound,\nthey're extremely similar.\nFor fast informed\nbound, we still\nhave one alpha\nvector per action.\nIt's the same exact thing.\nIt's just in that\niterative procedure,\nsimilar to value\niteration, we're\ngoing to have this\nextra term, where\nwe sum over all of the different\nobservations we might get.\nAnd so because of that, it\nis a little bit more complex\nin terms of computation\nor in terms of operations\nper iteration because now we\nhave this extra factor of O,\nof the number of observations,\nbecause we have to sum over\nall of these observations.\nSo there's a bit of\na trade off there.\nBut it does tend to\ngive us a tighter bound\non the actual true\nvalue function.\nSo here's, again, for\nQMDP what we just saw.\nAnd then over here is\nfor fast informed bound\nfor the crying baby problem.\nAnd you can see it gives\nus actually a much tighter\nupper bound.\nSo that's one benefit of this\nadded computational complexity.\nQuestions on that?\nYeah.\nBut I [INAUDIBLE]\nsay max of A prime,\nbut I only see\nthe A [INAUDIBLE].\nThis is A prime here.\nSo this A corresponds to\nthe current alpha vector\nwe're doing the action for.\nAnd this is all the\nactions we could\ntake at the next time step.\nYeah, good question.\nIt's hard to keep\ntrack of all these.\nI would recommend just staring\nat this equation for a bit\nto parse what's actually\ngoing on in all these sums.\nBut good question, yeah.\nYeah.\nAnd also shouldn't S\nprime be inside the sum?\nGreat question.\nThat one I think is\nprobably a typo, yeah.\nGreat question.\nI'll double-check.\nI'll update the slides\nbefore I send them out.\nThe correct equation is\ndefinitely in the book, though.\nBut yeah.\nYes.\nOther questions?\nOK, all right, so everything\nwe learned about so far\ngives us upper bounds and\nwe maintain one alpha vector\nfor every single action.\nBut that doesn't necessarily--\nso again, all these methods,\nwe're just trying to\nfind alpha vectors\nthat best approximate\nthe alpha vectors\nof the true optimal policy.\nAnd no one said that necessarily\nthe true optimal policy has\none alpha vector per action.\nThat's not necessarily true.\nWe're just making that\nassumption for those methods.\nAnd so maybe it's\nactually possible we\ncould do better if we could\nhave just more alpha vectors.\nWe weren't tied to just having\none alpha vector per action.\nAnd so one method for doing\nthis is called point-based value\niteration.\nSo it's really a\nsuper cool method.\nSo emphasis on the bass.\nIt's based, OK.\nI told you they were going\nto get progressively worse.\nAll right, so the key idea with\npoint-based value iteration\nis that we're going to maintain\na bunch of alpha vectors\nin this group that we\ncall capital gamma.\nAnd each of these\nalpha vectors is\ngoing to be associated with a\ndifferent point in our belief\nspace.\nAnd we'll keep track\nof all of those points\nin this set we call B.\nOK, so just visually,\nwe have this set gamma.\nAnd it just has a bunch of\ndifferent output vectors in it\nfor now.\nSo how do we get those and\nwhatnot we'll be talking about.\nBut just for now,\njust assume we have\nthis set gamma that has a whole\nbunch of alpha vectors in it.\nAnd then we also have\nthis corresponding set\nof beliefs, where every single\nalpha vector corresponds\nto one belief in our\nother set of beliefs.\nOK, so don't worry about\nhow we got any of these.\nWe'll talk about that.\nBut this is just something\nwe have for point\nbased value iteration.\nAnd then just like this\nset of alpha vectors,\nthat represents a policy.\nSo any set of alpha vectors\nrepresents a policy.\nWe're just trying\nto find the set that\ngets us to the optimal policy.\nBut given any set, we can just\nderive a policy from that.\nBecause this is just\nthe exact same equation\nwe had before in vector form.\nWe just take the weighted\nsum of our belief state\nand the alpha vector, which\nrepresents the expected utility\nof being in every state.\nAnd then we pick the\naction for the alpha vector\nthat corresponds to the\nhighest value for this.\nSo again, you can think of this\nbag of alpha vectors as just\na policy basically.\nAnd what we're going\nto do is we're just\ngoing to try to iteratively\nimprove all the alpha vectors\nin this bag of alpha vectors\nto get us as close as we\ncan to the optimal policy.\nOK, so the first thing\nthat we need to do\nis initialize all of the alpha\nvectors in that bag in gamma\nto a lower bound on\nthe value function.\nOK, how do we get a lower\nbound on the value function?\nJust basically the opposite\nof what we were doing before.\nWe can do best-action\nworst-state lower bound.\nSo imagine we have\nall those RSA pairs.\nWe first figure out\nwhat's the worst case\nstate we would be in\nwhere we could still\ntake the best-action\nfrom that state,\nbut what's the worst\ncase state that we could\nbe in to have that happen.\nSo again, imagine if we were\nable to do that forever.\nAnd then again, this gets a\nlittle funky with the notation\nbecause you have a\nmax and a min in it,\nbut it's just doing\nthe exact same thing.\nSo we're just saying, let's\nsay we do that forever.\nWe take into account\nthe discount factor.\nWe use the formula for infinite\nsums, and it comes out to this.\nSo we can get a lower\nbound on the value\nfunction by just\nassuming that worst case,\nwe're stuck in the\nworst-state forever\nand we just keep taking\nthe best possible action.\nOK, there's also one way\nto get another lower bound.\nSo for point-based\nvalue iteration\nwe're actually just going\nto use this lower bound.\nBut just for completeness\nof what's in the book,\nyou can actually get a\nslightly tighter lower bound\nby maintaining a different lower\nbound for every single action.\nAnd that just assumes say we\njust had a policy where we just\ntook the same action forever,\nno matter what our belief was.\nMaybe that's the optimal\npolicy, which, in that case,\nit's a tight lower bound.\nIt's probably not\nthe optimal policy.\nAnd so in general, we're going\nto do worse by doing that.\nSo that should give us a lower\nbound on our value function.\nAnd the way to calculate\nthat is basically\njust applying this\nBellman-like equation\nbut just assuming that we're\nalways taking the same action.\nSo we don't even maximize\nover actions here\nor anything like that.\nWe just assume that every single\ntime we take the same action\nand we compute the value\nfunction if we do that,\nand that will give\nus a different lower\nbound for every single action.\nSo that's one thing,\nand it'll tend\nto be tighter than this\nbest-action worst-state lower\nbound.\nAny questions on that?\nYeah.\nSo when you say\ntighter lower bound,\ndo you mean a slightly less\nconservative lower bound?\nYeah, tighter would mean\nit's actually higher\nthan the other lower bound.\nSo it's closer to the\noptimal value function.\nBecause you're not\njust uniformly assuming\nthe worst possible\nstate [INAUDIBLE].\nYeah, so the worst\nthing we could do\nwould be to take the\nworst-action-- sorry,\nthe best-action from\nthe worst-state forever.\nWe'll do better, probably,\nby taking the same action\nand actually moving\nfrom state to state.\nSo can you spend more\non the difference\nbetween [INAUDIBLE] if you could\nput lower bound for each action?\nSo for each action,\nyou basically\niterate through all the actions\nfrom the worst case state.\nSo this is completely different.\nSo there's no notion\nof worst-state here.\nYou're basically computing\nit for every single state\nand you're just saying\nlike-- let's say\nI was using a policy where I\njust took the same action all\nthe time.\nSo this one is saying, let's say\nI was stuck in the worst-state\nforever and I just kept\ntaking the best-action,\nit might not be feasible\ngiven the actual transition\nmodel of the POMDP, but\nyou know that you won't\nbe doing worse than that then.\nHere it's saying, let's actually\nuse the transition model\nof the actual POMDP,\nbut let's just\nassume that our policy is to\ntake the same action forever.\nAnd a policy that just takes\nthe same action forever,\nit's not going to be\nworse than this one\nthat we're stuck in the\nworst-state forever.\nBut isn't it also possible that\ntaking the same action forever\nisn't--\nI guess it is always feasible\nbecause you could take\nany action for a given state.\nSo you're just--\nOK.\nYeah, so you could imagine\nany policy will give you\na lower bound on\nthe value function\nbecause if it's not the\noptimal policy, then--\nyeah.\nSo the policy of taking\nthe same action forever,\nit's easy to calculate the\nalpha vectors for that.\nSo that's why we pick that.\nBut that will give\nus a lower bound.\nIs there a specific choice of\naction that you need for this?\nDo you have to choose the\naction that on average gives you\nthe worst reward or something?\nYou could do this for\nall of the actions\nand then take the\nmax over them all.\nIt'll give you a\nset of alpha vectors\nand you can take\nthe max over them\nall to get that piecewise\ncontinuous value function.\nYou could also\njust do it for one,\nand it will give you\njust one lower bound.\nReally, these things are mostly\nlike-- you wouldn't actually\nuse these to select\na POMDP policy.\nYou typically use\nthese types of things\nto initialize another algorithm,\nlike point-based value\niteration, which is what\nwe're talking about now.\nSo typically, you\njust want something\nlike fast that will\nget you a lower bound\nthat you know for\nsure is a lower bound,\nand then you can improve on it\nusing these other algorithms.\nYeah.\nAny other questions?\nOK, all right, so like\nI said, for the purposes\nof this lecture,\nanyway, we're just\ngoing to assume we used that\nbest-action worst-state lower\nbound.\nAnd we'll initialize\nall of our alpha vectors\nto that lower bound.\nOK, so then after that, we also\nhave these corresponding belief\npoints.\nI haven't told you yet how\nyou get the belief points.\nAll I've told you is\nthat you have one belief\npoint per alpha\nvector that you have\nin that bag of alpha vectors\nthat we're keeping track of.\nWe'll talk towards the end of\nthe lecture about how you could\nactually go about picking them.\nBut let's just assume\nthat we've picked\na set of belief points\nand each one corresponds\nto one of these alpha vectors\nOK, and then what\nwe do is we're going\nto iterate through\neach belief point\nand we're going to do\nsomething called a backup.\nOK, a backup, like\nalpha vectors,\nis another thing that\nwhen I first heard of it,\nit was really hard to get\nit to click in my mind.\nSo I'm going to try to show\nit to you what a backup does\nin a couple different ways.\nOK, so basically, again, we\nhave this bag of alpha vectors.\nAnd like I said, this\nbag of alpha vectors\nrepresents a policy.\nSo like any set\nof alpha vectors,\nwe could take the dot product\nwith our belief vector,\npick the one that maximizes it,\ntake the action corresponding\nto that alpha vector.\nAnd that's how we\nexecute a policy.\nSo any set of alpha\nvectors gives us a policy.\nSo we have our current policy.\nAnd what we're going\nto do every time\nwe do a backup is we're going\nto try to basically improve\nthis policy by making these\nalpha vectors represent\nsomething that's closer to the\noptimal set of alpha vectors.\nAnd the way that we\ndo this is we first\nsay like, OK, so we're going to\ndo this for a particular belief.\nSo every time we\nperform a backup,\nit's just that one of\nour particular beliefs.\nSo for example, B1.\nWe'll just take the first one.\nAnd what we're going to do is\nwe're going to ask ourselves,\nOK, what new alpha vector\ncould we replace alpha 1 width\nthat's actually a better\nestimate of the expected return\nat the current belief, given\nthis current policy that we have\nrepresented here?\nOK, so basically, we're going to\ngenerate a new alpha vector that\ngets closer to what the true\nexpected value function is.\nOK, so intuitively, that's\nall that's happening.\nAnd if you want to\nabstract it even more,\nwe're just taking\nthis belief and we're\napproving our value function\nestimate at that belief.\nOK, so when we do that, we'll\nget this new alpha vector.\nWe'll call it alpha 1 prime.\nAnd then for a point-based\nvalue iteration, what we'll do\nis we'll just take\nthe current alpha 1\nand we'll just replace it\nwith this new alpha vector\nthat we got from\nperforming our backup.\nSo that's just intuitively\nwhat's going on for a backup.\nAnd then we would do this\nagain for our next belief.\nAnd we'll just iterate\nthrough all of them.\nSo we'll update the\nvalue function there.\nWhat is the best\nnew alpha vector\nthat gives us a better\nestimate of the value\nfunction at this belief?\nWe'll replace it in\nour current policy.\nAnd then for every iteration,\nwe'll do that for all of them.\nAnd we'll just keep\ndoing this for a while.\nOK, so that's the intuition\nI want you to have\nin mind of what's going on.\nThere's, of course,\nthe actual math\nfor how do you\nactually do a backup?\nBut I found if you\nstart with this\nthen it can be really confusing.\nSo I want you to still keep\nthis intuition in mind.\nOK, so the actual\nmath that we do--\nso we're performing a backup\nat this certain belief\npoint, given this\nset of alpha vectors\nthat we call capital gamma.\nAnd so what we're\ngoing to do is we're\ngoing to iterate\nthrough a few things.\nSo we're going to do something\nfor every possible action.\nWe're going to go through every\npossible observation we could\nhave when we take\nthat action, and we're\ngoing to look at what\nnew belief we would get.\nSo every time we take an action\nand get a new observation,\nwe can update our belief.\nAnd so we can figure out, given\nthe methods that you learned\nin, I think, it\nwas chapter 19, you\nknow how to update the\nbelief given an action\nand an observation that we got.\nAnd then we just\nwant to figure out\nwhich alpha vector would\ndominate at that new belief.\nSo for each action\nobservation pair,\nwe're going to store which\nalpha vector would dominate\nif that were to\nbe what happened,\nif we were to take that action\nand get that observation.\nOK, so basically\nall this is saying\nis for each action observation\npair, what alpha vector would\ndominate at our updated belief.\nThen, we're still doing\nthis for each action.\nWe're going to fill in\nthis new alpha vector\nby basically looking\nat what would\nhappen if we used this value\nfunction at that new updated\nbelief.\nSo looking at our\nexpected future utility\nis based on that belief\nupdate that we did given\nthe policy that we had before.\nOK, so basically, the\nidea here is just,\nusing what would\nhappen one time step\nin the future for each\naction observation pair\nupdating a belief, what\nwould be our new expected\nutility at every single state?\nOK, honestly, I don't feel like\nI'm doing that great of a job\nexplaining this, but it's a\ntricky one to get in your head.\nSo I'd recommend, if you get a\nchance, to just look at the book\nand look at these\nequations for a bit longer,\nor just go back\nto this intuition.\nBut another way\nyou can think of it\nis we're doing an update of\nthe Bellman equation, similar\nto what's going on\nin value iteration,\nwhere we're getting closer\nto the optimal policy\nevery single time.\nIt's just that we're doing it\nat these discrete belief points.\nAnd so there's things we\nneed to keep track of,\nlike alpha vectors, and\nour current optimal policy,\nand observations,\nand all these things.\nSo that's what's going on.\nAnd we're going to do this\nfor every single action.\nSo we'll get a new alpha\nvector for every single action.\nAnd then we just get to\nreplace our old alpha vector\nwith one new alpha vector.\nSo we're just going to\npick the alpha vector\nfor the action that dominates\nat that particular belief.\nOK, so all of this\nmath, all it's doing\nis saying let's get a new alpha\nvector that better estimates\nthe value function at\nthe current belief given\nthe current policy that we have.\nOK, any questions there?\nOK, so, yeah, if you're like I\ndon't know what this math was,\nit's too hard for me to\nparse it that quickly,\nI certainly don't blame you.\nBut just keep in mind for\nthe rest of this lecture,\nwhen we do a backup, we're\njust getting a new alpha vector\nthat better estimates our value\nfunction at the current belief,\nOK.\nOK, so we're going to\ndo this for a while.\nSo at every single\niteration, we're\ngoing to go through the beliefs\nand all of the alpha vectors\nthat we have.\nWe're going to perform a\nbackup at every single belief.\nAnd then we'll just\nrepeat this process\nand we'll do it a\nwhole bunch of times\nso the alpha vectors will slowly\nmove up from our lower bound.\nAnd then once we're\ndone, the value function\nis just represented as\nthe max of all of those.\nAnd it turns out that this\nconverges to a lower bound\non the optimal value function.\nSo here's what this looks like\nfor the crying baby problem.\nWe only used two\nbeliefs here actually.\nBut you initialize\nto this lower bound.\nSo this is the best-action\nworst-state lower bound.\nAnd then every single\ntime you perform backups\nat both of these\nbeliefs and you get\nthese new sets of alpha\nvectors, and eventually it\nconverges to a pretty tight\nlower bound on the value\nfunction, which is pretty cool.\nWhat questions do\nyou have on that?\nYep.\nSo in general, it looks\nlike as you converge,\nthe vertices or the [INAUDIBLE]\nalpha vectors have the opposite\ntrend when you go\nfrom a lower bound--\nwhen you approach from a lower\nbound than when you [INAUDIBLE]\nupper bound.\nSo if you look at the corners,\nthey're moving inwards,\nbasically.\nRight before, they're moving--\nor sorry.\nI guess [INAUDIBLE].\nIs that true?\nIt was the same [? behavior. ?]\nIt looks like it's the same.\nYeah, it might be different.\nI don't know.\nYeah, it's hard to tell.\nBut should you see that\nyour piecewise function\ngets displaced in\nthe same direction\nfrom iteration to\niteration as it does--\nfrom when you [? break ?]\nfrom below, is it [INAUDIBLE]\nwhen you [? break ?] from above?\nThat's a great question.\nSo basically, the idea here is\nwould there be a straight line\nif we were to do this?\nIs that what you're saying?\nNot necessarily a straight line.\nBut if you drew a line\nthrough all of the vertices,\nwould it be continuous between\nthe upper bound estimate\nand the lower bound.\nThat's a good question.\nI don't know for sure.\nMy gut instinct would be no\nbecause they seem unrelated\nand it probably\nvery much depends\non what belief points you ended\nup picking for point-based value\niteration.\nSo yeah, good question.\nI don't know for sure\nif there's actually\na pattern there or a\nreason or if it just\nhappened to be that\nway for this problem.\nBecause then that\nwould allow you to--\nif you have a trend for\nthe upper bound estimate\nand the lower bound\nestimate, it would allow you\nto more can't easily interpolate\nbetween the two if the--\nright?\nOr is that not really\nhow we're going to--\nYeah, I mean, it's an\ninteresting thought.\nI don't know if\npeople have explored\nthe idea of interpolating\nbetween the upper\nand lower bound.\nFor this lecture,\nwe're basically\njust going to talk about\nhow to solve offline\nfor upper and lower bounds.\nAnd the PBVI results\nand QMDP, because that's\nwhat these folks ACAS X,\nthey are useful on their own.\nBut in the next\nlecture, you guys\nwill talk more about\nhow to actually take\nadvantage of the fact\nthat we have both an upper\nand lower bound.\nSo I'd say stay tuned\nfor next lecture.\nYeah.\nAre we specifically the lower\nbound for point-based value\niteration and not upper\nbound and vice versa for FIB?\nGood question.\nSo the question was-- for the\ninitialization do you mean?\nYeah, so the question\nwas, for QMDP and FIB,\nwhy do we initialize\nan upper bound,\nwhereas for point-based\nvalue iteration\nwe initialize to a lower bound?\nSo basically the general idea is\njust that for QMDP, we already\nknow that it's going to\nconverge to an upper bound\nbecause we know that\nwe can't do better\nthan the full\nobservability case.\nAnd so if we were going to\nrun QMDP to convergence,\nthen it would be fine.\nWe could start from\nany initialization\nthat we wanted because\nwe know that we're\ngoing to converge to\nthis final solution here,\nwhich will be an upper bound.\nBut if we start\nwith an upper bound,\neven if we don't\nrun to convergence,\nsay we stopped here or\nsomething, then we at least\nwe still have an upper bound.\nSo it's a nice thing to have to\nknow that you don't necessarily\nhave to run to convergence if\nyou start with an upper bound.\nSimilarly, for point-based\nvalue iteration,\nwe always know that it's\ngoing to be a lower bound\non the value function.\nAnd so we want to initialize to\na lower bound so that we know\nevery time we perform these\nbackups at our beliefs,\nwe're getting closer to\nthe true value function.\nBut it will still\nbe a lower bound.\nYeah, good question.\nYeah.\nHow do you decide the\nsigns of the [INAUDIBLE]?\nYeah, great question.\nOK, we're good.\nStay tuned for the\nend of the lecture.\nWe'll talk about it.\nAny other questions?\nOK, so one problem with\npoint-based value iteration\nis that we are maintaining\nan alpha vector\nfor every single point\nin our set of beliefs.\nI'm going to tell you in a\nbit, like I just mentioned,\nhow we actually can go about\npicking this set of beliefs.\nBut if we did have\na bunch of beliefs,\nit could be quite\ncomputationally\nexpensive to continue to perform\nbackups at all of these beliefs\nand maintain an alpha\nvector for all of them.\nSo it turns out\nthere is some way\nto improve this in\nan algorithm called\nrandomize point-based\nvalue iteration.\nAnd the way this works is it's\nsuper similar to point-based\nvalue iteration.\nBut all we're going\nto do is we're just\ngoing to start with\none alpha vector\nand we're going to\ncall this B prime,\nor it's going to have a\nset of candidate beliefs\nthat we could\nperform backups at.\nAnd so we'll just start\nwith one alpha vector\nat our best-action\nworst-state lower bound.\nAnd then we're just\ngoing to randomly\npick a belief from our\nset of candidate beliefs\nthat we could pick from.\nSo let's say that we\njust randomly pick B2.\nAnd then we're going\nto take B2 and we're\ngoing to perform a\nbackup just for B2.\nSo we're going to get\na new alpha vector\nby performing a backup at B2.\nAnd that's going to give us\nbasically this new alpha vector.\nAnd really, what we're going\nto do is, like we said,\nif we initialize\nto a lower bound,\nwe're just going to\ncontinue to get closer\nand closer to the\ntrue value function\nas we perform these backups.\nAnd so really at every\niteration, every time\nwe get a little closer,\nthat's an improvement.\nEvery time that our\nvalue function goes up,\nthat's an improvement for us.\nWe know we're getting closer\nto the true value function.\nAnd so actually, it\nturns out not only\ndid this make it better at\nB2, but it also made it better\nat B1, and it made it better at\nB3, and it made it better at B4.\nSo maybe instead of performing\nbackups at B1, B3, and B4\nafter this, like we would in\npoint-based value iteration,\nmaybe we just say\nthat's good enough.\nFor this iteration, we\nimproved it at all of those.\nSo let's not perform\nbackups at those.\nLet's just take those out\nof our candidate belief\nthat we could choose from.\nAnd we're just going to say,\nfor this iteration, good enough.\nWe at least got some improvement\nat all of those beliefs.\nAnd then we'll just\nkeep doing this.\nSo we'll say, OK,\nnow we only have\nB5 and B6 left to choose from.\nWe'll randomly pick one.\nLet's say we pick B6.\nSo we'll perform a\nbackup then at B6.\nThat gives us this\nnew alpha vector.\nAnd not only did it improve\nthe value function at B6,\nbut it also improved it at B5.\nSo we're going to say,\nOK, that's good enough.\nWe won't do a backup at B5.\nAnd then now we have\nnone left to choose from.\nSo this iteration is over.\nAnd then we'll just\nkeep doing this.\nSo this way, we're not actually\ndoing quite as many updates\nas we would be doing for\npoint-based value iteration.\nSo this is really\njust a way to save\non some computational expense.\nYes.\nSo compared to point-based\nvalue iteration,\nwe're not keeping the\nbag of alpha vectors,\nbut a randomized bag of beliefs\nfor every single iteration.\nWill this keep track of multiple\nalpha vectors here or just one\nthat is for, basically,\nall of these?\nGood question.\nSo the question was, before,\nwe had an alpha vector\nfor every single belief.\nSo we had a bag of alpha\nvectors and a bag of beliefs.\nSo now, like after\nthis iteration,\nfor example, we have\nthree alpha vectors.\nIt turns out that the alpha\nvector in white is dominated.\nSo we could-- hopefully you\nguys talked last time about how\nto prune alpha vectors.\nSo you just want to keep\ntrack of all the ones\nthat are not dominated.\nIf you don't want to go\nthrough the pruning process,\nthen you could also just\nkeep track of all the ones\nthat you keep getting\nevery single iteration.\nBut it won't be\none-to-one anymore,\nwhere you keep track of one\nalpha vector per belief.\nAny other questions?\nYep.\nSo [INAUDIBLE] basically,\nwith each iteration,\nyou're temporarily pruning\nall of the dominating?\nSo you're removing\nall the beliefs\nthat lie along the piece-wise\ncurve that has now been added,\nthat dominates the rest of them?\nYeah, it's even\nsimpler than that.\nSo let's see.\nSo if we go here, for example.\nSo say we just performed\nour backup at B2,\nso the old value function\nat B2 was this white one.\nNow if we look at what's\nthe maximum there,\nit's the yellow one.\nSimilarly for V1, the old value\nfunction was this white one.\nAnd the new one\nis the yellow one.\nThe new max is the yellow one.\nSo that's basically all\nwe have to do to decide,\nis it higher than what it used\nto be before we did this backup?\nAnd then you remove all those\nbelief from consideration\nfor the next?\nAnd so then to decide\non the next belief,\nwe're not going to pick one of\nthose where it already improved.\nFor example, though at\nB5, the old value function\nis still better than the new one\nwe get from that alpha vector.\nSo we still have\nroom to improve it\nand so we'll still\nkeep it as a candidate.\nAnd then when we picked V6,\nwe got a new alpha vector\nthat improved both B5 and V6.\nAnd so we were done.\nAnd then we'll just\nstart over all over again\nfor the next iteration.\nOK, so basically every time--\nit cycles through\nuntil all of the movies\nhave better\ncorresponding values,\nand then you add them all\nback when you [INAUDIBLE]?\nYep, exactly.\nAny other questions on this?\nOK, cool.\nAll right, so yeah, here's\na summary of everything\nthat we just saw.\nSo QMDP and FIB.\nThey got us the upper bounds\non the value function,\nFIB being a little bit\ntighter but requiring\na bit more computation.\nAnd then PBVI and\nrandomized PBVI,\nthey both give us\nlower bounds, but PBVI\nthis time requires a little\nbit more computation,\nbecause we're doing one\nupdate for every single belief\nat every iteration.\nWhereas in the randomized\ncase, we don't have to do this,\nbut it doesn't get quite\nas tight of a lower bound.\nOK, so now what you've\nall been wondering,\nhow do we actually--\nyeah, a question.\nWhich of the two is more\ncomputationally expensive, just\nregular PBVI or--\nYeah, because for\nevery iteration,\nregular PBVI is going\nto for sure do an update\nat every single belief.\nRandomized PBVI, hopefully,\nwe get improvements\nof multiple beliefs at once\nso we don't do an update\non every single, yeah.\nOK, so how do we actually\npick these belief points\nin the first place?\nSo the key insight here\nis that we really only\ncare about having an accurate\nestimate of the value function\nat beliefs that are reachable.\nSo if we think that we're never\ngoing to believe something,\nthen there's no\nreason to plan for it.\nSo for example,\nwhen I'm playing one\non one basketball with my\nhusband, he's 5 foot 10,\nI never am going to ever\nbelieve that he could actually\ndunk the basketball.\nAnd so I'm never actually\ngoing to plan for that.\nSo we really care about\njust having accurate\nestimates of the value function\nfor beliefs that are reachable.\nOK, so one way to do\nthis is super simple.\nIt's just called random\nbelief expansion.\nAnd so the idea is we just\nstart from some initial belief,\nprobably the belief that we\nwould start with if we were\ngoing to execute our policy.\nAnd then we just simulate, we\njust pick some random action\nto take from this belief,\nsimulate one step forward\nin time.\nSo just pick an\nobservation and then see\nwhat next belief we end up\nat using our belief updater.\nAnd then we'll just keep that\nbelief and add that to our back\nbecause this belief was\nclearly reachable by taking\none of our actions from\nour initial belief.\nThen we'll just repeat the\nprocess with both of the beliefs\nthat we now have in the bag.\nSo just pick some random\nactions to take from them\nand add those beliefs.\nAnd we'll basically\njust keep doing\nthis using a random policy.\nAnd we can do this for\nsome number of iterations,\ndepending on how many belief\npoints we want to end up with.\nOK, and this is all\nusing a random policy.\nSo every single time we\nhave a belief, we just\npick a random action\nand go one step forward\nto see our new belief.\nBut you could imagine that when\nwe actually execute the policy,\nwe're not just going to\nbe using a random policy.\nWe're hopefully going to\nbe using something close\nto the optimal policy.\nWe don't know what\nthe optimal policy is,\nbut we could probably get\na better set of beliefs\nif we use something closer\nto the optimal policy.\nAnd so that's the idea.\nIf you ever heard of the\nSERSOP algorithm for POMDPs,\nit does something like that.\nIt does a little bit more of\nan intelligent belief selection\nbeyond just using\na random policy.\nThat paper is cited in the\nbook and you can check it out\nif it's of interest.\nOK, so that's one option.\nAnother thing that you\ncan do that's a little bit\nsmarter is called\nexploratory belief expansion.\nThe idea here is also\npretty simple, though.\nBut the key addition here\nis that not only do we\nwant beliefs that are\nreachable, but ideally,\nwe want spread out beliefs.\nBecause if we just get a bunch\nof beliefs that are reachable,\nbut they're all in\nthe same region,\nthen we only have an accurate\nestimate of the value function\nin that small region.\nAnd if we could\nspread them out, we\ncould probably get a better\nestimate of the actual value\nfunction.\nSo to do that, all we do is\nwe say like, OK, let's start\nwith our initial belief.\nAnd then we're going to simulate\nall possible actions that we\ncould take from that belief.\nThat's going to give us three\nnew beliefs that we could have.\nAnd then we're going\nto say which belief\nis furthest from all\nthe different beliefs\nin the current set that we have.\nSo in this case,\nit's pretty clear\nto see this one is\nthe furthest away.\nSo we're going to\npick this belief.\nAnd we'll just add that to our\ncurrent set of belief points.\nThen, next time we\ndo this again, we're\ngoing to simulate all\nof our different actions\nfrom the current\nbelief that we're at.\nAnd then we're going\nto say, for each set,\nwhich one is furthest from\nthe current set of beliefs?\nSo this one here,\neven though it's\nthe furthest from this\nbelief, is actually\nnear one of the other beliefs\nthat we have in our set.\nSo for all the\nactions for this one,\nwe're actually going to\npick A1, because that's\nthe furthest from any belief\nthat we already have in the set.\nAnd then similarly\nover here, we're\ngoing to pick A1\nas well actually.\nYeah.\nSo what's the actual\npurpose of both of these?\nIs it when we go back to the\nother algorithms we looked at,\nbasically reduce our belief\nspace when were updating?\nI might have missed\nthe [INAUDIBLE].\nYeah, yeah.\nGreat question.\nSo the question was, what\nis the actual purpose?\nWhich, yeah, I think probably\ncould make more clear.\nSo the idea is, when we do\nPBBI or randomized PBBI,\nwe still do have to pick that\ncandidate set of belief points.\nAnd so before I just said,\noh, you're handed this set,\nbut you do have to\npick it when you're\ngoing to run that algorithm.\nAnd so the idea\nis like, if we're\ngoing to have to pick\na set of belief points,\nwe can only pick so many\nbecause we need our algorithm\nto be computationally tractable.\nAnd so what we want\nto do is we should\npick ones that are reachable.\nWe don't care about beliefs\nthat we'll never believe.\nBut also, probably\nspread out because we're\ngoing to get semi accurate\nestimates of the value function\nat our exact belief points\nthat we calculate it for.\nSo if we can keep\nthem spread out,\nthen we'll be able to have\na more accurate estimate\nall over the belief space.\nAnd so then we would add\nthis and we would just\nkeep repeating the process for\nexploratory belief expansion.\nAny questions on that?\nSo yeah, just as a\nsummary from today.\nWe learned two methods.\nThese were all\napproximate POMDP methods.\nWe learned how to get\nupper bounds using QMDP\nand fast informed bound.\nAnd we learned how to get lower\nbounds using point-based value\niteration and randomized\npoint-based value iteration.\nThese are all things\nthat we would do offline.\nAnd then next week,\nyou'll start talking\nabout what you could do online.\nThat often takes advantage of\nthese upper and lower bounds.\nAre there any questions on that?\nYeah.\nSo just going back to the\n[INAUDIBLE] extensions,\nare you only thinking one\nnew belief per iteration\nto add to your belief set?\nSo especially in the\nrandom one, if you generate\na bunch of random next--\nSo in the random one, you'll\npick one action per belief\nin your current set, and\nthen you'll add the belief--\nso here, we're actually going\nto double the amount of beliefs\nwe have every iteration.\nOh, is it an exponential\naccumulation of belief?\nYeah, but these are\nall just heuristics.\nSo you could imagine\nif you're like,\noh, this is growing too fast.\nI want to-- and\nthen I guess one way\nto deal with that is the\nexploratory one, where--\nwell, actually, no.\nYou're right.\nIt'll be the same thing.\nSo yeah, you're always\ngoing to double.\nIn the two that I\nshowed you, you're\nalways going to double the\namount of beliefs that you had.\nSo wait.\nSo this one, you double each--\nI get why you chose the\none on the bottom corner.\nWhy did you choose\nthe other one?\nThis one?\nYeah.\nBecause this one is\nnear one of the beliefs\nthat we already have in the set.\nSo we're looking at\nthe maximum distance\nfrom any belief in our set.\nOK, so you do a separate\ndistance calculation for each?\nSo like this one, I'll look\nat the distance to here\nand the distance to here.\nI'll take the\nminimum of the two.\nAnd I'm like, well, it's\npretty close to one of these.\nThis one, I would look\nat the distance to here\nand the distance to here.\nBut this one is the\none that dominates.\nOK, so I think I understand.\nSo you're still [? picking ?]\n[? multiple. ?] It's the same\npattern as for the regular\none in terms of the amount\nof beliefs you added.\nYes, it will be the same amount\nthat you add every single time,\nyeah.\nYeah.\nTo clarify.\nAre the axes still the\nbelief and the utility?\nOh, sorry.\nThe axes here, this\nwas actually assuming\na two-dimensional belief space.\nSo this would be like B1 and B2.\n[INAUDIBLE] I might\nhave a full-on question.\nSo, for example,\nyou said that we\nwant to get beliefs\nthat are reachable\nand that we think are possible.\nHow do these extension methods\naccount for states and beliefs\nthat we will--\nalmost like a zero\nchance of that happening.\nBut it gives us a very\nhigh or a very low belief.\nAnd how would they\n[INAUDIBLE] that?\nSo for example, like a\nsafety critical [? safe ?]\naircraft base, it's\nlike, do we actually\nbelieve that, for example,\ntwo aircraft are actually\ngoing to level each\nother [INAUDIBLE]?\nYeah, I guess.\nSo the question is, what if\nthere are reachable states,\nbut it's very rare-- there\nare reachable beliefs,\nbut it's very rare\nto reach them,\nbut it really matters that we\nhave an accurate estimate there?\nIs that what the question is?\nYeah, that's a great question.\nI think maybe that would\nrequire some domain knowledge.\nIf you know it would\nbe bad to be in this,\nI want it to be accurate here.\nI just add it myself.\nBecause again, these are\nreally just heuristics.\nSo you can always add\nexpert information\ninto any of these methods?\nYeah, you can always.\nSo, I mean, these are just\nheuristics for picking\nthe beliefs.\nIf you want, you could\njust ignore all of this\nand pick them yourself.\nAnd for the crying baby\nproblem, I think for the example\nin the book, they're like, yeah,\nI feel like one fourth and 3/4,\nwhich is what they ended\nup using, feels good.\nAnd I think that's also fine.\nSo yeah, but good question.\nYeah.\nIs there an analogy\nbetween the points--\nwhat's it called?\nThe point-based value\niteration and doing\nsome fitted Q iteration on\nthe belief state [INAUDIBLE]?\nOh, yeah.\nGood question.\nSo the question was,\nis there an analogy\nbetween point-based\nvalue iteration\nand interpolating on\nthe belief state MDP,\nlike discretizing the belief\nspace and interpolating?\nYes.\nThere is 100%, and I\ndon't remember what it is.\nBut there totally is.\nThere's actually\na reason that PBVI\ntends to have better\nproperties than interpolating\nover the belief space.\nI just totally\nforgot what it is.\nBut yeah, something you\ncould definitely look up.\nGood question.\nIt's just like it learns more\nnearer to the belief states that\nare more than [INAUDIBLE].\nIt might be something\nlike that, yeah.\nAny other questions?\nOK, sounds good.\nWell, enjoy your rainy Thursday,\nand I hope to see some of you\nin winter quarter.",
+  "segments": [
+    {
+      "text": "All right, we'll get started. Good morning, everyone. Thanks for braving the rain to be here at 9:00 AM. Super appreciated. OK, so yeah, obviously I'm not Michael. I'll be filling in today for lecture. My name is [? Sydney. ?] I'm currently",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "a postdoc in Michael's lab. I also did my PhD with him, so I've been working with him for a while. And yeah, I'll be talking today about offline POMDP solutions. But just quickly before I get into that, I want to give a quick little plug for a course",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "that I teach in the winter quarter. It's actually just this exact same course number, but with a V at the end. And it's a nice follow-on, I would say. It's called Validation of Safety Critical Systems. So you should be able to enroll",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "in that for winter quarter. It uses a textbook that's very similar to the textbook for this class. But instead of algorithms for decision-making, it's algorithms for validation. And I was a co-author on this book. And as you maybe have realized, there's",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "a series of these algorithm books that Michael has written. And they all have corresponding courses at Stanford. So this is obviously the course for the decision-making book. And then in the spring, Michael also teaches an optimization course.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "And the way that I see all of these fitting together is that in these first two, we basically learn how to design stuff. So in this class, you're learning how to design decision-making systems. And then you can take a class in the spring that teaches you",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "how to optimize them. And then once you're done with those classes, in the class that I teach in the winter, we talk about how to check if what you designed actually does what you intended it to do, which can be really important,",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "especially when you're deploying these things in industry. You want to check that they're doing what they're supposed to before you actually go deploy them in the real-world. And just in case this setup doesn't resonate with you, here's one more way to put it.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "So in this class-- and thank you for laughing. I'm so appreciative. Honestly, the jokes throughout the rest of this lecture are just going to get progressively worse, so I'm happy you at least laughed at that one. OK, but in this class, we're just",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "messing around a little bit. But if you want to find out, you can take my class in the winter quarter. It will be structured very similarly to this class. So if you like the structure of this class, it'll be similar. Lectures will be similar to the",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "lecture I'm going to give today. And yeah, I hope to see many of you there. Oh, and I was told to say that it will count towards the MSCS AI depth requirement. So if that also helps convince you to take the class, you have that piece of knowledge as well.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "OK, so yes, coming up in next quarter. All right, so let's jump in here. So last lecture, you learned about exact POMDP solutions. But probably towards the end of lecture, you learned something which is that basically these methods are",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "typically just completely intractable even for moderate problem sizes. So you probably learned about a couple of different ways to exactly solve POMDPs. One was this idea of a belief state Markov decision process, where you just said, OK,",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "we have beliefs now instead of knowing our actual state. So let's just make the state of our Markov decision process the belief. And we could do that. But then the big problem there is that the belief space is continuous. So then the state space is continuous.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "And then when we have a continuous state space, it's pretty hard to solve anything exactly. And so then we have a problem there. The other option for solving POMDPs exactly is exact value iteration. And so when you guys talked about this last time,",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "you were probably talking about conditional plans, and these alpha vectors, and all this stuff. And you probably quickly saw that the number of alpha vectors that we had to keep track of grows exponentially with the time horizon. And this just becomes",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "intractable, super, super fast. So for example, this is a figure from the textbook for a POMDP, where we only have two actions and two possible observations. So super small, you can think of the crying baby problem. But even just for a time horizon",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "of 10 steps into the future, the possible number of conditional plans or alpha vectors that we may have to keep track of is 10 to the 338. So there's just absolutely no way we can do this. And it grows insanely fast. So in general, these exact methods,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "we can try to do them for smaller problems. Sometimes we can prune enough alpha vectors that it will work out. But in general, it's really hard to solve POMDPs exactly. So today, we're going to be talking about approximate methods for solving POMDPs.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "So these are much more scalable. Unfortunately, we won't get the exact optimal policy, but we can at least try to get an approximation that's as good as possible. And today, we're going to talk about approximate offline methods. Meaning, we do all",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "the computation before we actually deploy the system. And then once we deploy the system, it just executes this policy that we computed offline. Next week, you'll talk about online methods. All right, so I want to zoom out. So I know last time you",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "were talking a bunch about these things called conditional plans and all this stuff. Forget about that for a second and just zoom out and think of the most obvious thing you might do when solving a POMDP, given your knowledge of MDPs.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "So let's use this aircraft collision avoidance example, which hopefully you've seen a number of times in this class. And so we have this blue aircraft here. It's got some collision avoidance system that needs to select actions like climb",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "or descend to avoid colliding with this red aircraft over here. And of course, we could have any number of states that this aircraft could be in. We're going to keep it really simple just for this example. We're going to say there's just",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "five possible states that it could be in that describes its relative geometry with respect to the intruder aircraft, this red aircraft over here. OK, and so for an MDP earlier in the quarter, you learned about how to create an MDP",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "policy for a system like this. And one of the techniques you probably learned about was to solve for this state action value function, this Q function here, that for every single state action pair, we solve for a value that says, if we were to take that action",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "from that state and follow our optimal policy, what would be our expected utility or expected return. And so to execute this policy online-- so here, I'm showing it for each of our particular states. So for this state, here's the value associated",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "with the climb action. Here's the expected utility associated with just staying level. And then here's the expected utility with descending. And then so on for all of these. So it should make sense here. For the climb action, that's probably",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "the best thing we can do here. So we'll have the highest expected utility for that. Oh, also, there's one tiny mistake on this slide that I forgot to fix. Can anyone spot it? I will say, when I showed Michael these slides last week,",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "he spotted it almost instantly before I said any words. It has nothing to do with the math. OK, well, basically, the problem, which Michael will harp on you for, is that this should actually be in math mode so that the dash should actually be a minus sign.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "But because it's not in math mode, they're just a little too short. And Michael will spot these things. I worked with him for seven years now, and he'll see it as fast as possible. But anyway. Michael, if you're watching this back later,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "I'm really sorry for doing that. I didn't fix it. OK, anyway. So here's our policy. And so now, if we were going to execute this policy-- with an MDP, we actually know what state we're currently in. So let's say that we knew that",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "we're in S2 because for MDPs we have full observability. We know our state. So then we'll just look at our action values for that and then we'll just pick the action with the highest value and we'll take that. And that's how we execute our policy.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "OK, so the problem here, though, is that we're not in MDP land anymore. So we don't actually know the exact state that we're in. And we have to go off something else to actually decide what action we want to take at every time step. So we can think about",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "what do we know. These are things that you've talked about before. So really, all we have is like this history of observations and actions. So we don't get to know the state. We do get noisy observations of that state. And then we also what",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "action we took at every time step leading up to where we currently are. And then a couple lectures ago, you learned how to take that history and summarize it as a belief state, which basically is just a probability distribution over what state we're in.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So typically, what we do is that we make decisions when we're executing our POMDP policy by looking at our current belief and deciding what action is best to take based on the belief or this probability distribution over what state we're in.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "So if we go back to this problem, this time, we don't know which state we're in. We only have a belief over which state we might be in. So for example, we still have the highest probability that we're in S2, but we also have some probability that we're",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "actually in S1 or S3 and so on. And so you can see the weighting here. And so instead of knowing we're in this state, we have a full distribution over the states that we could possibly be in. And now let's start with the idea that you're probably",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "all like itching to do. Or at least if you're me, when I first saw POMDPs, I was like, why don't we just do this? This just seems like the most obvious thing to do. And I would say that is to-- well, we have all these Q values if we just solved it like an MDP.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "So why don't we just weight the Q values the same way that we weight the belief and then just combine all of those in some weighted average of all the Q values depending on how likely it was to be in each state for those Q values? So that's all I've done here.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "And then just pick the action that's the highest for that weighted average. And so this equation is just describing exactly what I did. We're just saying take the Q values for a particular state and then weight it by how likely we are to be in that state.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "We'll take that weighted average and then we'll pick our action based on that weighted average. So all we're doing really is interpolating all the Q values based on our belief over where we are. OK, and so unsurprisingly, this method is actually called QMDP.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "It is a POMDP method. And it does actually work pretty well in a number of scenarios. We're going to talk shortly about some scenarios where it breaks down. But one thing that's cool is Michael has probably talked about the ACAS X collision avoidance",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "system a little bit throughout this course, and this is actually the method that they use for ACAS X. So that's pretty cool. OK, so to recap how QMDP works, first, we'll just pretend it's an MDP. Pretend we have full observability. Ignore the observation",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "model, all that stuff. And then we'll just get the optimal state action value function for that, so for example, using value iteration. And then we're going to just take the weighted sum of those Q values based on our current belief. And that's going to be",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "how we execute our policy. So again, here's what that looks like. So this is just taking that weighted average that I showed before of our Q values. And then we're going to look at what that looks like for all of our possible actions. And we're going to pick",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "the action that maximizes that weighted average. OK, any questions up to this point? OK, cool. So now I'm going to do-- so this is the crux of QMDP. This is all that's going on. I'm going to now introduce QMDP in terms of alpha vectors. But all we're doing is",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "changing up notation. And the reason for that is because when we talk about POMDPs, we often talk about alpha vectors. And so for the rest of the lecture, once we get away from QMDP, we're still going to be talking about alpha vectors.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "So we want all of these things to relate nicely to each other. But I think it's also easy to get really tripped up as soon as we start switching over to alpha vectors. So I'm going to try to go slow and explain it in a lot of different ways.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "But yeah, I just want you to keep in mind this whole time, we're still just doing exactly what I said, just interpolating Q values. But I'm going to talk about it in terms of alpha vectors now. And so to do that, all I'm going to do is, in this equation here,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "instead of calling this QS, I'm just going to call it an alpha vector. So I'm going to say I have an alpha vector for each action and then it has an entry for every single state. So all I did here is replace this QSA with new notation that's",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "just alpha subscript of S. So it's an alpha vector now. That's it. OK, so these are the exact same thing. It's just that we're changing up the notation a little bit. And then what we're saying here basically is QMDP gives us a POMDP policy where",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "we have 1 alpha vector for every single action and it just corresponds to the state action value function for that action at each possible state. OK, any questions on that? All right, OK, so-- oh, you have a question. So if your view is of dimensions",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "like 50 states in four actions, then you'd have four alpha vectors each [? of one ?] [? 50? ?] Yeah, exactly, yeah. Yeah, and so I think alpha vector is like-- I don't know. When I first heard about them, I was like, what is this? It didn't really",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "click in my mind. So I'm going to try to explain them in a whole bunch of different ways during this lecture. So that leads me into a reminder on alpha vectors here. OK, so here's an alpha vector. Please don't confuse it with a millennial vector.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "Oh, my goodness. Thank you for laughing. OK, I'm so relieved that you laughed at this, OK. Anyway. All right, here's an actual alpha vector. I'll send out the slides after if you want that graphic. OK, here's an actual alpha vector that we could have for our",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "collision avoidance example. OK, so alpha vectors, they have one entry for every state. So just like the question we just got, if we have 50 states, we'll have 50 entries in our alpha vector. And so in the example I've been showing you, we had five states.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "So we'll have one entry for each of those states. And what you want to keep in mind here is that, basically, each of these entries represent the expected utility of if we were actually in this state, so if we were actually in state S1 and we executed",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "our POMDP policy. So when we're actually executing the policy, we don't know what state we're in. But if we were in this state, this is the expected utility that we would have gotten for all future utilities. OK, and so it has this nice",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "mapping to the q-values for MDPs because those are also the expected utility. OK, and so then the POMDP value function estimate is just a weighted sum of these alpha vectors. So we say like, OK, this is the expected utility of being in that particular state.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "I'll take the weighted sum with the likelihood that we actually are in that particular state. And that gives us our expected utility, given that we don't know the current state that we're in. We just have this distribution over it. And then we'll just take the",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "action that maximizes that. So we'll try this for all of our different alpha vectors, one for each action, and we'll take the action that corresponds to the max. And that will give us our actual POMDP value function. Any questions on that? OK, so just some",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "more intuition here. So what I want you to remember is that if we had the alpha vectors for the optimal value function, then each entry in that alpha vector would represent the expected utility of if we were in that state and we followed",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "the optimal policy from there on out. So basically, the idea here is just that each entry is just corresponding to our expected utility if we were in that state. There's some set of alpha vectors that actually makes up the optimal policy, which will give",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "us the optimal value function. But as we saw in the last lecture, that's typically intractable to find because it required either a belief state MDP or exact value iteration, and those super quickly became intractable. So typically, we can't actually",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "find those alpha vectors that we want to find. And so what we do with these offline approximate techniques is basically we're just trying to find a set of alpha vectors that approximate the optimal ones as best as we can. So again, we don't know what",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "the optimal ones are typically. And so we're just going to try to come up with all these different heuristics and ideas that get us a good set of alpha vectors that's close to the optimal policy so that we can get as good a policy as possible.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "So if you're getting tripped up with all the dimensions and math of alpha vectors, hopefully you can go back to this intuition because that's really all that's going on there. We're just trying to get some good sets of alpha vectors,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "and there's lots of different ways to try to do that. So that's a reminder on alpha vectors. We'll come back to it a few more times as well. But OK. So now let's look at what QMDP looks like in terms of alpha vectors. So again, this is just",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "changing up notation. We're not doing anything different than what I showed you before. But here would be an alpha vector actually for the climb action. And all we're doing is we're just taking the Q value that corresponds to the climb",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "action for each possible state. And we're just stacking them all together. And then we have an alpha vector. We're going to have three alpha vectors for this particular example because there's three actions-- climb, stay the same, or descend.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "So then for stay the same or stay level, then we're going to take all the state action values for that particular action across all the states. Just stack them together. And then we'll have a third alpha vector for the descend action that",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "we get in a similar way. And then all we do is just-- now these Q values are just squashed into different vectors, but we just do the same exact thing. We just take the weighted average of them, and that gives us one value for each action. So we're going to",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "get-- doing this, we get one value for each action. And then we're going to take the max. And that's how we'll decide what action to take. OK, so this is all exactly the same as interpolating the Q values. This is what it looks like in terms of alpha vectors.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "Any questions there? OK, cool. OK, so this is QMDP. There is one problem with QMDP. So like I said, we're going to set our alpha vectors, one for each action equal to the Q values. And if you remember how you compute Q values, thinking back to value",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "iteration for MDPs and the Bellman equation, you have your immediate reward plus this expected future utility. And when we calculate this expected future utility, there's no notion of observations or beliefs or anything like that. And in fact, basically",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "what this is doing is making the assumption that at the next time step, we just know what our true state is. And so that can be an issue. Can anyone think of what might be the problem there? So I'll try to make it a little more concrete.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "Say I told you that I'll give you option A and B next Thursday. And if you pick the right option, I'll give you $1,000. And if you pick the wrong option, then I'm not going to give you anything. And you could actually drive, let's say, down to San Jose",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "and go to this one location and it'll tell you whether A or B is the correct answer. This is getting really convoluted. But let's say that this is the scenario I presented you with. But either you can do that, you can take that action sometime",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "before next Thursday when you have to pick A or B, or tomorrow you'll just know just magically whether A or B is the correct answer. Are you going to go drive down to San Jose? Probably not. There's no reason to. Because tomorrow, magically, apparently, you're",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "just going to know what the right answer is. So if we're doing that here, we're just saying our value function is just assuming that at the next time step we're going to know the true state, then we're never incentivized to actually take",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "information gathering actions that would otherwise be costly. But in POMDPs, that can actually be a really good thing to do because you're not actually magically going to know whether A or B is the correct answer tomorrow. And so you actually would",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "probably want to go drive down to San Jose, depending on how much you care about getting $1,000. And so in general, the thing with QMDP is just that the policy is not really ever incentivized to take information gathering actions. Because if it thinks",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "that it's going to the true state of the next time step, why would it ever take an action to try to get more information on what state it's in? So that's one thing to keep in mind with QMDP. It does still work well. Like I said, they actually use it for ACAS X",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "because they didn't really have a need necessarily to take information gathering actions for collision avoidance. If you just keep filtering, you'll get a better state estimate. But for other problems like, for example, hide and seek or something, maybe",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "it actually matters to try to take these information gathering actions. Any questions on that? OK, and then another thing that comes as a result of this is that since QMDP assumes this full observability at the next time step, it's going",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "to end up providing us an upper bound on the true value function. So those alpha vectors we get out from the Q values, they're going to represent upper bound on the true value function. And the way to think of this is just that we're not",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "going to be able to do better than the full observability case. If you actually knew your state, then you would be able to do a much better job. So that's why it's going to give us an upper bound. OK, so let's actually look at what this looks",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "like in terms of an example. We'll use the simplified crying baby problem. So we have two states, the baby is either not hungry or hungry, two observations, so we don't get to know whether or not the baby is hungry. We just get to observe",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "whether or it's crying-- And then two actions. We can either feed the baby or ignore it. OK, so let's talk about one more angle to look at alpha vectors. So let's see what the alpha vectors would look like for this problem, particularly, for example, for QMDP.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "So an alpha vector for this problem, again, we have one entry for each possible state. So we just have two states, stated and hungry. And then each one is going to represent the expected utility for being in that state and following our policy, so",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "the expected utility when the baby is not hungry. And then the second entry will be the expected utility when the baby is hungry. So if we were going to do QMDP for this problem, we have two actions. So we would have two alpha vectors each with two entries,",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "one for each state. So let's say, for example, maybe we have these two alpha vectors, this for action 1, where we feed the baby, and then this alpha vector for action 2, where we don't feed the baby. And probably, earlier this week, you saw some plots that",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "look like this. Basically, because the problem is so low dimensional, we can actually plot what these alpha vectors look like, which is helpful, I think, for visualization. So on this axis, we're just going to be plotting B of S2. So our belief of being",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "in the state hungry. So in other words, the probability that the baby is hungry. And because there's only two states, if we're not hungry, we know that we're in the other state. So this basically entirely represents the belief space. Because if our P of being",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "hungry was 0.8 or something, then we automatically know what the probability of the other state is. It'll just be 0.2. So we really only need one dimension to represent our whole belief space for this particular problem, which is nice",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "because then we can plot it. OK, so then we'll plot what these alpha vectors look like, and this is our expected utility, considering what these different points represent on the plot. So when P of hungry is equal to 1, we basically know for a fact",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "that the baby is hungry. So we know that we're in state S2. And then on the flip side, when P of hungry is 0, we know that the baby is sated. We know for sure that we're in that state. And because these values represent the expected utility,",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "when we know for sure that we're in those states, we can just plot these values. So for the feed action, for example, we know that when the baby is not hungry and we're in that state for sure, then we get an expected utility of minus 4. So we can just plot",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "that for that point. And then we also know that when the baby is hungry, for sure, we get an expected utility of minus 10. And then somewhere in between, all we do with the alpha vector is interpolate those values because all we're doing is taking our belief",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "vector and multiplying it by this alpha vector, which just equates to interpolating those values. So that makes sense? Because as our probability of being hungry is closer to knowing for sure that it's hungry, our expected utility is",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "probably also closer to that. And it turns out it's literally just a straight line in between those two. So that's another way to visually picture an alpha vector. It's like cutting the space of the utility function. And then this corresponds to",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "the action of feeding the baby. OK, then we can do the same thing for our other alpha vector. So minus 1 when we know the baby is not hungry. Minus 15 if we know the baby is hungry and we choose to ignore it. So that makes sense. If we know the baby is hungry",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "and we choose to feed it, then we do much better than if we know it's hungry and we choose to not choose to ignore it. OK, and then again, we just can connect these values and we get another output vector. And then the optimal policy is",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "just the maximum over these. So it'll be this. And then, for example, the way we execute this policy is we say, OK, well let's say that we actually believe that there's a 0.1 probability that the baby is hungry. And so we'll go to the alpha",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "vector that dominates there. And that tells us to ignore the baby. And then unsurprisingly, if we have a 0.9 probability that the baby is hungry, then this other alpha vector dominates and we decide to feed it. OK, so I think for some reason this",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "took me a while to get in my head, what all of this actually represents. But hopefully, this helps with some intuition here. Are there any questions on that? OK, awesome. For QMDP, when we have all of these alpha vectors, so again, we'll initialize",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "our Q function as if we were doing like value iteration for example. And then we do this iteration. This is just exactly value iteration on the underlying MDP. But in terms of alpha vectors, it would look like this. So all we did was replace",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "the Qs with alphas. That's it. Just changed up the notation. But then we can see what this looks like in terms of alpha vectors when we do value iteration over time. So this is what it looks for the crying baby problem. For the crying baby problem, we",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "actually can solve it exactly. So that's cool. So we can actually see how close we're getting to the optimal value function, which is the one that's shown in black. And then here, we initialize to an upper bound. And then we slowly move",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "towards a tighter and tighter upper bound on the true value function. And then we converge down here. OK, and so as I just slipped in there, basically, as long as we initialize our alpha vectors to an upper bound, no matter how many iterations",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "we do a value iteration, even if we don't go all the way to convergence, we're always going to have an upper bound on the true value function. OK, and so, yeah, actually are there any questions on that? Yeah. Isn't it dangerous [? above ?] your estimate",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "be an overly optimistic estimate of your value function? Because in my safety critical scenarios, you wouldn't want to overestimate the likelihood of not crashing the plane. Especially if you can't go all the way to convergence, how can you have a",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "metric for knowing, OK, my upper estimate is reasonably close to the actual one? Yeah, that's a great question. So you're right. So the question was what do we do about the fact that if it's an upper bound, isn't that maybe not the best thing to go off,",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "especially if we want to be conservative in a safety critical setting? And I would say, yeah, you're absolutely right. We're going to talk in a minute about how to get some lower bounds. So that's also another way to know how off you might be, because",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "you can have the upper bound and the lower bound, and then you know exactly the gap of where the optimal value function can lie. So we'll talk in a bit about how to get lower bounds. Another thing to think about, though, is even though this upper bound",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "has a big gap, if you actually think about the difference between the optimal policy for our optimal value function and the optimal policy for this value function, they're not that different. Because for the optimal value function, it's basically we have",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "one alpha vector-- I'm going to guess this is for not feeding the baby because down here, we don't have a very high probability that the baby is hungry. So this alpha vector is for not feeding the baby. So we wouldn't feed the baby as long",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "as this alpha vector dominates. So that's still about right here. So that means until we get to I belief, I don't know, around 0.28 or something, we would not feed the baby. And then if we had more than a 0.28 belief that the baby was hungry,",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "we would feed the baby. And if we look at the optimal alpha vector here, I don't know, maybe that transitions at 0.33. So it's not that different of a policy. So there is a difference between getting the right value function. But also, these value functions",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "just correspond to the policies we're going to execute. And so even though there's a big gap here, there's not a huge gap in the optimal policy. And so, really, what matters more is how much your vertices shift as you carry through closer to convergence.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "It would be a bigger issue if that corner between [INAUDIBLE]-- Was over here. --and the [INAUDIBLE] were really far away. Yeah, that's exactly right, as long as all you're doing with the value function is using it to decide how to execute your policy,",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "which is typically what you're doing. But yeah. Yeah. I don't get why the value function would decrease for every iteration because you're computing the maximum over all the potential [INAUDIBLE]. So the question is, why is the value function",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "decrease at every iteration if you're maximizing over actions? This will only happen if you initialize to an upper bound on the value function. So for example, think about doing MDP value iteration. Say you just initialize to some upper bound",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "where you know that your policy could never do better than that, you're getting to the optimal policy for that MDP. So you're going to have to move down towards what's actually true. Any other questions? Those are great questions. OK, cool. OK, so like I said",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "though, you have to initialize to some initial upper bound. And so you might be wondering how could we actually get this initial upper bound? And so one common way to do it is this idea of a best-action best-state upper bound, where we just say like, OK,",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "imagine if-- this is probably not possible, but let's imagine that we were able to take the best-action from the best-state forever. So we look at all our RSA pairs, all our reward pairs, and we just say, what if I could just stay in this one state--",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "maybe it's the goal state or something, and take the same action forever, and I just keep accumulating that reward forever into the future? So probably we can't do that given the transition model of our MDP. But if we could, you would probably",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "agree that that's the best we could do. We could never do better than taking the best-action from the best-state forever. So to do that, we just say, OK, let's look for that RSA pair that corresponds to that best-state action pair.",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "Let's assume we do it forever. So that means we're going to apply our discount factor but just sum it up forever into the future. And if you remember for the formula for infinite sums, it comes out to this. So you can actually calculate analytically",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "what that upper bound would be. Any questions on that? OK, OK, so again, QMDP is going to provide an upper bound on the true value function. But it's actually possible to get a tighter upper bound by taking the observation model into account to some extent.",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "So with QMDP, we just ignored the fact that we're in POMDP land at all, and we were just like, let's just solve for the value function as if it were an MDP. We can actually do a little better if we somewhat take into account the observation model.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "And the technique that does this is called fast informed bound. And it's super similar. We're doing something very similar to the Bellman equation that we were doing before. But now we're actually going to take into account this observation model.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "So everything's exactly the same, except we're now going to take into account the information that at the next time step, we're not going to our true state. We're actually going to get some observation of our true state. And we'll actually sum over",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "all of the different possible observations that we might get. So that's all that's going on. We're just saying at the next time step, we'll actually consider the observation model a little bit, and we'll say that we actually get some observations.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "OK, and so just comparing QMDP and fast informed bound, they're extremely similar. For fast informed bound, we still have one alpha vector per action. It's the same exact thing. It's just in that iterative procedure, similar to value iteration, we're",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "going to have this extra term, where we sum over all of the different observations we might get. And so because of that, it is a little bit more complex in terms of computation or in terms of operations per iteration because now we have this extra factor of O,",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "of the number of observations, because we have to sum over all of these observations. So there's a bit of a trade off there. But it does tend to give us a tighter bound on the actual true value function. So here's, again, for QMDP what we just saw.",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "And then over here is for fast informed bound for the crying baby problem. And you can see it gives us actually a much tighter upper bound. So that's one benefit of this added computational complexity. Questions on that? Yeah. But I [INAUDIBLE]",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "say max of A prime, but I only see the A [INAUDIBLE]. This is A prime here. So this A corresponds to the current alpha vector we're doing the action for. And this is all the actions we could take at the next time step. Yeah, good question. It's hard to keep",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "track of all these. I would recommend just staring at this equation for a bit to parse what's actually going on in all these sums. But good question, yeah. Yeah. And also shouldn't S prime be inside the sum? Great question. That one I think is",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "probably a typo, yeah. Great question. I'll double-check. I'll update the slides before I send them out. The correct equation is definitely in the book, though. But yeah. Yes. Other questions? OK, all right, so everything we learned about so far",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "gives us upper bounds and we maintain one alpha vector for every single action. But that doesn't necessarily-- so again, all these methods, we're just trying to find alpha vectors that best approximate the alpha vectors of the true optimal policy.",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "And no one said that necessarily the true optimal policy has one alpha vector per action. That's not necessarily true. We're just making that assumption for those methods. And so maybe it's actually possible we could do better if we could",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "have just more alpha vectors. We weren't tied to just having one alpha vector per action. And so one method for doing this is called point-based value iteration. So it's really a super cool method. So emphasis on the bass. It's based, OK.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "I told you they were going to get progressively worse. All right, so the key idea with point-based value iteration is that we're going to maintain a bunch of alpha vectors in this group that we call capital gamma. And each of these alpha vectors is",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "going to be associated with a different point in our belief space. And we'll keep track of all of those points in this set we call B. OK, so just visually, we have this set gamma. And it just has a bunch of different output vectors in it for now.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "So how do we get those and whatnot we'll be talking about. But just for now, just assume we have this set gamma that has a whole bunch of alpha vectors in it. And then we also have this corresponding set of beliefs, where every single alpha vector corresponds",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "to one belief in our other set of beliefs. OK, so don't worry about how we got any of these. We'll talk about that. But this is just something we have for point based value iteration. And then just like this set of alpha vectors, that represents a policy.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "So any set of alpha vectors represents a policy. We're just trying to find the set that gets us to the optimal policy. But given any set, we can just derive a policy from that. Because this is just the exact same equation we had before in vector form.",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "We just take the weighted sum of our belief state and the alpha vector, which represents the expected utility of being in every state. And then we pick the action for the alpha vector that corresponds to the highest value for this.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "So again, you can think of this bag of alpha vectors as just a policy basically. And what we're going to do is we're just going to try to iteratively improve all the alpha vectors in this bag of alpha vectors to get us as close as we can to the optimal policy.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "OK, so the first thing that we need to do is initialize all of the alpha vectors in that bag in gamma to a lower bound on the value function. OK, how do we get a lower bound on the value function? Just basically the opposite of what we were doing before.",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "We can do best-action worst-state lower bound. So imagine we have all those RSA pairs. We first figure out what's the worst case state we would be in where we could still take the best-action from that state, but what's the worst case state that we could",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "be in to have that happen. So again, imagine if we were able to do that forever. And then again, this gets a little funky with the notation because you have a max and a min in it, but it's just doing the exact same thing. So we're just saying, let's",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "say we do that forever. We take into account the discount factor. We use the formula for infinite sums, and it comes out to this. So we can get a lower bound on the value function by just assuming that worst case, we're stuck in the worst-state forever",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "and we just keep taking the best possible action. OK, there's also one way to get another lower bound. So for point-based value iteration we're actually just going to use this lower bound. But just for completeness of what's in the book, you can actually get a",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "slightly tighter lower bound by maintaining a different lower bound for every single action. And that just assumes say we just had a policy where we just took the same action forever, no matter what our belief was. Maybe that's the optimal",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "policy, which, in that case, it's a tight lower bound. It's probably not the optimal policy. And so in general, we're going to do worse by doing that. So that should give us a lower bound on our value function. And the way to calculate that is basically",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "just applying this Bellman-like equation but just assuming that we're always taking the same action. So we don't even maximize over actions here or anything like that. We just assume that every single time we take the same action and we compute the value",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "function if we do that, and that will give us a different lower bound for every single action. So that's one thing, and it'll tend to be tighter than this best-action worst-state lower bound. Any questions on that? Yeah. So when you say tighter lower bound,",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "do you mean a slightly less conservative lower bound? Yeah, tighter would mean it's actually higher than the other lower bound. So it's closer to the optimal value function. Because you're not just uniformly assuming the worst possible state [INAUDIBLE].",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, so the worst thing we could do would be to take the worst-action-- sorry, the best-action from the worst-state forever. We'll do better, probably, by taking the same action and actually moving from state to state. So can you spend more on the difference",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "between [INAUDIBLE] if you could put lower bound for each action? So for each action, you basically iterate through all the actions from the worst case state. So this is completely different. So there's no notion of worst-state here. You're basically computing",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "it for every single state and you're just saying like-- let's say I was using a policy where I just took the same action all the time. So this one is saying, let's say I was stuck in the worst-state forever and I just kept taking the best-action,",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "it might not be feasible given the actual transition model of the POMDP, but you know that you won't be doing worse than that then. Here it's saying, let's actually use the transition model of the actual POMDP, but let's just assume that our policy is to",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "take the same action forever. And a policy that just takes the same action forever, it's not going to be worse than this one that we're stuck in the worst-state forever. But isn't it also possible that taking the same action forever isn't--",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "I guess it is always feasible because you could take any action for a given state. So you're just-- OK. Yeah, so you could imagine any policy will give you a lower bound on the value function because if it's not the optimal policy, then-- yeah.",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "So the policy of taking the same action forever, it's easy to calculate the alpha vectors for that. So that's why we pick that. But that will give us a lower bound. Is there a specific choice of action that you need for this? Do you have to choose the",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "action that on average gives you the worst reward or something? You could do this for all of the actions and then take the max over them all. It'll give you a set of alpha vectors and you can take the max over them all to get that piecewise",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "continuous value function. You could also just do it for one, and it will give you just one lower bound. Really, these things are mostly like-- you wouldn't actually use these to select a POMDP policy. You typically use these types of things",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "to initialize another algorithm, like point-based value iteration, which is what we're talking about now. So typically, you just want something like fast that will get you a lower bound that you know for sure is a lower bound, and then you can improve on it",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "using these other algorithms. Yeah. Any other questions? OK, all right, so like I said, for the purposes of this lecture, anyway, we're just going to assume we used that best-action worst-state lower bound. And we'll initialize all of our alpha vectors",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "to that lower bound. OK, so then after that, we also have these corresponding belief points. I haven't told you yet how you get the belief points. All I've told you is that you have one belief point per alpha vector that you have in that bag of alpha vectors",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "that we're keeping track of. We'll talk towards the end of the lecture about how you could actually go about picking them. But let's just assume that we've picked a set of belief points and each one corresponds to one of these alpha vectors OK, and then what",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "we do is we're going to iterate through each belief point and we're going to do something called a backup. OK, a backup, like alpha vectors, is another thing that when I first heard of it, it was really hard to get it to click in my mind.",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to try to show it to you what a backup does in a couple different ways. OK, so basically, again, we have this bag of alpha vectors. And like I said, this bag of alpha vectors represents a policy. So like any set of alpha vectors,",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "we could take the dot product with our belief vector, pick the one that maximizes it, take the action corresponding to that alpha vector. And that's how we execute a policy. So any set of alpha vectors gives us a policy. So we have our current policy.",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "And what we're going to do every time we do a backup is we're going to try to basically improve this policy by making these alpha vectors represent something that's closer to the optimal set of alpha vectors. And the way that we do this is we first",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "say like, OK, so we're going to do this for a particular belief. So every time we perform a backup, it's just that one of our particular beliefs. So for example, B1. We'll just take the first one. And what we're going to do is we're going to ask ourselves,",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "OK, what new alpha vector could we replace alpha 1 width that's actually a better estimate of the expected return at the current belief, given this current policy that we have represented here? OK, so basically, we're going to generate a new alpha vector that",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "gets closer to what the true expected value function is. OK, so intuitively, that's all that's happening. And if you want to abstract it even more, we're just taking this belief and we're approving our value function estimate at that belief.",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "OK, so when we do that, we'll get this new alpha vector. We'll call it alpha 1 prime. And then for a point-based value iteration, what we'll do is we'll just take the current alpha 1 and we'll just replace it with this new alpha vector that we got from",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "performing our backup. So that's just intuitively what's going on for a backup. And then we would do this again for our next belief. And we'll just iterate through all of them. So we'll update the value function there. What is the best new alpha vector",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "that gives us a better estimate of the value function at this belief? We'll replace it in our current policy. And then for every iteration, we'll do that for all of them. And we'll just keep doing this for a while. OK, so that's the intuition",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "I want you to have in mind of what's going on. There's, of course, the actual math for how do you actually do a backup? But I found if you start with this then it can be really confusing. So I want you to still keep this intuition in mind. OK, so the actual",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "math that we do-- so we're performing a backup at this certain belief point, given this set of alpha vectors that we call capital gamma. And so what we're going to do is we're going to iterate through a few things. So we're going to do something",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "for every possible action. We're going to go through every possible observation we could have when we take that action, and we're going to look at what new belief we would get. So every time we take an action and get a new observation,",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "we can update our belief. And so we can figure out, given the methods that you learned in, I think, it was chapter 19, you know how to update the belief given an action and an observation that we got. And then we just want to figure out",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "which alpha vector would dominate at that new belief. So for each action observation pair, we're going to store which alpha vector would dominate if that were to be what happened, if we were to take that action and get that observation. OK, so basically",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "all this is saying is for each action observation pair, what alpha vector would dominate at our updated belief. Then, we're still doing this for each action. We're going to fill in this new alpha vector by basically looking at what would",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "happen if we used this value function at that new updated belief. So looking at our expected future utility is based on that belief update that we did given the policy that we had before. OK, so basically, the idea here is just, using what would",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "happen one time step in the future for each action observation pair updating a belief, what would be our new expected utility at every single state? OK, honestly, I don't feel like I'm doing that great of a job explaining this, but it's a",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "tricky one to get in your head. So I'd recommend, if you get a chance, to just look at the book and look at these equations for a bit longer, or just go back to this intuition. But another way you can think of it is we're doing an update of",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "the Bellman equation, similar to what's going on in value iteration, where we're getting closer to the optimal policy every single time. It's just that we're doing it at these discrete belief points. And so there's things we need to keep track of,",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "like alpha vectors, and our current optimal policy, and observations, and all these things. So that's what's going on. And we're going to do this for every single action. So we'll get a new alpha vector for every single action. And then we just get to",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "replace our old alpha vector with one new alpha vector. So we're just going to pick the alpha vector for the action that dominates at that particular belief. OK, so all of this math, all it's doing is saying let's get a new alpha vector that better estimates",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "the value function at the current belief given the current policy that we have. OK, any questions there? OK, so, yeah, if you're like I don't know what this math was, it's too hard for me to parse it that quickly, I certainly don't blame you.",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "But just keep in mind for the rest of this lecture, when we do a backup, we're just getting a new alpha vector that better estimates our value function at the current belief, OK. OK, so we're going to do this for a while. So at every single iteration, we're",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "going to go through the beliefs and all of the alpha vectors that we have. We're going to perform a backup at every single belief. And then we'll just repeat this process and we'll do it a whole bunch of times so the alpha vectors will slowly",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "move up from our lower bound. And then once we're done, the value function is just represented as the max of all of those. And it turns out that this converges to a lower bound on the optimal value function. So here's what this looks like",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "for the crying baby problem. We only used two beliefs here actually. But you initialize to this lower bound. So this is the best-action worst-state lower bound. And then every single time you perform backups at both of these beliefs and you get",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "these new sets of alpha vectors, and eventually it converges to a pretty tight lower bound on the value function, which is pretty cool. What questions do you have on that? Yep. So in general, it looks like as you converge, the vertices or the [INAUDIBLE]",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "alpha vectors have the opposite trend when you go from a lower bound-- when you approach from a lower bound than when you [INAUDIBLE] upper bound. So if you look at the corners, they're moving inwards, basically. Right before, they're moving-- or sorry.",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "I guess [INAUDIBLE]. Is that true? It was the same [? behavior. ?] It looks like it's the same. Yeah, it might be different. I don't know. Yeah, it's hard to tell. But should you see that your piecewise function gets displaced in the same direction",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "from iteration to iteration as it does-- from when you [? break ?] from below, is it [INAUDIBLE] when you [? break ?] from above? That's a great question. So basically, the idea here is would there be a straight line if we were to do this?",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "Is that what you're saying? Not necessarily a straight line. But if you drew a line through all of the vertices, would it be continuous between the upper bound estimate and the lower bound. That's a good question. I don't know for sure.",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "My gut instinct would be no because they seem unrelated and it probably very much depends on what belief points you ended up picking for point-based value iteration. So yeah, good question. I don't know for sure if there's actually a pattern there or a",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "reason or if it just happened to be that way for this problem. Because then that would allow you to-- if you have a trend for the upper bound estimate and the lower bound estimate, it would allow you to more can't easily interpolate between the two if the--",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "right? Or is that not really how we're going to-- Yeah, I mean, it's an interesting thought. I don't know if people have explored the idea of interpolating between the upper and lower bound. For this lecture, we're basically just going to talk about",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "how to solve offline for upper and lower bounds. And the PBVI results and QMDP, because that's what these folks ACAS X, they are useful on their own. But in the next lecture, you guys will talk more about how to actually take advantage of the fact",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "that we have both an upper and lower bound. So I'd say stay tuned for next lecture. Yeah. Are we specifically the lower bound for point-based value iteration and not upper bound and vice versa for FIB? Good question. So the question was-- for the",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "initialization do you mean? Yeah, so the question was, for QMDP and FIB, why do we initialize an upper bound, whereas for point-based value iteration we initialize to a lower bound? So basically the general idea is just that for QMDP, we already",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "know that it's going to converge to an upper bound because we know that we can't do better than the full observability case. And so if we were going to run QMDP to convergence, then it would be fine. We could start from any initialization",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "that we wanted because we know that we're going to converge to this final solution here, which will be an upper bound. But if we start with an upper bound, even if we don't run to convergence, say we stopped here or something, then we at least",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "we still have an upper bound. So it's a nice thing to have to know that you don't necessarily have to run to convergence if you start with an upper bound. Similarly, for point-based value iteration, we always know that it's going to be a lower bound",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "on the value function. And so we want to initialize to a lower bound so that we know every time we perform these backups at our beliefs, we're getting closer to the true value function. But it will still be a lower bound. Yeah, good question. Yeah.",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "How do you decide the signs of the [INAUDIBLE]? Yeah, great question. OK, we're good. Stay tuned for the end of the lecture. We'll talk about it. Any other questions? OK, so one problem with point-based value iteration is that we are maintaining",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "an alpha vector for every single point in our set of beliefs. I'm going to tell you in a bit, like I just mentioned, how we actually can go about picking this set of beliefs. But if we did have a bunch of beliefs, it could be quite computationally",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "expensive to continue to perform backups at all of these beliefs and maintain an alpha vector for all of them. So it turns out there is some way to improve this in an algorithm called randomize point-based value iteration. And the way this works is it's",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "super similar to point-based value iteration. But all we're going to do is we're just going to start with one alpha vector and we're going to call this B prime, or it's going to have a set of candidate beliefs that we could perform backups at.",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "And so we'll just start with one alpha vector at our best-action worst-state lower bound. And then we're just going to randomly pick a belief from our set of candidate beliefs that we could pick from. So let's say that we just randomly pick B2.",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "And then we're going to take B2 and we're going to perform a backup just for B2. So we're going to get a new alpha vector by performing a backup at B2. And that's going to give us basically this new alpha vector. And really, what we're going",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "to do is, like we said, if we initialize to a lower bound, we're just going to continue to get closer and closer to the true value function as we perform these backups. And so really at every iteration, every time we get a little closer, that's an improvement.",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "Every time that our value function goes up, that's an improvement for us. We know we're getting closer to the true value function. And so actually, it turns out not only did this make it better at B2, but it also made it better at B1, and it made it better at",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "B3, and it made it better at B4. So maybe instead of performing backups at B1, B3, and B4 after this, like we would in point-based value iteration, maybe we just say that's good enough. For this iteration, we improved it at all of those. So let's not perform",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "backups at those. Let's just take those out of our candidate belief that we could choose from. And we're just going to say, for this iteration, good enough. We at least got some improvement at all of those beliefs. And then we'll just keep doing this.",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "So we'll say, OK, now we only have B5 and B6 left to choose from. We'll randomly pick one. Let's say we pick B6. So we'll perform a backup then at B6. That gives us this new alpha vector. And not only did it improve the value function at B6,",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "but it also improved it at B5. So we're going to say, OK, that's good enough. We won't do a backup at B5. And then now we have none left to choose from. So this iteration is over. And then we'll just keep doing this. So this way, we're not actually",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "doing quite as many updates as we would be doing for point-based value iteration. So this is really just a way to save on some computational expense. Yes. So compared to point-based value iteration, we're not keeping the bag of alpha vectors,",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "but a randomized bag of beliefs for every single iteration. Will this keep track of multiple alpha vectors here or just one that is for, basically, all of these? Good question. So the question was, before, we had an alpha vector for every single belief.",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "So we had a bag of alpha vectors and a bag of beliefs. So now, like after this iteration, for example, we have three alpha vectors. It turns out that the alpha vector in white is dominated. So we could-- hopefully you guys talked last time about how",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "to prune alpha vectors. So you just want to keep track of all the ones that are not dominated. If you don't want to go through the pruning process, then you could also just keep track of all the ones that you keep getting every single iteration.",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "But it won't be one-to-one anymore, where you keep track of one alpha vector per belief. Any other questions? Yep. So [INAUDIBLE] basically, with each iteration, you're temporarily pruning all of the dominating? So you're removing all the beliefs",
+      "start": 1404,
+      "duration": 6
+    },
+    {
+      "text": "that lie along the piece-wise curve that has now been added, that dominates the rest of them? Yeah, it's even simpler than that. So let's see. So if we go here, for example. So say we just performed our backup at B2, so the old value function",
+      "start": 1410,
+      "duration": 6
+    },
+    {
+      "text": "at B2 was this white one. Now if we look at what's the maximum there, it's the yellow one. Similarly for V1, the old value function was this white one. And the new one is the yellow one. The new max is the yellow one. So that's basically all",
+      "start": 1416,
+      "duration": 6
+    },
+    {
+      "text": "we have to do to decide, is it higher than what it used to be before we did this backup? And then you remove all those belief from consideration for the next? And so then to decide on the next belief, we're not going to pick one of",
+      "start": 1422,
+      "duration": 6
+    },
+    {
+      "text": "those where it already improved. For example, though at B5, the old value function is still better than the new one we get from that alpha vector. So we still have room to improve it and so we'll still keep it as a candidate. And then when we picked V6,",
+      "start": 1428,
+      "duration": 6
+    },
+    {
+      "text": "we got a new alpha vector that improved both B5 and V6. And so we were done. And then we'll just start over all over again for the next iteration. OK, so basically every time-- it cycles through until all of the movies have better corresponding values,",
+      "start": 1434,
+      "duration": 6
+    },
+    {
+      "text": "and then you add them all back when you [INAUDIBLE]? Yep, exactly. Any other questions on this? OK, cool. All right, so yeah, here's a summary of everything that we just saw. So QMDP and FIB. They got us the upper bounds on the value function,",
+      "start": 1440,
+      "duration": 6
+    },
+    {
+      "text": "FIB being a little bit tighter but requiring a bit more computation. And then PBVI and randomized PBVI, they both give us lower bounds, but PBVI this time requires a little bit more computation, because we're doing one update for every single belief",
+      "start": 1446,
+      "duration": 6
+    },
+    {
+      "text": "at every iteration. Whereas in the randomized case, we don't have to do this, but it doesn't get quite as tight of a lower bound. OK, so now what you've all been wondering, how do we actually-- yeah, a question. Which of the two is more",
+      "start": 1452,
+      "duration": 6
+    },
+    {
+      "text": "computationally expensive, just regular PBVI or-- Yeah, because for every iteration, regular PBVI is going to for sure do an update at every single belief. Randomized PBVI, hopefully, we get improvements of multiple beliefs at once so we don't do an update",
+      "start": 1458,
+      "duration": 6
+    },
+    {
+      "text": "on every single, yeah. OK, so how do we actually pick these belief points in the first place? So the key insight here is that we really only care about having an accurate estimate of the value function at beliefs that are reachable.",
+      "start": 1464,
+      "duration": 6
+    },
+    {
+      "text": "So if we think that we're never going to believe something, then there's no reason to plan for it. So for example, when I'm playing one on one basketball with my husband, he's 5 foot 10, I never am going to ever believe that he could actually",
+      "start": 1470,
+      "duration": 6
+    },
+    {
+      "text": "dunk the basketball. And so I'm never actually going to plan for that. So we really care about just having accurate estimates of the value function for beliefs that are reachable. OK, so one way to do this is super simple. It's just called random",
+      "start": 1476,
+      "duration": 6
+    },
+    {
+      "text": "belief expansion. And so the idea is we just start from some initial belief, probably the belief that we would start with if we were going to execute our policy. And then we just simulate, we just pick some random action to take from this belief,",
+      "start": 1482,
+      "duration": 6
+    },
+    {
+      "text": "simulate one step forward in time. So just pick an observation and then see what next belief we end up at using our belief updater. And then we'll just keep that belief and add that to our back because this belief was clearly reachable by taking",
+      "start": 1488,
+      "duration": 6
+    },
+    {
+      "text": "one of our actions from our initial belief. Then we'll just repeat the process with both of the beliefs that we now have in the bag. So just pick some random actions to take from them and add those beliefs. And we'll basically just keep doing",
+      "start": 1494,
+      "duration": 6
+    },
+    {
+      "text": "this using a random policy. And we can do this for some number of iterations, depending on how many belief points we want to end up with. OK, and this is all using a random policy. So every single time we have a belief, we just pick a random action",
+      "start": 1500,
+      "duration": 6
+    },
+    {
+      "text": "and go one step forward to see our new belief. But you could imagine that when we actually execute the policy, we're not just going to be using a random policy. We're hopefully going to be using something close to the optimal policy. We don't know what",
+      "start": 1506,
+      "duration": 6
+    },
+    {
+      "text": "the optimal policy is, but we could probably get a better set of beliefs if we use something closer to the optimal policy. And so that's the idea. If you ever heard of the SERSOP algorithm for POMDPs, it does something like that. It does a little bit more of",
+      "start": 1512,
+      "duration": 6
+    },
+    {
+      "text": "an intelligent belief selection beyond just using a random policy. That paper is cited in the book and you can check it out if it's of interest. OK, so that's one option. Another thing that you can do that's a little bit smarter is called",
+      "start": 1518,
+      "duration": 6
+    },
+    {
+      "text": "exploratory belief expansion. The idea here is also pretty simple, though. But the key addition here is that not only do we want beliefs that are reachable, but ideally, we want spread out beliefs. Because if we just get a bunch of beliefs that are reachable,",
+      "start": 1524,
+      "duration": 6
+    },
+    {
+      "text": "but they're all in the same region, then we only have an accurate estimate of the value function in that small region. And if we could spread them out, we could probably get a better estimate of the actual value function. So to do that, all we do is",
+      "start": 1530,
+      "duration": 6
+    },
+    {
+      "text": "we say like, OK, let's start with our initial belief. And then we're going to simulate all possible actions that we could take from that belief. That's going to give us three new beliefs that we could have. And then we're going to say which belief",
+      "start": 1536,
+      "duration": 6
+    },
+    {
+      "text": "is furthest from all the different beliefs in the current set that we have. So in this case, it's pretty clear to see this one is the furthest away. So we're going to pick this belief. And we'll just add that to our current set of belief points.",
+      "start": 1542,
+      "duration": 6
+    },
+    {
+      "text": "Then, next time we do this again, we're going to simulate all of our different actions from the current belief that we're at. And then we're going to say, for each set, which one is furthest from the current set of beliefs? So this one here, even though it's",
+      "start": 1548,
+      "duration": 6
+    },
+    {
+      "text": "the furthest from this belief, is actually near one of the other beliefs that we have in our set. So for all the actions for this one, we're actually going to pick A1, because that's the furthest from any belief that we already have in the set.",
+      "start": 1554,
+      "duration": 6
+    },
+    {
+      "text": "And then similarly over here, we're going to pick A1 as well actually. Yeah. So what's the actual purpose of both of these? Is it when we go back to the other algorithms we looked at, basically reduce our belief space when were updating? I might have missed",
+      "start": 1560,
+      "duration": 6
+    },
+    {
+      "text": "the [INAUDIBLE]. Yeah, yeah. Great question. So the question was, what is the actual purpose? Which, yeah, I think probably could make more clear. So the idea is, when we do PBBI or randomized PBBI, we still do have to pick that candidate set of belief points.",
+      "start": 1566,
+      "duration": 6
+    },
+    {
+      "text": "And so before I just said, oh, you're handed this set, but you do have to pick it when you're going to run that algorithm. And so the idea is like, if we're going to have to pick a set of belief points, we can only pick so many because we need our algorithm",
+      "start": 1572,
+      "duration": 6
+    },
+    {
+      "text": "to be computationally tractable. And so what we want to do is we should pick ones that are reachable. We don't care about beliefs that we'll never believe. But also, probably spread out because we're going to get semi accurate estimates of the value function",
+      "start": 1578,
+      "duration": 6
+    },
+    {
+      "text": "at our exact belief points that we calculate it for. So if we can keep them spread out, then we'll be able to have a more accurate estimate all over the belief space. And so then we would add this and we would just keep repeating the process for",
+      "start": 1584,
+      "duration": 6
+    },
+    {
+      "text": "exploratory belief expansion. Any questions on that? So yeah, just as a summary from today. We learned two methods. These were all approximate POMDP methods. We learned how to get upper bounds using QMDP and fast informed bound. And we learned how to get lower",
+      "start": 1590,
+      "duration": 6
+    },
+    {
+      "text": "bounds using point-based value iteration and randomized point-based value iteration. These are all things that we would do offline. And then next week, you'll start talking about what you could do online. That often takes advantage of",
+      "start": 1596,
+      "duration": 6
+    },
+    {
+      "text": "these upper and lower bounds. Are there any questions on that? Yeah. So just going back to the [INAUDIBLE] extensions, are you only thinking one new belief per iteration to add to your belief set? So especially in the random one, if you generate",
+      "start": 1602,
+      "duration": 6
+    },
+    {
+      "text": "a bunch of random next-- So in the random one, you'll pick one action per belief in your current set, and then you'll add the belief-- so here, we're actually going to double the amount of beliefs we have every iteration. Oh, is it an exponential",
+      "start": 1608,
+      "duration": 6
+    },
+    {
+      "text": "accumulation of belief? Yeah, but these are all just heuristics. So you could imagine if you're like, oh, this is growing too fast. I want to-- and then I guess one way to deal with that is the exploratory one, where-- well, actually, no. You're right.",
+      "start": 1614,
+      "duration": 6
+    },
+    {
+      "text": "It'll be the same thing. So yeah, you're always going to double. In the two that I showed you, you're always going to double the amount of beliefs that you had. So wait. So this one, you double each-- I get why you chose the one on the bottom corner.",
+      "start": 1620,
+      "duration": 6
+    },
+    {
+      "text": "Why did you choose the other one? This one? Yeah. Because this one is near one of the beliefs that we already have in the set. So we're looking at the maximum distance from any belief in our set. OK, so you do a separate distance calculation for each?",
+      "start": 1626,
+      "duration": 6
+    },
+    {
+      "text": "So like this one, I'll look at the distance to here and the distance to here. I'll take the minimum of the two. And I'm like, well, it's pretty close to one of these. This one, I would look at the distance to here and the distance to here. But this one is the",
+      "start": 1632,
+      "duration": 6
+    },
+    {
+      "text": "one that dominates. OK, so I think I understand. So you're still [? picking ?] [? multiple. ?] It's the same pattern as for the regular one in terms of the amount of beliefs you added. Yes, it will be the same amount that you add every single time, yeah. Yeah.",
+      "start": 1638,
+      "duration": 6
+    },
+    {
+      "text": "To clarify. Are the axes still the belief and the utility? Oh, sorry. The axes here, this was actually assuming a two-dimensional belief space. So this would be like B1 and B2. [INAUDIBLE] I might have a full-on question. So, for example, you said that we",
+      "start": 1644,
+      "duration": 6
+    },
+    {
+      "text": "want to get beliefs that are reachable and that we think are possible. How do these extension methods account for states and beliefs that we will-- almost like a zero chance of that happening. But it gives us a very high or a very low belief.",
+      "start": 1650,
+      "duration": 6
+    },
+    {
+      "text": "And how would they [INAUDIBLE] that? So for example, like a safety critical [? safe ?] aircraft base, it's like, do we actually believe that, for example, two aircraft are actually going to level each other [INAUDIBLE]? Yeah, I guess.",
+      "start": 1656,
+      "duration": 6
+    },
+    {
+      "text": "So the question is, what if there are reachable states, but it's very rare-- there are reachable beliefs, but it's very rare to reach them, but it really matters that we have an accurate estimate there? Is that what the question is?",
+      "start": 1662,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, that's a great question. I think maybe that would require some domain knowledge. If you know it would be bad to be in this, I want it to be accurate here. I just add it myself. Because again, these are really just heuristics. So you can always add",
+      "start": 1668,
+      "duration": 6
+    },
+    {
+      "text": "expert information into any of these methods? Yeah, you can always. So, I mean, these are just heuristics for picking the beliefs. If you want, you could just ignore all of this and pick them yourself. And for the crying baby problem, I think for the example",
+      "start": 1674,
+      "duration": 6
+    },
+    {
+      "text": "in the book, they're like, yeah, I feel like one fourth and 3/4, which is what they ended up using, feels good. And I think that's also fine. So yeah, but good question. Yeah. Is there an analogy between the points-- what's it called? The point-based value",
+      "start": 1680,
+      "duration": 6
+    },
+    {
+      "text": "iteration and doing some fitted Q iteration on the belief state [INAUDIBLE]? Oh, yeah. Good question. So the question was, is there an analogy between point-based value iteration and interpolating on the belief state MDP, like discretizing the belief",
+      "start": 1686,
+      "duration": 6
+    },
+    {
+      "text": "space and interpolating? Yes. There is 100%, and I don't remember what it is. But there totally is. There's actually a reason that PBVI tends to have better properties than interpolating over the belief space. I just totally forgot what it is.",
+      "start": 1692,
+      "duration": 6
+    },
+    {
+      "text": "But yeah, something you could definitely look up. Good question. It's just like it learns more nearer to the belief states that are more than [INAUDIBLE]. It might be something like that, yeah. Any other questions? OK, sounds good.",
+      "start": 1698,
+      "duration": 6
+    },
+    {
+      "text": "Well, enjoy your rainy Thursday, and I hope to see some of you in winter quarter.",
+      "start": 1704,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,534 @@
+{
+  "videoId": "FK4PJH9KuTI",
+  "title": "SREcon26 Americas - Beyond Loss and Accuracy: Closing the Observability Gaps in AI Training with...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 25324,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi everyone, I'm Eusen Jang. I'm\ncurrently a PhD student at University of\nMichigan. Today I want to talk about the\ndifficulty in monitoring AI training\nworkloads. The title of this talk is\ncalled closing the observability gap in\nAI training. Specifically, we're\ntargeting at detecting correctness\nerrors in AI trainings in time, ones\nthat silently prevent your model from\nconverging and waste many compute and\nengineering efforts.\nThe subtitle beyond loss and accuracy is\nour key idea. These two metrics are\nbasically the only signals that most\nteams have today for correctness\nmonitoring. And we think that the coarse\ngrain end to end monitoring today is not\nenough and is the reason behind\ndifficulties in detecting issues in\ntime.\nSo here's the plan for the next 35\nminutes. We'll start with a real example\nof what a correctness failure in AI\ntraining looks like and then I'll\nexplain the difficulties in detecting\nand debugging such issues and why the\ncore is a monitoring problem. I'll\nintroduce train our tool for embedding\nand monitoring correctness signals in\ntraining. We'll do a quick demo and then\nI'll walk through two real case studies\nand we'll close with takeaways.\nSo, let me start with a real bug that\nincited over 35 replies and hundreds of\nlikes on X. Jack Mars, who was a PhD\nstudent at Cornell, was running a\ndistributed training job with hugging\nface DDP trainer. The loss was going\ndown for the first 150 steps. the GPU\nuser and 95% utilization. There's no\nalerts, no exceptions going on. Every\nsignal you have says this training is\ngoing correctly. However, not so long\nafter the training starts, the model's\nlaw starts to go up after the 1550 steps\nwith the gradient norms being\nreasonable. What's going on here?\nWhile Jack feeling very frustrated and\nconfused post on Twitter, why does my\nmodel gets worse over time? Gradient\nnorms looks fine. You can see the loss\nchart right here in his post. There's a\nlot of re replies coming immediately\nsaying your gradient clipping threshold\nis too large. You should apply more\naggressive gradient clipping. You should\nchange the optimizer. You should try a\nmore advanced learning rate schedule.\nyou should check the data pipeline.\nHowever, none of the replies actually\nworked.\nSo, here's what's actually happening in\nthis setup. There was an unexpected\ninitialization order of the optimizer\nthat caused the gradient synchronization\nhooks to be missing, leading each GPU to\nbe training its own copy of the model\ninstead of a shared one.\nThe loss initially decreased because the\ninitial optimization space was still\nvery large but later the loss went up\nbecause the model essentially is\ndiverging across the GPUs. There's no\ncrash, no divergence. The system is\nworking just incorrectly, right? And on\nthe left you're seeing what should\nhappen is that the gradients are\ncomputed on each GPU. They are\nsynchronized via all reduce and a single\nshared model is updated on the right.\nWhat actually happened is that that all\nreduce sync is being skipped and each\nGPU just updates its own model based on\nits own gradients.\nSo here's the critical point I want to\nsay that um the bug actually exists in\nyour codebase in your training run from\nstep one from the very beginning but\nfrom the uh loss signals that you're\nmonitoring you can only see there's a\nproblem after step 150. So by the time\nyou understand there's a problem, you're\nalready pretty much late and you lost a\nlot of compute. And when you realize\nthere's a problem, there's no signal for\nyou to debug. It's very late. It's very\nfrustrating and it's also expensive.\nSo and th this is actually not a one-off\ncase, right? We we see a recurring\npattern of such kind of silent training\nerrors happening online and they raises\na lot of discussions on Twitter. For\nexample, there's a a famous model called\nmemba, but uh there's a like a bug in\nthe initialization of the parameters in\nthe hugging face implementation as\ncompared to the official implementation\nand that caused many academic uh papers\nresults to be not reproducible.\nThere's also a large language model\ncalled bloom where it was trained on 386\nA100s. It took around four months and\nmillions of dollars to train. However,\nthey also had a gradient synchronization\nbug that caused their model checkpoints\nto be invalid. In their quote, they say\nthat they didn't have much time to do\nsoftware validation because they were\nrushed to train. The training looked\nokay, so they started to training.\nAndre Kaparthi also raised a few\ndiscussions on a a recent bug observed\nin the MPS back end of PyTorch that\ncaused the computation results on\nnon-ontiguous tensors to be silently\ncorrupted.\nSo why is this happening? We argue that\nthis is a monitoring problem. Detecting\nthese bugs much earlier is very hard\ntoday primarily because we don't have\nthe right signals. So look at the left\nleft pan panel. The signals that we rely\non today loss and gradient norms.\nThey're noisy by nature. Training loss\nfluctuates and it's hard to tell whether\nthe fluctuations are a bug or just\nnormal variance. These signals are\nnondeterministic.\nWhen there's even your training is\ncompletely healthy, it still can happen\nwith some spikes that make you being\nsuspicious about your training wrong and\nalso their end to end right it's the\nfinal aggregate of thousands of\ncomponents of APIs. So a problems gets\nuh in one components will get diluted\nand finally they are very late right\neven uh when you have a bug in uh in a\nspecific kernel that arrow takes time to\naccumulate to manifest in a final end to\nend signal and a common consequence is\nthat we will have no symptoms until it's\ntoo late or the signal is so unclear\nthat we cannot tell if it's real\ndetection and debugging gets conflated\ninto one painful loop. What we need are\nfine grain deterministic correctness\nsignals.\nSo what we monitor today are loss\ncurves, GPU utilization and logs, step\ntime. These are all activity signals.\nThey tell you that the system is\nrunning. We measure activity, not\ncorrectness. What we don't monitor and\nalso is crucial to correctness is the\ntraining semantics. whether gradients\nare actually updating all the\nparameters, whether all your GPU workers\nare in sync, whether the training loop\nis following your expected patterns when\nyou're doing mixed precision training,\nwhether that data conversion actually\nhappens, right? And the key insight here\nis that uh if we want to detect those\nsilent bugs, right, the silent bugs,\nthey usually have actually precise and\nactionable root causes at the API\nbehavior and the event sequence level.\nIf we could have monitored those\nbehaviors during training, we can detect\nthose bugs much earlier.\nAnd uh the goal is very clear, right? uh\nwe want to detect silent training errors\nearly and here the inside here is we\nwant to apply S sur discipline to\ntraining right on the left what S sur\nalready do for production systems is\nthat they define expected behavior as\ninvariance and they monitor them\ncontinuously alert immediately on\nviolations capture enough signal for\nfast root cause analysis and this is the\nstandard we hold every production web\nservice to on the red note what training\ngets today is there's no invariance no\ncontinuous monitoring and no fine grain\nalerts training runs cost millions of\ndollars right and we should hold\ntrainings to the same standard\nso what does this look like concretely\nevery bug we showed earlier had a simple\nexpectation that if monitored would have\ncaptured a bug immediately. The DDP sync\nbug is that uh if we could check the\nways um that should be consistent across\nthe GPUs, we could hatch it at the first\nstep. The frozen encoder bug if we can\ncheck the optimizer step are actually\nupdated uh your tracked parameters.\nIf we can turn those expectations into\nruntime check evaluated at every step,\nwe would have catched those bugs much\nearlier on.\nAnd this brings us to our core idea and\nalso the topic of today's talk, train.\nTrain check is a monitoring frame\nframework that encodes expected training\nbehavior as checkable invariance. Train\ncheck validates invariance at runtime\nstep by step and services violations\nimmediately with step stage and trace\ncontext. And on the right I show some\nexample invariance here where\noptimizer.step must follow lo backward\nis an API sequence invariance. Weights\nmust be equal uh across TP rank for\nlayer norm layers is a consistency\ninvariant with a precondition.\nZerog must reset gradients to none is an\nevent containment invariant. Automizer\nstep must update all the tracked\nparameters is also an event containment\ninvariant. These uh these rules can be\nlearned from real runs not written by\nhand and preconditions ensure that they\nonly fire when relevant.\nSo how does train check actually work\nunder the hood? It starts with\ninstrumentation. Train check captures\ntwo kinds of structure traces from your\ntraining run. First API traces. Every\nrelevant PyTorch API call is being\nrecorded. the function names, arguments,\nreturn values, which parameters were\ninvolved and metadate data like the\ntraining step and stage. We do this\ninstrumentation via monkey patching uh\nuh tor for example torch down matrix\nmodification becomes a wrapped version\nthat locks the call and pass through to\nthe original implementation.\nSecondly, variable traces parameter\nstate changes are recorded at the key\npoints. After optimizer step, after zero\ngrad, we track data hash, gradient hash,\nshape, dtype and the device for every\ntracked parameter. We use tensor\nsubclassing or proxy objects for this\ntracking and we so that we can observe\nthe training behavior without modifying\nthe original code. On the right you can\nsee the real training sn uh trace\nsnippets from the official mnest\nexample. The API trace shows an out of\ndelta optimizer.step with all the eight\nparameters. The variable trace shows con\nconvolutional uh parameter onew\nweightight before and after zero grad\nsome data hash but gradient goes from a\nvalue to null. This is the level of\ngranularity that we are working with. We\nalso optimize this aggressively. We do\nselective instrumentation at the\nchecking time to only trace APIs in\nactive invariants. Sampling policies and\ntensor hashing instead of full com\ncomparisons are also active here.\nSo now how do we go from these traces to\ninvariance? There are three simple\nsteps. Let me walk through with a\nconcrete example using the bloom\nparameter divergence bug. So here's a\nsimplified trace showing three parameter\nrecords. Record one shows that layerw\nweightight on TP rank zero d some data\nhash. Record two and three show some\nother par parameters data on some other\nworkers. So the step one is to scan a\ntrace for any potential patterns and\nthen we we see that uh trace record one\nand two con constitutes a passing\nexample for a consistency invariance.\nThen we validate this pattern across the\nentire trace. We found out that one two\nis the only passing example while 13 and\n23 are the failing examples. Based on\nthe differences from the passing and\nfailing examples, we deduced the\npreconition that this consistency\ninvariant should only hold across\nparameter states that are on different\ntensor parallel workers and should only\nbe checked when the step of the state is\nequal and have the same parameter name.\nAnd to put this more concretely, this is\nlike what our invariant looks like. Uh\nin practice, the invariant is defined\nwith a a relation which is essentially a\ntemplate for possible semantics. And\nthen the descriptors which are\nabstractions over concrete APIs and\nvariable instances that we want to\ncheck. For example, the case here if we\nwant to check the data consistency, then\nthe two descriptors will be\ntorch.parameter.data\nand torch.n.parameter.data.\nNotice that this this invariant by\nitself is only applicable to the\nnonsharded tensors across the workers.\nSo to check this invariant at runtime\nwithout firing too many false positives,\nthis invariant must be accompanied with\na precondition that defines the context\nunder which it holds. Uh so the\nprecondition here is what what we just\ninferred and here are the five relations\nthat we currently uh support. Those\nrelations are are basically developed\nbased on our insights on a large scale\nstudy of the existing silent errors that\ndeveloper face every day\nand spec and and and one core feature of\ntren check is it in first preconditions\nfor invariance and preconditions is what\num is the core to transform invariance\nfrom patterns to accurate checks that do\nnot fire too many false positives in\ndeep learning case primarily because DL\ncorrectness oftentimes is very context\ndependent for example the invarian\nsaying that optimizer should update all\nparameters should only apply to\nnonfrozen layers wakes consistence\nacross GPU should only hold for\nnon-tensor parallel parameters right and\ndropout active should only be uh checked\non when model training is true, right?\nAnd specifically to to infer such kind\nof invariance, we collect for each\npattern the passing and the failing\nexamples and we had a algorithm trying\nto deduce the difference between the\npassing and failing examples.\nAnd this feature actually allowed\nanother like unexpected u benefit of\ntrain check is that you can learn\ninvariant ones and check them\neverywhere. Even if you infer some\ninvariance on just say the official PI\nPyTorch uh examples, you can apply them\nto your custom in-house training\npipelines because our invariants are\nequipped with uh proper preconditions\nthat make sure they're only checked uh\nwhen the context is appropriate and such\npreconditions are checked automatically.\nUm during our analysis, we found out\nthat even if you're applying the\ninvariance from just uh one task\ninferred from like say uh uh GPT2\npre-training to to your vision model,\nthere's still around 23% of the\ninvariants that could transfer to your\nnew setup. So you don't always need like\na good set of input for your custom\nscenario to get a good set of\ninvariants.\nTrain check also does a lot of a a e\nefforts trying to keep this uh\ninstrumentation and checking low\noverhead. Uh usually with our current uh\noptimizations we get a near baseline\noverhead on a variety of tested\nworkloads ranging from really small\nscale u like uh amnest training models\nto really large scale uh transformer\npre-train training. We also support some\nuh policies trapping policies for your\ncustom in-house need. For example, we\nhave the warm-up period that skips the\nfirst and steps steps sampling that\ncheck every case steps. We also have\nselected instrumentation that uh\ndynamically determines the\ninstrumentation granularity based on the\ninvariance that you want to check.\nAnd train check is actually pretty\neffective. In our study, uh, we studied\n20 real world silent training errors and\nfrom the environment that just inferred\nfrom the official PI pietorrch examples,\nwe were able to actually detect 18 out\nof them in the first iteration where if\nyou're relying on the old approach of\nlooking at loss and the accuracy\ntypically take at least a few hundred\nsteps or uh, three to four epochs and\nthe train the the the train checking\nvariants because they're like very low\nlevel. It actually pinpoints the exact\nroot cause of the bug in 10 of the\ncases. In the other a like we get very\nclose to the root cause.\nTrain check also has a very low false\npositive rate. We inferred the\nenvironment from around five different\npipelines so that the APIs are exercised\nwith uh different conditions so that the\ntrain can infer precise uh preconditions\nfor them. Uh across 63 representative\npipelines we get below 2% false positive\nrate. That means for your production\nsetting if you have more inputs more\nlike a lot of past accepted training\nruns you'll get even lower false\npositive rates and we detect the bugs in\njust one iteration.\nWell here I will do a demo to show what\nusing train to detect bug actually looks\nlike. I'll use the example of bloom\nparameter divergence which is a a\ngradient synchronization block in GPT2\nmodel pre-training.\nSo I'm doing this on a node with eight\nGPUs. Um I'm training a small scale uh\nGP2 model. Here I'm running my training\nscripts with uh train check. So it\nhandles the instrumentation\nautomatically. And you can see that the\ntraining is starting now. Setting up the\nsampling rates and the warm-up steps.\nAnd here's are all the original output\nfrom your training pipeline.\nI'm going to skip. So the training has\nbeen going for a while. Let's look at\nthe tensorboard which are the things\nthat ML engineers uh monitor, right?\nLooking at the loss, looking at the\ngradient norm, we're at around step 80\nright now and everything looks pretty\ngood, right? But if we look at chin chin\nchecks monitoring result, it tells us\notherwise that uh there's an invariant\nbeing violated from the first step and\nit actually has been validated for every\nstep that train has uh monitored and you\ncan see that the specific weights moni\nuh valid invalidating the invariants\nhere are also being shown here which are\nlayer norm weights and the the the input\nembedding weights so that given this\ncontext your engineers could directly\nlook into the code that handle those\nparameters to understand where the bug\nis. It's a lot more um targeted uh as\ncompared to look look at the end to end\nsignals\nand uh I want to talk about where we are\nand where we are going today. Trinch was\noriginally an academic artifact that we\nwere trying to build as an open-source\nproject. So we've been re recently doing\na lot of efforts trying to support the\nproduction frameworks. So chain right\nnow supports monitoring uh the\nframeworks within the PyTorch ecosystem.\nThen that that means PyTorch by itself,\nDeep Speed, Megatron, Lightning and all\nthe frameworks based on uh Pi PyTorch.\nWe have six invariant types but of\ncourse if you see a new need for your\nin-house pipeline uh it's easy to extend\nthe semantics to cover more kinds of\ninvarants. We support both online and\noffline checking with a live dashboard.\nWe also integrated this uh with uh width\nand biases and ML flow so that you can\nkeep just monitoring everything in your\nfavorite dashboard. Uh chain checker\nright now is a Python module that you\ncan just do pip install and there's a\nsimple instruction online that you can\ncheck check out. You can do from\nchecking from inference to the actual\nchecking in just five m minutes. And\nwhat's ne next is uh we want to support\nuh LM specific training P patterns uh\nespecially since like it's it's becoming\nthe focus of the industry right now. Um\nand also we want to ship some uh\nprepackaged invariants so that you guys\ndon't need to infer the environments all\nby yourself. You can just download our\ninv variants and start checking\nimmediately. We're also working on\nsupporting more backend for example\njacks and flags. Yeah.\nSo I'm going to show two bucks that\ntrain hatches that had uh much impact in\nproduction. The first example is the\nbloom divergence bug which I had been\ntalking about for a while but I'll show\nis root call showing why it's so tricky\nand showing uh how trench catched it.\nAnd the second case is the frozen\nencoder case that uh Andre Kapari has\nbeen dis discussing on Twitter for quite\nsome time.\nSo the bloom bug uh is that the model is\nsilently diverg across GPUs and the bug\nis actually in the MTOR LM's gradient\nclipping code that once your gradient\nbecomes too large and that gradient\nclipping being triggered you get a\ndivergent model checkpoint and the bug\nis in the BF16 optimizer being\nimplemented um and it essentially\nproduces invalid checkpoints which means\nafter your training you get you don't\nget a model like if you want to recharge\nthat model into different inference uh\nmachine setups\nand um everything was fine. uh here we\nshow the actual root cause which is the\nimplementation of the optimizer where um\nlike this API is called get grat for\nnorm and uh it has a flag called for\nclipping when for clipping is false uh\nit's supposed to collect the gradients\nto compute the gradient norm so here you\nwant the duplication across the workers\nbecause you don't want to compute the\ngradient norm for the same parameter\ntwice right and for clipping is set to\ntrue. When it's set to true, uh the API\ncollects the gradients to be clipped and\nright now you don't want that\ndduplication because all the gradients\nneeds to be clipped, right? And uh\nunfortunately that dduplication logic is\nmisindented so that it applies for both\nfor clipping being true and for clipping\nbeing false. That means only the node\nzero has their gradient being clipped.\nuh other nodes doesn't have that.\nAnd uh here with our invariant that\nchecks the consistency across the\nparameters across cancer parallel\nworkers uh we get an arrow immediately\nwith all the context that says okay this\nlayer is problematic and you get uh\ndiffering values.\nThe second case is uh where the uh is\nagain a p a PhD student training its\ncode. Um the training is initially\nworked fine but uh later like after a\nfew thousand steps the laws just never\nwent down to the expected behavior. The\nPhD student tried a number of tricks\ntrying to optimize its neuron network\nbut just never work. Under closer\ninspection, the PhD student realized\nthat there's a bug that caused its uh\nencoder part of the model to be never\nupdated.\nAnd uh uh under closer inspection, it\nfinds that there's a bug in Adam's ATC m\noperation that failed on non-ontiguous\ntensors. And uh just all the gradients\nbeing computed uh ends up being zero\nwith never update data. And because the\ndecoder part has continuous layout, you\nstill get a partially optimizing model,\nit just never goes to your expected\npart,\nright? And train check would monitor\nthis invariant called API contain that\nchecks encoder.weight should always\nchange after optimizer.\nWe expect to see a weight delta being\nlarger than zero. However, the observed\nis encoder.w weightights stays unchanged\nfrom step one to the very last. Um, so\nwith train check, you would get this\narrow immediately without any time\nwasted.\nSo, uh, here are some takeaway\nsummarizations for this talk. So, first,\ntraining can fail silently. Many people\ntoday they focus on like uh fault\ntolerance of the training pipeline like\nonce your GPU crashes when you have a\nSDC when you have a uh a flaking network\nright those those kind of hardware falls\nand the machine crashes matter but\nthere's also another very prominent uh\nfailure pattern which is correctness\nviolations and for those kind of errors\nloss curves and GP computer utilization\njust doesn't tell the full story.\nDebugging is usually too late. By the\ntime you're debugging them, you've\nalready lost compute. By the way, I\nthink uh such kind of debugging like is\nmostly done by the ML engineers instead\nof the S engineers, the infer people\ntoday. So um maybe with chinch check we\ncan try to um shift some of these a e\nefforts train if like every invariance\npass it will tell you that there's no\nbug in your infrastructure there's no\nbug in your in your code right and you\ncan then be confident enough to optimize\nyour training algorithm your model your\ndata in instead of worrying about\nthere's a bug lying somewhere uh\ncorrectness signals are missing right we\nshould monitor whether training is\ncorrect instead of just the end to end\nperformance and we think that the\ninvariant based checks monitoring is the\nright abstraction nondeterminism we\nthink is only an art artifact of you\nchecking at the too high level if you\ncan check invariance at the at the\nindividual API at the event level you\ncan catch many failures much earlier on\nbut of course there's a like a tradeoff\noff between the the overhead and the the\nlevel detection you want.\nSo closing training is becoming the\nproduction infrastructure and we believe\nthat it deserves SR style correctness\nmonitoring instead of a a giant trial\nand error loop and the same discipline\nwe apply to production services should\napply training too.\nAnd here's the QR code for the tin check\nrepository. If you're interested, we\nhave a lot of documentation covering the\nthe the use cases. We also had the\nsuccess stories uh detailing how do we\nhack capture the bugs that we talked\nabout today. There's also a few other\nbugs you can try pip install trim check\nand uh uh in the doc specifically I want\nto mention this is that uh we had a\nfiveinut tutorial that you can just do\nit on your laptop from invariant\ninference to to to the actual checking\nto the to the final understanding where\nthe root cause is it's like uh no cuda\nrequired uh it'll be very simple and if\nyou had any questions, you're welcome to\ncontact us as trainish.edu\nand uh please uh find me after the talk.\nYeah, thank you so much.",
+  "segments": [
+    {
+      "text": "Hi everyone, I'm Eusen Jang. I'm currently a PhD student at University of Michigan. Today I want to talk about the difficulty in monitoring AI training workloads. The title of this talk is called closing the observability gap in",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "AI training. Specifically, we're targeting at detecting correctness errors in AI trainings in time, ones that silently prevent your model from converging and waste many compute and engineering efforts. The subtitle beyond loss and accuracy is",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "our key idea. These two metrics are basically the only signals that most teams have today for correctness monitoring. And we think that the coarse grain end to end monitoring today is not enough and is the reason behind difficulties in detecting issues in",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "time. So here's the plan for the next 35 minutes. We'll start with a real example of what a correctness failure in AI training looks like and then I'll explain the difficulties in detecting and debugging such issues and why the",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "core is a monitoring problem. I'll introduce train our tool for embedding and monitoring correctness signals in training. We'll do a quick demo and then I'll walk through two real case studies and we'll close with takeaways.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "So, let me start with a real bug that incited over 35 replies and hundreds of likes on X. Jack Mars, who was a PhD student at Cornell, was running a distributed training job with hugging face DDP trainer. The loss was going",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "down for the first 150 steps. the GPU user and 95% utilization. There's no alerts, no exceptions going on. Every signal you have says this training is going correctly. However, not so long after the training starts, the model's",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "law starts to go up after the 1550 steps with the gradient norms being reasonable. What's going on here? While Jack feeling very frustrated and confused post on Twitter, why does my model gets worse over time? Gradient norms looks fine. You can see the loss",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "chart right here in his post. There's a lot of re replies coming immediately saying your gradient clipping threshold is too large. You should apply more aggressive gradient clipping. You should change the optimizer. You should try a",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "more advanced learning rate schedule. you should check the data pipeline. However, none of the replies actually worked. So, here's what's actually happening in this setup. There was an unexpected initialization order of the optimizer",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "that caused the gradient synchronization hooks to be missing, leading each GPU to be training its own copy of the model instead of a shared one. The loss initially decreased because the initial optimization space was still very large but later the loss went up",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "because the model essentially is diverging across the GPUs. There's no crash, no divergence. The system is working just incorrectly, right? And on the left you're seeing what should happen is that the gradients are computed on each GPU. They are",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "synchronized via all reduce and a single shared model is updated on the right. What actually happened is that that all reduce sync is being skipped and each GPU just updates its own model based on its own gradients. So here's the critical point I want to",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "say that um the bug actually exists in your codebase in your training run from step one from the very beginning but from the uh loss signals that you're monitoring you can only see there's a problem after step 150. So by the time",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "you understand there's a problem, you're already pretty much late and you lost a lot of compute. And when you realize there's a problem, there's no signal for you to debug. It's very late. It's very frustrating and it's also expensive.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "So and th this is actually not a one-off case, right? We we see a recurring pattern of such kind of silent training errors happening online and they raises a lot of discussions on Twitter. For example, there's a a famous model called",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "memba, but uh there's a like a bug in the initialization of the parameters in the hugging face implementation as compared to the official implementation and that caused many academic uh papers results to be not reproducible. There's also a large language model",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "called bloom where it was trained on 386 A100s. It took around four months and millions of dollars to train. However, they also had a gradient synchronization bug that caused their model checkpoints to be invalid. In their quote, they say",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "that they didn't have much time to do software validation because they were rushed to train. The training looked okay, so they started to training. Andre Kaparthi also raised a few discussions on a a recent bug observed in the MPS back end of PyTorch that",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "caused the computation results on non-ontiguous tensors to be silently corrupted. So why is this happening? We argue that this is a monitoring problem. Detecting these bugs much earlier is very hard today primarily because we don't have",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "the right signals. So look at the left left pan panel. The signals that we rely on today loss and gradient norms. They're noisy by nature. Training loss fluctuates and it's hard to tell whether the fluctuations are a bug or just",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "normal variance. These signals are nondeterministic. When there's even your training is completely healthy, it still can happen with some spikes that make you being suspicious about your training wrong and also their end to end right it's the",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "final aggregate of thousands of components of APIs. So a problems gets uh in one components will get diluted and finally they are very late right even uh when you have a bug in uh in a specific kernel that arrow takes time to",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "accumulate to manifest in a final end to end signal and a common consequence is that we will have no symptoms until it's too late or the signal is so unclear that we cannot tell if it's real detection and debugging gets conflated",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "into one painful loop. What we need are fine grain deterministic correctness signals. So what we monitor today are loss curves, GPU utilization and logs, step time. These are all activity signals. They tell you that the system is",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "running. We measure activity, not correctness. What we don't monitor and also is crucial to correctness is the training semantics. whether gradients are actually updating all the parameters, whether all your GPU workers are in sync, whether the training loop",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "is following your expected patterns when you're doing mixed precision training, whether that data conversion actually happens, right? And the key insight here is that uh if we want to detect those silent bugs, right, the silent bugs,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "they usually have actually precise and actionable root causes at the API behavior and the event sequence level. If we could have monitored those behaviors during training, we can detect those bugs much earlier. And uh the goal is very clear, right? uh",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "we want to detect silent training errors early and here the inside here is we want to apply S sur discipline to training right on the left what S sur already do for production systems is that they define expected behavior as invariance and they monitor them",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "continuously alert immediately on violations capture enough signal for fast root cause analysis and this is the standard we hold every production web service to on the red note what training gets today is there's no invariance no",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "continuous monitoring and no fine grain alerts training runs cost millions of dollars right and we should hold trainings to the same standard so what does this look like concretely every bug we showed earlier had a simple",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "expectation that if monitored would have captured a bug immediately. The DDP sync bug is that uh if we could check the ways um that should be consistent across the GPUs, we could hatch it at the first step. The frozen encoder bug if we can",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "check the optimizer step are actually updated uh your tracked parameters. If we can turn those expectations into runtime check evaluated at every step, we would have catched those bugs much earlier on. And this brings us to our core idea and",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "also the topic of today's talk, train. Train check is a monitoring frame framework that encodes expected training behavior as checkable invariance. Train check validates invariance at runtime step by step and services violations",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "immediately with step stage and trace context. And on the right I show some example invariance here where optimizer.step must follow lo backward is an API sequence invariance. Weights must be equal uh across TP rank for layer norm layers is a consistency",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "invariant with a precondition. Zerog must reset gradients to none is an event containment invariant. Automizer step must update all the tracked parameters is also an event containment invariant. These uh these rules can be learned from real runs not written by",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "hand and preconditions ensure that they only fire when relevant. So how does train check actually work under the hood? It starts with instrumentation. Train check captures two kinds of structure traces from your training run. First API traces. Every",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "relevant PyTorch API call is being recorded. the function names, arguments, return values, which parameters were involved and metadate data like the training step and stage. We do this instrumentation via monkey patching uh uh tor for example torch down matrix",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "modification becomes a wrapped version that locks the call and pass through to the original implementation. Secondly, variable traces parameter state changes are recorded at the key points. After optimizer step, after zero",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "grad, we track data hash, gradient hash, shape, dtype and the device for every tracked parameter. We use tensor subclassing or proxy objects for this tracking and we so that we can observe the training behavior without modifying",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "the original code. On the right you can see the real training sn uh trace snippets from the official mnest example. The API trace shows an out of delta optimizer.step with all the eight parameters. The variable trace shows con convolutional uh parameter onew",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "weightight before and after zero grad some data hash but gradient goes from a value to null. This is the level of granularity that we are working with. We also optimize this aggressively. We do selective instrumentation at the",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "checking time to only trace APIs in active invariants. Sampling policies and tensor hashing instead of full com comparisons are also active here. So now how do we go from these traces to invariance? There are three simple steps. Let me walk through with a",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "concrete example using the bloom parameter divergence bug. So here's a simplified trace showing three parameter records. Record one shows that layerw weightight on TP rank zero d some data hash. Record two and three show some",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "other par parameters data on some other workers. So the step one is to scan a trace for any potential patterns and then we we see that uh trace record one and two con constitutes a passing example for a consistency invariance.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "Then we validate this pattern across the entire trace. We found out that one two is the only passing example while 13 and 23 are the failing examples. Based on the differences from the passing and failing examples, we deduced the",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "preconition that this consistency invariant should only hold across parameter states that are on different tensor parallel workers and should only be checked when the step of the state is equal and have the same parameter name.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "And to put this more concretely, this is like what our invariant looks like. Uh in practice, the invariant is defined with a a relation which is essentially a template for possible semantics. And then the descriptors which are",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "abstractions over concrete APIs and variable instances that we want to check. For example, the case here if we want to check the data consistency, then the two descriptors will be torch.parameter.data and torch.n.parameter.data.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "Notice that this this invariant by itself is only applicable to the nonsharded tensors across the workers. So to check this invariant at runtime without firing too many false positives, this invariant must be accompanied with",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "a precondition that defines the context under which it holds. Uh so the precondition here is what what we just inferred and here are the five relations that we currently uh support. Those relations are are basically developed",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "based on our insights on a large scale study of the existing silent errors that developer face every day and spec and and and one core feature of tren check is it in first preconditions for invariance and preconditions is what",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "um is the core to transform invariance from patterns to accurate checks that do not fire too many false positives in deep learning case primarily because DL correctness oftentimes is very context dependent for example the invarian",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "saying that optimizer should update all parameters should only apply to nonfrozen layers wakes consistence across GPU should only hold for non-tensor parallel parameters right and dropout active should only be uh checked on when model training is true, right?",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "And specifically to to infer such kind of invariance, we collect for each pattern the passing and the failing examples and we had a algorithm trying to deduce the difference between the passing and failing examples. And this feature actually allowed",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "another like unexpected u benefit of train check is that you can learn invariant ones and check them everywhere. Even if you infer some invariance on just say the official PI PyTorch uh examples, you can apply them to your custom in-house training",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "pipelines because our invariants are equipped with uh proper preconditions that make sure they're only checked uh when the context is appropriate and such preconditions are checked automatically. Um during our analysis, we found out",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "that even if you're applying the invariance from just uh one task inferred from like say uh uh GPT2 pre-training to to your vision model, there's still around 23% of the invariants that could transfer to your new setup. So you don't always need like",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "a good set of input for your custom scenario to get a good set of invariants. Train check also does a lot of a a e efforts trying to keep this uh instrumentation and checking low overhead. Uh usually with our current uh optimizations we get a near baseline",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "overhead on a variety of tested workloads ranging from really small scale u like uh amnest training models to really large scale uh transformer pre-train training. We also support some uh policies trapping policies for your",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "custom in-house need. For example, we have the warm-up period that skips the first and steps steps sampling that check every case steps. We also have selected instrumentation that uh dynamically determines the instrumentation granularity based on the",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "invariance that you want to check. And train check is actually pretty effective. In our study, uh, we studied 20 real world silent training errors and from the environment that just inferred from the official PI pietorrch examples,",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "we were able to actually detect 18 out of them in the first iteration where if you're relying on the old approach of looking at loss and the accuracy typically take at least a few hundred steps or uh, three to four epochs and",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "the train the the the train checking variants because they're like very low level. It actually pinpoints the exact root cause of the bug in 10 of the cases. In the other a like we get very close to the root cause. Train check also has a very low false",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "positive rate. We inferred the environment from around five different pipelines so that the APIs are exercised with uh different conditions so that the train can infer precise uh preconditions for them. Uh across 63 representative",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "pipelines we get below 2% false positive rate. That means for your production setting if you have more inputs more like a lot of past accepted training runs you'll get even lower false positive rates and we detect the bugs in just one iteration.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "Well here I will do a demo to show what using train to detect bug actually looks like. I'll use the example of bloom parameter divergence which is a a gradient synchronization block in GPT2 model pre-training. So I'm doing this on a node with eight",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "GPUs. Um I'm training a small scale uh GP2 model. Here I'm running my training scripts with uh train check. So it handles the instrumentation automatically. And you can see that the training is starting now. Setting up the sampling rates and the warm-up steps.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "And here's are all the original output from your training pipeline. I'm going to skip. So the training has been going for a while. Let's look at the tensorboard which are the things that ML engineers uh monitor, right? Looking at the loss, looking at the",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "gradient norm, we're at around step 80 right now and everything looks pretty good, right? But if we look at chin chin checks monitoring result, it tells us otherwise that uh there's an invariant being violated from the first step and",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "it actually has been validated for every step that train has uh monitored and you can see that the specific weights moni uh valid invalidating the invariants here are also being shown here which are layer norm weights and the the the input",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "embedding weights so that given this context your engineers could directly look into the code that handle those parameters to understand where the bug is. It's a lot more um targeted uh as compared to look look at the end to end signals",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "and uh I want to talk about where we are and where we are going today. Trinch was originally an academic artifact that we were trying to build as an open-source project. So we've been re recently doing a lot of efforts trying to support the",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "production frameworks. So chain right now supports monitoring uh the frameworks within the PyTorch ecosystem. Then that that means PyTorch by itself, Deep Speed, Megatron, Lightning and all the frameworks based on uh Pi PyTorch.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "We have six invariant types but of course if you see a new need for your in-house pipeline uh it's easy to extend the semantics to cover more kinds of invarants. We support both online and offline checking with a live dashboard.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "We also integrated this uh with uh width and biases and ML flow so that you can keep just monitoring everything in your favorite dashboard. Uh chain checker right now is a Python module that you can just do pip install and there's a",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "simple instruction online that you can check check out. You can do from checking from inference to the actual checking in just five m minutes. And what's ne next is uh we want to support uh LM specific training P patterns uh",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "especially since like it's it's becoming the focus of the industry right now. Um and also we want to ship some uh prepackaged invariants so that you guys don't need to infer the environments all by yourself. You can just download our",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "inv variants and start checking immediately. We're also working on supporting more backend for example jacks and flags. Yeah. So I'm going to show two bucks that train hatches that had uh much impact in production. The first example is the",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "bloom divergence bug which I had been talking about for a while but I'll show is root call showing why it's so tricky and showing uh how trench catched it. And the second case is the frozen encoder case that uh Andre Kapari has",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "been dis discussing on Twitter for quite some time. So the bloom bug uh is that the model is silently diverg across GPUs and the bug is actually in the MTOR LM's gradient clipping code that once your gradient becomes too large and that gradient",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "clipping being triggered you get a divergent model checkpoint and the bug is in the BF16 optimizer being implemented um and it essentially produces invalid checkpoints which means after your training you get you don't get a model like if you want to recharge",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "that model into different inference uh machine setups and um everything was fine. uh here we show the actual root cause which is the implementation of the optimizer where um like this API is called get grat for norm and uh it has a flag called for",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "clipping when for clipping is false uh it's supposed to collect the gradients to compute the gradient norm so here you want the duplication across the workers because you don't want to compute the gradient norm for the same parameter",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "twice right and for clipping is set to true. When it's set to true, uh the API collects the gradients to be clipped and right now you don't want that dduplication because all the gradients needs to be clipped, right? And uh",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "unfortunately that dduplication logic is misindented so that it applies for both for clipping being true and for clipping being false. That means only the node zero has their gradient being clipped. uh other nodes doesn't have that.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "And uh here with our invariant that checks the consistency across the parameters across cancer parallel workers uh we get an arrow immediately with all the context that says okay this layer is problematic and you get uh differing values.",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "The second case is uh where the uh is again a p a PhD student training its code. Um the training is initially worked fine but uh later like after a few thousand steps the laws just never went down to the expected behavior. The",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "PhD student tried a number of tricks trying to optimize its neuron network but just never work. Under closer inspection, the PhD student realized that there's a bug that caused its uh encoder part of the model to be never updated.",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "And uh uh under closer inspection, it finds that there's a bug in Adam's ATC m operation that failed on non-ontiguous tensors. And uh just all the gradients being computed uh ends up being zero with never update data. And because the",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "decoder part has continuous layout, you still get a partially optimizing model, it just never goes to your expected part, right? And train check would monitor this invariant called API contain that checks encoder.weight should always change after optimizer.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "We expect to see a weight delta being larger than zero. However, the observed is encoder.w weightights stays unchanged from step one to the very last. Um, so with train check, you would get this arrow immediately without any time wasted.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "So, uh, here are some takeaway summarizations for this talk. So, first, training can fail silently. Many people today they focus on like uh fault tolerance of the training pipeline like once your GPU crashes when you have a",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "SDC when you have a uh a flaking network right those those kind of hardware falls and the machine crashes matter but there's also another very prominent uh failure pattern which is correctness violations and for those kind of errors",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "loss curves and GP computer utilization just doesn't tell the full story. Debugging is usually too late. By the time you're debugging them, you've already lost compute. By the way, I think uh such kind of debugging like is",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "mostly done by the ML engineers instead of the S engineers, the infer people today. So um maybe with chinch check we can try to um shift some of these a e efforts train if like every invariance pass it will tell you that there's no",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "bug in your infrastructure there's no bug in your in your code right and you can then be confident enough to optimize your training algorithm your model your data in instead of worrying about there's a bug lying somewhere uh",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "correctness signals are missing right we should monitor whether training is correct instead of just the end to end performance and we think that the invariant based checks monitoring is the right abstraction nondeterminism we",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "think is only an art artifact of you checking at the too high level if you can check invariance at the at the individual API at the event level you can catch many failures much earlier on but of course there's a like a tradeoff",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "off between the the overhead and the the level detection you want. So closing training is becoming the production infrastructure and we believe that it deserves SR style correctness monitoring instead of a a giant trial and error loop and the same discipline",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "we apply to production services should apply training too. And here's the QR code for the tin check repository. If you're interested, we have a lot of documentation covering the the the use cases. We also had the success stories uh detailing how do we",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "hack capture the bugs that we talked about today. There's also a few other bugs you can try pip install trim check and uh uh in the doc specifically I want to mention this is that uh we had a fiveinut tutorial that you can just do",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "it on your laptop from invariant inference to to to the actual checking to the to the final understanding where the root cause is it's like uh no cuda required uh it'll be very simple and if you had any questions, you're welcome to contact us as trainish.edu",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "and uh please uh find me after the talk. Yeah, thank you so much.",
+      "start": 618,
+      "duration": 6
+    }
+  ]
+}

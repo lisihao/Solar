@@ -1,0 +1,514 @@
+{
+  "videoId": "Bg-U8NyeA24",
+  "title": "SREcon26 Americas - Operationalizing Key Management for Regulatory Compliance and Emergency Response",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 24805,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So today's talk will be on key\nmanagement\noperationalizing cryptographic key\nmanagement for\nregulatory compliance as well as\nemergency incident response.\nI'll quickly run through the agenda for\nthe talk.\nI'll talk about the current landscape\nregulatory shifts and in the context of\nincident response as well security\nincident response\nand the SREs take the SRE perspective on\nthis.\nI'll quickly have a crypto 101 just to\nensure that the terms I'm talking about\nare clear and I'll be focusing more on\nthe challenging aspect of asymmetric\nkeys here.\nThen we'll quickly dive into the design\npatterns for building these pipelines\nfor automating them and decoupling them\nfrom some dependencies that might be\nchallenging.\nAnd we'll also look into how we can run\nthese key changes with high availability\nin mind\ntiered SLOs and make sure that the\narchitectures are audit ready as well.\nWe'll also looking look into leveraging\nthe same infrastructure for dual purpose\nso to speak for compliance as well as\nemergency response as I said. And we'll\nhave some time for Q&A.\nSo jumping into this so the context of\nin the context of emergency response you\nmight have seen it's a matter of when\nand not if in the past few years we've\nseen a bunch of incidents where there\nwas a crash dump or some other way a key\nwas compromised\nand then there's this attack surface for\na few hours or probably even weeks\nsometimes\nand the attacker is able to get access\nto the assets that this key could you\nknow unlock. And\ntoday there's a lot of systems that were\nnot built with this kind of attack\npatterns in mind and there's a agility\ngap here\nwhere incident response takes order of\nweeks sometimes because key rotations\nare not we're not kept in mind with\nsecure security in the design when the\ndesign was built.\nAnd we'll also we also need to make sure\nthese high risk operations are not just\nfixing the security incident but also\nmake sure that reliability is kept in\nmind availability kept in mind and this\nmeans that we need well-tested pipelines\nthat are not just tested in production\nso to speak when there's an incident,\nright?\nThe second context which is now newly\nshowing up which I was a part of like\nthat was mentioned is sovereign cloud.\nSo we are seeing a lot of\ntraction in some of the geographical\nregions where there is a need for\nsovereign cloud development so to speak.\nThink of it as a cloud that operates\npretty much within that particular\ngeographical region. So there are\nthere's a regulatory shift here where\nmodern frameworks demand provable\ncompliance so to speak than just having\nkey management for security.\nSo you you need audit ready pipelines\nand SREs might provide audit trails\nmaking sure that we can demonstrate who\nholds these keys and when they change\nthe timestamps and everything.\nSo these\ncryptographic workflows are not solved\njust by traditional KMS tools and we'll\nlook into why\nand so this needs to be kept in mind\nwhen you're building these key\nmanagement pipelines.\nI'll do a quick run through of what key\nmanagement and rotation means here. So\nwhen we're talking about key management\nthis is talking about the full life\ncycle where you're generating a\ncryptographic key whether it be a\nsigning key or an encryption key\nyou add the key and then there is the\nstorage aspect involved and with\nasymmetric keys we also think about\ndistribution of the public key and we're\nalso talking about the deletion of the\nkey once it's not no longer in use.\nWhen we're talking about rotation this\nis the this is retiring an existing key\nthat is actively in use. So we're\ntalking about a key that's used for\nsigning it's still used in production or\nkey that's used for encryption\nand we're trying to retire that in favor\nof a new key that's been added and we're\nbasically limiting the exposure in case\nthere was an incident or in the case of\nmeeting some compliance standard making\nsure the key in use is recent enough.\nAnd now I'll quickly talk about why I\njust mentioned that the asymmetric keys\nare challenging. So there are two types\nof keys fundamentally there are\nencryption keys and signing keys. So\nwhen we talk about encryption keys these\nare symmetric keys so what this means is\nthere is just a single key that is used\nfor both encryption and decryption. So\ngenerally easier to manage so to speak\nbecause uh\nthink about a storage device that you're\nusing a key to encrypt the data on disk\nso a service you know encrypts the data\nwrites it to disk and when you're trying\nto read the data you decrypt the data\nwith the same key and then read the\ndata, right? So generally easier to\nmanage often handled within a KMS.\nWhereas asymmetric keys on the other\nhand it comes with a key pair so you\nhave a private and public key pair. So\nthe private key is used for signing and\nthat's often guarded somewhere securely\nnot accessible to everyone but only the\nsigning parties\nand probably even hardware backed in a\nroot of trust so typically just\naccessible only to the signer. Whereas\nthe public key verifies the signature so\nthis must be widely distributed so all\nthe parties that need to verify these\ncertificates that were signed with the\nprivate key need access to the public\nkey.\nSo these are used by a lot of production\ncritical service identity keys so so\nwhen think about a service that needs to\nprove that it is indeed running as\nidentity it's claiming to be so it shows\na certificate and that needs to be\nverified by another service that is\ntalking to this. So these are usually\nproduction critical\nand the rotation gap with the asymmetric\nkeys is indeed this part right here\nwhere the public key needs to be\ndistributed before you can switch over\nto the private key.\nSwitch over a new key in the private\nkey. So this is the the public key\ndistribution problem is what makes it\nmore challenging for the asymmetric\nkeys.\nLooking into the scenarios where these\nrotate key rotations are\nusually taking place, right? So\nwe have three modes\nusually load so you're talking about\nhygienic rotations. So when you talk\nabout hygienic rotations think about\nperiodic key changes so you have some\ncompliance mandate that you're trying to\nmeet and the keys need to be of X age to\nmeet that standard, right? So you you\ncannot have a key older than say 6\nmonths. So this means that you need to\nmake sure that there are periodic\nrotations happening so that you can meet\nthat compliance standard. So that's what\nhygienic means. And emergency is what I\njust talked about a few minutes back\nwhich is rapid emergency response to a\nsecurity incident. So an active key in\nuse has been compromised somehow and\nyou're now trying to rotate it out to a\nnew key.\nAnd then there's this external\nrequirement that might come in with data\nsovereignty that's showing up these days\nwhich is basically when they want you to\ndemonstrate a key rotation so that they\ncan you can prove to them that the keys\nare now in control of a party that they\ntrust. Right? So in all these cases\nthere are SLOs that need to be kept in\nmind in terms of availability speed and\nverifiability.\nSo when we talk about availability it is\na little bit varied\nin the context of the three different\ntypes of rotations.\nWhen we say hygienic this is fully\nserving production fleet, right? So\ntypically you don't want to be running a\nkey rotation like an incident in that\ncase.\nSo we're we're looking at\nhigh availability here it should be any\nnumber of nines that you usually have in\nproduction\nand\ntypically should be just invisible to\nthe services that are running there.\nThey should just run like they do\nwhether or not there's a rotation\nhappening.\nNow emergency on the other hand is\na little more tricky because\navailability here can be uh\nSo non-critical services could\ntechnically be affected in terms of\navailability here. So the SLOs need to\nbe tiered in some sense\nbut I'll also dive into that a little\nmore in detail in a few slides. Speed\nalso changes a little bit with respect\nto hygienic and versus emergency\nrotations. So hygienic is more\ndeliberate slow roll out type of\nrotations versus emergency is obviously\nspeed to safety. So that's that's where\nthe speed the SLO for speed is going to\nbe different for the different\nrotations. Verifiability typically is\npretty much the same throughout the\nthree you want it you want to be audit\nready. You want to be able to ensure\nthat the security incident is is indeed\nresolved so you need metrics for those\nas well and we'll look into what those\nmetrics should be in a bit.\nSo I'll quickly jump into a few design\npatterns that usually work for\nparticularly asymmetric keys\nto make sure you have a pipeline\n[clears throat] that can satisfy these\nrequirements.\nthe first pattern is about certificate\nrotation, right? So when I was talking\nabout these asymmetric keys you have\nthese certificates that are generated\nand you must be able to rotate those\ncertificates frequently enough in order\nto be able to rotate the root keys that\nyou're using to sign those certificates.\nSo for this you want to decouple the\nrotation even the certificate rotation\nevent from service and hardware\ndependency.\nUm,\nso there are a few design traps that are\nmake that make that can make this\ncomplex, right? So, the first one being\nlong lifetime of the certificates. So,\nif the certificate, let's say, it\ndoesn't expire for like years, right? If\nyou have an expiry very long expiry, so\nthat's going to be difficult to rotate\nbecause services are now running under\nthe assumption that uh these\ncertificates are probably not going to\nexpire in, you know, X years. So, when\nthere is an incident, the service is not\nready to take that uh rotate either\nyou're not able to rotate it or it's\ngoing to break that service because it's\nrunning under that assumption.\nUh so, the solution is here is to\ndeliberately reduce that expiry time and\nmake sure services are able to adapt to\nthat.\nUh and so, the best\nuh strategy here is to make sure the\nservices are having a periodic pull\nmodel where they are able to refresh the\ncertificates periodically. And in event\nof emergency, you can push a button and\nmake sure that the rotation event\nhappens seamlessly, right?\nUm,\nthe second trap is hardware binding of\nkeys. So, traditionally, there has been\nthe the way of distributing public keys\nat the hardware level when you want you\nhave some service running in the, you\nknow, firmware layer or things like\nthat.\nUh baked in keys in the firmware is\ntying you to long hardware deployment\ncycles. So, if you want to change those\nkeys, that means you're going to go\nactually have to flash the firmware\nagain on a hardware. Uh and so, that's\ngoing to make life difficult if you want\nto rotate those keys out, right? So,\navoiding embedded keys in firmware\nbinaries\nis is the way to go and potentially\nusing late binding\nto inject the keys later on in the life\ncycle so that it's online, so to speak,\nversus like tying yourself to hardware\ndeployment cycles.\nUm, the last one is hitless updates. So,\npreferring hitless updates. Again,\ntraditionally, cert rotation sometimes\nrequire a draining of machine or\ndraining of,\nyou know, a device of the jobs that are\nrunning on that and then potentially\nrestarting a machine, reinstalling\nreinstalling the machine, restarting\nprocesses, which can be expensive\nbecause you'll have to do migrations.\nUm, so, designing\nuh cert rotations in a way that they are\nhitless\nis also critical here because machine\nand device certificate updates, if\nthey're not hitless, you're going to\nhave to wait\nfar longer than necessary for especially\nfor emergency response.\nRight.\nUm, the second pattern is to have an\nautomated pipeline\nand make it state driven so that this\ncan be\npretty much used for, you know, all\nkinds of key rotations that we just\ntalked about.\nUm, so, in this picture that you're\nseeing,\nuh the top boxes are all uh state\ntransitions of a key\nand the bottom what you're seeing are\nthe monitoring signals that go into it.\nI'll quickly run through\na quick key rotation right over here for\nan asymmetric key pair. So, let's say we\nare switching over from key pair A to\nkey pair B. So, the production is now\nusing uh signing key A and verification\nkey A correspondingly and the signer is\nusing A verifier as well. So, the\ncertificates that are in production are\non the key A are signed with key A.\nUh and now we want to move over to\nrotate over to key pair B. All right?\nSo, we're now trying to add the key. Uh\nyou need to have monitoring metrics in\nyour KMS or whatever generates these\nkeys to check whether this key is now\nready to be used.\nAt this point, you want to first start\ndistributing the new public key to your\nverifiers. So, you start pushing the\nkeys to your verifiers, which now trusts\nboth\nthe signing key A as well as the signing\nkey B. Sorry, the verification key A and\nthe verification B.\nUh and at this point, the signer is\nstill on the previous key A, so which\nmeans that the certificates in the fleet\nare still on the signing key are signed\nwith the signing key A.\nUh you need to first verify that there\nis full distribution, which means that\nall the verifiers have both the public\nkeys in their trust bundles.\nUh and once that that has happened, you\ncan now pivot over to the new signing\nkey in the signers. So, now the signers\nare signing with the new key. At this\npoint, you can say that, you know, when\nyou're looking at the metrics, you can\nnow say that you're now only using new\nkeys to verify cert Sorry, sign\ncertificates.\nUh and the fleet now has certificates\nthat are signed with the new keys for.\nSo, So, this is a gradual process. You\nneed to wait for all the certificates to\nrotate over to the new key\nand you have monitoring signals to\nverify that the all the certificates are\nfresh, which means they're all signed\nwith the new key.\nAnd now you can distrust the old key,\nuh at which point the verifiers will all\nnow only trust the new key B.\nUh so, here if there's an incident where\nA was compromised, you're no longer\ntrusting it, which means the attack is\nmuted at this point.\nUm and now you can obviously delete the\nold key pair in your KMS wherever else\nit's been stored.\nUm so, if you see\nuh the key features here is\nuh are that, you know, it's state\ndriven. Uh you need to make sure you\nhave databases that track the key state\nand also monitoring signals from both\nthe signing side and the verification\nside to be able to make these state\ntransitions easily.\nAnd\nand also, this needs to be predictable\nuh and item potent, so to speak. So,\nthere is no, you know, half-baked\nprogress of a step.\nSo, despite doing all this, we do\nthere is a potential for incidents here,\nright? Uh but we need to be prepared to\nhandle those incidents.\nUm so,\nthe usual scenarios where it's it's a\nlarge enough incident is premature\nchange of the keys.\nSo, the first scenario is when\nyou change the signing key prematurely.\nWhat this means is that your monitoring\neither did not catch some of the\nverifiers,\nwhich did not still get the new public\nkey B. So, here that you probably left\nbehind some stragglers where the\nverifier is still on the old key\nand your certificate is now your new\ncertificates are now signed with the key\nB and but the verifier still doesn't\ntrust it. At this point, those two\nservices cannot talk to each other. So,\nthis is one scenario where there could\nbe an incident here. And the second\nscenario is a premature premature\ndistrust of the old public key key\nrevocation, so to speak. So, you remove\nthe signing the key the public key B\nfrom the trust bundles. So, the verifier\nis no longer trust that key, but you\nleft behind some certificate that did\nnot rotate over to the new certificates.\nSo, which means the verify freshness of\ncertificates had some, you know, let's\nsay there was a bug, you couldn't you\ncouldn't catch these\nstragglers which have old certificates.\nSo, once again, those services cannot\ncommunicate, you have an incident at\nthat point.\nUm, so, how do we prepare for this?\nUm every state transition here will need\nto have roll back capability.\nUm so, let's say you\nuh prematurely pivot to a new private\nkey, you must be able to roll back\nseamlessly into the old key so that you\nstill have the verifiers trusting both A\nand B. So, it should be safe to roll\nback at that point.\nUm and like I mentioned, the state\nchanges need to be item potent, so it\nshould be an all or nothing state\nchange. So, there shouldn't be\nhalf-baked state left behind.\nUm and continuous improvement of safety\nsignals is very important here and that\ncan only happen if you're like\ncontinually testing your pipeline,\nuh particularly when your fleet is\nexpanding, you're adding new hardware,\nnew services,\nwhich are not probably into your\nmonitoring pipeline. That's going to\nmake it hard whenever there's an\nincident and they're left behind in the\nmonitoring which is hooking into your\nstate changes.\nThe third pattern is\ntalking about availability and tiered\nSLOs.\nUh so, we talked about the different\nrotations. Obviously, they are of\ndifferent flavor, although you're doing\nthe same key transitions,\nthey are of a different flavor in terms\nof like the speed and the SLOs that we\njust mentioned in a few a few slides\nback. So, the periodic hygienic\nrotations, so to speak, are routine and\nslow roll and so, conservative SLOs are\nimportant here and making sure there's\nno impact to production\nand zero potentially zero customer\nimpact, right? Those for the customer\nshould be pretty much like it should be\nopaque to them. They're not able to\nreally be even know that the key\nrotation is happening at this point.\nWhereas for emergency or compliance\nreasons, it's like a knob you have, you\njust push it and\nthe service need to be aware that this\nis happening because it's it's\npotentially going to cause\nsome outages, but you need to be\nresilient to non-critical outages versus\ncritical outages. You don't want a\nsecurity incident to trigger an\navailability incident. So, it still\nneeds to have SLOs, so to speak, but at\nthe same time be resilient to\nnon-critical services failing for some\nreason.\nUh so, I'll [clears throat] quickly dive\ninto how the pipeline can change for one\nversus the other. So, first looking into\nemergency rotation,\nuh the features here is basically that\neach step is\nrapid,\nuh but painfully reversible because\nyou're it's rapid because you're\nprobably not doing some safety checks\nthat you would do for hygienic\nrotations.\nUh and there's a potential impact on\navailability. Uh like I said, probably\nweaker SLOs for non-critical workloads\nbecause you're We're to push to safety\nat this point.\nAnd safety checks only for highly\ncritical workloads so that you don't\nbring down important services.\nAnd if there are misbehaving workloads\nin terms of like stragglers that have\nnot caught up to new certificates,\nthe strategy here could be to quarantine\nthem from production so that they're not\nholding up the key rotation so to speak\nbecause your monitoring signal is\nprobably saying, \"Hey, there are these\nservices or like devices that have not\ncaught up and so I'm not able to proceed\nwith the rotation.\" So at this point you\njust quarantine them out and drain them\nand you know, proceed with the rotation.\nComparing\nthat with a periodic hygienic rotation,\nwe should think about this as a\nlong-running process. So each state\nchange is a\npotentially a cron job, right? So you\nhave periodic key key additions\n>> [clears throat]\n>> basically governed by whatever\ncompliance you're trying to meet.\nLet's say six year age key age needs to\nbe six months so these should run at\nthat period essentially.\nSo both all the steps basically\naddition, distribution,\nand change of keys based on the\nmonitoring data happen at a regular\ncadence.\n>> [clears throat]\n>> So here we of course we need to make\nsure there are high availability\nguarantees for almost all workloads not\njust critical workloads per se.\nAnd you can be a little more\nconservative with the misbehaving\nworkloads which are not catching up\ninstead of like quarantining in the\nprevious case here, we can just wait for\nthem to be repaired, reinstalled,\ndrained, and then catch up and then\nproceed with the rotation so to speak.\nAnd the last pattern is regarding\nobservability and audit trails.\nSo like you saw in the pipeline we just\nwent through, monitoring state is\nimportant for even making progress in\nthe key rotation. So metrics are\nimportant just to even build the\npipeline but they're doing more than\njust that\nbecause you need an auditory\narchitecture for both compliance\nrequirements as well as to make sure\nthat your incident response is captured\ncorrectly when you're auditing it. And\nso making sure that metrics and\ndatabases\nare based out of key identifiers so\nyou're able to answer all the questions\nin case of an incident or an audit.\nSo it's important to maintain like the\nkey identifiers, the timestamps not just\nin your KMS but also in the services\nthat are using it for signing and for\nverification. So that you're able to\nanswer these questions like what signing\nkeys are in use,\nwhen were they created, when were they\nretired,\nhow much percentage of the fleet is\nusing you know, is trusting this public\nkey X.\nAnd also particularly the certificate\nage tracking that is important because\nyou want to know particularly in a fine\ngrain way if possible so that you know\nif critical hardware and critical\nworkloads are on fresh certificates so\nto speak.\nThe TLDR here is that metrics must prove\nthe actual state of the security\nperimeter.\nSo at whatever stage of the process you\nare, you're able to accurately depict\nwhere the pipeline is, where the keys\nare, and [clears throat] what state each\neach service is at.\n>> [clears throat]\n>> Yeah, so we are\ntrying to build a dual use\ninfrastructure here. So have a knob with\nthe same pipeline that it is built for\nslow deliberate compliance but also\nworks as a fast tool in an emergency.\nAnd leveraging automation to pivot\nbetween the two\nbased on what you're trying to solve\nfor.\nAnd the automation as well like we just\ntalked about is\nfor both negotiating risk for compliance\npurposes and also for maintaining\nverifiability\nwhile accelerating velocity during\ncritical compromises.\nSo we did\nalso see some the same design patterns\nworking for some other non-cryptography\npushes to the fleet.\nThink about all other kinds of high\nstakes auditable automation that are\nneeded, right? I've given a couple of\nexamples here\nlike pushing network changes throughout\nthe fleet is also pretty much a state\ndriven workflow similar to the key\nrotation we just talked about. And where\nthere's when there is a security\ncritical kernel patch that needs to be\nrolled out, that was very similar to\nhandling key rotation incident because\nyou want to make sure every machine\nis now on the latest kernel patch.\nSo this is also very similar to the item\nimportant state changes that we're just\ntalking about.\nwill just talk about the takeaways here\nthat we want to see from this talk.\nWe talked about the SRE challenges\nspecifically with the constraints with\ndata sovereignty as well as incident\nresponse and aligning technical\narchitecture with these mandates.\nAnd we saw how automation can be built\nfor satisfying both compliance and also\nused as a tool for rapid response.\nAnd we talked about risk minimization\nso deploying automated pipelines for\nhigh impact rotations\nand making sure that there's minimal\nhuman involvement which is not just to\nreduce toil but also for reducing the\nvulnerability window. And we also talked\nabout monitoring and observability, how\nwe can implement continuous monitoring\nfor transaction integrity as well as for\naudit purposes.\nI just want to call out that the goal is\nto shift from static compliance to\ndynamic verifiable security that scales\nwith infrastructure velocity. So this is\nbasically secured by design pattern.\nThis this turn will be hard for you\nknow, long-running services a fleet\nthat's really old like the Google data\ncenter data centers\nbut\nmoving towards you know, provable\ncompliance is getting critical by the\nday.\nAnd that is my talk. We can take\nquestions at this point.",
+  "segments": [
+    {
+      "text": "So today's talk will be on key management operationalizing cryptographic key management for regulatory compliance as well as emergency incident response. I'll quickly run through the agenda for the talk. I'll talk about the current landscape",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "regulatory shifts and in the context of incident response as well security incident response and the SREs take the SRE perspective on this. I'll quickly have a crypto 101 just to ensure that the terms I'm talking about are clear and I'll be focusing more on",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "the challenging aspect of asymmetric keys here. Then we'll quickly dive into the design patterns for building these pipelines for automating them and decoupling them from some dependencies that might be challenging. And we'll also look into how we can run",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "these key changes with high availability in mind tiered SLOs and make sure that the architectures are audit ready as well. We'll also looking look into leveraging the same infrastructure for dual purpose so to speak for compliance as well as",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "emergency response as I said. And we'll have some time for Q&A. So jumping into this so the context of in the context of emergency response you might have seen it's a matter of when and not if in the past few years we've seen a bunch of incidents where there",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "was a crash dump or some other way a key was compromised and then there's this attack surface for a few hours or probably even weeks sometimes and the attacker is able to get access to the assets that this key could you know unlock. And",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "today there's a lot of systems that were not built with this kind of attack patterns in mind and there's a agility gap here where incident response takes order of weeks sometimes because key rotations are not we're not kept in mind with",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "secure security in the design when the design was built. And we'll also we also need to make sure these high risk operations are not just fixing the security incident but also make sure that reliability is kept in mind availability kept in mind and this",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "means that we need well-tested pipelines that are not just tested in production so to speak when there's an incident, right? The second context which is now newly showing up which I was a part of like that was mentioned is sovereign cloud.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "So we are seeing a lot of traction in some of the geographical regions where there is a need for sovereign cloud development so to speak. Think of it as a cloud that operates pretty much within that particular geographical region. So there are",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "there's a regulatory shift here where modern frameworks demand provable compliance so to speak than just having key management for security. So you you need audit ready pipelines and SREs might provide audit trails making sure that we can demonstrate who",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "holds these keys and when they change the timestamps and everything. So these cryptographic workflows are not solved just by traditional KMS tools and we'll look into why and so this needs to be kept in mind when you're building these key management pipelines.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "I'll do a quick run through of what key management and rotation means here. So when we're talking about key management this is talking about the full life cycle where you're generating a cryptographic key whether it be a signing key or an encryption key",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "you add the key and then there is the storage aspect involved and with asymmetric keys we also think about distribution of the public key and we're also talking about the deletion of the key once it's not no longer in use.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "When we're talking about rotation this is the this is retiring an existing key that is actively in use. So we're talking about a key that's used for signing it's still used in production or key that's used for encryption",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "and we're trying to retire that in favor of a new key that's been added and we're basically limiting the exposure in case there was an incident or in the case of meeting some compliance standard making sure the key in use is recent enough.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And now I'll quickly talk about why I just mentioned that the asymmetric keys are challenging. So there are two types of keys fundamentally there are encryption keys and signing keys. So when we talk about encryption keys these",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "are symmetric keys so what this means is there is just a single key that is used for both encryption and decryption. So generally easier to manage so to speak because uh think about a storage device that you're using a key to encrypt the data on disk",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "so a service you know encrypts the data writes it to disk and when you're trying to read the data you decrypt the data with the same key and then read the data, right? So generally easier to manage often handled within a KMS.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "Whereas asymmetric keys on the other hand it comes with a key pair so you have a private and public key pair. So the private key is used for signing and that's often guarded somewhere securely not accessible to everyone but only the signing parties",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "and probably even hardware backed in a root of trust so typically just accessible only to the signer. Whereas the public key verifies the signature so this must be widely distributed so all the parties that need to verify these",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "certificates that were signed with the private key need access to the public key. So these are used by a lot of production critical service identity keys so so when think about a service that needs to prove that it is indeed running as",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "identity it's claiming to be so it shows a certificate and that needs to be verified by another service that is talking to this. So these are usually production critical and the rotation gap with the asymmetric keys is indeed this part right here",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "where the public key needs to be distributed before you can switch over to the private key. Switch over a new key in the private key. So this is the the public key distribution problem is what makes it more challenging for the asymmetric keys.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Looking into the scenarios where these rotate key rotations are usually taking place, right? So we have three modes usually load so you're talking about hygienic rotations. So when you talk about hygienic rotations think about",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "periodic key changes so you have some compliance mandate that you're trying to meet and the keys need to be of X age to meet that standard, right? So you you cannot have a key older than say 6 months. So this means that you need to",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "make sure that there are periodic rotations happening so that you can meet that compliance standard. So that's what hygienic means. And emergency is what I just talked about a few minutes back which is rapid emergency response to a",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "security incident. So an active key in use has been compromised somehow and you're now trying to rotate it out to a new key. And then there's this external requirement that might come in with data sovereignty that's showing up these days",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "which is basically when they want you to demonstrate a key rotation so that they can you can prove to them that the keys are now in control of a party that they trust. Right? So in all these cases there are SLOs that need to be kept in",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "mind in terms of availability speed and verifiability. So when we talk about availability it is a little bit varied in the context of the three different types of rotations. When we say hygienic this is fully serving production fleet, right? So",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "typically you don't want to be running a key rotation like an incident in that case. So we're we're looking at high availability here it should be any number of nines that you usually have in production and typically should be just invisible to",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "the services that are running there. They should just run like they do whether or not there's a rotation happening. Now emergency on the other hand is a little more tricky because availability here can be uh So non-critical services could",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "technically be affected in terms of availability here. So the SLOs need to be tiered in some sense but I'll also dive into that a little more in detail in a few slides. Speed also changes a little bit with respect to hygienic and versus emergency",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "rotations. So hygienic is more deliberate slow roll out type of rotations versus emergency is obviously speed to safety. So that's that's where the speed the SLO for speed is going to be different for the different rotations. Verifiability typically is",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "pretty much the same throughout the three you want it you want to be audit ready. You want to be able to ensure that the security incident is is indeed resolved so you need metrics for those as well and we'll look into what those metrics should be in a bit.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "So I'll quickly jump into a few design patterns that usually work for particularly asymmetric keys to make sure you have a pipeline [clears throat] that can satisfy these requirements. the first pattern is about certificate",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "rotation, right? So when I was talking about these asymmetric keys you have these certificates that are generated and you must be able to rotate those certificates frequently enough in order to be able to rotate the root keys that",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "you're using to sign those certificates. So for this you want to decouple the rotation even the certificate rotation event from service and hardware dependency. Um, so there are a few design traps that are make that make that can make this",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "complex, right? So, the first one being long lifetime of the certificates. So, if the certificate, let's say, it doesn't expire for like years, right? If you have an expiry very long expiry, so that's going to be difficult to rotate",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "because services are now running under the assumption that uh these certificates are probably not going to expire in, you know, X years. So, when there is an incident, the service is not ready to take that uh rotate either you're not able to rotate it or it's",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "going to break that service because it's running under that assumption. Uh so, the solution is here is to deliberately reduce that expiry time and make sure services are able to adapt to that. Uh and so, the best uh strategy here is to make sure the",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "services are having a periodic pull model where they are able to refresh the certificates periodically. And in event of emergency, you can push a button and make sure that the rotation event happens seamlessly, right? Um, the second trap is hardware binding of",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "keys. So, traditionally, there has been the the way of distributing public keys at the hardware level when you want you have some service running in the, you know, firmware layer or things like that. Uh baked in keys in the firmware is",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "tying you to long hardware deployment cycles. So, if you want to change those keys, that means you're going to go actually have to flash the firmware again on a hardware. Uh and so, that's going to make life difficult if you want",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "to rotate those keys out, right? So, avoiding embedded keys in firmware binaries is is the way to go and potentially using late binding to inject the keys later on in the life cycle so that it's online, so to speak, versus like tying yourself to hardware",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "deployment cycles. Um, the last one is hitless updates. So, preferring hitless updates. Again, traditionally, cert rotation sometimes require a draining of machine or draining of, you know, a device of the jobs that are running on that and then potentially",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "restarting a machine, reinstalling reinstalling the machine, restarting processes, which can be expensive because you'll have to do migrations. Um, so, designing uh cert rotations in a way that they are hitless is also critical here because machine",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "and device certificate updates, if they're not hitless, you're going to have to wait far longer than necessary for especially for emergency response. Right. Um, the second pattern is to have an automated pipeline and make it state driven so that this can be",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "pretty much used for, you know, all kinds of key rotations that we just talked about. Um, so, in this picture that you're seeing, uh the top boxes are all uh state transitions of a key and the bottom what you're seeing are",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "the monitoring signals that go into it. I'll quickly run through a quick key rotation right over here for an asymmetric key pair. So, let's say we are switching over from key pair A to key pair B. So, the production is now",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "using uh signing key A and verification key A correspondingly and the signer is using A verifier as well. So, the certificates that are in production are on the key A are signed with key A. Uh and now we want to move over to",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "rotate over to key pair B. All right? So, we're now trying to add the key. Uh you need to have monitoring metrics in your KMS or whatever generates these keys to check whether this key is now ready to be used. At this point, you want to first start",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "distributing the new public key to your verifiers. So, you start pushing the keys to your verifiers, which now trusts both the signing key A as well as the signing key B. Sorry, the verification key A and the verification B. Uh and at this point, the signer is",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "still on the previous key A, so which means that the certificates in the fleet are still on the signing key are signed with the signing key A. Uh you need to first verify that there is full distribution, which means that all the verifiers have both the public",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "keys in their trust bundles. Uh and once that that has happened, you can now pivot over to the new signing key in the signers. So, now the signers are signing with the new key. At this point, you can say that, you know, when",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "you're looking at the metrics, you can now say that you're now only using new keys to verify cert Sorry, sign certificates. Uh and the fleet now has certificates that are signed with the new keys for. So, So, this is a gradual process. You",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "need to wait for all the certificates to rotate over to the new key and you have monitoring signals to verify that the all the certificates are fresh, which means they're all signed with the new key. And now you can distrust the old key,",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "uh at which point the verifiers will all now only trust the new key B. Uh so, here if there's an incident where A was compromised, you're no longer trusting it, which means the attack is muted at this point. Um and now you can obviously delete the",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "old key pair in your KMS wherever else it's been stored. Um so, if you see uh the key features here is uh are that, you know, it's state driven. Uh you need to make sure you have databases that track the key state and also monitoring signals from both",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "the signing side and the verification side to be able to make these state transitions easily. And and also, this needs to be predictable uh and item potent, so to speak. So, there is no, you know, half-baked progress of a step.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "So, despite doing all this, we do there is a potential for incidents here, right? Uh but we need to be prepared to handle those incidents. Um so, the usual scenarios where it's it's a large enough incident is premature change of the keys.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "So, the first scenario is when you change the signing key prematurely. What this means is that your monitoring either did not catch some of the verifiers, which did not still get the new public key B. So, here that you probably left",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "behind some stragglers where the verifier is still on the old key and your certificate is now your new certificates are now signed with the key B and but the verifier still doesn't trust it. At this point, those two services cannot talk to each other. So,",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "this is one scenario where there could be an incident here. And the second scenario is a premature premature distrust of the old public key key revocation, so to speak. So, you remove the signing the key the public key B",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "from the trust bundles. So, the verifier is no longer trust that key, but you left behind some certificate that did not rotate over to the new certificates. So, which means the verify freshness of certificates had some, you know, let's",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "say there was a bug, you couldn't you couldn't catch these stragglers which have old certificates. So, once again, those services cannot communicate, you have an incident at that point. Um, so, how do we prepare for this?",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "Um every state transition here will need to have roll back capability. Um so, let's say you uh prematurely pivot to a new private key, you must be able to roll back seamlessly into the old key so that you still have the verifiers trusting both A",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "and B. So, it should be safe to roll back at that point. Um and like I mentioned, the state changes need to be item potent, so it should be an all or nothing state change. So, there shouldn't be half-baked state left behind.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "Um and continuous improvement of safety signals is very important here and that can only happen if you're like continually testing your pipeline, uh particularly when your fleet is expanding, you're adding new hardware, new services,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "which are not probably into your monitoring pipeline. That's going to make it hard whenever there's an incident and they're left behind in the monitoring which is hooking into your state changes. The third pattern is talking about availability and tiered SLOs.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "Uh so, we talked about the different rotations. Obviously, they are of different flavor, although you're doing the same key transitions, they are of a different flavor in terms of like the speed and the SLOs that we just mentioned in a few a few slides",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "back. So, the periodic hygienic rotations, so to speak, are routine and slow roll and so, conservative SLOs are important here and making sure there's no impact to production and zero potentially zero customer impact, right? Those for the customer",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "should be pretty much like it should be opaque to them. They're not able to really be even know that the key rotation is happening at this point. Whereas for emergency or compliance reasons, it's like a knob you have, you just push it and",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "the service need to be aware that this is happening because it's it's potentially going to cause some outages, but you need to be resilient to non-critical outages versus critical outages. You don't want a security incident to trigger an",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "availability incident. So, it still needs to have SLOs, so to speak, but at the same time be resilient to non-critical services failing for some reason. Uh so, I'll [clears throat] quickly dive into how the pipeline can change for one",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "versus the other. So, first looking into emergency rotation, uh the features here is basically that each step is rapid, uh but painfully reversible because you're it's rapid because you're probably not doing some safety checks that you would do for hygienic",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "rotations. Uh and there's a potential impact on availability. Uh like I said, probably weaker SLOs for non-critical workloads because you're We're to push to safety at this point. And safety checks only for highly critical workloads so that you don't",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "bring down important services. And if there are misbehaving workloads in terms of like stragglers that have not caught up to new certificates, the strategy here could be to quarantine them from production so that they're not",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "holding up the key rotation so to speak because your monitoring signal is probably saying, \"Hey, there are these services or like devices that have not caught up and so I'm not able to proceed with the rotation.\" So at this point you",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "just quarantine them out and drain them and you know, proceed with the rotation. Comparing that with a periodic hygienic rotation, we should think about this as a long-running process. So each state change is a potentially a cron job, right? So you",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "have periodic key key additions >> [clears throat] >> basically governed by whatever compliance you're trying to meet. Let's say six year age key age needs to be six months so these should run at that period essentially. So both all the steps basically",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "addition, distribution, and change of keys based on the monitoring data happen at a regular cadence. >> [clears throat] >> So here we of course we need to make sure there are high availability guarantees for almost all workloads not",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "just critical workloads per se. And you can be a little more conservative with the misbehaving workloads which are not catching up instead of like quarantining in the previous case here, we can just wait for them to be repaired, reinstalled,",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "drained, and then catch up and then proceed with the rotation so to speak. And the last pattern is regarding observability and audit trails. So like you saw in the pipeline we just went through, monitoring state is important for even making progress in",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "the key rotation. So metrics are important just to even build the pipeline but they're doing more than just that because you need an auditory architecture for both compliance requirements as well as to make sure that your incident response is captured",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "correctly when you're auditing it. And so making sure that metrics and databases are based out of key identifiers so you're able to answer all the questions in case of an incident or an audit. So it's important to maintain like the",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "key identifiers, the timestamps not just in your KMS but also in the services that are using it for signing and for verification. So that you're able to answer these questions like what signing keys are in use, when were they created, when were they retired,",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "how much percentage of the fleet is using you know, is trusting this public key X. And also particularly the certificate age tracking that is important because you want to know particularly in a fine grain way if possible so that you know",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "if critical hardware and critical workloads are on fresh certificates so to speak. The TLDR here is that metrics must prove the actual state of the security perimeter. So at whatever stage of the process you are, you're able to accurately depict",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "where the pipeline is, where the keys are, and [clears throat] what state each each service is at. >> [clears throat] >> Yeah, so we are trying to build a dual use infrastructure here. So have a knob with the same pipeline that it is built for",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "slow deliberate compliance but also works as a fast tool in an emergency. And leveraging automation to pivot between the two based on what you're trying to solve for. And the automation as well like we just talked about is",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "for both negotiating risk for compliance purposes and also for maintaining verifiability while accelerating velocity during critical compromises. So we did also see some the same design patterns working for some other non-cryptography pushes to the fleet.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "Think about all other kinds of high stakes auditable automation that are needed, right? I've given a couple of examples here like pushing network changes throughout the fleet is also pretty much a state driven workflow similar to the key",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "rotation we just talked about. And where there's when there is a security critical kernel patch that needs to be rolled out, that was very similar to handling key rotation incident because you want to make sure every machine is now on the latest kernel patch.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "So this is also very similar to the item important state changes that we're just talking about. will just talk about the takeaways here that we want to see from this talk. We talked about the SRE challenges specifically with the constraints with",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "data sovereignty as well as incident response and aligning technical architecture with these mandates. And we saw how automation can be built for satisfying both compliance and also used as a tool for rapid response. And we talked about risk minimization",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "so deploying automated pipelines for high impact rotations and making sure that there's minimal human involvement which is not just to reduce toil but also for reducing the vulnerability window. And we also talked about monitoring and observability, how",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "we can implement continuous monitoring for transaction integrity as well as for audit purposes. I just want to call out that the goal is to shift from static compliance to dynamic verifiable security that scales with infrastructure velocity. So this is",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "basically secured by design pattern. This this turn will be hard for you know, long-running services a fleet that's really old like the Google data center data centers but moving towards you know, provable compliance is getting critical by the day.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "And that is my talk. We can take questions at this point.",
+      "start": 594,
+      "duration": 6
+    }
+  ]
+}

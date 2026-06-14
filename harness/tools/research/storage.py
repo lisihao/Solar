@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 CONFIG_PATH = Path.home() / ".solar" / "config.json"
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 SEVEN_TABLES = (
     "research_runs",
@@ -74,9 +76,18 @@ def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     return cur.fetchone() is not None
 
 
+def quote_identifier(value: str) -> str | None:
+    if not SQL_IDENTIFIER_RE.match(value):
+        return None
+    return '"' + value.replace('"', '""') + '"'
+
+
 def table_count(conn: sqlite3.Connection, table_name: str) -> int:
     """Return the number of rows in a table."""
-    cur = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+    quoted_table = quote_identifier(table_name)
+    if quoted_table is None:
+        raise ValueError(f"invalid table identifier: {table_name}")
+    cur = conn.execute("SELECT COUNT(*) FROM " + quoted_table)
     return cur.fetchone()[0]
 
 

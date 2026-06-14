@@ -26,7 +26,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
-HARNESS_DIR = os.path.expanduser("~/.solar/harness")
+HARNESS_DIR = os.path.expanduser(os.environ.get("HARNESS_DIR", "~/.solar/harness"))
 SESSIONS_DIR = os.path.join(HARNESS_DIR, "sessions")
 
 VALID_TYPES = frozenset({
@@ -37,11 +37,32 @@ VALID_TYPES = frozenset({
     "model_call_requested", "model_call_succeeded", "model_call_failed",
     "model_session_started", "model_session_ended",
     "tool_call_requested", "tool_call_succeeded", "tool_call_failed",
+    "node.result_submitted", "verifier.run.started", "verifier.rule.passed",
+    "verifier.rule.failed", "verifier.gate.verdict", "node.completed",
+    "node.blocked", "sprint.completed", "sprint.blocked",
+    "verifier.waiver.applied",
 })
+
+EVENT_WRITE_POLICY: Dict[str, set[str]] = {
+    "node.result_submitted": {"operator_runtime", "external_operator_bridge", "completion_pipeline"},
+    "verifier.run.started": {"verifier_runtime"},
+    "verifier.rule.passed": {"verifier_runtime"},
+    "verifier.rule.failed": {"verifier_runtime"},
+    "verifier.gate.verdict": {"verifier_runtime"},
+    "node.completed": {"gate_controller"},
+    "node.blocked": {"gate_controller"},
+    "sprint.completed": {"parent_gate_controller"},
+    "sprint.blocked": {"parent_gate_controller"},
+    "verifier.waiver.applied": {"gate_controller", "parent_gate_controller"},
+}
 
 
 class DuplicateEventError(Exception):
     """Raised when an event with a matching idempotency_key already exists."""
+
+
+class UnauthorizedEventWrite(Exception):
+    """Raised when a writer role is not allowed to append an event type."""
 
 
 class SessionLog:
@@ -104,6 +125,7 @@ class SessionLog:
         causation_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         payload: Optional[Dict[str, Any]] = None,
+        writer_role: Optional[str] = None,
     ) -> str:
         """Append one event; return its event_id.
 
@@ -112,6 +134,10 @@ class SessionLog:
         """
         if event_type not in VALID_TYPES:
             raise ValueError(f"Unknown event type: {event_type!r}")
+        role = writer_role or actor or source
+        allowed_roles = EVENT_WRITE_POLICY.get(event_type)
+        if allowed_roles is not None and role not in allowed_roles:
+            raise UnauthorizedEventWrite(f"{role} cannot write {event_type}")
 
         event_id = str(uuid.uuid4())
         with open(self._path, "a+", encoding="utf-8") as fh:

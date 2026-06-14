@@ -84,10 +84,15 @@ def _pane_visibly_idle(pane: str, tail: str | None = None) -> bool:
     """
     helper = getattr(gnd, "_pane_visibly_idle", None)
     if callable(helper):
-        return bool(helper(pane))
+        if bool(helper(pane)):
+            return True
     text = tail if tail is not None else gnd._pane_tail(pane)
     tail_helper = getattr(gnd, "_tail_has_idle_prompt_footer", None)
     if callable(tail_helper) and tail_helper(text):
+        return True
+    if re.search(r"(?:^|\n)❯[\s\u00a0]*(?:\n|$)", text) and re.search(
+        r"bypass permissions on|accept edits on|shift\+tab to cycle", text, re.I
+    ):
         return True
     return bool(re.search(r"❯[\s\u00a0]+Try\s+\"", text))
 
@@ -284,14 +289,25 @@ def diagnose_pane(pane: str, title: str, registry: PaneHygieneRegistry | None = 
     runtime_reason = "" if cooldown_reason else gnd._pane_runtime_unavailable_reason(pane, title)
     unavailable_reason = "" if (cooldown_reason or runtime_reason) else gnd._pane_unavailable_reason(pane)
     tui_busy = gnd._pane_tui_busy(pane)
+    pane_dead = bool(getattr(gnd, "_pane_dead", lambda _pane: False)(pane))
     token_count = _tail_token_count(tail)
     visibly_idle = _pane_visibly_idle(pane, tail)
 
     status = "clean"
     reason = "ready"
     action = "none"
-    if lease and str(lease.get("expires_at") or "") > _utc_now():
+    recoverable_unavailable = unavailable_reason in {
+        "unsubmitted_prompt_residue",
+        "queued_prompt_residue",
+        *getattr(gnd, "RECOVERABLE_DISPATCH_PROMPT_REASONS", set()),
+    }
+
+    if pane_dead:
+        status, reason, action = "respawn_required", "pane_dead", "respawn_lab"
+    elif lease and str(lease.get("expires_at") or "") > _utc_now():
         status, reason, action = "running", "live_lease", "wait"
+    elif recoverable_unavailable:
+        status, reason, action = "blocked", unavailable_reason, "recover_prompt"
     elif tui_busy:
         status, reason, action = "running", "tui_busy", "wait"
     elif cooldown_reason:
@@ -318,6 +334,7 @@ def diagnose_pane(pane: str, title: str, registry: PaneHygieneRegistry | None = 
         "cooldown_reason": cooldown_reason,
         "runtime_reason": runtime_reason,
         "unavailable_reason": unavailable_reason,
+        "pane_dead": pane_dead,
         "tui_busy": tui_busy,
         "visibly_idle": visibly_idle,
         "token_count": token_count,
@@ -354,6 +371,7 @@ def repair_all(*, dry_run: bool = False, include_protected: bool = False) -> dic
                 "exhausted" in cooldown_reason
                 or "clear_gate_failed" in cooldown_reason
                 or "assigned_pane_unavailable:pane_title_active_work" in cooldown_reason
+                or "eval_send_failed" in cooldown_reason
             )
             and (item.get("visibly_idle") or "exhausted" in cooldown_reason)
             and not item.get("lease")
@@ -411,6 +429,29 @@ def repair_all(*, dry_run: bool = False, include_protected: bool = False) -> dic
                 "skip_reason": "protected_pane",
             })
             continue
+        prompt_recovery: dict[str, Any] | None = None
+        reason = str(item.get("reason") or "")
+        recoverable_prompt_reason = (
+            item.get("status") == "blocked"
+            and (
+                reason in getattr(gnd, "RECOVERABLE_DISPATCH_PROMPT_REASONS", set())
+                or reason == "unsubmitted_prompt_residue"
+            )
+        )
+        if recoverable_prompt_reason:
+            prompt_recovery = {"attempted": not dry_run, "reason": reason, "dismissed": False}
+            if not dry_run:
+                if reason == "unsubmitted_prompt_residue":
+                    dismissed = bool(gnd._clear_stale_prompt_residue(pane))
+                else:
+                    dismissed = bool(gnd._dismiss_dispatch_prompt(pane, reason))
+                prompt_recovery["dismissed"] = dismissed
+                if dismissed:
+                    refreshed = diagnose_pane(pane, str(item.get("title") or ""), reg)
+                    item = refreshed
+                    desired = item["desired_hygiene_state"]
+                    current = item.get("hygiene_state") or current
+                    cooldown_reason = str(item.get("cooldown_reason") or "")
         preserve_severe_state = current in {
             PaneState.cooling.value,
             PaneState.needs_recover.value,
@@ -434,6 +475,7 @@ def repair_all(*, dry_run: bool = False, include_protected: bool = False) -> dic
                 "dry_run": dry_run,
                 "skipped": True,
                 "skip_reason": "existing_state_more_severe",
+                **({"prompt_recovery": prompt_recovery} if prompt_recovery else {}),
             })
             continue
         repair = {
@@ -443,6 +485,8 @@ def repair_all(*, dry_run: bool = False, include_protected: bool = False) -> dic
             "reason": item["reason"],
             "dry_run": dry_run,
         }
+        if prompt_recovery:
+            repair["prompt_recovery"] = prompt_recovery
         if not dry_run:
             repair["result"] = _transition_to(reg, pane, desired, f"pane_doctor:{item['reason']}")
             if stale_idle_recover_cooldown and repair["result"].get("ok"):
@@ -455,10 +499,12 @@ def _lab_respawn_candidate(item: dict[str, Any]) -> tuple[bool, str]:
     pane = item["pane"]
     if not LAB_PANE_RE.match(pane):
         return False, "not_lab_builder_pane"
-    if item.get("lease"):
+    if item.get("lease") and item.get("reason") != "pane_dead":
         return False, "live_lease"
-    if item.get("hygiene_state") != PaneState.needs_respawn.value:
+    if item.get("hygiene_state") != PaneState.needs_respawn.value and item.get("reason") != "pane_dead":
         return False, f"hygiene_state_not_needs_respawn:{item.get('hygiene_state') or 'missing'}"
+    if item.get("reason") == "pane_dead":
+        return True, "pane_dead"
     return True, "needs_respawn"
 
 
@@ -517,6 +563,15 @@ def respawn_lab(*, dry_run: bool = False, max_items: int = 1, pane_filter: str =
         before_state = action["before_state"]
         try:
             subprocess.run(["tmux", "respawn-pane", "-k", "-t", pane, respawn_cmd], check=True, timeout=10)
+            released_lease = False
+            lease_info = item.get("lease") if isinstance(item.get("lease"), dict) else {}
+            dispatch_id = str(lease_info.get("dispatch_id") or "")
+            if item.get("reason") == "pane_dead" and dispatch_id:
+                try:
+                    gnd.release_lease(pane, dispatch_id, "pane_doctor_respawn_dead_pane")
+                    released_lease = True
+                except Exception:
+                    released_lease = False
             trans = _transition_to(reg, pane, PaneState.running.value, "pane_doctor:lab_respawn_completed")
             cooldown_cleared = _clear_pane_cooldown(pane)
             _record_respawn(
@@ -525,13 +580,14 @@ def respawn_lab(*, dry_run: bool = False, max_items: int = 1, pane_filter: str =
                 PaneState.running.value,
                 success=bool(trans.get("ok")),
                 reason="pane_doctor_lab_respawn",
-                extra={"slot": slot, "cooldown_cleared": cooldown_cleared, "work_dir": str(work_dir)},
+                extra={"slot": slot, "cooldown_cleared": cooldown_cleared, "work_dir": str(work_dir), "released_lease": released_lease},
             )
             actions.append(action | {
                 "skipped": False,
                 "ok": bool(trans.get("ok")),
                 "transition": trans,
                 "cooldown_cleared": cooldown_cleared,
+                "released_lease": released_lease,
             })
         except Exception as exc:
             _record_respawn(

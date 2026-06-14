@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar.local/schemas/orchestration-execution-trace.schema.json",
+  "title": "Solar Orchestration Execution Trace",
+  "description": "Stable data contract for orchestration evidence package. Covers dispatch, task_graph node, operator, surface, lease, ack, pane hygiene, failure, artifact, and verifier result. Used by S04 Orchestration UI and downstream O2-O6 nodes.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "trace_id",
+    "dispatch_id",
+    "sprint_id",
+    "task_type",
+    "logical_op",
+    "operator_id",
+    "surface",
+    "pane_hygiene_state",
+    "created_at",
+    "dispatch",
+    "lease",
+    "ack",
+    "verifier"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "solar.orchestration_trace.v1"
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Globally unique trace identifier."
+    },
+    "dispatch_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Dispatcher-assigned ID linking this trace to the originating dispatch event."
+    },
+    "sprint_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Sprint or task context identifier."
+    },
+    "task_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Semantic task type (e.g., evidence_schema_compile, graph_dispatch_integrate)."
+    },
+    "logical_op": {
+      "type": "string",
+      "description": "Logical operator name from the task graph node.",
+      "minLength": 1
+    },
+    "node_id": {
+      "type": "string",
+      "description": "DAG node identifier within the sprint task graph."
+    },
+    "capsule_id": {
+      "type": ["string", "null"],
+      "description": "Capability capsule selected for this execution. Null when no capsule was resolved."
+    },
+    "operator_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Physical operator ID executing this trace (from physical-operators config; never hardcoded)."
+    },
+    "surface": {
+      "type": "string",
+      "enum": ["tui", "headless", "local", "browser", "mcp"],
+      "description": "Execution surface type."
+    },
+    "pane_hygiene_state": {
+      "type": "string",
+      "enum": ["clean", "dirty", "stale", "recovering", "unknown"],
+      "description": "Current pane hygiene classifier state at dispatch time. Sourced from pane hygiene runtime; never inferred from prose."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Trace creation timestamp (ISO 8601 UTC)."
+    },
+    "updated_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "dispatch": {
+      "$ref": "#/$defs/dispatch_info"
+    },
+    "lease": {
+      "$ref": "#/$defs/lease_record"
+    },
+    "ack": {
+      "$ref": "#/$defs/ack_record"
+    },
+    "hygiene_timeline": {
+      "type": "array",
+      "description": "Ordered sequence of hygiene state transitions for this pane during execution.",
+      "items": {
+        "$ref": "#/$defs/timed_state"
+      },
+      "default": []
+    },
+    "failure_mode": {
+      "type": ["string", "null"],
+      "description": "Structured failure classification when the trace ended in failure. Null on success.",
+      "examples": ["ack_timeout", "lease_expired", "hygiene_block", "verifier_reject", "dispatch_fail", "operator_crash"]
+    },
+    "verifier": {
+      "$ref": "#/$defs/verifier_result"
+    },
+    "artifact_refs": {
+      "type": "array",
+      "description": "Output artifacts produced by this trace execution.",
+      "items": {
+        "$ref": "#/$defs/artifact_ref"
+      },
+      "default": []
+    },
+    "cost": {
+      "$ref": "#/$defs/cost_info"
+    },
+    "evidence_completeness": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Score [0,1] reflecting how complete the structured evidence is. Computed by verifier."
+    },
+    "data_sources": {
+      "type": "array",
+      "description": "Config / registry paths used to resolve operator, capsule, and surface (no hardcoded user paths).",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "legacy": {
+      "type": "object",
+      "description": "Backward-compatible container for raw payloads from prior schema versions.",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "dispatch_info": {
+      "type": "object",
+      "required": ["dispatch_status", "dispatch_ts"],
+      "additionalProperties": false,
+      "properties": {
+        "dispatch_status": {
+          "type": "string",
+          "enum": ["queued", "dispatched", "active", "completed", "failed", "cancelled"]
+        },
+        "dispatch_ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dispatch_file": {
+          "type": ["string", "null"],
+          "description": "Relative path to dispatch file; resolved via SOLAR_HARNESS_DIR."
+        },
+        "target_role": {
+          "type": ["string", "null"],
+          "description": "Intended operator role (e.g., builder, evaluator)."
+        },
+        "required_capabilities": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": []
+        },
+        "preferred_model": {
+          "type": ["string", "null"]
+        },
+        "write_scope": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": []
+        },
+        "blocked_reason": {
+          "type": ["string", "null"],
+          "description": "Non-null when dispatch was blocked (e.g., missing task_graph)."
+        },
+        "retry_count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    },
+    "lease_record": {
+      "type": "object",
+      "required": ["lease_id", "lease_state", "timeline"],
+      "additionalProperties": false,
+      "properties": {
+        "lease_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lease_state": {
+          "type": "string",
+          "enum": ["pending", "acquired", "active", "released", "expired", "revoked"]
+        },
+        "acquired_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "released_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "ttl_ms": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "release_reason": {
+          "type": ["string", "null"]
+        },
+        "timeline": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/timed_state"}
+        }
+      }
+    },
+    "ack_record": {
+      "type": "object",
+      "required": ["ack_status", "timeline"],
+      "additionalProperties": false,
+      "properties": {
+        "ack_status": {
+          "type": "string",
+          "enum": ["pending", "ack_start", "ack_done", "timeout", "rejected"]
+        },
+        "ack_start_ts": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "ack_done_ts": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "ack_wait_ms": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "ack_timeout": {
+          "type": "boolean",
+          "default": false
+        },
+        "timeline": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/timed_state"}
+        }
+      }
+    },
+    "verifier_result": {
+      "type": "object",
+      "required": ["decision"],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["PASS", "FAIL", "WARNING", "PENDING"],
+          "description": "Verifier or evaluator final decision. Must not be PASS solely from pane prose."
+        },
+        "verifier_actor_id": {
+          "type": ["string", "null"],
+          "description": "ID of the verifier capsule or evaluator that produced this decision."
+        },
+        "verifier_ts": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "acceptance_coverage": {
+          "type": "array",
+          "description": "Acceptance criteria IDs that this verifier checked.",
+          "items": {"type": "string"},
+          "default": []
+        },
+        "warnings": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": []
+        },
+        "failure_mode": {
+          "type": ["string", "null"]
+        },
+        "evidence_missing": {
+          "type": "array",
+          "description": "Evidence items required but not found (causes FAIL or WARNING).",
+          "items": {"type": "string"},
+          "default": []
+        }
+      }
+    },
+    "artifact_ref": {
+      "type": "object",
+      "required": ["kind", "path", "ts"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "examples": ["handoff", "schema", "test_result", "capsule_plan", "physical_plan", "eval_report"]
+        },
+        "path": {
+          "type": "string",
+          "description": "Relative path from SOLAR_HARNESS_DIR; no hardcoded user paths."
+        },
+        "hash": {
+          "type": ["string", "null"]
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "cost_info": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quota_pool": {"type": ["string", "null"]},
+        "cost_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "cost_usd": {"type": ["number", "null"], "minimum": 0},
+        "duration_ms": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "timed_state": {
+      "type": "object",
+      "required": ["ts", "state"],
+      "additionalProperties": false,
+      "properties": {
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detail": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

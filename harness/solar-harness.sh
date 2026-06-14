@@ -852,18 +852,26 @@ show_status() {
     local cnt
     cnt=$(ls "$SPRINTS_DIR"/*.status.json 2>/dev/null | wc -l | tr -d ' ')
     log "Sprints: ${cnt}"
-    for f in "$SPRINTS_DIR"/*.status.json; do
-      [[ -f "$f" ]] || continue
-      local sid st stitle
-      sid=$(python3 -c "import json; print(json.load(open('$f')).get('id','?'))" 2>/dev/null)
-      st=$(python3 -c  "import json; print(json.load(open('$f')).get('status','?'))" 2>/dev/null)
-      stitle=$(python3 -c "import json; print(json.load(open('$f')).get('title',''))" 2>/dev/null)
-      if [[ -n "$stitle" ]]; then
-        echo -e "  ${G}${stitle}${N} — ${st} (${sid})"
-      else
-        echo -e "  ${G}${sid}${N} — ${st}"
-      fi
-    done
+    python3 - "$SPRINTS_DIR" "$G" "$N" <<'PY'
+import glob
+import json
+import sys
+
+sprints_dir, green, normal = sys.argv[1:]
+for path in glob.glob(f"{sprints_dir}/*.status.json"):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        continue
+    sid = data.get("id") or data.get("sprint_id") or "?"
+    status = data.get("status") or "?"
+    title = data.get("title") or ""
+    if title:
+        print(f"  {green}{title}{normal} — {status} ({sid})")
+    else:
+        print(f"  {green}{sid}{normal} — {status}")
+PY
   else
     if tmux has-session -t "$LAB_SESSION_NAME" 2>/dev/null; then
       ok "Solar Harness Parallel Builder Lab 运行中 ($LAB_SESSION_NAME)"
@@ -2858,6 +2866,21 @@ case "${1:-start}" in
     human_prefix "runtime" "session $*"
     python3 "$HARNESS_DIR/lib/session_tools.py" "$@"
     ;;
+  verify)
+    shift || true
+    human_prefix "verifier" "verify $*"
+    python3 "$HARNESS_DIR/tools/genesis_verifier.py" "$@"
+    ;;
+  standards)
+    shift || true
+    human_prefix "standards" "standards $*"
+    python3 "$HARNESS_DIR/tools/standards_guard.py" "$@"
+    ;;
+  node)
+    shift || true
+    human_prefix "node" "node $*"
+    python3 "$HARNESS_DIR/tools/node_completion.py" "$@"
+    ;;
   verify-integrations|capability-e2e)
     _cap_fail=0
     for _cap_e2e in \
@@ -4029,6 +4052,9 @@ PY
     echo "  $0 status-server [start|stop|restart|status]  管理 HTTP 状态面板 (port 8765)"
     echo "  $0 mermaid [--open] [file.mmd]  打开 Mermaid .mmd 架构图浏览器"
     echo "  $0 integrations status [--json]  外部开源集成六态健康检查"
+    echo "  $0 standards <compile|coverage|run|explain|ratchet-coverage> [--json]  Standards-as-Code 规则编译与门禁"
+    echo "  $0 verify <genesis-seed|changed|ci|ratchet-baseline|explain> [--json]  GenesisPod/Solar verifier 旁路规则门禁"
+    echo "  $0 node <submit-result|verify-result|finalize|force-complete> [--json]  节点结果提交与强制 completion gate"
     echo "  $0 verify-integrations  端到端验证 Drive/OWL/MarkItDown/agency + 两个四分屏 dispatch 能力"
     echo "  $0 everything-claude-code [doctor|inventory|report|install --dry-run]  Everything Claude Code 候选集成审计"
     echo "  $0 meta-harness [status|doctor|run|apply|history]  Meta-Harness 自优化外循环入口（默认 dry-run）"
@@ -4251,7 +4277,7 @@ PY
         fi
         ;;
       sync-vault)
-        # S2.5: Index /Users/sihaoli/Knowledge (or --vault PATH) into Solar DB
+        # S2.5: Index ${SOLAR_KNOWLEDGE_DIR} (or --vault PATH) into Solar DB
         _indexer="${HARNESS_DIR}/lib/obsidian-vault-indexer.py"
         _sv_vault="${OBSIDIAN_VAULT_PATH:-$HOME/Knowledge}"
         _sv_args=()
@@ -5170,6 +5196,17 @@ PY
       quota-refresh|refresh-quota|quota-status)
         python3 "$_pm_dispatch_py" quota-refresh "$@"
         ;;
+      health-watchdog|operator-health-watchdog|watchdog)
+        _health_watchdog_py="$HARNESS_DIR/tools/operator_health_watchdog.py"
+        if [[ ! -f "$_health_watchdog_py" ]]; then
+          _repo_health_watchdog_py="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tools/operator_health_watchdog.py"
+          [[ -f "$_repo_health_watchdog_py" ]] && _health_watchdog_py="$_repo_health_watchdog_py"
+        fi
+        if [[ ! -f "$_health_watchdog_py" ]]; then
+          err "operator_health_watchdog.py not found: $_health_watchdog_py"; exit 1
+        fi
+        python3 "$_health_watchdog_py" "$@"
+        ;;
       install-quota-refresh|install-quota-launchd)
         bash "$HARNESS_DIR/scripts/quota-refresh-daemon.sh" install "$@"
         ;;
@@ -5200,6 +5237,7 @@ PY
         echo "  $0 pm-fleet drain-builder-ready [--dry-run] [--max-items N]"
         echo "  $0 pm-fleet prune-rate-limits [--json]"
         echo "  $0 pm-fleet quota-refresh [--json] [--apply]"
+        echo "  $0 pm-fleet health-watchdog [--json] [--apply]"
         echo "  $0 pm-fleet install-quota-refresh [--interval SECONDS]"
         echo "  $0 pm-fleet quota-refresh-status"
         echo "  $0 pm-fleet install-rate-limit-pruner [--interval SECONDS]"
@@ -5212,6 +5250,26 @@ PY
         err "Unknown pm-fleet subcommand: $_pm_subcmd"; exit 1
         ;;
     esac
+    ;;
+
+  operator-health-watchdog|health-watchdog|watchdog)
+    shift
+    _ohw_watchdog_candidates=(
+      "$HARNESS_DIR/tools/operator_health_watchdog.py"
+      "${SOLAR_REPO_DIR:-$HOME/Solar}/harness/tools/operator_health_watchdog.py"
+    )
+    _ohw_watchdog_py=""
+    for _ohw_path in "${_ohw_watchdog_candidates[@]}"; do
+      if [[ -f "$_ohw_path" ]]; then
+        _ohw_watchdog_py="$_ohw_path"
+        break
+      fi
+    done
+    if [[ -z "$_ohw_watchdog_py" ]]; then
+      err "operator_health_watchdog.py not found under $HARNESS_DIR/tools or $HOME/Solar/harness/tools"
+      exit 1
+    fi
+    python3 "$_ohw_watchdog_py" "$@"
     ;;
 
   runtime)

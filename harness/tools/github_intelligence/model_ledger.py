@@ -36,6 +36,7 @@ except ImportError:  # script execution fallback
     from schema import utc_now_iso  # type: ignore
 
 LEDGER_TABLE = "model_call_ledger"
+LEDGER_TABLE_SQL = '"model_call_ledger"'
 
 # Hard daily cap on premium calls (S02 §R4)
 MAX_PREMIUM_CALLS_PER_DAY = 20
@@ -229,7 +230,7 @@ class ModelLedger:
     def premium_count_on(self, date_str: str) -> int:
         cur = self.conn.cursor()
         cur.execute(
-            f"SELECT COUNT(*) FROM {LEDGER_TABLE} WHERE tier='premium' AND substr(created_at,1,10)=?",
+            "SELECT COUNT(*) FROM " + LEDGER_TABLE_SQL + " WHERE tier='premium' AND substr(created_at,1,10)=?",
             (date_str,),
         )
         return int(cur.fetchone()[0])
@@ -244,7 +245,7 @@ class ModelLedger:
             clauses.append("created_at < ?")
             params.append(until)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-        cur.execute(f"SELECT COALESCE(SUM(cost_estimate),0) FROM {LEDGER_TABLE}{where}", params)
+        cur.execute("SELECT COALESCE(SUM(cost_estimate),0) FROM " + LEDGER_TABLE_SQL + where, params)
         return float(cur.fetchone()[0])
 
     def usage_by_model(self, since: str | None = None) -> dict[str, dict[str, float | int]]:
@@ -291,7 +292,7 @@ class ModelLedger:
             params.append(since)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         sql = (
-            f"SELECT * FROM {LEDGER_TABLE}{where} ORDER BY created_at DESC LIMIT ?"
+            "SELECT * FROM " + LEDGER_TABLE_SQL + where + " ORDER BY created_at DESC LIMIT ?"
         )
         params.append(limit)
         self.conn.row_factory = sqlite3.Row

@@ -4,6 +4,7 @@
 import sys
 import json
 import argparse
+import shlex
 from pathlib import Path
 
 try:
@@ -14,8 +15,9 @@ except ImportError:
 
 MAX_PANES_PER_TAB = 4
 VALID_LAYOUTS = {"single", "split", "tri", "quad"}
-VALID_MODES = {"capture", "tail"}
+VALID_MODES = {"attach", "capture", "interactive-view", "status-card", "tail"}
 VALID_SOURCES = {"local", "remote"}
+DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "cmux-workspace-sample.yaml"
 
 # Layout -> cmux split commands (sequence of split-pane calls)
 LAYOUT_SPLITS = {
@@ -42,8 +44,12 @@ def validate_pane(pane: dict, tab_id: str, idx: int):
         err(f"tab={tab_id} pane[{idx}] source=remote requires ssh_profile")
     if src == "local" and pane.get("ssh_profile"):
         err(f"tab={tab_id} pane[{idx}] source=local must not have ssh_profile")
+    if mode in {"attach", "interactive-view"} and not (pane.get("tmux_session") or pane.get("tmux_target")):
+        err(f"tab={tab_id} pane[{idx}] mode={mode} requires tmux_session or tmux_target")
     if mode == "capture" and not pane.get("tmux_target"):
         err(f"tab={tab_id} pane[{idx}] mode=capture requires tmux_target")
+    if mode == "status-card" and not pane.get("tmux_targets"):
+        err(f"tab={tab_id} pane[{idx}] mode=status-card requires tmux_targets")
     if mode == "tail" and not pane.get("log_path"):
         err(f"tab={tab_id} pane[{idx}] mode=tail requires log_path")
 
@@ -74,7 +80,8 @@ def build_pane_command(pane: dict, ssh_profiles: dict, scripts_dir: str) -> str:
     interval = pane.get("interval_sec", 1)
 
     if mode == "capture":
-        view_cmd = f"tmux-pane-view {target} {lines} {interval}"
+        view_bin = shlex.quote(str(Path(scripts_dir) / "tmux-pane-view"))
+        view_cmd = f"{view_bin} {shlex.quote(str(target))} {lines} {interval}"
         if src == "remote":
             profile = pane["ssh_profile"]
             prof_cfg = ssh_profiles.get(profile, {})
@@ -83,6 +90,40 @@ def build_pane_command(pane: dict, ssh_profiles: dict, scripts_dir: str) -> str:
             dest = f"{user}@{host}" if user else host
             return f"ssh {dest} '~/bin/tmux-pane-view {target} {lines} {interval}'"
         return view_cmd
+
+    if mode in {"attach", "interactive-view"}:
+        session = pane.get("tmux_session") or pane.get("tmux_target", "")
+        attach_mode = pane.get("attach_mode", "interactive")
+        view_bin = shlex.quote(str(Path(scripts_dir) / "tmux-session-view"))
+        focus_target = pane.get("focus_target") or pane.get("tmux_target") or ""
+        view_cmd = f"{view_bin} {shlex.quote(str(session))} {shlex.quote(str(attach_mode))}"
+        if focus_target:
+            view_cmd = f"{view_cmd} {shlex.quote(str(focus_target))}"
+        if src == "remote":
+            profile = pane["ssh_profile"]
+            prof_cfg = ssh_profiles.get(profile, {})
+            host = prof_cfg.get("host", profile)
+            user = prof_cfg.get("user", "")
+            dest = f"{user}@{host}" if user else host
+            remote_cmd = f"~/bin/tmux-session-view {shlex.quote(str(session))} {shlex.quote(str(attach_mode))}"
+            if focus_target:
+                remote_cmd = f"{remote_cmd} {shlex.quote(str(focus_target))}"
+            return f"ssh {dest} {shlex.quote(remote_cmd)}"
+        return view_cmd
+
+    if mode == "status-card":
+        targets = pane.get("tmux_targets", [])
+        interval = pane.get("interval_sec", 3)
+        tail_lines = pane.get("tail_lines", 14)
+        card_bin = shlex.quote(str(Path(scripts_dir) / "tmux-status-card-view"))
+        joined_targets = ",".join(str(item) for item in targets)
+        card_cmd = (
+            f"{card_bin} --targets {shlex.quote(joined_targets)} "
+            f"--interval {interval} --tail-lines {tail_lines}"
+        )
+        if src == "remote":
+            err("mode=status-card currently supports source=local only")
+        return card_cmd
 
     if mode == "tail":
         log_path = pane["log_path"]
@@ -130,7 +171,7 @@ def render_workspace(cfg: dict, scripts_dir: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="Render cmux workspace from yaml config")
-    parser.add_argument("config", help="Path to workspace.yaml")
+    parser.add_argument("config", nargs="?", default=str(DEFAULT_CONFIG), help="Path to workspace.yaml")
     parser.add_argument("--json", action="store_true", help="Output JSON plan instead of shell commands")
     parser.add_argument("--validate-only", action="store_true", help="Validate config and exit")
     args = parser.parse_args()

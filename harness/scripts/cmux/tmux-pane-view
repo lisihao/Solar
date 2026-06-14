@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tmux-pane-view: capture-pane polling mirror (local or via ssh)
+# tmux-pane-view: ANSI-preserving tmux pane mirror for cmux.
 # Usage: tmux-pane-view <session:window.pane> [lines=60] [interval=1]
 set -euo pipefail
 
@@ -7,14 +7,51 @@ TARGET="${1:?usage: tmux-pane-view <session:window.pane> [lines] [interval]}"
 LINES="${2:-60}"
 INTERVAL="${3:-1}"
 HOST="${HOSTNAME:-$(hostname -s 2>/dev/null || echo unknown)}"
+TERM="${TERM:-xterm-256color}"
+MODE="${CMUX_PANE_VIEW_MODE:-scroll}"
+JOIN_WRAPPED="${CMUX_PANE_VIEW_JOIN_WRAPPED:-1}"
+export TERM
 
-while true; do
-  clear
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] host=${HOST}  target=${TARGET}  mode=capture  lines=${LINES}"
-  echo "------------------------------------------------------------"
-  if ! tmux capture-pane -p -t "${TARGET}" -S "-${LINES}" 2>/dev/null; then
-    echo "WARN: capture-pane failed for target=${TARGET} — tmux session/pane may not exist yet"
-    echo "      Retrying in ${INTERVAL}s ..."
+cleanup() {
+  printf '\033[?25h'
+  if [[ "${MODE}" == "live" ]]; then
+    printf '\033[?1049l'
   fi
+}
+trap cleanup EXIT INT TERM
+
+render_frame() {
+  printf '\033[38;5;45m[%s]\033[0m host=%s  target=%s  mode=capture+ansi  lines=%s\n' \
+    "$(date '+%Y-%m-%d %H:%M:%S')" "${HOST}" "${TARGET}" "${LINES}"
+  printf '\033[38;5;238m------------------------------------------------------------\033[0m\n'
+  capture_args=(-e -p)
+  if [[ "${JOIN_WRAPPED}" == "1" || "${JOIN_WRAPPED}" == "true" ]]; then
+    capture_args=(-J "${capture_args[@]}")
+  fi
+  if ! tmux capture-pane "${capture_args[@]}" -t "${TARGET}" -S "-${LINES}" 2>/dev/null; then
+    printf '\033[38;5;214mWARN:\033[0m capture-pane failed for target=%s; retrying in %ss ...\n' \
+      "${TARGET}" "${INTERVAL}"
+  fi
+}
+
+if [[ "${MODE}" == "live" ]]; then
+  # Alternate screen is lower flicker, but it disables normal terminal scrollback
+  # in cmux/Ghostty. Keep it opt-in for wallboard mode only.
+  printf '\033[?1049h\033[?25l'
+  while true; do
+    printf '\033[H'
+    render_frame
+    printf '\033[J'
+    sleep "${INTERVAL}"
+  done
+fi
+
+# Default: scrollback-friendly mode. It appends timestamped snapshots so mouse
+# wheel scroll works in cmux. This is noisier than live mode, but much more
+# inspectable when a pane is moving quickly.
+while true; do
+  printf '\n'
+  render_frame
+  printf '\033[J'
   sleep "${INTERVAL}"
 done

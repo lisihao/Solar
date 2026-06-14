@@ -216,7 +216,22 @@ def _ensure_subtitle_url_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE youtube_subtitle_tracks ADD COLUMN url TEXT")
 
 
+def _normalize_track_kind(track_kind: str | None) -> str:
+    kind = str(track_kind or "").strip().lower()
+    if kind in {"asr", "automatic", "auto_generated", "youtube_asr"}:
+        return "auto"
+    if kind in {"standard", "auto", "translation"}:
+        return kind
+    return "auto" if kind else "standard"
+
+
+def _caption_source_for_track_kind(track_kind: str | None) -> str:
+    return "youtube_auto_caption" if _normalize_track_kind(track_kind) == "auto" else "standard_caption"
+
+
 def _persist_subtitle_track(conn: sqlite3.Connection, track: SubtitleTrack) -> None:
+    track_kind = _normalize_track_kind(track.track_kind)
+    track_id = f"{track.video_id}:{track.source_backend}:{track.language}:{track_kind}"
     conn.execute(
         """INSERT INTO youtube_subtitle_tracks
            (track_id, video_id, source_backend, language, language_name, track_kind,
@@ -236,12 +251,12 @@ def _persist_subtitle_track(conn: sqlite3.Connection, track: SubtitleTrack) -> N
                ELSE 'pending'
              END""",
         (
-            track.track_id,
+            track_id,
             track.video_id,
             track.source_backend,
             track.language,
             track.language_name,
-            track.track_kind,
+            track_kind,
             track.format,
             1 if track.is_auto_generated else 0,
             1 if track.is_translatable else 0,
@@ -343,13 +358,13 @@ def _run_subtitle_download_job(conn: sqlite3.Connection, job, *, state_dir: Path
         clean_path = week_dir / f"{job.video_id}.txt"
         raw_path.write_text(payload, encoding="utf-8")
         clean_path.write_text(clean + "\n", encoding="utf-8")
-        source = "youtube_asr_caption" if track["track_kind"] == "asr" else "standard_caption"
+        source = _caption_source_for_track_kind(track["track_kind"])
         transcript_id = f"t-{job.video_id}-{source}-{hashlib.sha1(clean.encode()).hexdigest()[:12]}"
-        reliability = 0.75 if source == "youtube_asr_caption" else 1.0
+        reliability = 0.75 if source == "youtube_auto_caption" else 1.0
         result = evaluate_quality(
             text=clean,
-            coverage_ratio=0.85 if source == "youtube_asr_caption" else 0.95,
-            hallucination_risk=0.25 if source == "youtube_asr_caption" else 0.10,
+            coverage_ratio=0.85 if source == "youtube_auto_caption" else 0.95,
+            hallucination_risk=0.25 if source == "youtube_auto_caption" else 0.10,
             source_reliability=reliability,
             vocab_terms=_vocab_terms(conn),
             trigger_source=source,
@@ -388,7 +403,7 @@ def _run_subtitle_download_job(conn: sqlite3.Connection, job, *, state_dir: Path
                 track["language"] or "",
                 now,
                 len(clean),
-                1 if source == "youtube_asr_caption" else 0,
+                1 if source == "youtube_auto_caption" else 0,
                 str(raw_path),
                 str(clean_path),
                 hashlib.sha256(clean.encode()).hexdigest(),
@@ -568,7 +583,7 @@ def _best_pending_track(conn: sqlite3.Connection, video_id: str):
         """SELECT * FROM youtube_subtitle_tracks
            WHERE video_id=? AND download_status IN ('pending','failed','success')
            ORDER BY
-             CASE track_kind WHEN 'standard' THEN 0 WHEN 'asr' THEN 1 ELSE 2 END,
+             CASE track_kind WHEN 'standard' THEN 0 WHEN 'auto' THEN 1 WHEN 'asr' THEN 1 ELSE 2 END,
              CASE language WHEN 'en' THEN 0 WHEN 'en-US' THEN 1 WHEN 'en-GB' THEN 2
                            WHEN 'zh' THEN 3 WHEN 'zh-Hans' THEN 4 WHEN 'zh-Hant' THEN 5
                            ELSE 9 END,

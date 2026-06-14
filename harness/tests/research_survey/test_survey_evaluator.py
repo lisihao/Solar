@@ -12,6 +12,25 @@ from research.survey.evaluator import evaluate_survey
 from research.survey.evidence_pack import build_evidence_packs
 from research.survey.planner import create_survey_plan, write_survey_plan
 from research.survey.section_compiler import compile_section, compile_survey
+from research.survey.insight_gates import (
+    run_all_insight_gates,
+    run_generic_survey_toc_gate,
+    run_template_repetition_gate,
+    run_machine_label_leak_gate,
+    run_solar_actionability_gate,
+    run_cais_coverage_gate,
+    run_figure_required_gate,
+    run_citation_visibility_gate,
+    run_prediction_packet_gate,
+    run_user_question_fitness_gate,
+)
+
+_FIXTURE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fixtures")
+if _FIXTURE_DIR not in sys.path:
+    sys.path.insert(0, _FIXTURE_DIR)
+from research_survey.negative_cais_generic_survey_fixture import (
+    create_negative_cais_generic_survey_fixture,
+)
 
 
 def _append_jsonl(path, rows):
@@ -43,6 +62,89 @@ def test_strict_eval_fails_five_section_brief(tmp_path):
     assert result["ok"] is False
     assert "chapter_count_low:1<8" in result["scorecard"]["issues"]
     assert "section_count_low:5<30" in result["scorecard"]["issues"]
+
+
+def test_conference_insight_eval_rejects_correct_but_generic_report(tmp_path):
+    ast = {
+        "title": "深度报告：CAIS 2026 Agent 发展、技术挑战与 Solar 路线",
+        "planner_mode": "conference_insight",
+        "chapters": [
+            {"chapter_id": f"ch{i}", "title": title}
+            for i, title in enumerate([
+                "问题定义与研究边界",
+                "历史脉络与技术演进",
+                "核心架构范式",
+                "方法分类与代表系统",
+                "评估方法与基准体系",
+                "工程实现与部署约束",
+                "风险、安全与可解释性",
+                "产业生态与开源实现",
+            ], start=1)
+        ],
+        "sections": [{"section_id": "ch1/sec1", "chapter_id": "ch1", "title": "研究问题与术语边界"}],
+    }
+    (tmp_path / "survey_report_ast.json").write_text(json.dumps(ast), encoding="utf-8")
+    (tmp_path / "survey_plan.json").write_text(json.dumps({"planner_mode": "conference_insight"}), encoding="utf-8")
+    (tmp_path / "survey_evidence_packs.json").write_text(json.dumps({"blocked": 0, "packs": []}), encoding="utf-8")
+    (tmp_path / "human_final.md").write_text(
+        """
+        # CAIS 2026 Survey
+
+        ## 问题定义与研究边界
+        研究问题与术语边界。official_doc 和 paper 需要区分。claim_id=e1。
+
+        ## 核心架构范式
+        研究问题与术语边界。机制可行性不等于工程可控性。
+        研究问题与术语边界。机制可行性不等于工程可控性。
+        研究问题与术语边界。机制可行性不等于工程可控性。
+        """,
+        encoding="utf-8",
+    )
+
+    result = evaluate_survey(tmp_path, strict=True)
+
+    assert result["ok"] is False
+    assert result["insight_quality"]["active"] is True
+    issues = result["scorecard"]["issues"]
+    assert any(issue.startswith("insight_generic_survey_toc_leak") for issue in issues)
+    assert any(issue.startswith("insight_machine_label_leak") for issue in issues)
+    assert any(issue.startswith("insight_action_mapping_low") for issue in issues)
+    assert any(issue.startswith("insight_solar_absorption_low") for issue in issues)
+    assert "insight_figure_required_missing" in issues
+
+
+def test_insight_required_signals_are_profile_configured_not_default(tmp_path):
+    ast = {
+        "title": "DeepDive insight: AI coding agent 产品机会",
+        "profile": "deepdive-insight",
+        "chapters": [{"chapter_id": "ch1", "title": "核心判断"}],
+        "sections": [{"section_id": "ch1/sec1", "chapter_id": "ch1", "title": "核心判断"}],
+        "insight_profile": {"required_signals": ["Spec Runtime"]},
+    }
+    (tmp_path / "survey_report_ast.json").write_text(json.dumps(ast), encoding="utf-8")
+    (tmp_path / "survey_evidence_packs.json").write_text(json.dumps({"blocked": 0, "packs": []}), encoding="utf-8")
+    (tmp_path / "human_final.md").write_text(
+        """
+        # AI coding agent DeepDive
+
+        ## 核心判断
+        AI coding agent 的中心论点是产品竞争正在转向工作流闭环。
+        行动建议是先做实验验证和产品路线图，配套架构设计、观察指标、风险与证伪条件。
+        https://example.com/source
+        https://example.com/source2
+        https://example.com/source3
+        https://example.com/source4
+        https://example.com/source5
+        <figure>路线图</figure>
+        """,
+        encoding="utf-8",
+    )
+
+    result = evaluate_survey(tmp_path, strict=True)
+
+    assert result["insight_quality"]["active"] is True
+    assert any(issue.startswith("insight_required_signal_missing:Spec Runtime") for issue in result["scorecard"]["issues"])
+    assert not any("Dossier" in issue or "TraceFix" in issue for issue in result["scorecard"]["issues"])
 
 
 def test_strict_eval_passes_controlled_strong_fixture(tmp_path):
@@ -523,3 +625,232 @@ def test_depth_profile_rejects_long_but_shallow_complete_survey(tmp_path):
     assert result["final_quality"]["ok"] is True
     assert any(item.startswith("depth_academic_marker_variety_low:") for item in result["scorecard"]["issues"])
     assert any(item.startswith("depth_terminology_variant_count_low:") for item in result["scorecard"]["issues"])
+
+
+# ---------------------------------------------------------------------------
+# N2 Insight Gates Tests
+# ---------------------------------------------------------------------------
+
+
+def test_insight_gates_reject_negative_cais_generic_survey_fixture(tmp_path):
+    """The negative CAIS generic survey fixture must fail multiple gates."""
+    ast = create_negative_cais_generic_survey_fixture(tmp_path)
+    results = run_all_insight_gates(tmp_path, ast)
+
+    assert len(results) == 9
+    by_id = {r["gate_id"]: r for r in results}
+
+    # Generic survey TOC must fail (all 8 generic titles present)
+    toc = by_id["generic_survey_toc"]
+    assert toc["ok"] is False
+    assert len(toc["matched_patterns"]) >= 4
+    assert "REQ-9.1" in toc["failed_requirement_ids"]
+    assert toc["remediation_hint"]
+
+    # Machine label leak must fail
+    leak = by_id["machine_label_leak"]
+    assert leak["ok"] is False
+    assert "official_doc" in leak["matched_patterns"]
+    assert "claim_id" in leak["matched_patterns"]
+    assert "evidence_id" in leak["matched_patterns"]
+    assert "REQ-9.3" in leak["failed_requirement_ids"]
+
+    # Template repetition must fail
+    template = by_id["template_repetition"]
+    assert template["ok"] is False
+    assert any("研究问题与术语边界" in p for p in template["matched_patterns"])
+    assert "REQ-9.2" in template["failed_requirement_ids"]
+
+    # Solar actionability must fail (no operator/schema/gate in text)
+    action = by_id["solar_actionability"]
+    assert action["ok"] is False
+    assert "REQ-9.4" in action["failed_requirement_ids"]
+
+    # Figure required must fail (no figures)
+    fig = by_id["figure_required"]
+    assert fig["ok"] is False
+    assert "REQ-9.6" in fig["failed_requirement_ids"]
+
+    # Citation visibility must fail (only 1 URL)
+    cite = by_id["citation_visibility"]
+    assert cite["ok"] is False
+    assert "REQ-9.7" in cite["failed_requirement_ids"]
+
+    # CAIS coverage must fail (no required CAIS paper signals in text)
+    cais = by_id["cais_coverage"]
+    assert cais["ok"] is False
+    assert "REQ-9.5" in cais["failed_requirement_ids"]
+    assert len(cais["missing_fields"]) > 0
+
+    # Prediction packet must fail (no packets file)
+    pred = by_id["prediction_packet"]
+    assert pred["ok"] is False
+    assert "REQ-9.8" in pred["failed_requirement_ids"]
+
+    # User question fitness must fail
+    fitness = by_id["user_question_fitness"]
+    assert fitness["ok"] is False
+    assert "REQ-9.9" in fitness["failed_requirement_ids"]
+
+    # All 9 gates must have failed
+    assert all(not r["ok"] for r in results)
+
+
+def test_insight_gates_integrated_in_evaluate_survey_negative_fixture(tmp_path):
+    """evaluate_survey with strict=True must propagate insight gate failures."""
+    ast = create_negative_cais_generic_survey_fixture(tmp_path)
+    result = evaluate_survey(tmp_path, strict=True)
+
+    assert result["ok"] is False
+    assert result["insight_quality"]["active"] is True
+    assert len(result.get("insight_gates", [])) == 9
+
+    issues = result["scorecard"]["issues"]
+
+    # Must have generic survey TOC leak
+    assert any("insight_gate:generic_survey_toc" in issue for issue in issues)
+
+    # Must have machine label leak
+    assert any("insight_gate:machine_label_leak" in issue for issue in issues)
+
+    # Must have figure missing
+    assert any("insight_gate:figure_required" in issue for issue in issues)
+
+    # Must have action mapping low (solar_actionability)
+    assert any("insight_gate:solar_actionability" in issue for issue in issues)
+
+    # Must have weak citation visibility
+    assert any("insight_gate:citation_visibility" in issue for issue in issues)
+
+    # Must have template repetition
+    assert any("insight_gate:template_repetition" in issue for issue in issues)
+
+    # Must have CAIS coverage missing
+    assert any("insight_gate:cais_coverage" in issue for issue in issues)
+
+    # Must have prediction packet missing
+    assert any("insight_gate:prediction_packet" in issue for issue in issues)
+
+    # Must have user question fitness failure
+    assert any("insight_gate:user_question_fitness" in issue for issue in issues)
+
+    # All 9 insight gate failures must appear in issues
+    gate_ids_in_issues = {issue.split(":")[1] for issue in issues if issue.startswith("insight_gate:")}
+    assert len(gate_ids_in_issues) == 9
+
+
+def test_each_gate_result_has_required_fields(tmp_path):
+    """Each gate result must include gate_id, ok, artifact_path, failed_requirement_ids,
+    matched_patterns or missing_fields, and remediation_hint."""
+    ast = create_negative_cais_generic_survey_fixture(tmp_path)
+    results = run_all_insight_gates(tmp_path, ast)
+
+    for gate in results:
+        assert "gate_id" in gate, f"Missing gate_id in {gate}"
+        assert "ok" in gate, f"Missing ok in gate {gate['gate_id']}"
+        assert isinstance(gate["ok"], bool), f"ok must be bool in gate {gate['gate_id']}"
+        assert "artifact_path" in gate, f"Missing artifact_path in gate {gate['gate_id']}"
+        assert "failed_requirement_ids" in gate, f"Missing failed_requirement_ids in gate {gate['gate_id']}"
+        assert isinstance(gate["failed_requirement_ids"], list), f"failed_requirement_ids must be list"
+        assert "remediation_hint" in gate, f"Missing remediation_hint in gate {gate['gate_id']}"
+        assert isinstance(gate["remediation_hint"], str), f"remediation_hint must be str"
+        assert "matched_patterns" in gate or "missing_fields" in gate
+
+
+def test_generic_survey_toc_gate_passes_with_thesis_titles(tmp_path):
+    """A report with thesis-led titles should pass the TOC gate."""
+    ast = {
+        "chapters": [
+            {"chapter_id": "ch1", "title": "Agent 正在从模型应用变成可验证执行系统"},
+            {"chapter_id": "ch2", "title": "CAIS 会议信号: compound system 工程阶段"},
+            {"chapter_id": "ch3", "title": "Dossier: branching search 需要 Persistent Research Ledger"},
+        ],
+        "sections": [],
+    }
+    (tmp_path / "survey_report_ast.json").write_text(json.dumps(ast), encoding="utf-8")
+    result = run_generic_survey_toc_gate(tmp_path, ast)
+    assert result["ok"] is True
+    assert result["matched_patterns"] == []
+
+
+def test_machine_label_leak_gate_passes_clean_output(tmp_path):
+    """Clean human output should pass the machine label leak gate."""
+    ast = {"chapters": [], "sections": []}
+    (tmp_path / "human_final.md").write_text(
+        "# Clean Report\n\nThis is a clean report with no machine labels.\n",
+        encoding="utf-8",
+    )
+    result = run_machine_label_leak_gate(tmp_path, ast)
+    assert result["ok"] is True
+    assert result["matched_patterns"] == []
+
+
+def test_cais_coverage_gate_passes_with_all_signals(tmp_path):
+    """Report mentioning all required CAIS signals should pass."""
+    ast = {"chapters": [], "sections": []}
+    (tmp_path / "human_final.md").write_text(
+        "# CAIS Report\n\n"
+        "Dossier reveals deep research challenges. "
+        "Do Agents Need to Plan Step-by-Step? is a key question. "
+        "Open Agent Specification provides a standard. "
+        "TraceFix enables protocol verification. "
+        "AI Agents for Discovery in the Wild shows real-world deployment.\n",
+        encoding="utf-8",
+    )
+    result = run_cais_coverage_gate(tmp_path, ast)
+    assert result["ok"] is True
+    assert result["missing_fields"] == []
+
+
+def test_prediction_packet_gate_passes_with_complete_packets(tmp_path):
+    """Report with 4 complete prediction packets should pass."""
+    ast = {"chapters": [], "sections": []}
+    packets = [
+        {
+            "claim": "Agent systems will converge on verified execution",
+            "drivers": "formal verification tooling maturity",
+            "leading_indicators": ["adoption of runtime verification"],
+            "counter_scenario": "verification overhead slows adoption",
+            "falsification_condition": "no major framework adopts verification by 2028",
+        }
+        for _ in range(4)
+    ]
+    (tmp_path / "prediction_packets.jsonl").write_text(
+        "\n".join(json.dumps(p, ensure_ascii=False) for p in packets) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "human_final.md").write_text(
+        "# Report\n\n未来预测：Agent 将走向可验证执行。驱动因素是形式化验证工具成熟。"
+        "领先指标是主要框架采纳运行时验证。证伪条件是到 2028 年没有主流框架采纳。\n",
+        encoding="utf-8",
+    )
+    result = run_prediction_packet_gate(tmp_path, ast)
+    assert result["ok"] is True
+
+
+def test_user_question_fitness_gate_passes_when_questions_answered(tmp_path):
+    """Report answering all must-answer questions should pass."""
+    ast = {"chapters": [], "sections": [], "title": "CAIS 2026 Agent"}
+    (tmp_path / "human_final.md").write_text(
+        "# Report\n\n"
+        "CAIS 2026 释放了 Agent 技术信号包括 Dossier 和 TraceFix。"
+        "当前 Agent 重大技术挑战是规划步进验证。"
+        "Solar 应该吸收 BranchingResearchPlanner 作为 operator。"
+        "未来 24-36 个月 Agent 系统将走向可验证执行 runtime。\n",
+        encoding="utf-8",
+    )
+    contract = {
+        "scope_boundaries": {
+            "must_answer": [
+                "CAIS 2026 释放了什么 Agent 技术信号？",
+                "当前 Agent 的重大技术挑战是什么？",
+                "Solar 应该吸收成哪些 operator？",
+                "未来 Agent 系统会怎么演进？",
+            ]
+        }
+    }
+    (tmp_path / "deepdive_requirement_contract.json").write_text(
+        json.dumps(contract, ensure_ascii=False), encoding="utf-8"
+    )
+    result = run_user_question_fitness_gate(tmp_path, ast)
+    assert result["ok"] is True

@@ -1,0 +1,239 @@
+{
+  "videoId": "ow-5l1vf3HY",
+  "title": "FAST '26 - SolidAttention: Low-Latency SSD-based Serving on Memory-Constrained PCs",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 11418,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. I'm Xinrui Chen.\nComes from the Institute of Parallel and\nthe Distributed Systems at SUTD.\nI'm here to discuss a bottleneck that\nsits at the intersection of AI and the\nstorage.\nAs the last language models move from\nmassive data centers to our personal\nlaptops,\nthis work saw attention.\nWe are proposing a way\nto the long context models on\nconsumer-grade hardware\nthat has\nconstrained memory capacity.\nTo solve the problem,\nwe must first look at the two phases in\nthe LLM inference.\nIn the prefill phases, the model digests\nthe entire problem at once.\nIt's computationally heavy,\nbut highly parallel.\nBut once we start the generating task,\nwe enter the code phase.\nThis is sequential and auto regressive.\nEach new token depends on everything\nthat it can be forwarded.\nTo avoid the key creating the entire\nhistory for every single word,\nwe use the KV cache.\nBut the KV cache has a massive\nfootprint.\nThe KV cache grows linearly with the\ncontext lines.\nIf you are running a standard Llama 3 8B\nmodel with a 128K\ncontext,\nyou need over 16GB of VRAM just to store\nthe catch.\nThis is about four times of the model\nsize.\nIt is necessary for like for tasks like\ndocument summary\nor coding agents.\nHowever, most consumer laptops GPUs only\nhave 8 GBs VRAM.\nEven high-end high laptops rarely exist\n16 GB.\nAs soon as you try to have a long\nmeaningful conversation with a local AI,\nthe system runs out of the memory and\nthe crashes.\nNot to mention that when using a laptop\non a daily basis,\nyou need to reserve some memory spaces\nfor the OS\nand other applications.\nThe industry's current bandwidth is\nbeing before quantization,\ncompressing the catch.\nIt helps, but it's a\ndestructive process.\nIn long context scenario,\ncertain tokens\nact as a anchors with high magnitude\noutlier values.\nWhen you contest this to 4-bit, you lose\nthe precisions.\nOur benchmarks showed that while 4-bit\nquantization saves space, it caused\nsignificant accuracy drops, especially\nwith long context.\nWe wanted a solution that saves memory\nwithout compromising the model accuracy.\nOur breakthrough starts with an\nobservation\nabout how this model actually think.\nIf you ask a model about a specific\ndetailed\nuh document,\nit doesn't actually attend to every\nsingle word with equal weight.\nAttention is sparse. Usually less than\nof these tokens in the history are\nactually relevant to the next word.\nIf we can identify those\nimportant tokens and only them in the\nfaster memory,\nwe could theoretically run massive\ncontext on a tiny GPU. Like\nSo, why\nwhy not just put the rest on the SSD?\nBecause of the high latency gap.\nAssessing DRAM takes nanoseconds, while\nassessing a SSD takes hundreds of\nmicroseconds.\nWhen the GPU is waiting for token from\nthe SSD, it's doing zero work.\nIf we use a near on-demand loading\nstrategy,\nthe user ends up waiting seconds for\nevery single word.\nAnd as we all knows,\nSSD achieve optimal performance\nonly with sequential\nand the coarse-grained operations.\nSo, the tiny and the random reads caused\nby attention sparsity\ncannot fully utilize the SSD bandwidth\nwith its\npotential.\nExisting research like FlashAttn tries\nto fix this by hiding the SSD latency\nbehind other works,\nbut it relies on high concurrency.\nProcessing 30 or 60 users at the same\ntime.\nBut on a personal PC, you are the only\nuser.\nWith a batch size of one, there isn't\nenough\nuh computation workloads to hide the IO\nlatency. But,\nso to solve this problem, certain chance\ncore philosophy is co-design.\nWe don't treat it as sparse attention\nalgorithm and the storage management as\nseparate layers.\nWe align the data structure of the key\ncache with the physical page size\nof the SSD.\nWe transform those random tiny reads\ninto coarse-grained sequential\ntransfers. And we also preselect\nand prefetch the key blocks in advance\nto leave sufficient time for IO\ncomputation overlap.\nBut, there is a several challenges.\nThe first is the accuracy-efficiency\ntrade-off.\nThis is a fundamental conflict between\nmodel precision and hardware support.\nTo maximize the SSD performance, data\nmust be transferred in large sequential\nblocks. However, sparse attention\nrequires selecting specific important\ntokens.\nIf we compress multiple\ntokens into a one block,\nit means we might lose critical outlier\ntokens, causing accuracy to plummet.\nAnd the second challenge is the\nprefetching in the\nuh indeterminacy.\nBecause attention is reactive, the model\ncannot identify which key blocks it\nneeds\nfor a specific layer until the previous\nlayers' calculation are finished.\nThis means that the GPU remains idle\nwhile waiting for the SSD to transfer\ndata.\nIn low batch environment, this lack of\nforesight\nprevent pre-fetching\nand the break the IO computation\noverlap.\nAnd then the final challenge is the data\ninconsistency risk.\nRunning IO and the computation in\nparallel\nwith highly constrained memory\ncreates a safety risk.\nSince the RAM is limited,\nwe cannot afford massive buffers.\nThis creates a race condition that\nthe SSD controller might overwrite a\nbuffer with pre-fetched data\nfor the next year\nbefore the GPU has finished reading the\ncurrent data.\nWithout a sophisticated synchronization,\nthe system faces a choice between losing\nperformance\nto locks\nor risking inconsistency.\nAnd then the final challenge\nis running IO and the computation in\nparallel will introduce the data\ninconsistency risk.\nYou know,\nuh when IO and the computation are\nrunning in parallel with highly\nconstrained memory,\nit creates a safety risk.\nSince the RAM is limited, we cannot\nafford\nmassive buffers, right?\nThis creates a race condition.\nThe SSD controller might overwrite a\nbuffer with pre-fetched data\nbefore the GPU has finished reading the\ncurrent data.\nWithout\nsophisticated\nsynchronization,\nthe system faces choice between losing\nperformance to logs\nor risking inconsistency.\nSo, we\nto deal with this challenge, we need to\nanswer three question.\nHow to fully utilize the SSD bandwidth?\nHow to reduce the KV cache loading\nlatency?\nAnd how to efficiently\noverlap IO and computation?\nHere is our layered architecture.\nWe demand the full KV cache on the SSD,\na waiting room in the DRAM, and a tiny\nactive set in the VRAM.\nWe propose three components to\nanswer this question.\nLike the KV consolidator, consolidates\nmultiple KV cache entries to enlarge the\nSSD transfer unit\nto fully utilize the SSD bandwidth.\nAnd the system also use the speculative\nprefetcher\nto prefetch to predict and the prefetch\nthe KV cache.\nWhile SSD aware scheduler\nto orchestrating the fine-grained\ncomputation IO overlap\naccording to their data\ndependencies.\nSo, let's look at how these components\nactually work.\nFirst, we adjust the IO efficiency\nthrough KV interleaving.\nTraditionally, keys and the value are\nstored in separate memory region. This\nrequire two separate SSD reads.\nWe redesign the layout to interleave\nthem.\nAnd the keys and the values are loaded\nand stored as an integration.\nAlso, to avoid the runtime overhead\nof reordering,\nwe actually fuse the weight matrix\noffline. This means when the GPU\ngenerates the next token,\nit's born in a in the native format.\nWe then read it back we're using strided\naccess,\nwhich allow us to compute the attention\nwithout ever needing to\nphysically reorder them\ndata in the memory.\nNext,\nhow do we prefetch the\nKV cache?\nWe discovered that the token selection\nhas temporal locality.\nIf a token was important in step one,\nthere is an 81%\nchance it's still important in step two.\nWe explore this by speculative loading\nthe top K blocks from the previous\nsteps,\nlike init block and local block,\nthat determine the two involved in the\nattention computation,\nwe prefetch directly.\nBut for the selected blocks,\nwe cannot\ndetermine which to pre-\nwhich to load.\nSo, prefetch them according to the\nselection history.\nBut there is another question. The\nselected block may change during the\ninference, right?\nSo, to keep the accuracy of inference,\nwe reload it\naccording the selection result\nand the directly override those pre-\nfetched by mistake,\nbecause out of order KV cache\ndoesn't impact attention computation.\nWe even don't need to reorder it\nconstantly.\nFinally, we have the scheduler to\nmitigate the synchronization issues.\nThe\nthe intro- the introduction of dynamic\nattention sparsity I cause frequent long\nlatency SSD accesses and a massive\nsynchronization points.\nWe don't treat attention as one big\ntask.\nOn the other hand, we would break them\ninto microtasks.\nProjection, selection, loading, and a\ncomputation. This allows us to start\nloading the next layer's KV pairs\nwhile the current layer is still doing\nits calculation.\nAlso, to reduce the GPU synchronization\noverheads,\nwe also group the\noperations not in the critical path with\nless critical tasks.\nSo that they can share the same\nsynchronization points\nand reduce the synchronization\noverheads.\nFinally, we test Solid Attention\non the hardware most of people probably\nowns,\nan RTX 4070 laptop GPU,\nand an Intel integrated GPU.\nWe pushed the assistant to a 128K\ncontacts, which is a limitation of most\nexisting open-source models.\nFor the end-to-end performance,\nSolid Attention achieved up to three\ntimes higher throughput than other\nbaselines,\nnot only on the discrete GPU,\nand also the integrated GPU.\nAs for the memory occupation, we reduced\nthe KV cache per frame by about 98%.\nIt means that we kept an 16GB context\nrunning in just about 200\nMB of active VRAM.\nTo further evaluate\nthe overheads introduced by SSD\noffloading\nand the effect of SSD aware scheduler,\nwe also compared the performance of Sora\nattention and its in-memory code path.\nThis code path place the whole KV cache\nin the memories so that\nit do not need to afford the\nlatency of SSD accesses.\nThe evaluation results show that Sora\nattention experienced less than 11%\nthroughput degradation despite SSD\noffloading.\nUnder the introduction of attention\nsparsity, successfully reduced the\ncomputation workloads so that Sora\nattention performance remains stable\neven with the context context length\nincrease.\nWe also evaluated the inference accuracy\nof Sora attention and other inference\nframeworks.\nWe used the benchmark like MMLU, GSM8K,\nsuch common benchmarks\nand the long context benchmarks like\nLongBench.\nThis can test the model accuracy\nwith 60K context length.\nAnd then the evaluation results show\nthat\nso the tension kept model accuracy\neven with long contacts lens\ncompared to the inference without the\nattention sparsity. Yeah.\nHowever, the quantization method fails\nin most of benchmarks. It's battery with\nlong contacts inference.\nIn summary,\nso the tension proved that the memory\nwar isn't just about how much RAM you\ncan buy.\nIt's about how smart you are with the\nstories you already have.\nBy co-designing sparsity and the IO,\nwe'll bring the 128 K contacts model\nto the 60 GB laptops of the world.\nAs the local air becomes the norm, this\ntechnique will be the foundation for\ntruly private at distance.\nThanks for your listening. If you have\nany question about our project, feel\nfree to contact us using email.\nThank you.",
+  "segments": [
+    {
+      "text": "Hello everyone. I'm Xinrui Chen. Comes from the Institute of Parallel and the Distributed Systems at SUTD. I'm here to discuss a bottleneck that sits at the intersection of AI and the storage. As the last language models move from",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "massive data centers to our personal laptops, this work saw attention. We are proposing a way to the long context models on consumer-grade hardware that has constrained memory capacity. To solve the problem, we must first look at the two phases in",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "the LLM inference. In the prefill phases, the model digests the entire problem at once. It's computationally heavy, but highly parallel. But once we start the generating task, we enter the code phase. This is sequential and auto regressive.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "Each new token depends on everything that it can be forwarded. To avoid the key creating the entire history for every single word, we use the KV cache. But the KV cache has a massive footprint. The KV cache grows linearly with the context lines.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "If you are running a standard Llama 3 8B model with a 128K context, you need over 16GB of VRAM just to store the catch. This is about four times of the model size. It is necessary for like for tasks like document summary or coding agents.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "However, most consumer laptops GPUs only have 8 GBs VRAM. Even high-end high laptops rarely exist 16 GB. As soon as you try to have a long meaningful conversation with a local AI, the system runs out of the memory and the crashes.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "Not to mention that when using a laptop on a daily basis, you need to reserve some memory spaces for the OS and other applications. The industry's current bandwidth is being before quantization, compressing the catch. It helps, but it's a destructive process.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "In long context scenario, certain tokens act as a anchors with high magnitude outlier values. When you contest this to 4-bit, you lose the precisions. Our benchmarks showed that while 4-bit quantization saves space, it caused",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "significant accuracy drops, especially with long context. We wanted a solution that saves memory without compromising the model accuracy. Our breakthrough starts with an observation about how this model actually think. If you ask a model about a specific",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "detailed uh document, it doesn't actually attend to every single word with equal weight. Attention is sparse. Usually less than of these tokens in the history are actually relevant to the next word. If we can identify those",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "important tokens and only them in the faster memory, we could theoretically run massive context on a tiny GPU. Like So, why why not just put the rest on the SSD? Because of the high latency gap. Assessing DRAM takes nanoseconds, while",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "assessing a SSD takes hundreds of microseconds. When the GPU is waiting for token from the SSD, it's doing zero work. If we use a near on-demand loading strategy, the user ends up waiting seconds for every single word. And as we all knows,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "SSD achieve optimal performance only with sequential and the coarse-grained operations. So, the tiny and the random reads caused by attention sparsity cannot fully utilize the SSD bandwidth with its potential. Existing research like FlashAttn tries",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "to fix this by hiding the SSD latency behind other works, but it relies on high concurrency. Processing 30 or 60 users at the same time. But on a personal PC, you are the only user. With a batch size of one, there isn't enough",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "uh computation workloads to hide the IO latency. But, so to solve this problem, certain chance core philosophy is co-design. We don't treat it as sparse attention algorithm and the storage management as separate layers. We align the data structure of the key",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "cache with the physical page size of the SSD. We transform those random tiny reads into coarse-grained sequential transfers. And we also preselect and prefetch the key blocks in advance to leave sufficient time for IO computation overlap.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "But, there is a several challenges. The first is the accuracy-efficiency trade-off. This is a fundamental conflict between model precision and hardware support. To maximize the SSD performance, data must be transferred in large sequential",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "blocks. However, sparse attention requires selecting specific important tokens. If we compress multiple tokens into a one block, it means we might lose critical outlier tokens, causing accuracy to plummet. And the second challenge is the prefetching in the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "uh indeterminacy. Because attention is reactive, the model cannot identify which key blocks it needs for a specific layer until the previous layers' calculation are finished. This means that the GPU remains idle while waiting for the SSD to transfer data.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "In low batch environment, this lack of foresight prevent pre-fetching and the break the IO computation overlap. And then the final challenge is the data inconsistency risk. Running IO and the computation in parallel with highly constrained memory",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "creates a safety risk. Since the RAM is limited, we cannot afford massive buffers. This creates a race condition that the SSD controller might overwrite a buffer with pre-fetched data for the next year before the GPU has finished reading the current data.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "Without a sophisticated synchronization, the system faces a choice between losing performance to locks or risking inconsistency. And then the final challenge is running IO and the computation in parallel will introduce the data inconsistency risk. You know,",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "uh when IO and the computation are running in parallel with highly constrained memory, it creates a safety risk. Since the RAM is limited, we cannot afford massive buffers, right? This creates a race condition. The SSD controller might overwrite a",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "buffer with pre-fetched data before the GPU has finished reading the current data. Without sophisticated synchronization, the system faces choice between losing performance to logs or risking inconsistency. So, we to deal with this challenge, we need to",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "answer three question. How to fully utilize the SSD bandwidth? How to reduce the KV cache loading latency? And how to efficiently overlap IO and computation? Here is our layered architecture. We demand the full KV cache on the SSD,",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "a waiting room in the DRAM, and a tiny active set in the VRAM. We propose three components to answer this question. Like the KV consolidator, consolidates multiple KV cache entries to enlarge the SSD transfer unit to fully utilize the SSD bandwidth.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "And the system also use the speculative prefetcher to prefetch to predict and the prefetch the KV cache. While SSD aware scheduler to orchestrating the fine-grained computation IO overlap according to their data dependencies.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "So, let's look at how these components actually work. First, we adjust the IO efficiency through KV interleaving. Traditionally, keys and the value are stored in separate memory region. This require two separate SSD reads. We redesign the layout to interleave",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "them. And the keys and the values are loaded and stored as an integration. Also, to avoid the runtime overhead of reordering, we actually fuse the weight matrix offline. This means when the GPU generates the next token, it's born in a in the native format.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "We then read it back we're using strided access, which allow us to compute the attention without ever needing to physically reorder them data in the memory. Next, how do we prefetch the KV cache? We discovered that the token selection has temporal locality.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "If a token was important in step one, there is an 81% chance it's still important in step two. We explore this by speculative loading the top K blocks from the previous steps, like init block and local block, that determine the two involved in the",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "attention computation, we prefetch directly. But for the selected blocks, we cannot determine which to pre- which to load. So, prefetch them according to the selection history. But there is another question. The selected block may change during the",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "inference, right? So, to keep the accuracy of inference, we reload it according the selection result and the directly override those pre- fetched by mistake, because out of order KV cache doesn't impact attention computation. We even don't need to reorder it",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "constantly. Finally, we have the scheduler to mitigate the synchronization issues. The the intro- the introduction of dynamic attention sparsity I cause frequent long latency SSD accesses and a massive synchronization points.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "We don't treat attention as one big task. On the other hand, we would break them into microtasks. Projection, selection, loading, and a computation. This allows us to start loading the next layer's KV pairs while the current layer is still doing",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "its calculation. Also, to reduce the GPU synchronization overheads, we also group the operations not in the critical path with less critical tasks. So that they can share the same synchronization points and reduce the synchronization overheads.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "Finally, we test Solid Attention on the hardware most of people probably owns, an RTX 4070 laptop GPU, and an Intel integrated GPU. We pushed the assistant to a 128K contacts, which is a limitation of most existing open-source models.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "For the end-to-end performance, Solid Attention achieved up to three times higher throughput than other baselines, not only on the discrete GPU, and also the integrated GPU. As for the memory occupation, we reduced the KV cache per frame by about 98%.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "It means that we kept an 16GB context running in just about 200 MB of active VRAM. To further evaluate the overheads introduced by SSD offloading and the effect of SSD aware scheduler, we also compared the performance of Sora",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "attention and its in-memory code path. This code path place the whole KV cache in the memories so that it do not need to afford the latency of SSD accesses. The evaluation results show that Sora attention experienced less than 11%",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "throughput degradation despite SSD offloading. Under the introduction of attention sparsity, successfully reduced the computation workloads so that Sora attention performance remains stable even with the context context length increase.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "We also evaluated the inference accuracy of Sora attention and other inference frameworks. We used the benchmark like MMLU, GSM8K, such common benchmarks and the long context benchmarks like LongBench. This can test the model accuracy with 60K context length.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "And then the evaluation results show that so the tension kept model accuracy even with long contacts lens compared to the inference without the attention sparsity. Yeah. However, the quantization method fails in most of benchmarks. It's battery with",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "long contacts inference. In summary, so the tension proved that the memory war isn't just about how much RAM you can buy. It's about how smart you are with the stories you already have. By co-designing sparsity and the IO, we'll bring the 128 K contacts model",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "to the 60 GB laptops of the world. As the local air becomes the norm, this technique will be the foundation for truly private at distance. Thanks for your listening. If you have any question about our project, feel free to contact us using email. Thank you.",
+      "start": 264,
+      "duration": 6
+    }
+  ]
+}

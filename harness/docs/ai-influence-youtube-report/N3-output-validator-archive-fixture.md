@@ -10,7 +10,7 @@ Scope:
 - O5: reader-facing source mapping schema
 - O6: SVG embedding rules
 - O7: report validator (8 checks)
-- O8: archive layout + ChatGPT 杂项 session archival metadata
+- O8: archive layout + ChatGPT 1234 session archival metadata
 - O9: 2026-W21 fixture smoke spec
 
 Out of scope: implementation of `validate-report`, `plan-ai-influence-reports`, or `render-ai-influence-report`. This file specifies contracts only; the executable code is the responsibility of S02–S04 builder sprints.
@@ -233,9 +233,9 @@ Every report produces exactly these four files inside the report-slug directory:
 
 No other files are written by the standard pipeline. Optional sibling files (e.g. `chatgpt-session.json` for the metadata in §4.3) may exist but are not required for the validator gate.
 
-### 4.3 ChatGPT 杂项 archive metadata
+### 4.3 ChatGPT 1234 archive metadata
 
-When a report is produced via Browser Agent on ChatGPT 5.5 Thinking high, the session MUST be archived to the ChatGPT project named **`杂项`** (literally: "Miscellaneous"). The harness records the link in a sidecar file:
+When a report is produced via Browser Agent on ChatGPT 5.5 Thinking high, the session MUST be archived to the ChatGPT project named **`1234`** (literally: "1234"). The harness records the link in a sidecar file:
 
 `chatgpt-session.json` (sibling of `report.md`):
 
@@ -243,7 +243,7 @@ When a report is produced via Browser Agent on ChatGPT 5.5 Thinking high, the se
 {
   "session_id": "chatgpt-conv-<uuid>",
   "url": "https://chat.openai.com/c/<conversation-id>",
-  "project": "杂项",
+  "project": "1234",
   "archived_at": "2026-05-29T03:15:00Z",
   "model": "gpt-5.5-thinking-high",
   "phase_breakdown": {
@@ -256,8 +256,8 @@ When a report is produced via Browser Agent on ChatGPT 5.5 Thinking high, the se
 
 Constraints:
 - `session_id` and `url` are mandatory; both MUST be non-empty.
-- `project` MUST equal the literal string `杂项`.
-- `archived_at` is the UTC timestamp when the session was moved into the 杂项 project (not the timestamp of the original conversation).
+- `project` MUST equal the literal string `1234`.
+- `archived_at` is the UTC timestamp when the session was moved into the 1234 project (not the timestamp of the original conversation).
 - The session URL MUST be reachable from the operator's authenticated ChatGPT account; the URL itself is not validated by `validate-report` (no network call inside the validator).
 
 `chatgpt-session.json` is NOT one of the four required artifact types in §4.2 because the validator gate cannot reach the ChatGPT API; absence does not FAIL Check 5. However, audit tooling outside the validator MAY enforce its presence.
@@ -329,7 +329,7 @@ The smoke is wired into CI as `make smoke-ai-influence-report-w21` (or equivalen
 - Not running the smoke (delegated to S05).
 - Not authoring 2026-W21 plan content (delegated to S03 fixture).
 - Not modifying `~/.claude/settings.json`, `tech-hotspot-radar.sqlite`, or any production code path.
-- Not deciding the ChatGPT 杂项 project's archival retention policy (out of scope; operator decision).
+- Not deciding the ChatGPT 1234 project's archival retention policy (out of scope; operator decision).
 
 ---
 
@@ -349,7 +349,7 @@ The smoke is wired into CI as `make smoke-ai-influence-report-w21` (or equivalen
 | Grep blacklist words list explicit | §3.4 | 14-entry initial list + extensibility clause |
 | 4 archive file types | §4.2 | 4-row artifact table |
 | Knowledge raw path template | §4.1 | Path template with placeholders |
-| ChatGPT project 杂项 archive with session_id + URL metadata | §4.3 | JSON schema with mandatory fields |
+| ChatGPT project 1234 archive with session_id + URL metadata | §4.3 | JSON schema with mandatory fields |
 | 2026-W21 fixture data range | §5.1 | ISO week + UTC bounds + T3-exclusion rule |
 | 3-step smoke (plan → render → validate) | §5.2 | 3-step flow with per-step assertions |
 | Validator 8 checks all PASS criterion | §5.3 | Exact JSON shape required |
@@ -375,7 +375,7 @@ The smoke is wired into CI as `make smoke-ai-influence-report-w21` (or equivalen
 - §1.1 has exactly 5 fields and §1.2 has exactly 6 forbidden field rows.
 - §2.1 forbids `<img>` raster and remote SVG; §2.2 prohibits ASCII charts in final output; §2.3 spells out Path A / Path B sources.
 - §3.1 lists exactly 8 checks; §3.4 has an explicit fixed-string blacklist plus regex patterns.
-- §4.1 path template, §4.2 4 artifact types, §4.3 ChatGPT 杂项 metadata schema all explicit.
+- §4.1 path template, §4.2 4 artifact types, §4.3 ChatGPT 1234 metadata schema all explicit.
 - §5.1 ISO bounds for 2026-W21, §5.2 3 steps, §5.3 PASS JSON shape, §5.4 tri-conditional exit code.
 - §7 reverse-maps all 17 dispatch ACs to sections.
 - This file is markdown-only; no executable code, no CLI invocation.

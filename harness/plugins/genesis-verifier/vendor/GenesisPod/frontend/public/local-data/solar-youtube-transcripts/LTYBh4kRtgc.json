@@ -1,0 +1,624 @@
+{
+  "videoId": "LTYBh4kRtgc",
+  "title": "SREcon26 Americas - Reliable OpenTelemetry at Scale: No Queue, No Problem",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 29892,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hey everyone. So let's talk about\nreliable open telemetry ingest at scale.\nOh,\n>> my name is Vlad\nand uh that's Tommy. We work at Click\nHouse and uh today we're going to talk\nabout how we how we build a a massive\nopen telemetry injection pipeline while\nkeeping it reliable and uh\ncost-ffective.\nUh so what's ClickHouse?\nUh, Click House is a columner data store\nthat started live back in 2009, went\ninto production in 2012, and was open\nsource in 2016.\nAnd fast forward to today, it's uh in\nthe top rankings on DB engines.\nIt was originally designed for\nclickstream traffic and is optimized for\naggregations and filtering over large\namounts of mutable data. And it turns\nout all of the traits are pretty useful\nfor observability.\nIt's a true columner data store with\nfantastic compression and it supports\ningesting data at amazing rate millions\ntens hundreds of millions of end per\nsecond and uh at click house cloud we\nprovide a managed version of it.\nSo before I get into the architecture\nlet me first set the context for the\nproblem that we were solving.\nWe run our observability platform\nin-house at click house and we use use\nit to operate the click house cloud\nitself. So it's not a site system or a\ndemo environment. It's a part of how\nengineers debug production, investigate\nincidents and understand what is\nhappening across the fleet. It matters\nbecause it means that the design had to\nmatch the reality of our platform. We\nwanted to dock food click house cloud\nstay line with open telemetry avoid\nbuilding around something proprietary\nand it had to work in the environment we\nactually have multicloud multi-reion\nmulticluster kubernetes environment also\nhad up to hold up to the scale we deal\nwith high cardela telemetry some of our\nmetrics have more than 800 attributes\nattached to it uh we ingest at multi-\ngigabytes per second scale and long\nretention requires ments. We didn't want\nto solve this problem by sampling away\nthe data uh that we need during most of\nthe incidents. So no sampling was also a\nrequirement. And finally all had to be\ncost effective. The scale cost not just\nan optimization target, it's one of the\ncore design constraints. It determines\nwhich architectures are sustainable,\nwhich ones fall apart when you run them\neverywhere.\nSo those were the ground rules. And once\nyou set the bar this way, some of the\nusual patterns start to look a lot less\nattractive. So this led us to the design\nthat I'll walk you through next. But\nbefore, let's put some real numbers\nbehind the word scale. At peak, we\ningest about 15 GB per second of open\ntelemetry data. That will be logs,\ntraces, etc. Uh we're also processing\nabout 8 million log and trace events in\nthis 15 GB. Which means the challenge is\nnot just raw throughput but the sheer\nnumber of individual records moving\nthrough the pipeline\nand given the six months of retention\nrequirement it all sums up to about 70\npabytes of store data.\nSo problem is not just surviving the\npeak inestion also has to remain quable\nreliable cost effective over the long\nretention windows. I'm going to talk\nabout the injection part today\nuh tell you about how we solved it.\nSo we went through a few versions to\nfind something that could handle that\nindustry and still reliable under the\nfailure still be practical to run. So\nlet me walk you through first iteration\nor proof of concept. It was very\nintentionally simple. We ran a collector\nagent on each node. We collected logs\ndirectly from the applications. Did a\nbit of pre-processing, batching, shipped\neverything straight to Clickhouse.\nThat was enough to prove the basic\npipeline and start getting value\nquickly. But we pushed toward real\nproduction scale and eliminations of\nthis model became pretty clear.\nIt was good enough for proof of concept\nbut started to break down. Click house\nperforms best with large insert batches.\nSmall batches create more merge\npressure. It reduce efficiency and makes\nthe system more expensive to run. But\nthese collectors were running on every\nnode and they had to stay lightweight.\nWe didn't want them competing with the\napplications for CPU and memory. That\nmeant that they could not buffer enough\ndata to build the larger batches that\nclick house really wants. So pretty\nquickly we ran into the limits of this\nmodel. The batching was not good enough.\nThe print node design did not scale the\nway we needed and we also wanted the\nmore reliable delivery path.\nSo the next iteration was adding a\ngateway layer. Instead of every node\nlocal agent writing straight into the\nclick house, agents sent telemetry to\nshared collector gateways and that gives\nus a centralized place to buffer, batch\nand forward data to the data store. It\nwas a meaningful improvement. The agents\non application node could stay small.\nClick house got larger and more\nefficient inserts and the overall\narchitecture\nscaled much better because we were no\nlonger bound by what each node could uh\nbuffer on its own.\nSo it solved the batching problem but\nnot reliability problem. The gateway was\nstill using inmemory buffer buffering\nwhich meant crashes could still still\ndrop the data crashes of the gateway and\nwhen the database slowed down the\ngateway became the place where the back\npressure was accumulating\nand in practice that meant rise in\nmemory usage instability and potential\npotential oomphs right in the middle of\nthe injection path.\nSo it was better but still not something\nwe could fully trust. We needed an\narchitecture that could handle\ndownstream pressure and failures without\nrelying on the memory alone.\nSo that took us to the third version of\nour infrastructure which was to\nintroduce the persistent queue. This is\na feature of the hotel collector that\nintroduces a write ahead log where every\ndata point it receives gets written to\ndurable storage before it is passed\ndownstream. And this let us uh keep data\nacross restarts. Um discs are also more\nuh economical than memory. So we could\naccumulate larger batches that let us\nride longer durations of back pressure.\nand uh but it's not perfect. Um there's\na lot of operational issues introduced\nby using the persistent queue. uh we\nhave to run the collector as a staple\nset with PBC's which introduces quite a\nlot of limitations on scaling speed and\njust what operations are available at\nall. Um it also introduces a new uh uh\ngrowth in cost by attaching large\nvolumes to all of our gateways. And the\nlast thing is that draining the\npersistent queue is pretty slow. uh even\nduring a short incident, we can\naccumulate terabytes of buffered logs\nthat would take hours and hours to\ndrain. And during this um time, all the\nfresh data is also added to the end of\nthe queue. And so all we're seeing are\nthe 8 hours or 4 hours delayed data and\nnone of the fresh data. And what we\nuh realize is that you know what really\nmatters to us is the fresh data. uh\nsomething that happened eight hour ago,\neight hours ago is probably not very\nuseful, but what's happening right now\nis important. And so often we found that\nwhen we're recovering from an outage, we\nend up just truncating the cues anyways\nand kind of defeating the purpose of\nusing this whole technology.\nAnd so when it comes to this, we kind of\ntook a step back and decided to take a\nlook at how do other people solve this?\nWhat are the common solutions? It tends\nto be introducing some sort of durable\nQ. Um the most common pattern is to\nintroduce a durable queue in between\nyour producers and your consumers and\nlet uh the queue take responsibility for\nthe durability. And so the consumers the\nproducers are stateless. They just write\nonto the queue. The consumers are\nstateless and they handle the routing\ntransformations and uh writing into the\nfinal destination.\nNow why doesn't this work for us? Uh\nwell something like Kafka solves a lot\nof problems. It introduces quite a lot\nof new complexity. Funneling our\ntelemetry volume through a durable queue\nwas going to add significant\ninfrastructure costs as well as being a\nbrand new service for us to operate. At\nour scale, nothing works out of the box.\nWe have to be experts in whatever we\nuse. And while we already had strong\nexpertise in click house and hotel, we\ndecided we'd rather double down on that\nthan take on the burden of introducing\nsomething brand new to the organization\nand productionizing a tier zero service.\nUh by this point it was clear that we\ndid not just need something that worked\nthe happy path. We needed a design that\nstayed reliable under downstream\npressure did not put unnecessary\ncomplexity in the hot path and still\nmade sense costwise\nwhile working at our scale.\nWe did not want a queue in the hot path.\nOur scale would mean that another system\nto run, scale, debug and pay for the\nmiddle and injection. It had to stay\ncost effective like every extra layer\nlooks reasonable in isolation but then\nat the this ingest volume cost us out\nvery quickly both financial cost and\noperational cost\nand most importantly it had to be\nreliable under failure and the back\npressure. We needed a design that could\nabsorb downstream issues without quietly\nturning into a data loss machine.\nWith that we went\nuh to the drawing board.\nOnce we reduced the problem to those\nprinciples thought like hey blob storage\nbecame obvious place to look. It was\nalready part of the platform. Click\nhouse cloud uses the blob storage as a\ncore uh data store to store the customer\ndata. We really depended on it heavily\nin every cloud we run and whether it was\nS3, GCS or Asia blob store, it was\nthere. So instead of introducing a\nseparate queueing system, we started\nasking a different question.\nCan we use blob storage itself as as the\ndurable buffer? And that idea became the\nfoundation for the next iteration.\nour first blob storage based design was\npretty simple.\nWe sent everything to S3 first and then\ningested into click house from from\nthere.\nOn the click house side we used uh S3Q\nengine\nuh to get the data from S3. S3Q is a\nClickhouse table engine that watches uh\nan S3 bucket essentially for new\nobjects. It reads them. It turns them\ninto rows in Click House. So in effect,\nS3 becomes the handoff layer and\nClickHouse continuously pulls new\nbatches from it.\nOn paper, this solved the main\nreliability problem. S3 is a much more\ndurable target than memory. And once\ndata lands there, it is safe and we're\nno longer depending on uh a collector or\ngateway staying uh alive long enough to\ndeliver it.\nAlso gave us pretty clean separation of\nuh responsibilities.\nThe collectors just had to write batches\nto S3 and Click House could ingest them\nas synchronously using SQ. Oh, here we\ngo.\nSo as a first version uh it looked\npromising durable buffer simple handoff\nand no separate queuing system to\nintroduce.\nI'll stay a little bit longer on the\nslide given that it was not showing up.\nUh but yeah it's pretty simple. S3 is a\nprimary target S3 Q4 injection.\nOnce we looked closer,\nuh, the trade-offs of this approach\nbecame pretty clear. First was cost. You\npush every batch through S3 S3 and it's\njust too expensive. Every small per\nrequest overheads become very real when\nyou're ingesting continuously at the\nhigh volume. Also, you can be throttled.\nThe second issue was the ingest\ncomplexity. Open telemetry payloads are\ndeeply nested. So to get them into the\nschema we wanted in Clickhouse at the uh\ndata store level we had to unwrap them\ninto the injection during the injection\nand the most natural way in click house\nto do that was with materialized views\nbut with under heavy load that\nprocessing the materialized to\nprocessing in click house can also\nbecome a bottleneck\nand you can get timeouts you can hit\noomphs and materialized views don't have\na retries so once it lost it's lost so\nit was on solving this problem. And the\nthird issue was freshness. S3Q works\nthrough through the objects in the S3\nbucket as they arrive. So once the\nbacklog fills up,\nfresh lock end up waiting behind older\ndata. And it's fine for eventual\ningestion, but it's not great when\nengineers are trying to debug an active\nincident. You want to fresh logs first.\nSo this approach has improved durability\nbut still was too expensive, too heavy\nat the ingest time and too slow to\npreserve real-time visibility on the\nbacklog.\nSo let me step aside and take a look at\nthe key building block that we used here\nand it was the open telemetry collector\nfailover connector.\nWe started looking for a way to keep the\nreal-time path as the default while\nadding a fall back only when needed and\nthe failover connector lets you do that.\nIt lets you define multiple downstream\npaths in priority order and under normal\ncondition telemetry goes to the primary\ndestination first and if that path\nstarts failing or applying back pressure\nthe connector can automatically route\ntraffic to a lower priority fallback uh\ninstead.\nIt also keeps retrying the higher\npriority path. So when the primary\ndestination recovers, traffic can move\nback automatically. And for us, it was\nexactly what we we needed. It let us\nkeep the real-time click house path as\nthe default while using the durable\nfallback only when the primary path was\nunhealthy. So we built a version two and\nthat was sort of a compromise.\nInstead of sending everything to S3, we\nkept the direct path for normal\noperation and used S3 only as an\noverflow buffer. So when systems\nhealthy, logs go straight to pipeline as\nusual. But when click house slows down\nor becomes unavailable, overflow data is\nspilled to S3 as a durable fallback. And\nonce systems recovers, S3Q drains the\nbacklog and catches us up.\nThat solved two important problems here.\nFirst cost issue. You're no longer\nwriting every batch to S3. You're\nwriting only the data that would\notherwise be at risk during the back\npressure or a failure event. Second, it\nimproved freshness because live locks\nand catch-up traffic could now be can be\nhandled independently in a separate\npipeline instead of all competing in one\nlong queue.\nHowever, it still did not solve the main\ninjection complexity problem. hotel\npayloads still still nested and we still\nneed a materialized view or something to\nunwrap them into the schema that we\nwanted and that path remained expensive\nand fragile under load. So we kept\nlooking\nand so this takes us to our final\nversion which we have running in our\ninfrastructure today. We really like the\nright path of S3 only on overflow, but\nwe didn't want to rely on clickous S3 Q\nand materialized views for the catch-up.\nSo, we decided to use something called\nS3 event notifications.\nUm, this is a feature of blob storage\nwhere for every object that gets\ncreated, a message is put onto a queue\nwith the uh key of the object with at\nleast once delivery guarantees. uh we\ncan then consume that uh queue through\nthe uh AWS S3 receiver in the SQS mode\nwhich is another hotel component where\nit will uh get the message uh download\nthe blob unwrap them and insert this\ninto click. This keeps our S3 cost low.\nIt takes the complexity out of the\nClickHouse database by letting the\ncollector handle the OTL format and it's\nstill two separate pipelines, one for\nlive data and one for catchup. Uh this\npattern works across all the cloud\nproviders that we use. GCS has event\nnotifications to PubSub. Azure can ship\nthem to EventHub.\nUm and since the queue contains only\nmetadata, it keeps the whole process\nlightweight and costefficient. For every\nuh blob of events that we upload to the\nblob storage might be 10 to 50\nmegabytes. The actual payload of the\nevent notification is only a few hundred\nbytes representing the key.\nUm so let's dig deeper into how this\nworks. This is a rough view of one of\nour cloud regions. Um we run many\nKubernetes clusters per region. Each one\nwill have an hotel demon set scraping\nlogs and traces locally from that node,\nshipping them off to our uh gateway\ncollectors. These gateways then use the\nfailover connector to either insert into\nclick or fall back to S3. And should\nthey fall back to S3, the event\nnotification pipeline goes through SQS\nto the separate hotel receiver. And all\nthat does is just download a blob and\nkeep retrying the insert until it\nsucceeds.\nUm the happy path looks pretty simple\nwithin the collector. It takes OTLP\ndata. It routes to the failover\nconnector and goes to click house.\nShould a failure be detected that gets\nretrieded against S3 and then there's a\nfail back path which happens uh on a\nconfigurable interval where where we'll\nretry the highest priority exporter and\nso when click house recovers data goes\nback.\nUm, on the catch-up side, uh, the SQSQ\nis unordered, so we don't need to worry\nabout anything like headline blocking.\nUh, timestamps are embedded within the\nactual data points themselves, so we\ndon't need to worry about the order that\nwe rewrite them into the database or\nanything like that. Um, the collector is\nsuper simple. It's a separate deployment\nfrom the live gateways. It's completely\nstateless. Um, it's very easy for us to\nmanage. Um, and the other thing is that\nthis design is intentionally\nsinglethreaded. What the hotel collector\ndoes here is it pulls a message,\ndownloads the blob, unwraps it, inserts\nit, pulls the next message. Um, and so\nfor us within a single Kubernetes\ncluster, just one core is enough to keep\nup with the occasional blips and\ntimeouts for a failed insert to click.\nUm, this is an oel bin visualization,\nwhich thank you zero folks, um, of our\ntwo different collectors. uh this is\njust our logs pipeline and you'll see\nyou know we receive data it goes through\nour various processors and then it\nsplits on this failover path whereas on\nthe catchup all it does is like pull\nfrom S3 add a resource attribute\nindicating that this was ingested by the\nfailover path rather than the regular\npath and dump it into the database\num so once we had this running the first\nthing we did was a big game day um this\nis one of our development regions where\nwe're pretty regularly ingesting about\n125 5,000 logs per second. On the\nyellow, this is the number of records\nbeing inserted into ClickHouse. And what\nwe did was just a hard stop of the\ndatabase. And so you can see it\nimmediately cuts over to green, which is\nthe S3 exporter, and then let that run\nfor about an hour, where we figured if\nit's going to oo the collectors, it'll\nhave to have within minutes. And if it\nsurvived this whole time, then we're\nprobably good. Um once we started the\ndatabase back up, you can see the writes\nswitch over back to ClickHouse and\nyou'll see this blue bar, which is the\ncatch-up collector, um reingesting those\nblobs that were written to S3. Um\nbecause it's single threaded, it's slow.\nIt ran about 5,000 logs per second of\ncatchup. Um and so for this window, we\nwrote approximately 450 million logs to\nS3 and it took 16 hours to drain with a\nsingle core.\nUm, on the S3 side, this is what the API\noperations look like. You'll see once\nthe database stopped, we shipped a whole\nbunch of puts towards the bucket with\nthese periodic little gets from the\ncatch-up collector attempting to\nreinsert. Um, but of course it was\nfailing and the second the database\nrecovered, we see this steady stream of\ngets uh processing that backlog.\nUm, one thing that we had to be careful\nabout is the negative feedback loop.\nWhen we recover from an outage, probably\nthe database is less stable than it\nwould typically be and so we don't want\nthe catchup traffic to trigger another\nincident or uh disrupt the operations\nagain which will interfere with the live\ntraffic. So as I mentioned it's\nintentionally single threaded. Um if we\nwant to we can scale it out manually. Um\nbut we leave it at as a single core per\nregion just to limit that throughput.\nUm, while it's happening, we can also\nentirely scale this to zero and just let\nthe backlog build up in the queue until\nwe're ready and comfortable to start\nreingestion.\nUh, another thing we did, of course, was\npractice some uh, load testing for\nfaster recovery scenarios. So, we\npopulated a 100 gigabyte backlog in S3,\nspun up 10 concurrent receivers, one CPU\neach, and drained it in 1 hour. Because\nthe receiver is in a single threaded\nloop, you can't actually vertically\nscale this. you can only do it\nhorizontally.\nUm, which is totally fine for us.\nUm, let's talk about a few other\noperational uh challenges with the\ncollectors. Earlier we talked about\ncrashes causing data loss. Without the\npersistent Q, we are once again\nsusceptible to losing in-flight uh\nbatches if the collector should crash.\nThing is, in our experience, the vast\nmajority like well over 99% of our\ncrashes are actually due to OOM. And\nsince we now have the failover process\nthat lets us drain the collector cues\ninto S3 instead of in memory, we really\ndon't experience this anymore. Um,\nhowever, it is something we're still\nconsidering. We could reintroduce a\npersistent queue if we find that node\nfailures are becoming more and more\ncommon, which they are. Um, but because\nof this failover process, we're not uh\nwe're not buffering everything on these\npersistent cues. So they can be quite\nsmall, gigabytes instead of terabytes.\nAnd this will continue to keep our costs\nand operations low.\nUm, another gotcha of the failover\nconnector that you should be aware of if\nyou're going to use it is how you manage\nsending cues. A typical collector\nconfiguration requires sending cues on\nevery exporter. But when you're using\nthis failover connector, you actually\ndon't want to use them. Uh, and instead\nyou want to let the connector handle the\nqueueing. This is because any sort of\nretrying or queuing on the export side\nis actually going to hide failure\nsignals from being propagated back to\nthe connector. So it won't realize that\na downstream target is unhealthy and it\nshould fail over until much later and\nyou'll have data stuck against a failed\nexporter for longer than you'd like. Um\nso we now run the click house exporter\nwithout ascending queue and let the\nfailover connector handle it. But for S3\nwe do give it a sending queue because we\nintentionally want to hide failures from\nthe failover connector. If there's a\ndrop connection or we run out of retries\nfor a single batch, we don't want the\nfailover connector to think that there\nare no healthy pipelines available\nbecause if so, it would stack up when\nthe failover queue until that 30-cond\nretry interval kicks in.\nUm, when it comes to scaling, our entire\ncollector stack is now stateless with uh\nthe persistent Q and PBCs. This was a\nhuge operational pain point for us and\nuh by turning our entire collection into\na stateless stack we are now simplifying\nback to just CPU and memory based\nhorizontal autoscaling. If we want to we\ncan evaluate more sophisticated methods\nin the future like scaling based on\nreceiver throughput on the gateway\ncollectors and Q depth on the catch-up\ncollectors but honestly the simple stuff\nhas been fine for us.\nAnd so I'm going to wrap it up with a\nlittle bit of cost analysis. After\nrunning this for a while, in our\nexperience, we typically overflow about\n100,000 batches to S3 on a typical day.\nOne of these batches will be tens of\nmegabytes, which compresses down to\naround 700 kilobytes, which puts us at\n2.1 terabytes per month. Again, the API\noperations are pretty simple. One put\nper batch and roughly 1:1 get ratio. And\nso based on the public pricing, this\nleaves us at $65 a month of steadystate\ncosts compared to many thousands\nmaintaining terabytes of EBS volumes.\nUm, now in the disaster case, let's say\nwe had an 8 hour regional outage in our\nlogging cluster. In one of our bigger\nregions, we typically ingest about\n600,000 records per second at a 10K\nbatch size, which means 216,000 batches\nan hour. Again, based on the same uh\ndata size estimates as well as uh API\nthroughput calculations, that puts us a\nlittle under $10,000 to survive an 8\nhour outage. And this is why we don't\nwant to ship everything to S3 as the\nonly target because that would cost us\n$30,000 a day. Um and it's not something\nwe want to take.\nSo we have gone fairly deep into the\nmechanics. Let me to wrap up the talk\nzoom back a little bit and\nuh talk a little bit about the\ntrade-offs that shaped where we landed\nwith all that.\nUh let's start with the final design. So\nagain in a steady state the telemetry\ngoes directly from the collectors into\nthe click house. That is the fast and\nhappy path. and it is optimized for for\nfreshness.\nWhen click house is under pressure or\nunavailable, the failover path writes\noverflow data into the blob storage and\nevent notifications go through\nlightweight metadata queue uh with a\nseparate catchup collector that read\nreads through those objects back wraps\nit to open telemetry payloads enriches\nit and turns them into click house.\nThe important part here is the\nseparation of concerns. Life inest stays\nlow latency and straightforward and\nrecovery happens on its own path. So\nwe're always getting the fresh data when\nuh the uh downstream database server\nclick house in this case is available.\nNow that's what lets us keep the hot\npath Qless without giving up durability.\nAnother\npros of this approach is that it doesn't\nhave to be click house. Like it's open\ntelemetry. You can configure it whatever\nexporter you want. In our case, we\nwanted to duck food or click house cloud\nand we run all of our observability with\nclick house. But it doesn't have to like\nyou can use this uh all across the board\nwhatever database and the data store you\nhave.\nFew\nthings became very clear during this\nwork. First, for click house, batching\nreally matters. Small inserts create\npressure that increases uh the merge\nload and make the system more expensive\nto run in both uh financial and the\noperational sense.\nSecond, for logs and observability\ntelemetry in general, freshness often\nmatters more than perfect ordered\nreplay.\nThat is one reason the persistent cues\nwith strict in order uh draining were\nnot a great fit excluding the\noperational complexity of it.\nThird, durability does not always mean\nKafka. In our case, object storage plus\nlightweight metadata notifications gave\nus the durability we needed without\nputting a heavyweight queue in a hot\npath.\nFourth, Q placement matters when you're\nusing failover. If you put too much\nbuffer in the front of failover, you\ndelay failure signals and make it harder\nto switch paths quickly. And finally,\nkeeping the collector stack stateless\npaid off a lot. It made autoscaling much\nsimpler and made the system much much\neasier operationally to manage. Scaling\nthe cluster of uh open telemetry\ncollector gateways with persistent cues\nof two terabytes and more\ntakes forever and it's just not feasible\nat all. Now we can scale it up and down\ndepending on the load uh automatically\nusing HPA or VPA even.\nUh, this design bought us a cheaper hot\npath, less operational overhead, and\nbetter separation between live traffic\nand recovery. Those gains came with with\ntrade-offs.\nBy keeping a heavy heavy weight out of\nthe hot path, we took on more\narchitecture ourselves. And that meant\nbeing much more deliberate about\nfailover behavior. like we had to think\nabout the negative feedback loop about\nputting more pressure on the uh database\ndownstream database server that became a\nbottleneck. In this case we had to think\nabout Q placement with think had to\nthink about how to scale the failover\ninest. Uh that's some extra things to\nconsider. We also pushed more\nresponsibility into the collector layer\nitself. Collectors are not just\nforwarding data here. They're part of\nthe routing and failure handling logic.\nAlso, recovery is a synchronous. When\ndata spills to the durable path, catchup\nhappens later on a separate path and\nrather than immediately in line with the\nlive traffic and it happens in a\ndifferent rate. So, you need to think\nabout it as well.\nAnd some failure cases still require\nexplicit choices especially around the\ncollector collector crashes, retry\nbehavior, and a catchup policy.\nSo this was not about really avoiding\nthe complexity. It was choosing where we\nwant to put the complexity to leave.\nAnd the main takeaway here is not not\nthat everyone should avoid Kafka or\nother message buses. A QAS design like\nthis makes sense when you already have\nblob storage, when your priority is\nkeeping the hot path simple, and when\nyour recovery path can be separate and\neventually consistent. And it's\nespecially attractive when fresh data\nmatters more than replaying uh backlog\nand strict order which is often true for\nlogs and other operational telemetry.\nOn the other hand, there are plenty of\ncases when introducing Kafka or other\nmessage buses is absolutely the better\nchoice.\nIf you need a general purpose durable\nbus, when you have multiple independent\ncustomers reading from the same stream,\nwhen you need a strong replay semantics\nor tighter ordering and consumer\nguarantees,\nuh CFKA solves these problems directly.\nUm also, if your team already has a\nstrong Kafka experience or your scale\nfits well with manage Kafka, the\noperational trade-offs is completely\nreasonable here. So the real question is\nuh not Q or non Q. The question is what\nproblem you're actually solving and\nwhere you want this complexity to to\nland.\nThank you.",
+  "segments": [
+    {
+      "text": "Hey everyone. So let's talk about reliable open telemetry ingest at scale. Oh, >> my name is Vlad and uh that's Tommy. We work at Click House and uh today we're going to talk about how we how we build a a massive open telemetry injection pipeline while",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "keeping it reliable and uh cost-ffective. Uh so what's ClickHouse? Uh, Click House is a columner data store that started live back in 2009, went into production in 2012, and was open source in 2016. And fast forward to today, it's uh in",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "the top rankings on DB engines. It was originally designed for clickstream traffic and is optimized for aggregations and filtering over large amounts of mutable data. And it turns out all of the traits are pretty useful for observability.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "It's a true columner data store with fantastic compression and it supports ingesting data at amazing rate millions tens hundreds of millions of end per second and uh at click house cloud we provide a managed version of it. So before I get into the architecture",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "let me first set the context for the problem that we were solving. We run our observability platform in-house at click house and we use use it to operate the click house cloud itself. So it's not a site system or a demo environment. It's a part of how",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "engineers debug production, investigate incidents and understand what is happening across the fleet. It matters because it means that the design had to match the reality of our platform. We wanted to dock food click house cloud",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "stay line with open telemetry avoid building around something proprietary and it had to work in the environment we actually have multicloud multi-reion multicluster kubernetes environment also had up to hold up to the scale we deal",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "with high cardela telemetry some of our metrics have more than 800 attributes attached to it uh we ingest at multi- gigabytes per second scale and long retention requires ments. We didn't want to solve this problem by sampling away",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "the data uh that we need during most of the incidents. So no sampling was also a requirement. And finally all had to be cost effective. The scale cost not just an optimization target, it's one of the core design constraints. It determines",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "which architectures are sustainable, which ones fall apart when you run them everywhere. So those were the ground rules. And once you set the bar this way, some of the usual patterns start to look a lot less attractive. So this led us to the design",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "that I'll walk you through next. But before, let's put some real numbers behind the word scale. At peak, we ingest about 15 GB per second of open telemetry data. That will be logs, traces, etc. Uh we're also processing about 8 million log and trace events in",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "this 15 GB. Which means the challenge is not just raw throughput but the sheer number of individual records moving through the pipeline and given the six months of retention requirement it all sums up to about 70 pabytes of store data.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "So problem is not just surviving the peak inestion also has to remain quable reliable cost effective over the long retention windows. I'm going to talk about the injection part today uh tell you about how we solved it. So we went through a few versions to",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "find something that could handle that industry and still reliable under the failure still be practical to run. So let me walk you through first iteration or proof of concept. It was very intentionally simple. We ran a collector",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "agent on each node. We collected logs directly from the applications. Did a bit of pre-processing, batching, shipped everything straight to Clickhouse. That was enough to prove the basic pipeline and start getting value quickly. But we pushed toward real",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "production scale and eliminations of this model became pretty clear. It was good enough for proof of concept but started to break down. Click house performs best with large insert batches. Small batches create more merge",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "pressure. It reduce efficiency and makes the system more expensive to run. But these collectors were running on every node and they had to stay lightweight. We didn't want them competing with the applications for CPU and memory. That",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "meant that they could not buffer enough data to build the larger batches that click house really wants. So pretty quickly we ran into the limits of this model. The batching was not good enough. The print node design did not scale the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "way we needed and we also wanted the more reliable delivery path. So the next iteration was adding a gateway layer. Instead of every node local agent writing straight into the click house, agents sent telemetry to shared collector gateways and that gives",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "us a centralized place to buffer, batch and forward data to the data store. It was a meaningful improvement. The agents on application node could stay small. Click house got larger and more efficient inserts and the overall architecture",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "scaled much better because we were no longer bound by what each node could uh buffer on its own. So it solved the batching problem but not reliability problem. The gateway was still using inmemory buffer buffering which meant crashes could still still",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "drop the data crashes of the gateway and when the database slowed down the gateway became the place where the back pressure was accumulating and in practice that meant rise in memory usage instability and potential potential oomphs right in the middle of",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "the injection path. So it was better but still not something we could fully trust. We needed an architecture that could handle downstream pressure and failures without relying on the memory alone. So that took us to the third version of",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "our infrastructure which was to introduce the persistent queue. This is a feature of the hotel collector that introduces a write ahead log where every data point it receives gets written to durable storage before it is passed",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "downstream. And this let us uh keep data across restarts. Um discs are also more uh economical than memory. So we could accumulate larger batches that let us ride longer durations of back pressure. and uh but it's not perfect. Um there's",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "a lot of operational issues introduced by using the persistent queue. uh we have to run the collector as a staple set with PBC's which introduces quite a lot of limitations on scaling speed and just what operations are available at",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "all. Um it also introduces a new uh uh growth in cost by attaching large volumes to all of our gateways. And the last thing is that draining the persistent queue is pretty slow. uh even during a short incident, we can accumulate terabytes of buffered logs",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "that would take hours and hours to drain. And during this um time, all the fresh data is also added to the end of the queue. And so all we're seeing are the 8 hours or 4 hours delayed data and none of the fresh data. And what we",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "uh realize is that you know what really matters to us is the fresh data. uh something that happened eight hour ago, eight hours ago is probably not very useful, but what's happening right now is important. And so often we found that",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "when we're recovering from an outage, we end up just truncating the cues anyways and kind of defeating the purpose of using this whole technology. And so when it comes to this, we kind of took a step back and decided to take a",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "look at how do other people solve this? What are the common solutions? It tends to be introducing some sort of durable Q. Um the most common pattern is to introduce a durable queue in between your producers and your consumers and",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "let uh the queue take responsibility for the durability. And so the consumers the producers are stateless. They just write onto the queue. The consumers are stateless and they handle the routing transformations and uh writing into the final destination.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "Now why doesn't this work for us? Uh well something like Kafka solves a lot of problems. It introduces quite a lot of new complexity. Funneling our telemetry volume through a durable queue was going to add significant infrastructure costs as well as being a",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "brand new service for us to operate. At our scale, nothing works out of the box. We have to be experts in whatever we use. And while we already had strong expertise in click house and hotel, we decided we'd rather double down on that",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "than take on the burden of introducing something brand new to the organization and productionizing a tier zero service. Uh by this point it was clear that we did not just need something that worked the happy path. We needed a design that",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "stayed reliable under downstream pressure did not put unnecessary complexity in the hot path and still made sense costwise while working at our scale. We did not want a queue in the hot path. Our scale would mean that another system",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "to run, scale, debug and pay for the middle and injection. It had to stay cost effective like every extra layer looks reasonable in isolation but then at the this ingest volume cost us out very quickly both financial cost and operational cost",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "and most importantly it had to be reliable under failure and the back pressure. We needed a design that could absorb downstream issues without quietly turning into a data loss machine. With that we went uh to the drawing board.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "Once we reduced the problem to those principles thought like hey blob storage became obvious place to look. It was already part of the platform. Click house cloud uses the blob storage as a core uh data store to store the customer",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "data. We really depended on it heavily in every cloud we run and whether it was S3, GCS or Asia blob store, it was there. So instead of introducing a separate queueing system, we started asking a different question. Can we use blob storage itself as as the",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "durable buffer? And that idea became the foundation for the next iteration. our first blob storage based design was pretty simple. We sent everything to S3 first and then ingested into click house from from there. On the click house side we used uh S3Q engine",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "uh to get the data from S3. S3Q is a Clickhouse table engine that watches uh an S3 bucket essentially for new objects. It reads them. It turns them into rows in Click House. So in effect, S3 becomes the handoff layer and ClickHouse continuously pulls new",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "batches from it. On paper, this solved the main reliability problem. S3 is a much more durable target than memory. And once data lands there, it is safe and we're no longer depending on uh a collector or gateway staying uh alive long enough to deliver it.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "Also gave us pretty clean separation of uh responsibilities. The collectors just had to write batches to S3 and Click House could ingest them as synchronously using SQ. Oh, here we go. So as a first version uh it looked promising durable buffer simple handoff",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "and no separate queuing system to introduce. I'll stay a little bit longer on the slide given that it was not showing up. Uh but yeah it's pretty simple. S3 is a primary target S3 Q4 injection. Once we looked closer, uh, the trade-offs of this approach",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "became pretty clear. First was cost. You push every batch through S3 S3 and it's just too expensive. Every small per request overheads become very real when you're ingesting continuously at the high volume. Also, you can be throttled.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "The second issue was the ingest complexity. Open telemetry payloads are deeply nested. So to get them into the schema we wanted in Clickhouse at the uh data store level we had to unwrap them into the injection during the injection",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "and the most natural way in click house to do that was with materialized views but with under heavy load that processing the materialized to processing in click house can also become a bottleneck and you can get timeouts you can hit",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "oomphs and materialized views don't have a retries so once it lost it's lost so it was on solving this problem. And the third issue was freshness. S3Q works through through the objects in the S3 bucket as they arrive. So once the backlog fills up,",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "fresh lock end up waiting behind older data. And it's fine for eventual ingestion, but it's not great when engineers are trying to debug an active incident. You want to fresh logs first. So this approach has improved durability",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "but still was too expensive, too heavy at the ingest time and too slow to preserve real-time visibility on the backlog. So let me step aside and take a look at the key building block that we used here and it was the open telemetry collector failover connector.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "We started looking for a way to keep the real-time path as the default while adding a fall back only when needed and the failover connector lets you do that. It lets you define multiple downstream paths in priority order and under normal",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "condition telemetry goes to the primary destination first and if that path starts failing or applying back pressure the connector can automatically route traffic to a lower priority fallback uh instead. It also keeps retrying the higher",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "priority path. So when the primary destination recovers, traffic can move back automatically. And for us, it was exactly what we we needed. It let us keep the real-time click house path as the default while using the durable",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "fallback only when the primary path was unhealthy. So we built a version two and that was sort of a compromise. Instead of sending everything to S3, we kept the direct path for normal operation and used S3 only as an overflow buffer. So when systems",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "healthy, logs go straight to pipeline as usual. But when click house slows down or becomes unavailable, overflow data is spilled to S3 as a durable fallback. And once systems recovers, S3Q drains the backlog and catches us up.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "That solved two important problems here. First cost issue. You're no longer writing every batch to S3. You're writing only the data that would otherwise be at risk during the back pressure or a failure event. Second, it improved freshness because live locks",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "and catch-up traffic could now be can be handled independently in a separate pipeline instead of all competing in one long queue. However, it still did not solve the main injection complexity problem. hotel payloads still still nested and we still",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "need a materialized view or something to unwrap them into the schema that we wanted and that path remained expensive and fragile under load. So we kept looking and so this takes us to our final version which we have running in our",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "infrastructure today. We really like the right path of S3 only on overflow, but we didn't want to rely on clickous S3 Q and materialized views for the catch-up. So, we decided to use something called S3 event notifications.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "Um, this is a feature of blob storage where for every object that gets created, a message is put onto a queue with the uh key of the object with at least once delivery guarantees. uh we can then consume that uh queue through",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "the uh AWS S3 receiver in the SQS mode which is another hotel component where it will uh get the message uh download the blob unwrap them and insert this into click. This keeps our S3 cost low. It takes the complexity out of the",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "ClickHouse database by letting the collector handle the OTL format and it's still two separate pipelines, one for live data and one for catchup. Uh this pattern works across all the cloud providers that we use. GCS has event",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "notifications to PubSub. Azure can ship them to EventHub. Um and since the queue contains only metadata, it keeps the whole process lightweight and costefficient. For every uh blob of events that we upload to the blob storage might be 10 to 50",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "megabytes. The actual payload of the event notification is only a few hundred bytes representing the key. Um so let's dig deeper into how this works. This is a rough view of one of our cloud regions. Um we run many Kubernetes clusters per region. Each one",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "will have an hotel demon set scraping logs and traces locally from that node, shipping them off to our uh gateway collectors. These gateways then use the failover connector to either insert into click or fall back to S3. And should",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "they fall back to S3, the event notification pipeline goes through SQS to the separate hotel receiver. And all that does is just download a blob and keep retrying the insert until it succeeds. Um the happy path looks pretty simple",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "within the collector. It takes OTLP data. It routes to the failover connector and goes to click house. Should a failure be detected that gets retrieded against S3 and then there's a fail back path which happens uh on a configurable interval where where we'll",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "retry the highest priority exporter and so when click house recovers data goes back. Um, on the catch-up side, uh, the SQSQ is unordered, so we don't need to worry about anything like headline blocking. Uh, timestamps are embedded within the",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "actual data points themselves, so we don't need to worry about the order that we rewrite them into the database or anything like that. Um, the collector is super simple. It's a separate deployment from the live gateways. It's completely",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "stateless. Um, it's very easy for us to manage. Um, and the other thing is that this design is intentionally singlethreaded. What the hotel collector does here is it pulls a message, downloads the blob, unwraps it, inserts",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "it, pulls the next message. Um, and so for us within a single Kubernetes cluster, just one core is enough to keep up with the occasional blips and timeouts for a failed insert to click. Um, this is an oel bin visualization,",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "which thank you zero folks, um, of our two different collectors. uh this is just our logs pipeline and you'll see you know we receive data it goes through our various processors and then it splits on this failover path whereas on",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "the catchup all it does is like pull from S3 add a resource attribute indicating that this was ingested by the failover path rather than the regular path and dump it into the database um so once we had this running the first",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "thing we did was a big game day um this is one of our development regions where we're pretty regularly ingesting about 125 5,000 logs per second. On the yellow, this is the number of records being inserted into ClickHouse. And what",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "we did was just a hard stop of the database. And so you can see it immediately cuts over to green, which is the S3 exporter, and then let that run for about an hour, where we figured if it's going to oo the collectors, it'll",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "have to have within minutes. And if it survived this whole time, then we're probably good. Um once we started the database back up, you can see the writes switch over back to ClickHouse and you'll see this blue bar, which is the",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "catch-up collector, um reingesting those blobs that were written to S3. Um because it's single threaded, it's slow. It ran about 5,000 logs per second of catchup. Um and so for this window, we wrote approximately 450 million logs to",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "S3 and it took 16 hours to drain with a single core. Um, on the S3 side, this is what the API operations look like. You'll see once the database stopped, we shipped a whole bunch of puts towards the bucket with these periodic little gets from the",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "catch-up collector attempting to reinsert. Um, but of course it was failing and the second the database recovered, we see this steady stream of gets uh processing that backlog. Um, one thing that we had to be careful about is the negative feedback loop.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "When we recover from an outage, probably the database is less stable than it would typically be and so we don't want the catchup traffic to trigger another incident or uh disrupt the operations again which will interfere with the live",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "traffic. So as I mentioned it's intentionally single threaded. Um if we want to we can scale it out manually. Um but we leave it at as a single core per region just to limit that throughput. Um, while it's happening, we can also",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "entirely scale this to zero and just let the backlog build up in the queue until we're ready and comfortable to start reingestion. Uh, another thing we did, of course, was practice some uh, load testing for faster recovery scenarios. So, we",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "populated a 100 gigabyte backlog in S3, spun up 10 concurrent receivers, one CPU each, and drained it in 1 hour. Because the receiver is in a single threaded loop, you can't actually vertically scale this. you can only do it horizontally.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "Um, which is totally fine for us. Um, let's talk about a few other operational uh challenges with the collectors. Earlier we talked about crashes causing data loss. Without the persistent Q, we are once again susceptible to losing in-flight uh",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "batches if the collector should crash. Thing is, in our experience, the vast majority like well over 99% of our crashes are actually due to OOM. And since we now have the failover process that lets us drain the collector cues",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "into S3 instead of in memory, we really don't experience this anymore. Um, however, it is something we're still considering. We could reintroduce a persistent queue if we find that node failures are becoming more and more",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "common, which they are. Um, but because of this failover process, we're not uh we're not buffering everything on these persistent cues. So they can be quite small, gigabytes instead of terabytes. And this will continue to keep our costs and operations low.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "Um, another gotcha of the failover connector that you should be aware of if you're going to use it is how you manage sending cues. A typical collector configuration requires sending cues on every exporter. But when you're using",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "this failover connector, you actually don't want to use them. Uh, and instead you want to let the connector handle the queueing. This is because any sort of retrying or queuing on the export side is actually going to hide failure",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "signals from being propagated back to the connector. So it won't realize that a downstream target is unhealthy and it should fail over until much later and you'll have data stuck against a failed exporter for longer than you'd like. Um",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "so we now run the click house exporter without ascending queue and let the failover connector handle it. But for S3 we do give it a sending queue because we intentionally want to hide failures from the failover connector. If there's a",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "drop connection or we run out of retries for a single batch, we don't want the failover connector to think that there are no healthy pipelines available because if so, it would stack up when the failover queue until that 30-cond retry interval kicks in.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "Um, when it comes to scaling, our entire collector stack is now stateless with uh the persistent Q and PBCs. This was a huge operational pain point for us and uh by turning our entire collection into a stateless stack we are now simplifying",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "back to just CPU and memory based horizontal autoscaling. If we want to we can evaluate more sophisticated methods in the future like scaling based on receiver throughput on the gateway collectors and Q depth on the catch-up",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "collectors but honestly the simple stuff has been fine for us. And so I'm going to wrap it up with a little bit of cost analysis. After running this for a while, in our experience, we typically overflow about 100,000 batches to S3 on a typical day.",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "One of these batches will be tens of megabytes, which compresses down to around 700 kilobytes, which puts us at 2.1 terabytes per month. Again, the API operations are pretty simple. One put per batch and roughly 1:1 get ratio. And",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "so based on the public pricing, this leaves us at $65 a month of steadystate costs compared to many thousands maintaining terabytes of EBS volumes. Um, now in the disaster case, let's say we had an 8 hour regional outage in our",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "logging cluster. In one of our bigger regions, we typically ingest about 600,000 records per second at a 10K batch size, which means 216,000 batches an hour. Again, based on the same uh data size estimates as well as uh API",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "throughput calculations, that puts us a little under $10,000 to survive an 8 hour outage. And this is why we don't want to ship everything to S3 as the only target because that would cost us $30,000 a day. Um and it's not something we want to take.",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "So we have gone fairly deep into the mechanics. Let me to wrap up the talk zoom back a little bit and uh talk a little bit about the trade-offs that shaped where we landed with all that. Uh let's start with the final design. So",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "again in a steady state the telemetry goes directly from the collectors into the click house. That is the fast and happy path. and it is optimized for for freshness. When click house is under pressure or unavailable, the failover path writes",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "overflow data into the blob storage and event notifications go through lightweight metadata queue uh with a separate catchup collector that read reads through those objects back wraps it to open telemetry payloads enriches it and turns them into click house.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "The important part here is the separation of concerns. Life inest stays low latency and straightforward and recovery happens on its own path. So we're always getting the fresh data when uh the uh downstream database server",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "click house in this case is available. Now that's what lets us keep the hot path Qless without giving up durability. Another pros of this approach is that it doesn't have to be click house. Like it's open telemetry. You can configure it whatever",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "exporter you want. In our case, we wanted to duck food or click house cloud and we run all of our observability with click house. But it doesn't have to like you can use this uh all across the board whatever database and the data store you have. Few",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "things became very clear during this work. First, for click house, batching really matters. Small inserts create pressure that increases uh the merge load and make the system more expensive to run in both uh financial and the operational sense.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "Second, for logs and observability telemetry in general, freshness often matters more than perfect ordered replay. That is one reason the persistent cues with strict in order uh draining were not a great fit excluding the operational complexity of it.",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "Third, durability does not always mean Kafka. In our case, object storage plus lightweight metadata notifications gave us the durability we needed without putting a heavyweight queue in a hot path. Fourth, Q placement matters when you're",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "using failover. If you put too much buffer in the front of failover, you delay failure signals and make it harder to switch paths quickly. And finally, keeping the collector stack stateless paid off a lot. It made autoscaling much",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "simpler and made the system much much easier operationally to manage. Scaling the cluster of uh open telemetry collector gateways with persistent cues of two terabytes and more takes forever and it's just not feasible at all. Now we can scale it up and down",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "depending on the load uh automatically using HPA or VPA even. Uh, this design bought us a cheaper hot path, less operational overhead, and better separation between live traffic and recovery. Those gains came with with trade-offs.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "By keeping a heavy heavy weight out of the hot path, we took on more architecture ourselves. And that meant being much more deliberate about failover behavior. like we had to think about the negative feedback loop about putting more pressure on the uh database",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "downstream database server that became a bottleneck. In this case we had to think about Q placement with think had to think about how to scale the failover inest. Uh that's some extra things to consider. We also pushed more",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "responsibility into the collector layer itself. Collectors are not just forwarding data here. They're part of the routing and failure handling logic. Also, recovery is a synchronous. When data spills to the durable path, catchup",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "happens later on a separate path and rather than immediately in line with the live traffic and it happens in a different rate. So, you need to think about it as well. And some failure cases still require explicit choices especially around the",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "collector collector crashes, retry behavior, and a catchup policy. So this was not about really avoiding the complexity. It was choosing where we want to put the complexity to leave. And the main takeaway here is not not that everyone should avoid Kafka or",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "other message buses. A QAS design like this makes sense when you already have blob storage, when your priority is keeping the hot path simple, and when your recovery path can be separate and eventually consistent. And it's especially attractive when fresh data",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "matters more than replaying uh backlog and strict order which is often true for logs and other operational telemetry. On the other hand, there are plenty of cases when introducing Kafka or other message buses is absolutely the better choice.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "If you need a general purpose durable bus, when you have multiple independent customers reading from the same stream, when you need a strong replay semantics or tighter ordering and consumer guarantees, uh CFKA solves these problems directly.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "Um also, if your team already has a strong Kafka experience or your scale fits well with manage Kafka, the operational trade-offs is completely reasonable here. So the real question is uh not Q or non Q. The question is what problem you're actually solving and",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "where you want this complexity to to land. Thank you.",
+      "start": 726,
+      "duration": 6
+    }
+  ]
+}

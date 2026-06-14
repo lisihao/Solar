@@ -1,0 +1,209 @@
+{
+  "videoId": "hb1KbXgE0_Q",
+  "title": "FAST '26 - ScaleSwap: A Scalable OS Swap System for All-Flash Swap Arrays",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 9751,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "I'm Chanyoung You from Chung-Ang\nUniversity.\nToday, I'll talk about ScaleSwap.\nScaleSwap is a scalable swap system\ndesigned to use all flash swap arrays\nefficiently.\nThis work is a collaboration with Taewan\nUm and Sangji Lee from Chung-Ang\nUniversity and my advisor Yong-Seok Son.\nFirst, let me explain the motivation.\nToday, many workloads need a lot of\nmemory like machine learning, big data,\ngraph processing.\nBut, DRAM is expensive and it is hard to\nscale DRAM to very large sizes.\nSo, the total cost becomes high.\nAt the same time, NVMe SSDs are much\nfaster now.\nSo, we can use SSDs as swap space to\nextend memory, especially when we have\nmultiple SSDs.\nHowever, the default Linux swap has a\nbig problem.\nIt does not scale well when we use many\nCPU cores and many SSDs.\nEven with multiple SSDs, Linux swap\nstill has many shared locks.\nSo, many cores spend time waiting\ninstead of doing real work.\nThat's why SSD performance can scale,\nbut Linux swap throughput stays almost\nflat around 4 GB per second.\nSo, our main issue is the swap design in\nthe OS.\nBefore our design, let me quickly review\nLinux page eviction.\nLinux uses LRU lists to choose pages to\nevict.\nThere are two lists, active and\ninactive.\nActive pages are hot, so Linux tries to\nkeep them.\nAnd inactive pages are cold, so Linux uh\nchecks them first.\nWhen memory pressure happens,\nLinux scans the inactive list.\nIf a page was used again, it can move\nback to active.\nIf not, it becomes a victim for reclaim\nor swap out.\nThis slide shows the basic flow under\nmemory pressure.\nWhen a process needs a new pages,\nuh new page, it first tries to allocate\none.\nIf there is uh\nfree page, allocation is simple.\nBut, if there is no free page, Linux\nmust reclaim memory.\nIt scans inactive LRU list, select a\nvictim, and evict out.\nThen, Linux can get a free page and\ncontinue.\nThe important point is uh many threads\ncan do the can do this at the same time,\nso lock overhead can become a problem.\nNow, let's move to swap.\nSwap uses uh storage space as memory\nwhen DRAM is not enough.\nFor swap out, Linux evicts a victim page\nto the swap area and changes the page\ntable entry from page table entry to\nswap entry.\nFor swapping, when the process touches\nthat page again, Linux gets a page\nfault. Then, Linux reads the page from\nthe swap area and restores the entry\nfrom swap entry back to page table\nentry.\nThis slide shows a simple swap flow.\nDuring swap out, Linux picks a victim\npage from the inactive list, updates\nswap metadata with spin lock, writes the\npage to SSD, and updates the page page\ntable entry to swap entry.\nDuring swap in,\nit sees swap entry on a page fault,\nfinds the swap slot, and updates swap\nmetadata with spin lock,\nloads the page back to memory and put\nput it back into the LRU list.\nSo, swap is not only IO, we also touch\nswap metadata many times.\nNow, let's talk about the first\nbottleneck.\nThe first bottleneck is lock contention\non the LRU list.\nLinux manages LRU list per node and many\ncores share the same LRU lock.\nWhen memory pressure is high, many\nthreads try to reclaim at the same time.\nSo, cores spend a lot of time waiting\nfor the LRU lock.\nThis reduces throughput even if the SSDs\nare fast.\nThe second bottleneck is lock contention\non swap metadata.\nSwap in and swap out both update\nmetadata like the swap map.\nUh in Linux, this metadata is protected\nby a swap\nswap metadata lock. So, when many cores\nswap at the same time, the lock becomes\nvery hot.\nThis is one main reason why Linux swap\nthroughput stops scaling.\nSo, our goal is to make swap scale well\nwith more cores and more SSDs,\nespecially for all flash swap arrays.\nAnd to do that, our key idea is to avoid\na centralized design.\nInstead, we use a decentralized\ncore-centric design.\nWe use three strategies.\nFirst, core-centric swap resource\nmanagement. Second, opportunistic\ninter-core swap assistance using\ndelegation.\nThird, core affinity page and LRU\nmanagement.\nThis slide shows the overall structure\nof ScaleSwap.\nSwap resources are no longer global\nshared.\nThey are owned by individual cores.\nEach core has its own swap resources\nsuch as swap metadata, swap cache, task\nqueue, and LRU list.\nAlso, each core has a delegator thread.\nWhen a core needs help from another\ncore's swap resources, it sends a task\nto that core's delegator.\nThis way, we reduce global sharing and\nimprove scalability.\nHere,\nuh we compare how Linux and ScaleSwap\nmanage swap resources.\nIn Linux, swap allocation depends on a\nglobal view and shared work, so many\ncores can touch the same\nuh swap metadata.\nBut, in ScaleSwap, we use a core-centric\ndesign. Uh each core owns its own swap\nspace and metadata.\nSo, most swap operations stay local and\nwe reduce\ncontention.\nAs a result, allocation no longer\nrequires global co-coordination.\nA core can allocate directly from its\nlocal swap region\ninstead of touching global lists.\nHowever, this ownership model raises a\nquestion.\nWhat if a core's local swap space is\nfull?\nOr what if we need to access swap\nmetadata owned by another core?\nTo handle this, we use delegation.\nInstead of touching remote metadata\ndirectly, we send a task to the target\ncore's delegator.\nOne important point is the application\nthread still does the real IO, so we\nkeep SSD parallel parallelism.\nNow, I'll explain what happens during\ndelegation.\nFor swap out,\nif local swap space is full, the\nrequester picks a victim page.\nThen, the requester asks another core to\nhandle the swap out metadata work.\nThe delegator updates the swap entry and\nrelated metadata,\nand the requester updates page table\nentry to swap entry.\nFor swapping,\non a page fault, we first check the swap\ncache.\nIf it's a hit, we read from cache if but\nif not, we read from the uh swap space.\nThe requesters restores page table entry\nand puts the back puts the page into the\nlocal LRU list.\nThen, the delegator updates the swap\nmetadata asynchronously.\nThe next design component is core\naffinity page LRU uh page and LRU\nmanagement.\nIn Linux,\nLRU lists are shared per NUMA node, so\nmany cores contend on the same LRU lock\nunder memory pressure.\nTo minimize this this contention, we\npartition LRU lists by core, removing\nshared LRU locking.\nIn addition, we modify the page flag\nlayout to store the allocation CPU ID.\nThis ensures that when a page is swapped\nin or out, it returns to the original\ncore's LRU list.\nTogether, this design minimizes lock\ncontention and improves locality.\nNow, I'll move to evaluation.\nWe evaluate ScaleSwap on a multi-core\nsystem equipped with multiple NVMe SSDs\nto study scalability.\nWe run microbenchmarks and real-world\napplications and compare ScaleSwap\nagainst Linux swap, TMO, and EXT4.\nOn this slide, I show the micro\nbenchmark results in terms of throughput\nand latency.\nScale swap scales almost linearly as we\nincrease the number of SSDs and cores,\nwhile Linux swap saturates only due to\nlock contention.\nOverall, Scale swap achieves up to 3.4\ntimes higher throughput compared to\nLinux swap.\nIn terms of latency,\nScale swap remains stable without large\nspikes even under heavy memory pressure.\nIt achieves up to 11.5\ntimes lower average latency,\nindicating significantly reduced\nsynchronization overhead.\nNow, I show results from real-world\napplications.\nWe evaluate five memory-intensive\nworkloads, including BFS and DNA\nvisualization.\nWith eight SSDs,\nScale swap consistently outperforms\nLinux swap across all workloads.\nFor example, BFS improved throughput by\n2.4 times and DNA visualization by\n2.57 times.\nThe other workloads also show consistent\nimprovements.\nThis shows that the benefit extends\nbeyond micro benchmarks to real\napplications.\nThis slide shows results from Apache\nSpark.\nSpark runs many parallel tasks and\ngenerates high memory pressure.\nWe use PySpark with the Common Crawl\ndataset, which requires terabytes of\nmemory and heavily stresses swap.\nScale swap reaches about 6.3 GB/s peak\nthroughput and achieves 1.75 times\nhigher throughput than Linux swap.\nHere, we compare Scale swap with TMO and\nEXT4 mem.\nFor TMO, the main issue is CPU overhead.\nTMO uses compression and decompression,\nso CPU cost can be high.\nIn contrast, Scale swap directly utilize\nraw NVMe bandwidth without compression.\nFor EXT4 mem,\nthe key limitation is its limited\nscalability under increasing SSD and\nthread counts.\nAs the number of SSDs increases,\nEXT4 mem shows little performance\nimprovement and its throughput saturates\nbeyond 32 threads.\nIn contrast, Scale swap continues to\nscale consistently with both additional\nSSDs and higher\nthread counts.\nAs a result, in this all-flash setting,\nScale swap achieves up to 1.64 higher\nperformance than TMO and 5.02 times\nhigher throughput than EXT4 mem.\nTo conclude,\nScale swap is a swap system designed for\nall-flash swap arrays.\nWe redesigned swap to scale with\nincreasing numbers of cores and SSDs.\nWe achieve this through three key design\nchoices.\nFirst, swap resources are owned by\nindividual cores, eliminating global\nlock contention.\nSecond, remote metadata accesses handled\nthrough delegation, preserving\nscalability without sacrificing\nparallelism.\nThird, core affinity\nreduces synchronization overhead and\nimproves locality.\nAs a result, Scale swap achieves\nsignificantly higher throughput and much\nlower latency than Linux swap,\nespecially under memory pressure.\nWe are pleased to announce that Scale\nswap is now open source. You can access\nit at the URL on the slide.\nThat concludes my talk. Thank you. Thank\nyou for your attention.",
+  "segments": [
+    {
+      "text": "I'm Chanyoung You from Chung-Ang University. Today, I'll talk about ScaleSwap. ScaleSwap is a scalable swap system designed to use all flash swap arrays efficiently. This work is a collaboration with Taewan Um and Sangji Lee from Chung-Ang",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "University and my advisor Yong-Seok Son. First, let me explain the motivation. Today, many workloads need a lot of memory like machine learning, big data, graph processing. But, DRAM is expensive and it is hard to scale DRAM to very large sizes.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "So, the total cost becomes high. At the same time, NVMe SSDs are much faster now. So, we can use SSDs as swap space to extend memory, especially when we have multiple SSDs. However, the default Linux swap has a big problem.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "It does not scale well when we use many CPU cores and many SSDs. Even with multiple SSDs, Linux swap still has many shared locks. So, many cores spend time waiting instead of doing real work. That's why SSD performance can scale,",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "but Linux swap throughput stays almost flat around 4 GB per second. So, our main issue is the swap design in the OS. Before our design, let me quickly review Linux page eviction. Linux uses LRU lists to choose pages to evict. There are two lists, active and",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "inactive. Active pages are hot, so Linux tries to keep them. And inactive pages are cold, so Linux uh checks them first. When memory pressure happens, Linux scans the inactive list. If a page was used again, it can move back to active.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "If not, it becomes a victim for reclaim or swap out. This slide shows the basic flow under memory pressure. When a process needs a new pages, uh new page, it first tries to allocate one. If there is uh free page, allocation is simple.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "But, if there is no free page, Linux must reclaim memory. It scans inactive LRU list, select a victim, and evict out. Then, Linux can get a free page and continue. The important point is uh many threads can do the can do this at the same time,",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "so lock overhead can become a problem. Now, let's move to swap. Swap uses uh storage space as memory when DRAM is not enough. For swap out, Linux evicts a victim page to the swap area and changes the page table entry from page table entry to swap entry.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "For swapping, when the process touches that page again, Linux gets a page fault. Then, Linux reads the page from the swap area and restores the entry from swap entry back to page table entry. This slide shows a simple swap flow.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "During swap out, Linux picks a victim page from the inactive list, updates swap metadata with spin lock, writes the page to SSD, and updates the page page table entry to swap entry. During swap in, it sees swap entry on a page fault,",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "finds the swap slot, and updates swap metadata with spin lock, loads the page back to memory and put put it back into the LRU list. So, swap is not only IO, we also touch swap metadata many times. Now, let's talk about the first bottleneck.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "The first bottleneck is lock contention on the LRU list. Linux manages LRU list per node and many cores share the same LRU lock. When memory pressure is high, many threads try to reclaim at the same time. So, cores spend a lot of time waiting for the LRU lock.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "This reduces throughput even if the SSDs are fast. The second bottleneck is lock contention on swap metadata. Swap in and swap out both update metadata like the swap map. Uh in Linux, this metadata is protected by a swap swap metadata lock. So, when many cores",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "swap at the same time, the lock becomes very hot. This is one main reason why Linux swap throughput stops scaling. So, our goal is to make swap scale well with more cores and more SSDs, especially for all flash swap arrays.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "And to do that, our key idea is to avoid a centralized design. Instead, we use a decentralized core-centric design. We use three strategies. First, core-centric swap resource management. Second, opportunistic inter-core swap assistance using delegation.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "Third, core affinity page and LRU management. This slide shows the overall structure of ScaleSwap. Swap resources are no longer global shared. They are owned by individual cores. Each core has its own swap resources such as swap metadata, swap cache, task",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "queue, and LRU list. Also, each core has a delegator thread. When a core needs help from another core's swap resources, it sends a task to that core's delegator. This way, we reduce global sharing and improve scalability. Here,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "uh we compare how Linux and ScaleSwap manage swap resources. In Linux, swap allocation depends on a global view and shared work, so many cores can touch the same uh swap metadata. But, in ScaleSwap, we use a core-centric design. Uh each core owns its own swap",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "space and metadata. So, most swap operations stay local and we reduce contention. As a result, allocation no longer requires global co-coordination. A core can allocate directly from its local swap region instead of touching global lists.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "However, this ownership model raises a question. What if a core's local swap space is full? Or what if we need to access swap metadata owned by another core? To handle this, we use delegation. Instead of touching remote metadata",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "directly, we send a task to the target core's delegator. One important point is the application thread still does the real IO, so we keep SSD parallel parallelism. Now, I'll explain what happens during delegation. For swap out, if local swap space is full, the",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "requester picks a victim page. Then, the requester asks another core to handle the swap out metadata work. The delegator updates the swap entry and related metadata, and the requester updates page table entry to swap entry. For swapping,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "on a page fault, we first check the swap cache. If it's a hit, we read from cache if but if not, we read from the uh swap space. The requesters restores page table entry and puts the back puts the page into the local LRU list.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Then, the delegator updates the swap metadata asynchronously. The next design component is core affinity page LRU uh page and LRU management. In Linux, LRU lists are shared per NUMA node, so many cores contend on the same LRU lock under memory pressure.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "To minimize this this contention, we partition LRU lists by core, removing shared LRU locking. In addition, we modify the page flag layout to store the allocation CPU ID. This ensures that when a page is swapped in or out, it returns to the original",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "core's LRU list. Together, this design minimizes lock contention and improves locality. Now, I'll move to evaluation. We evaluate ScaleSwap on a multi-core system equipped with multiple NVMe SSDs to study scalability. We run microbenchmarks and real-world",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "applications and compare ScaleSwap against Linux swap, TMO, and EXT4. On this slide, I show the micro benchmark results in terms of throughput and latency. Scale swap scales almost linearly as we increase the number of SSDs and cores,",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "while Linux swap saturates only due to lock contention. Overall, Scale swap achieves up to 3.4 times higher throughput compared to Linux swap. In terms of latency, Scale swap remains stable without large spikes even under heavy memory pressure.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "It achieves up to 11.5 times lower average latency, indicating significantly reduced synchronization overhead. Now, I show results from real-world applications. We evaluate five memory-intensive workloads, including BFS and DNA visualization. With eight SSDs,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "Scale swap consistently outperforms Linux swap across all workloads. For example, BFS improved throughput by 2.4 times and DNA visualization by 2.57 times. The other workloads also show consistent improvements. This shows that the benefit extends",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "beyond micro benchmarks to real applications. This slide shows results from Apache Spark. Spark runs many parallel tasks and generates high memory pressure. We use PySpark with the Common Crawl dataset, which requires terabytes of",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "memory and heavily stresses swap. Scale swap reaches about 6.3 GB/s peak throughput and achieves 1.75 times higher throughput than Linux swap. Here, we compare Scale swap with TMO and EXT4 mem. For TMO, the main issue is CPU overhead.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "TMO uses compression and decompression, so CPU cost can be high. In contrast, Scale swap directly utilize raw NVMe bandwidth without compression. For EXT4 mem, the key limitation is its limited scalability under increasing SSD and thread counts.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "As the number of SSDs increases, EXT4 mem shows little performance improvement and its throughput saturates beyond 32 threads. In contrast, Scale swap continues to scale consistently with both additional SSDs and higher thread counts.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "As a result, in this all-flash setting, Scale swap achieves up to 1.64 higher performance than TMO and 5.02 times higher throughput than EXT4 mem. To conclude, Scale swap is a swap system designed for all-flash swap arrays. We redesigned swap to scale with",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "increasing numbers of cores and SSDs. We achieve this through three key design choices. First, swap resources are owned by individual cores, eliminating global lock contention. Second, remote metadata accesses handled through delegation, preserving",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "scalability without sacrificing parallelism. Third, core affinity reduces synchronization overhead and improves locality. As a result, Scale swap achieves significantly higher throughput and much lower latency than Linux swap, especially under memory pressure.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "We are pleased to announce that Scale swap is now open source. You can access it at the URL on the slide. That concludes my talk. Thank you. Thank you for your attention.",
+      "start": 228,
+      "duration": 6
+    }
+  ]
+}

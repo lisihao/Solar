@@ -1,0 +1,224 @@
+{
+  "videoId": "rDD-jh6lFtw",
+  "title": "FAST '26 - DMTree: Towards Efficient Tree Indexing on Disaggregated Memory via Compute-side...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 10402,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hi everybody, I'm Gui from University of\nScience and Technology of China. I'm\ngoing to present a work dim towards\nefficient tree indexing on disagregated\nmemory via computer side collaborative\ndesign. Disagregated\nmemory decouples compute and memory\nresources into separate resource pools\nwhere the compute pool handles request\nrequest processing and memory po index\nand data. This disagregated architecture\nensures high resource utilization and\nhigh resource scalability. Compute and\nmemory servers connected via high-speed\nnetwork\nand cross network communication in this\naggregated architectures index is a key\ncomponent to accelerate the access.\nExisting true indexes in this aggregated\nmemory include B+ trees and adaptive\nradics trees. In this aggregated memory,\nthe index is stored on memory server and\nthe computer servers access it remotely\nover network traversing the multle level\ntree from the root to the leaf node to\nretrieve data.\nThe commonly used interer communication\ntechnical in disagregated memory isma\nadmma provides two types of parameters\none-sided and two-sided. Due to the\ncharacteristic one-sided operations\nwhich alone me which learn remote data\naccess by passing memory ser CPU they\nthey're widely used in disagregated\nmemory applications in communication.\nThe aric exposes two key resource\nbottlenecks. The LPS resource bottleneck\nwhich limits how many operations it can\nprocess per second and the bandwax\nwhich limits the data transfer rate.\nBuilding on this background, the key\nchallenge for indexing in disagregated\nmemory is to mitigate cross network\noverhead and the network resource\nbottlenecks and the heavy client\nconcurrency which is also critical to\nimproving the overall system\nperformance. Existing works mitigate\ncross network overhead by caching upper\nlevel tree on computer servers and\nfetching only the lift nodes remotely uh\nthereby reducing most cross network\naccesses. However, uh remote lift node\naccesses do face fundamental tradeoffs\nin IDM resource utilization\nbased on index type and the resulting\nnetwork bottlenecks. Existing index can\nbe divided into two categories.\nContiguous range storage and precise key\nvalue locating.\nFirst for index with contiguous range\nstorage such as B+3 or learn indexes.\nThey use coarse screen leaf nodes where\neach leaf node stores a contiguous range\nof key value entrance. During key value\nrequest, the compute server roughly\nlocates the target lift node and then\nremotely reads the entire node from the\nmemor sub.\nThe cost grand reads called read\napplication wasting bas and leading to\nbottlenecks due to insufficient botmas\nresources especially during search\noperations.\nSecond for indexes with precise key\nvalue locating such as adaptive retic\ntrees they use fine grain leaf nodes to\nprecisely locate the request value in\nthis design avoids reimplication and is\ntherefore bound friendly. However the\nfang green node increase request as the\nleaf node storage separately. It\nintroduces extra RDMI for reading\nseparated lift nodes during scan\noperations and for updating upper level\ntrees during insert operations.\nThe fang nodes increase request\nconsuming LPS and leading to bordex\nusing sufficient LPS resources\nespecially during insert and scan\noperations.\nIn conclusion, existing works face\ntrade-offs in ADM network resource\nutilization and file to achieve\nconsistently high performance across\ndifferent index operations. The question\nis that how can we balance the\ninevitable resource consumption and\nachieve consistently high performance.\nFrom existing works, we observed that in\nthis aggregated architectures, indexes\npatterns roots all request from the\ncomput server to the memory server and\nheavy concurrent accesses from computer\nside clients. IDM traffic converges at\nthe memory side causing memory side LPM\nresources to became the bottleneck.\nMeanwhile, the computer side resources\nremain underutilized.\nThis provides opportunity to break\nresource utilization dilemma.\nOur main idea is to leverage computer\nside to offload the inevitable index\noperations that aggregated at memory\nside. We propose a computer side\ncollaborative design and index optimized\nfor disagregated memory called DM tree.\nThe computer side collaborative design\nincludes first offloading precise\nlocating to the computer side. Second uh\nintroducing computer side collaborative\ncache. Third offloading concurrent\nlocking to the computer side. Next we\nwill go through the key design of DM\ntree in detail step by step.\nIn DM tree we adopt a B tree like\nstructure uh in which leaf nodes store\nkey value entrance while internal nodes\nused to locate target leaf.\nAdditionally, each leaf node is\naugmented with a fingerprint table where\neach fingerprint is generated by\nharshing the key and it used to\nprecisely locate the target key. When\nprocessing the request, the system first\nlocates target leaf and its\ncorresponding fingerprint table. It then\ntraverses the fingerprints to identify\nthe target key and reads only the\ncorresponding key value intern. This\napproach avoids fighting the interior\nlift node thereby reducing boundise\nconsumption but obviously it incurs\nadditional IDM request for key value\nlocating.\nIn our computer side collaborative\ndesign we offload the precise key\nlocating to computer side to leverage\nand utilize DM resources across computer\nservers. Specifically, instead of store\nreading fingerprint tables on memory\nservers, we suggest the fingerprint\ntables of different leaf nodes across\nmultiple comput servers using a\ndistributed placement policy such as run\nrowing or consist harshing. To retrieve\na fingerprint table, we store its\naddress at an additional pointer in each\nin of the internal tree nodes.\nWhen processing a Q value request, the\nsystem first retrieves the fingerprint\npointer from the internal tree. Then it\nfetched the fingerprint table across\ncomputer servers. By matching against\nthe fingerprints, it precisely locates\ntarget key and finally retrieves the\ncorresponding key entrance from the\nmemory server. By offloading precise\ncapital locating to the computer side,\nDM tree avoids fingerprint related RDM\nrequest from being concentrated on\nmemory server. Thereby alleviating the\nmemory side LPS bottleneck\nbuilt on computer side fingerprint\nstorage. Gem tree introduces a computer\nside collaborative cache. Each\nfingerprint table is primarily stored on\none compute server and can be cached\nother servers minimizing remote accesses\nand accelerating computer side\nfingerprint lookups. The primary\nfingerprint table is updated in real\ntime where catch replicates are\nrefreshed as synchronously\nwith the computer side cooperative\ncache. We accelerate fingerprint access\nbut we also need to handle consistency\nissues between cached fingerprint and\nremote storage. For example, we may see\ncatch misses due to outdated fingerprint\ncache entrance as well as mismatch\ntriggered by tree node splits.\nFirst, to handle fingerprint misses\ncaused by outdated caches, we use a\nprimary fingerprint table stored in\ninternal tree to fetch up to date\nprimary fingerprint table and refresh\nlocal cache accordingly whenever a miss\noccurs.\nSecond, to handle fingerprint mismatches\ncaused by tree node split and a\nsynchronized fingerprint caches, we add\na version failed to each of internal\nnode entrance and fingerprint table. A\nlie split updates version only in\nprimary storage. Therefore, if the\ncached version fails does not match\nthose in the primary storage, it\nindicates that the primary tree node has\nbeen split but the but the cache had not\nbeen updated. The comput server will\nthen refresh the corresponding cache.\nThe computer set collaborative cache\nfurther accelerates fingerprint access\nacross computer servers with consistency\nensured through validation fails.\nTo further extend the computer side\ncollaborative design, we distribute the\nlog fails of lift nodes across computer\nservers similar to the distribution\nfingerprint storage of loading kind of\nlocking operations to the computer side.\nThis approach avoids IDMA request for\nlocking from being concentrated on the\nmemory server and further alleviates the\nmemory side of P bottleneck.\nWe also introduce other resource\noptimizations enabled by the computer\nside collaborative design. For example,\nusing the computer side fingerprint\ntable to f out value slots within lift\nnodes during scan operations preventing\nboundless vestage. Further details can\nbe found in the paper.\nFor evaluation, we run experiments on\nseven node cluster consisting of six\ncompute servers and one memory server.\nWe evaluate DM tree using VSSB workloads\nand both uniform and zip one key\ndistributions coveraging microbenchmarks\nand westsb workloads. We compare\nobjectry prototype against\nrepresentative disagregated indexing\nbaselines as shown on slides.\nUh this figure shows the throughput of\nDM tree compared to existing works and\nthe microbenchmarks with varying numbers\nof client stress and these\nmicrobenchmarks. DM tree outperforms the\nbaselines across search, insert, update,\nscan operations and heavy client\nconcurrency, improving overall\nperformance by up to 5.7 times.\nThis figure shows the throughput of DM\ntree compared to existing works and the\nwest view close and west view close tree\nconsistently outperforms existing\ndisagregated memory range indexes\ndelivering better overall performance.\nUh we also evaluate the effectiveness of\nthe design techniques and performance by\nleveraging adm resources across comput\nservers uh and with the computer side\ncollaborative design. DM tree mitigates\nmemory side bottlenecks and improving\nthe overall indexing performance.\nTo conclude, we propose the M tree and\nefficient tree index for disagregated\nmemory through computer side\ncollaborative design including designs\nof loading precise cloating computer\nside collaborative cache and offloading\ncurrent locking operations.\nFor detailed results and analysis,\nplease refer to the phenom paper. Our\ncode is open sourced and available on\nour project website and the fightback\nevaluation. Please refer to the\nfollowing website.\nUh, thank you. I'd like to take your\nquestions and comments.",
+  "segments": [
+    {
+      "text": "Hi everybody, I'm Gui from University of Science and Technology of China. I'm going to present a work dim towards efficient tree indexing on disagregated memory via computer side collaborative design. Disagregated memory decouples compute and memory",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "resources into separate resource pools where the compute pool handles request request processing and memory po index and data. This disagregated architecture ensures high resource utilization and high resource scalability. Compute and",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "memory servers connected via high-speed network and cross network communication in this aggregated architectures index is a key component to accelerate the access. Existing true indexes in this aggregated memory include B+ trees and adaptive",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "radics trees. In this aggregated memory, the index is stored on memory server and the computer servers access it remotely over network traversing the multle level tree from the root to the leaf node to retrieve data. The commonly used interer communication",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "technical in disagregated memory isma admma provides two types of parameters one-sided and two-sided. Due to the characteristic one-sided operations which alone me which learn remote data access by passing memory ser CPU they",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "they're widely used in disagregated memory applications in communication. The aric exposes two key resource bottlenecks. The LPS resource bottleneck which limits how many operations it can process per second and the bandwax which limits the data transfer rate.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "Building on this background, the key challenge for indexing in disagregated memory is to mitigate cross network overhead and the network resource bottlenecks and the heavy client concurrency which is also critical to improving the overall system",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "performance. Existing works mitigate cross network overhead by caching upper level tree on computer servers and fetching only the lift nodes remotely uh thereby reducing most cross network accesses. However, uh remote lift node",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "accesses do face fundamental tradeoffs in IDM resource utilization based on index type and the resulting network bottlenecks. Existing index can be divided into two categories. Contiguous range storage and precise key value locating.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "First for index with contiguous range storage such as B+3 or learn indexes. They use coarse screen leaf nodes where each leaf node stores a contiguous range of key value entrance. During key value request, the compute server roughly",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "locates the target lift node and then remotely reads the entire node from the memor sub. The cost grand reads called read application wasting bas and leading to bottlenecks due to insufficient botmas resources especially during search operations.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "Second for indexes with precise key value locating such as adaptive retic trees they use fine grain leaf nodes to precisely locate the request value in this design avoids reimplication and is therefore bound friendly. However the",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "fang green node increase request as the leaf node storage separately. It introduces extra RDMI for reading separated lift nodes during scan operations and for updating upper level trees during insert operations. The fang nodes increase request",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "consuming LPS and leading to bordex using sufficient LPS resources especially during insert and scan operations. In conclusion, existing works face trade-offs in ADM network resource utilization and file to achieve consistently high performance across",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "different index operations. The question is that how can we balance the inevitable resource consumption and achieve consistently high performance. From existing works, we observed that in this aggregated architectures, indexes",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "patterns roots all request from the comput server to the memory server and heavy concurrent accesses from computer side clients. IDM traffic converges at the memory side causing memory side LPM resources to became the bottleneck.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "Meanwhile, the computer side resources remain underutilized. This provides opportunity to break resource utilization dilemma. Our main idea is to leverage computer side to offload the inevitable index operations that aggregated at memory",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "side. We propose a computer side collaborative design and index optimized for disagregated memory called DM tree. The computer side collaborative design includes first offloading precise locating to the computer side. Second uh",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "introducing computer side collaborative cache. Third offloading concurrent locking to the computer side. Next we will go through the key design of DM tree in detail step by step. In DM tree we adopt a B tree like structure uh in which leaf nodes store",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "key value entrance while internal nodes used to locate target leaf. Additionally, each leaf node is augmented with a fingerprint table where each fingerprint is generated by harshing the key and it used to precisely locate the target key. When",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "processing the request, the system first locates target leaf and its corresponding fingerprint table. It then traverses the fingerprints to identify the target key and reads only the corresponding key value intern. This approach avoids fighting the interior",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "lift node thereby reducing boundise consumption but obviously it incurs additional IDM request for key value locating. In our computer side collaborative design we offload the precise key locating to computer side to leverage",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "and utilize DM resources across computer servers. Specifically, instead of store reading fingerprint tables on memory servers, we suggest the fingerprint tables of different leaf nodes across multiple comput servers using a",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "distributed placement policy such as run rowing or consist harshing. To retrieve a fingerprint table, we store its address at an additional pointer in each in of the internal tree nodes. When processing a Q value request, the",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "system first retrieves the fingerprint pointer from the internal tree. Then it fetched the fingerprint table across computer servers. By matching against the fingerprints, it precisely locates target key and finally retrieves the",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "corresponding key entrance from the memory server. By offloading precise capital locating to the computer side, DM tree avoids fingerprint related RDM request from being concentrated on memory server. Thereby alleviating the memory side LPS bottleneck",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "built on computer side fingerprint storage. Gem tree introduces a computer side collaborative cache. Each fingerprint table is primarily stored on one compute server and can be cached other servers minimizing remote accesses and accelerating computer side",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "fingerprint lookups. The primary fingerprint table is updated in real time where catch replicates are refreshed as synchronously with the computer side cooperative cache. We accelerate fingerprint access but we also need to handle consistency",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "issues between cached fingerprint and remote storage. For example, we may see catch misses due to outdated fingerprint cache entrance as well as mismatch triggered by tree node splits. First, to handle fingerprint misses caused by outdated caches, we use a",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "primary fingerprint table stored in internal tree to fetch up to date primary fingerprint table and refresh local cache accordingly whenever a miss occurs. Second, to handle fingerprint mismatches caused by tree node split and a",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "synchronized fingerprint caches, we add a version failed to each of internal node entrance and fingerprint table. A lie split updates version only in primary storage. Therefore, if the cached version fails does not match those in the primary storage, it",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "indicates that the primary tree node has been split but the but the cache had not been updated. The comput server will then refresh the corresponding cache. The computer set collaborative cache further accelerates fingerprint access",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "across computer servers with consistency ensured through validation fails. To further extend the computer side collaborative design, we distribute the log fails of lift nodes across computer servers similar to the distribution",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "fingerprint storage of loading kind of locking operations to the computer side. This approach avoids IDMA request for locking from being concentrated on the memory server and further alleviates the memory side of P bottleneck. We also introduce other resource",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "optimizations enabled by the computer side collaborative design. For example, using the computer side fingerprint table to f out value slots within lift nodes during scan operations preventing boundless vestage. Further details can be found in the paper.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "For evaluation, we run experiments on seven node cluster consisting of six compute servers and one memory server. We evaluate DM tree using VSSB workloads and both uniform and zip one key distributions coveraging microbenchmarks",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "and westsb workloads. We compare objectry prototype against representative disagregated indexing baselines as shown on slides. Uh this figure shows the throughput of DM tree compared to existing works and the microbenchmarks with varying numbers",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "of client stress and these microbenchmarks. DM tree outperforms the baselines across search, insert, update, scan operations and heavy client concurrency, improving overall performance by up to 5.7 times. This figure shows the throughput of DM",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "tree compared to existing works and the west view close and west view close tree consistently outperforms existing disagregated memory range indexes delivering better overall performance. Uh we also evaluate the effectiveness of",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "the design techniques and performance by leveraging adm resources across comput servers uh and with the computer side collaborative design. DM tree mitigates memory side bottlenecks and improving the overall indexing performance.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "To conclude, we propose the M tree and efficient tree index for disagregated memory through computer side collaborative design including designs of loading precise cloating computer side collaborative cache and offloading current locking operations.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "For detailed results and analysis, please refer to the phenom paper. Our code is open sourced and available on our project website and the fightback evaluation. Please refer to the following website. Uh, thank you. I'd like to take your questions and comments.",
+      "start": 246,
+      "duration": 6
+    }
+  ]
+}

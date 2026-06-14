@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, height=1080, initial-scale=1">
+<title>Agent 四重负载冲击 — 详细分析</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --c1: #818cf8; --c1-dim: rgba(129,140,248,0.18); --c1-bg: rgba(129,140,248,0.06);
+    --c2: #34d399; --c2-dim: rgba(52,211,153,0.18); --c2-bg: rgba(52,211,153,0.06);
+    --c3: #f59e0b; --c3-dim: rgba(245,158,11,0.18); --c3-bg: rgba(245,158,11,0.06);
+    --c4: #f472b6; --c4-dim: rgba(244,114,182,0.18); --c4-bg: rgba(244,114,182,0.06);
+    --bg: #0a0e1a; --surface: rgba(15,23,42,0.7); --border: rgba(255,255,255,0.06);
+    --text: #e2e8f0; --text-dim: #94a3b8; --text-muted: #64748b;
+  }
+
+  body {
+    width: 1920px; height: 1080px; overflow: hidden;
+    font-family: 'Inter', 'Noto Sans SC', sans-serif;
+    background: var(--bg); color: var(--text); position: relative;
+  }
+
+  /* ── bg ── */
+  .bg-grid {
+    position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    animation: gp 8s ease-in-out infinite;
+  }
+  @keyframes gp { 0%,100%{opacity:.4} 50%{opacity:.7} }
+
+  /* ── header ── */
+  .header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 48px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,14,26,0.85); backdrop-filter: blur(8px);
+  }
+  .header h1 {
+    font-size: 28px; font-weight: 800; letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .header-right {
+    display: flex; align-items: center; gap: 24px;
+  }
+  .header-shift {
+    display: flex; align-items: center; gap: 8px; font-size: 12px;
+  }
+  .hs-tag { padding: 3px 12px; border-radius: 4px; font-weight: 500; }
+  .hs-tag.old { background: rgba(100,116,139,0.1); border: 1px solid rgba(100,116,139,0.15); color: var(--text-muted); }
+  .hs-tag.new { background: rgba(192,132,252,0.1); border: 1px solid rgba(192,132,252,0.2); color: #c4b5fd; }
+  .hs-arrow { color: #c084fc; font-size: 14px; }
+
+  /* ── main 2x2 grid ── */
+  .grid {
+    position: absolute; top: 72px; left: 0; right: 0; bottom: 0;
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+    gap: 1px; background: var(--border); z-index: 5;
+  }
+
+  /* ── quadrant panel ── */
+  .panel {
+    background: var(--bg); padding: 22px 32px 18px;
+    display: flex; flex-direction: column;
+    overflow: hidden; position: relative;
+  }
+  .panel::before {
+    content: ''; position: absolute; top: 0; left: 0;
+    width: 100%; height: 3px;
+  }
+  .p1::before { background: linear-gradient(90deg, var(--c1), transparent); }
+  .p2::before { background: linear-gradient(90deg, var(--c2), transparent); }
+  .p3::before { background: linear-gradient(90deg, var(--c3), transparent); }
+  .p4::before { background: linear-gradient(90deg, var(--c4), transparent); }
+
+  /* panel header */
+  .p-head {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-shrink: 0;
+  }
+  .p-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .p1 .p-icon { background: var(--c1-bg); border: 1px solid var(--c1-dim); }
+  .p2 .p-icon { background: var(--c2-bg); border: 1px solid var(--c2-dim); }
+  .p3 .p-icon { background: var(--c3-bg); border: 1px solid var(--c3-dim); }
+  .p4 .p-icon { background: var(--c4-bg); border: 1px solid var(--c4-dim); }
+
+  .p-num { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+  .p1 .p-num { color: var(--c1); } .p2 .p-num { color: var(--c2); }
+  .p3 .p-num { color: var(--c3); } .p4 .p-num { color: var(--c4); }
+  .p-title { font-size: 18px; font-weight: 700; color: #f1f5f9; }
+  .p-shift {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 2px;
+  }
+  .ps-tag { padding: 1px 8px; border-radius: 3px; font-weight: 500; font-size: 10px; }
+  .ps-tag.before { background: rgba(148,163,184,0.08); color: var(--text-muted); }
+  .ps-arrow { font-size: 10px; }
+  .p1 .ps-arrow { color: var(--c1); } .p2 .ps-arrow { color: var(--c2); }
+  .p3 .ps-arrow { color: var(--c3); } .p4 .ps-arrow { color: var(--c4); }
+  .ps-tag.after { font-weight: 600; font-size: 10px; }
+  .p1 .ps-tag.after { background: var(--c1-bg); color: var(--c1); }
+  .p2 .ps-tag.after { background: var(--c2-bg); color: var(--c2); }
+  .p3 .ps-tag.after { background: var(--c3-bg); color: var(--c3); }
+  .p4 .ps-tag.after { background: var(--c4-bg); color: var(--c4); }
+
+  /* metrics row */
+  .metrics {
+    display: flex; gap: 10px; margin-bottom: 12px; flex-shrink: 0;
+  }
+  .metric {
+    flex: 1; padding: 8px 10px; border-radius: 8px;
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+    text-align: center;
+  }
+  .m-val { font-size: 22px; font-weight: 800; line-height: 1.1; }
+  .m-val .u { font-size: 12px; font-weight: 500; opacity: 0.7; }
+  .p1 .m-val { color: var(--c1); } .p2 .m-val { color: var(--c2); }
+  .p3 .m-val { color: var(--c3); } .p4 .m-val { color: var(--c4); }
+  .m-label { font-size: 9px; color: var(--text-muted); letter-spacing: 0.3px; margin-top: 2px; }
+
+  /* analysis body */
+  .p-body {
+    flex: 1; overflow: hidden; margin-bottom: 10px;
+  }
+  .p-body p {
+    font-size: 12px; color: var(--text-dim); line-height: 1.7; margin-bottom: 8px;
+  }
+  .p-body p:last-child { margin-bottom: 0; }
+  .p-body strong { color: var(--text); font-weight: 600; }
+
+  .p-body .quote {
+    font-size: 11px; font-style: italic; color: var(--text-dim);
+    padding: 6px 10px; border-radius: 6px; margin: 8px 0;
+    background: rgba(255,255,255,0.02);
+    line-height: 1.6;
+  }
+  .p1 .quote { border-left: 2px solid var(--c1-dim); }
+  .p2 .quote { border-left: 2px solid var(--c2-dim); }
+  .p3 .quote { border-left: 2px solid var(--c3-dim); }
+  .p4 .quote { border-left: 2px solid var(--c4-dim); }
+  .quote .q-src { display: block; font-style: normal; font-size: 9px; color: var(--text-muted); margin-top: 3px; font-weight: 600; }
+
+  /* mini data table */
+  .dtable { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 11px; }
+  .dtable th {
+    text-align: left; padding: 4px 8px; font-weight: 600; color: var(--text-muted);
+    border-bottom: 1px solid var(--border); font-size: 9px; letter-spacing: 0.8px; text-transform: uppercase;
+  }
+  .dtable td { padding: 3px 8px; border-bottom: 1px solid rgba(255,255,255,0.02); color: var(--text-dim); font-size: 11px; }
+  .dtable td strong { color: var(--text); }
+  .dtable tr:last-child td { border-bottom: none; }
+
+  /* ref links */
+  .p-refs {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border); padding-top: 8px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .p-refs-title {
+    font-size: 9px; font-weight: 700; color: var(--text-muted);
+    letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 2px;
+  }
+  .ref-link {
+    display: flex; align-items: baseline; gap: 6px; font-size: 10px; line-height: 1.4;
+  }
+  .ref-dot {
+    width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0; margin-top: 4px;
+  }
+  .p1 .ref-dot { background: var(--c1); } .p2 .ref-dot { background: var(--c2); }
+  .p3 .ref-dot { background: var(--c3); } .p4 .ref-dot { background: var(--c4); }
+  .ref-link a {
+    color: var(--text-dim); text-decoration: none; font-weight: 400;
+    transition: color 0.2s;
+  }
+  .ref-link a:hover { color: #a5b4fc; text-decoration: underline; }
+  .ref-link .ref-note { color: var(--text-muted); font-size: 9px; }
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+
+<!-- ═══ HEADER ═══ -->
+<div class="header">
+  <h1>Agent 四重负载特征冲击现有基础设施</h1>
+  <div class="header-right">
+    <div class="header-shift">
+      <span class="hs-tag old">Chatbot: 无状态 / 秒级 / 单体 / 按需</span>
+      <span class="hs-arrow">&rarr;&rarr;</span>
+      <span class="hs-tag new">Agent: 有状态 / 天级 / 分布式 / 全时</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 2x2 GRID ═══ -->
+<div class="grid">
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║  Q1: 长程占用                        ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div class="panel p1">
+  <div class="p-head">
+    <div class="p-icon">&#9203;</div>
+    <div>
+      <div class="p-num">Dimension 01</div>
+      <div class="p-title">长程占用 Long-Running Sessions</div>
+      <div class="p-shift">
+        <span class="ps-tag before">秒级请求即释放</span>
+        <span class="ps-arrow">&rarr;</span>
+        <span class="ps-tag after">分钟到天级持久会话</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="m-val">87<span class="u">%</span></div><div class="m-label">CXL 卸载减少 GPU 内存</div></div>
+    <div class="metric"><div class="m-val">5<span class="u">x</span></div><div class="m-label">ICMSP 吞吐提升</div></div>
+    <div class="metric"><div class="m-val">PB<span class="u">级</span></div><div class="m-label">共享容量 / GPU Pod</div></div>
+  </div>
+
+  <div class="p-body">
+    <p>Chatbot 模式下 KV Cache 在请求完成后立即丢弃，Agent 模式下必须在<strong>数分钟到数天</strong>的异步工作流中保持存活。GPU HBM 提供纳秒级延迟但容量<strong>固定不可扩展</strong>，系统 DRAM 带宽比 HBM <strong>低一个数量级</strong>，导致 GPU 大量时间空转等待内存。</p>
+    <p>NVIDIA 在 CES 2026 推出 <strong>ICMSP</strong>（推理上下文内存存储平台），在 HBM 与通用存储间插入 G3.5 层——基于 Ethernet 闪存专为 KV Cache 优化。CXL 研究表明可减少 <strong>87% GPU 内存</strong>占用，同时维持亚 100ns 延迟。</p>
+    <div class="quote">
+      "Agent AI 系统的出现正在将瓶颈从原始算力转移到内存容量、带宽和层级设计。定义性问题变成了 &lsquo;AI 能多有效地记忆？&rsquo;"
+      <span class="q-src">— The Register, 2026.01.28</span>
+    </div>
+  </div>
+
+  <div class="p-refs">
+    <div class="p-refs-title">References</div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://www.theregister.com/2026/01/28/how_agentic_ai_strains_modern_memory_heirarchies" target="_blank">How Agentic AI Strains Modern Memory Hierarchies — The Register</a> <span class="ref-note">KV Cache瓶颈 / HBM危机 / CXL 87%</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://developer.nvidia.com/blog/introducing-nvidia-bluefield-4-powered-inference-context-memory-storage-platform-for-the-next-frontier-of-ai/" target="_blank">NVIDIA BlueField-4 ICMSP — NVIDIA Technical Blog</a> <span class="ref-note">G3.5层 / 5x吞吐 / PB共享</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://www.artificialintelligence-news.com/news/agentic-ai-scaling-requires-new-memory-architecture/" target="_blank">Agentic AI Scaling Requires New Memory Architecture — AI News</a> <span class="ref-note">Jensen Huang引言</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://vcdx181.com/2026/03/13/durable-agentic-ai-sessions-in-gpu-memory/" target="_blank">Durable Agentic AI Sessions in GPU Memory — VCDX #181</a> <span class="ref-note">持久会话工程实践</span></div>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║  Q2: 跨步骤状态保持                  ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div class="panel p2">
+  <div class="p-head">
+    <div class="p-icon">&#129504;</div>
+    <div>
+      <div class="p-num">Dimension 02</div>
+      <div class="p-title">跨步骤状态保持 Cross-Step State</div>
+      <div class="p-shift">
+        <span class="ps-tag before">无状态 / 上下文每次重置</span>
+        <span class="ps-arrow">&rarr;</span>
+        <span class="ps-tag after">四层持久记忆架构</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="m-val">4<span class="u">层</span></div><div class="m-label">工作 / 情景 / 语义 / 程序</div></div>
+    <div class="metric"><div class="m-val">&lt;1<span class="u">ms</span></div><div class="m-label">向量查询延迟目标</div></div>
+    <div class="metric"><div class="m-val">&mu;s<span class="u">级</span></div><div class="m-label">内存状态查询</div></div>
+  </div>
+
+  <div class="p-body">
+    <p>即使百万级上下文窗口也不够——<strong>"上下文窗口在每次 API 请求时重置，记忆系统才能提供跨会话的长期召回。"</strong> Agent 需要：跨天/周的会话持久化、跨会话知识积累、选择性上下文访问。</p>
+    <table class="dtable">
+      <tr><th>记忆层</th><th>功能</th><th>持久性</th></tr>
+      <tr><td><strong>工作记忆</strong></td><td>当前任务、中间推理步骤</td><td>会话内</td></tr>
+      <tr><td><strong>情景记忆</strong></td><td>过去经验、时间细节</td><td>跨会话</td></tr>
+      <tr><td><strong>语义记忆</strong></td><td>事实知识、客户画像</td><td>长期</td></tr>
+      <tr><td><strong>程序记忆</strong></td><td>任务流程、工作流步骤</td><td>长期</td></tr>
+    </table>
+    <p>状态包含执行状态、规划产物、工具输出、策略约束。混合架构成为标准：<strong>向量数据库</strong>（语义搜索）+ <strong>图数据库</strong>（实体关系）+ <strong>事件日志</strong>（审计）。延迟在多步推理中<strong>逐步累积</strong>。</p>
+  </div>
+
+  <div class="p-refs">
+    <div class="p-refs-title">References</div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://redis.io/blog/ai-agent-memory-stateful-systems/" target="_blank">AI Agent Memory: Build Stateful Systems — Redis</a> <span class="ref-note">四层架构 / HNSW vs IVF / 延迟目标</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://zbrain.ai/stateful-architecture-for-agentic-ai-systems/" target="_blank">Why Stateful Architecture Is Essential — ZBrain</a> <span class="ref-note">有状态 vs 无状态对比</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://www.moxo.com/blog/agentic-ai-memory" target="_blank">Long-term Memory in Agentic Systems — Moxo</a> <span class="ref-note">跨会话记忆设计</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://docs.databricks.com/aws/en/generative-ai/agent-framework/stateful-agents" target="_blank">AI Agent Memory — Databricks Docs</a> <span class="ref-note">企业级有状态部署</span></div>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║  Q3: 多Agent通信                     ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div class="panel p3">
+  <div class="p-head">
+    <div class="p-icon">&#128256;</div>
+    <div>
+      <div class="p-num">Dimension 03</div>
+      <div class="p-title">多 Agent 通信 Multi-Agent Comm.</div>
+      <div class="p-shift">
+        <span class="ps-tag before">单体 LLM 调用</span>
+        <span class="ps-arrow">&rarr;</span>
+        <span class="ps-tag after">分布式 Agent 协作网络</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="m-val">1.5-7<span class="u">x</span></div><div class="m-label">Token 冗余倍数</div></div>
+    <div class="metric"><div class="m-val">1445<span class="u">%</span></div><div class="m-label">多Agent查询增长 (Gartner)</div></div>
+    <div class="metric"><div class="m-val">50-200<span class="u">ms</span></div><div class="m-label">Agent间交互额外延迟</div></div>
+  </div>
+
+  <div class="p-body">
+    <p>多Agent系统间对话是 token 消耗的主要来源。主流框架冗余率惊人：<strong>CAMEL 86%、MetaGPT 72%、AgentVerse 53%</strong>，导致系统消耗 1.5-7x 多余 token。4-Agent 工作流单次任务 35,000 tokens，单Agent仅需 10,000。</p>
+    <table class="dtable">
+      <tr><th>协议</th><th>发起方</th><th>定位</th><th>解决什么</th></tr>
+      <tr><td><strong>MCP</strong></td><td>Anthropic</td><td>Agent ↔ 工具</td><td>结构化数据和工具连接</td></tr>
+      <tr><td><strong>A2A</strong></td><td>Google → Linux Foundation</td><td>Agent ↔ Agent</td><td>实时通信 / HTTPS+JSON-RPC</td></tr>
+    </table>
+    <p>两者组合需要全新基础设施层：<strong>Agent 注册中心、消息总线、身份管理</strong>——Chatbot 时代完全不存在。多Agent系统通常需额外 <strong>20-30% 预算</strong>用于安全投入。</p>
+  </div>
+
+  <div class="p-refs">
+    <div class="p-refs-title">References</div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://galileo.ai/blog/multi-agent-coordination-strategies" target="_blank">Multi-Agent Coordination Strategies — Galileo</a> <span class="ref-note">冗余率实测 CAMEL 86% / MetaGPT 72%</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://arxiv.org/pdf/2601.13671" target="_blank">Orchestration of Multi-Agent Systems — arXiv</a> <span class="ref-note">通信开销系统分析</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://dev.to/pockit_tools/mcp-vs-a2a-the-complete-guide-to-ai-agent-protocols-in-2026-30li" target="_blank">MCP vs A2A: Complete Guide 2026 — DEV</a> <span class="ref-note">协议对比 / 组合方案</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://www.ibm.com/think/topics/agent2agent-protocol" target="_blank">What Is A2A Protocol — IBM</a> <span class="ref-note">A2A权威解读</span></div>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║  Q4: 全时运行                        ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<div class="panel p4">
+  <div class="p-head">
+    <div class="p-icon">&#128260;</div>
+    <div>
+      <div class="p-num">Dimension 04</div>
+      <div class="p-title">全时运行 Always-On 24&times;7</div>
+      <div class="p-shift">
+        <span class="ps-tag before">用户触发 / 偶发请求</span>
+        <span class="ps-arrow">&rarr;</span>
+        <span class="ps-tag after">持续自主运行的基础设施负载</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="m-val">13<span class="u">T</span></div><div class="m-label">tokens/周 (OpenRouter 2026.02)</div></div>
+    <div class="metric"><div class="m-val">&gt;50<span class="u">%</span></div><div class="m-label">Agent驱动输出占比 (a16z)</div></div>
+    <div class="metric"><div class="m-val">GW<span class="u">级</span></div><div class="m-label">园区部署规模</div></div>
+  </div>
+
+  <div class="p-body">
+    <p>Chatbot 流量是<strong>用户驱动</strong>（白天高峰/夜间低谷），Agent 流量是<strong>任务驱动</strong>——全天候运行，可能一小时零请求、下一分钟突发 500 请求。OpenRouter 数据：2026.02 周处理 <strong>13万亿 tokens</strong>，比1月初 6.4万亿<strong>翻倍</strong>，与 OpenClaw 爆发直接相关。</p>
+    <p>Jensen Huang 称 OpenClaw 是<strong>"可能是最重要的一次软件发布"</strong>。H100 租赁价格自 2025.12 大幅反弹。基础设施响应：Lambda 部署<strong>千兆瓦级园区</strong>；Aethir 分布式网络覆盖 200+ 地点、44万 GPU 容器，定价比头部云厂商低 <strong>86%</strong>。NVIDIA 发布 <strong>NemoClaw</strong> 开源栈，一键部署全时 Agent。</p>
+    <div class="quote">
+      "Agent 时代需要即时处理能力才能有效运作。不投资前瞻性基础设施的组织将面临竞争劣势。"
+      <span class="q-src">— SiliconANGLE, 2026.03.23</span>
+    </div>
+  </div>
+
+  <div class="p-refs">
+    <div class="p-refs-title">References</div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://ecosystem.aethir.com/blog-posts/the-rise-of-openclaw-and-the-ai-agent-economy-why-gpu-demand-is-surging" target="_blank">Rise of OpenClaw: GPU Demand Surging — Aethir</a> <span class="ref-note">13T tokens/周 / GPU价格反弹</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://siliconangle.com/2026/03/23/ai-infrastructure-must-evolve-agentic-computing-nvidiagtcai/" target="_blank">AI Infra Must Evolve for Agentic Computing — SiliconANGLE</a> <span class="ref-note">GW级部署 / 光子网络</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://developer.nvidia.com/blog/scaling-autonomous-ai-agents-and-workloads-with-nvidia-dgx-spark/" target="_blank">Scaling Autonomous AI Agents — NVIDIA DGX Spark</a> <span class="ref-note">高并发多Agent负载扩展</span></div>
+    <div class="ref-link"><span class="ref-dot"></span><a href="https://www.bitdeer.ai/en/blog/nvidia-gtc-2026-the-inference-inflection-and-the-rise-of-agentic-ai-factories/" target="_blank">GTC 2026: Inference Inflection — Bitdeer</a> <span class="ref-note">推理工厂转型</span></div>
+  </div>
+</div>
+
+</div><!-- /grid -->
+
+</body>
+</html>

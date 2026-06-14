@@ -39,9 +39,10 @@ DEFAULT_STATE_DIR = Path.home() / ".solar" / "harness" / "state" / "ai-influence
 DEFAULT_MAX_AGE_DAYS = int(os.environ.get("AI_INFLUENCE_MAX_AGE_DAYS", "30"))
 DEFAULT_ANALYSIS_TOP_N = int(os.environ.get("AI_INFLUENCE_ANALYSIS_TOP_N", "300"))
 DEFAULT_GLM_BATCH_SIZE = int(os.environ.get("AI_INFLUENCE_GLM_BATCH_SIZE", "10"))
+DEFAULT_ANALYZER = os.environ.get("AI_INFLUENCE_ANALYZER", "chatgpt_grouped").strip().lower()
 USER_AGENT = "Solar-AI-Influence-Daily/2.0"
-DEFAULT_MAIL_TO = "sean.lisihao@huawei.com"
-DEFAULT_GMAIL_USER = "lisihao@gmail.com"
+DEFAULT_MAIL_TO = os.environ.get("AI_INFLUENCE_MAIL_TO", "user@example.com")
+DEFAULT_GMAIL_USER = os.environ.get("GMAIL_USER", "user@example.com")
 DEFAULT_GMAIL_KEYCHAIN_SERVICE = "solar-ai-influence-gmail"
 
 
@@ -214,6 +215,22 @@ def _strip_html(text: str) -> str:
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
+
+def _expand_runtime_path(value: str | Path) -> Path:
+    raw = str(value)
+    defaults = {
+        "${CLAUDE_HOME}": str(Path.home() / ".claude"),
+        "${SOLAR_KNOWLEDGE_DIR}": str(Path.home() / "Knowledge"),
+        "${HARNESS_DIR}": str(Path.home() / ".solar" / "harness"),
+        "${SOLAR_REPO}": str(Path.home() / "Solar"),
+    }
+    for token, replacement in defaults.items():
+        env_name = token.replace("${", "").replace("}", "")
+        if token in raw and env_name not in os.environ:
+            raw = raw.replace(token, replacement)
+    return Path(os.path.expandvars(raw)).expanduser()
+
+
 def collect_via_dom_llm(handle: str, session: requests.Session, dry_run: bool = False) -> list[Candidate]:
     """Fetch recent tweets using Playwright DOM extraction directly (bypassing unstable local LLM)."""
     if dry_run:
@@ -228,7 +245,9 @@ def collect_via_dom_llm(handle: str, session: requests.Session, dry_run: bool = 
     print(f"      [DOM_DIRECT] Launching Playwright to scrape DOM for @{handle}...", flush=True)
 
     scraper_path = str(Path(__file__).resolve().parent.parent / "tools" / "playwright_twitter_scraper.py")
-    python_bin = "/Users/lisihao/.claude/mcp-servers/browser-use/.venv/bin/python"
+    configured_python = os.environ.get("AI_INFLUENCE_DOM_PYTHON") or "${CLAUDE_HOME}/mcp-servers/browser-use/.venv/bin/python"
+    python_path = _expand_runtime_path(configured_python)
+    python_bin = str(python_path if python_path.exists() else (shutil.which("python3") or sys.executable))
     
     try:
         proc = subprocess.run([python_bin, scraper_path, handle], capture_output=True, text=True, timeout=60)
@@ -773,6 +792,198 @@ def local_heuristic_analysis(candidates: list[Candidate], top_n: int = 15) -> di
         "model": "local_heuristic",
         "raw_scored_count": len(top),
     }
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    raw = str(text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.I).strip()
+        raw = re.sub(r"\s*```$", "", raw).strip()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", raw, flags=re.S)
+        if not match:
+            raise
+        payload = json.loads(match.group(0))
+    if isinstance(payload, list):
+        return {"items": payload}
+    if not isinstance(payload, dict):
+        raise ValueError("chatgpt grouped analysis JSON root must be object or array")
+    return payload
+
+
+def _build_chatgpt_grouped_analysis_prompt(top: list[Candidate], *, date_str: str = "") -> str:
+    items = []
+    for index, candidate in enumerate(top, 1):
+        items.append({
+            "n": index,
+            "handle": candidate.handle,
+            "tweet_url": candidate.tweet_url,
+            "published_at": candidate.published_at,
+            "raw_score": candidate.raw_score,
+            "text": candidate.text[:700],
+            "external_links": candidate.external_links[:3],
+        })
+    return "\n".join([
+        "你是 AI Influence Digest 的社交信号章节写作算子。",
+        "任务：一次性分析下面 grouped 输入里的所有候选内容，输出可直接渲染日报的 JSON。",
+        "",
+        "硬规则：",
+        "1. 只基于输入候选，不补外部事实。",
+        "2. 不要输出 Markdown，不要代码块，不要解释系统行为。",
+        "3. 尽量每条候选都输出一条 item；重复内容可以合并，但不要把 300 条压成十几条。",
+        "4. handle 保留为 @账号；tweet_url 必须来自输入。",
+        "5. title/summary/why_useful 要面向读者，不要写内部字段、analysis_status、raw_score、候选编号。",
+        "6. 输出 JSON object，schema 如下：",
+        '{"analysis_status":"ok_chatgpt_grouped","model":"chatgpt_report_chapter_writer","items":[{"handle":"@name","title":"短标题","type":"⚙️工具|💡工作流|📝技巧|🚀新工具|🧠方法论","summary":"中文摘要","key_points":["要点1","要点2"],"why_useful":"为什么值得看/怎么用","hotness":"⭐1-⭐5","tweet_url":"https://x.com/..."}]}',
+        "",
+        f"date: {date_str or 'N/A'}",
+        f"candidate_count: {len(items)}",
+        "candidates:",
+        json.dumps(items, ensure_ascii=False, indent=2),
+    ])
+
+
+def _chatgpt_grouped_request_dir(date_str: str = "") -> Path:
+    stamp = dt.datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    clean_date = re.sub(r"[^0-9A-Za-z_-]+", "-", date_str or "unknown").strip("-") or "unknown"
+    state_dir = Path(os.environ.get("AI_INFLUENCE_STATE_DIR") or DEFAULT_STATE_DIR).expanduser()
+    return state_dir / "browser-agent-requests" / f"{stamp}-ai-influence-digest-grouped-{clean_date}"
+
+
+def _chatgpt_cooldown_file() -> Path:
+    return Path(
+        os.environ.get("AI_INFLUENCE_CHATGPT_COOLDOWN_FILE")
+        or os.environ.get("SOLAR_GITHUB_REPORT_COOLDOWN_FILE")
+        or str(Path.home() / ".solar" / "harness" / "state" / "browser-agent" / "chatgpt-rate-limit-cooldown-until")
+    ).expanduser()
+
+
+def _chatgpt_cooldown_wait_seconds() -> int:
+    path = _chatgpt_cooldown_file()
+    if not path.exists() or path.stat().st_size == 0:
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+        until = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return max(0, int((until - dt.datetime.now(UTC)).total_seconds()))
+    except Exception:
+        return 0
+
+
+def _set_chatgpt_cooldown(seconds: int | None = None) -> str:
+    wait_seconds = int(seconds or os.environ.get("BROWSER_AGENT_RATE_LIMIT_COOLDOWN_SECONDS", "600"))
+    path = _chatgpt_cooldown_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    until = dt.datetime.now(UTC) + dt.timedelta(seconds=max(60, wait_seconds))
+    text = until.isoformat().replace("+00:00", "Z")
+    path.write_text(text + "\n", encoding="utf-8")
+    return text
+
+
+def _is_browser_agent_rate_limited_error(text: str) -> bool:
+    lowered = str(text or "").lower()
+    patterns = [
+        "chatgpt_cloudflare_challenge_detected",
+        "cooldown_active",
+        "cloudflare",
+        "captcha",
+        "rate limit",
+        "rate_limited",
+        "too frequent",
+        "temporarily limit",
+        "temporarily restricted",
+        "请求过于频繁",
+        "暂时限制",
+        "稍等几分钟",
+        "访问对话记录",
+    ]
+    return any(pattern in lowered for pattern in patterns)
+
+
+def analyze_with_chatgpt_grouped(candidates: list[Candidate], top_n: int = 300, *, date_str: str = "") -> dict[str, Any]:
+    top = rank_candidates(candidates, top_n)
+    if not top:
+        return {"analysis_status": "empty", "items": [], "model": "none"}
+    wait_seconds = _chatgpt_cooldown_wait_seconds()
+    if wait_seconds > 0:
+        raise RuntimeError(f"chatgpt_grouped_cooldown_active retry_after_seconds={wait_seconds}")
+    operator = Path(os.environ.get("AI_INFLUENCE_CHATGPT_REPORT_OPERATOR") or (SCRIPT_DIR.parent / "tools" / "chatgpt_report_operator.py")).expanduser()
+    if not operator.exists():
+        raise FileNotFoundError(f"chatgpt_report_operator not found: {operator}")
+    request_dir = _chatgpt_grouped_request_dir(date_str)
+    request_dir.mkdir(parents=True, exist_ok=True)
+    prompt = _build_chatgpt_grouped_analysis_prompt(top, date_str=date_str)
+    env = os.environ.copy()
+    env.update({
+        "BROWSER_AGENT_EXPECTED_OUTPUT": "json",
+        "BROWSER_AGENT_PURPOSE": f"ai-influence-report-digest-grouped-{date_str or _now_iso().split('T', 1)[0]}",
+        "CHATGPT_REPORT_OPERATOR_KIND": "chapter_writer",
+        "BROWSER_AGENT_REQUEST_DIR": str(request_dir),
+        "BROWSER_AGENT_HEADLESS": env.get("BROWSER_AGENT_HEADLESS") or "true",
+        "TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS": env.get("TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS") or "true",
+        "BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST": env.get("BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST") or "false",
+        "BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT": env.get("BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT") or "false",
+        "BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS": env.get("BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS") or "500",
+        "BROWSER_AGENT_CHATGPT_TIMEOUT": env.get("BROWSER_AGENT_CHATGPT_TIMEOUT") or "1800",
+        "BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE": env.get("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE") or str(Path.home() / ".solar" / "harness" / "browser-agent-chatgpt-local.json"),
+    })
+    started = time.time()
+    proc = subprocess.run(
+        [sys.executable, str(operator)],
+        input=prompt,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=env,
+        timeout=int(env["BROWSER_AGENT_CHATGPT_TIMEOUT"]) + 30,
+    )
+    output = (proc.stdout or "").strip()
+    (request_dir / "operator-stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
+    if proc.returncode != 0:
+        raise RuntimeError(f"chatgpt_report_chapter_writer failed rc={proc.returncode}: {output[-2000:]}")
+    payload = _extract_json_object(output)
+    raw_items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    validated = _validate_glm_items(raw_items, top)
+    returned_urls = {str(item.get("tweet_url") or "") for item in validated}
+    missing = [candidate for candidate in top if candidate.tweet_url not in returned_urls]
+    if missing:
+        validated.extend(local_heuristic_analysis(missing, top_n=len(missing)).get("items") or [])
+    if not validated:
+        raise ValueError("chatgpt grouped analysis returned no valid items")
+    return {
+        "analysis_status": "ok_chatgpt_grouped" if not missing else "partial_chatgpt_grouped",
+        "items": validated[:len(top)],
+        "model": str(payload.get("model") or "chatgpt_report_chapter_writer"),
+        "raw_scored_count": len(top),
+        "latency_ms": int((time.time() - started) * 1000),
+        "request_dir": str(request_dir),
+        "fallback_items": len(missing),
+    }
+
+
+def _analyze_with_default_model(candidates: list[Candidate], top_n: int, *, date_str: str = "") -> dict[str, Any]:
+    if DEFAULT_ANALYZER == "chatgpt_grouped":
+        try:
+            return analyze_with_chatgpt_grouped(candidates, top_n=top_n, date_str=date_str)
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"
+            print(f"ChatGPT grouped analysis failed; local fallback: {message}", file=sys.stderr)
+            analysis = local_heuristic_analysis(candidates, top_n=top_n)
+            if _is_browser_agent_rate_limited_error(message):
+                until = _set_chatgpt_cooldown()
+                analysis["analysis_status"] = "chatgpt_grouped_cooldown_local"
+                analysis["chatgpt_cooldown_until"] = until
+            else:
+                analysis["analysis_status"] = "chatgpt_grouped_fallback_local"
+            analysis["chatgpt_error"] = message[-800:]
+            return analysis
+    if DEFAULT_ANALYZER == "glm":
+        return analyze_with_glm(candidates, top_n=top_n)
+    analysis = local_heuristic_analysis(candidates, top_n=top_n)
+    analysis["analysis_status"] = f"{DEFAULT_ANALYZER}_local"
+    return analysis
 
 
 def _build_glm_analysis_prompt(top: list[Candidate]) -> str:
@@ -1593,27 +1804,51 @@ def send_html_email(html_content: str, date_str: str) -> dict:
     MIME-capable backend. Otherwise we emit a preview artifact instead of
     sending a degraded report.
     """
-    gmail_user = os.environ.get("GMAIL_USER") or os.environ.get("AI_INFLUENCE_GMAIL_USER") or DEFAULT_GMAIL_USER
+    mail_config_path = Path(
+        os.environ.get("AI_INFLUENCE_MAIL_CONFIG")
+        or str(Path.home() / ".solar" / "harness" / "state" / "ai-influence-mail-config.json")
+    ).expanduser()
+    mail_config = {}
+    if mail_config_path.exists():
+        try:
+            loaded = json.loads(mail_config_path.read_text(encoding="utf-8"))
+            mail_config = loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            mail_config = {}
+    gmail_user = (
+        os.environ.get("GMAIL_USER")
+        or os.environ.get("AI_INFLUENCE_GMAIL_USER")
+        or str(mail_config.get("from") or "")
+        or DEFAULT_GMAIL_USER
+    )
     gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD", "")
     if not gmail_app_password:
         keychain_service = os.environ.get("GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE") or DEFAULT_GMAIL_KEYCHAIN_SERVICE
         keychain_account = os.environ.get("GMAIL_APP_PASSWORD_KEYCHAIN_ACCOUNT") or gmail_user
         gmail_app_password = _keychain_password(keychain_service, keychain_account)
-    gmail_to = os.environ.get("GMAIL_TO") or os.environ.get("MAIL_TO") or os.environ.get("AI_INFLUENCE_MAIL_TO") or DEFAULT_MAIL_TO or gmail_user
+    gmail_to = (
+        os.environ.get("GMAIL_TO")
+        or os.environ.get("MAIL_TO")
+        or os.environ.get("AI_INFLUENCE_MAIL_TO")
+        or str(mail_config.get("to") or "")
+        or DEFAULT_MAIL_TO
+        or gmail_user
+    )
+    recipients = [addr.strip() for addr in re.split(r"[,;]", gmail_to) if addr.strip()]
     backend = os.environ.get("AI_INFLUENCE_MAIL_BACKEND", "").lower()
 
     if backend in {"mailapp-rich", "mailapp-rich-compose", "mailapp_rich_compose"}:
-        return mailapp_rich_compose(html_content, date_str, gmail_to)
+        return mailapp_rich_compose(html_content, date_str, ", ".join(recipients))
 
-    if not gmail_user or not gmail_app_password:
-        mail_result = send_macos_mail(html_content, date_str, gmail_to)
+    if not gmail_user or not gmail_app_password or not recipients:
+        mail_result = send_macos_mail(html_content, date_str, ", ".join(recipients))
         if mail_result.get("status") == "sent":
             mail_result["gmail_fallback_reason"] = "GMAIL_USER or GMAIL_APP_PASSWORD not set"
             return mail_result
         return {
             "status": "warn",
             "backend": "preview",
-            "reason": f"GMAIL_USER or GMAIL_APP_PASSWORD not set; macos_mail={mail_result.get('reason', 'unavailable')}",
+            "reason": f"GMAIL_USER/GMAIL_APP_PASSWORD/recipients not set; macos_mail={mail_result.get('reason', 'unavailable')}",
             "macos_mail": mail_result,
             "preview_generated": True,
             "html_mail_required": True,
@@ -1628,16 +1863,16 @@ def send_html_email(html_content: str, date_str: str) -> dict:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = gmail_user
-        msg["To"] = gmail_to
+        msg["To"] = ", ".join(recipients)
         msg.attach(MIMEText(html_content, "html", "utf-8"))
 
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(gmail_user, gmail_app_password)
-            server.sendmail(gmail_user, [gmail_to], msg.as_string())
-        return {"status": "sent", "backend": "gmail_smtp", "to": gmail_to}
+            server.sendmail(gmail_user, recipients, msg.as_string())
+        return {"status": "sent", "backend": "gmail_smtp", "sent_at": _now_iso(), "from": gmail_user, "to": recipients}
     except Exception as exc:
-        mail_result = send_macos_mail(html_content, date_str, gmail_to)
+        mail_result = send_macos_mail(html_content, date_str, ", ".join(recipients))
         if mail_result.get("status") == "sent":
             mail_result["gmail_fallback_reason"] = str(exc)
             return mail_result
@@ -1728,6 +1963,31 @@ codex run wiki-ingest --dispatch "{dispatch_path}"
         return None
 
 
+def _existing_digest_collection_count(digest_dir: Path) -> int:
+    """Return previous non-empty collection count for the same digest day."""
+    for name in ("candidate-pool.json", "digest.json"):
+        path = digest_dir / name
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        stats = data.get("stats") if isinstance(data.get("stats"), dict) else {}
+        coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+        analysis = data.get("analysis") if isinstance(data.get("analysis"), dict) else {}
+        analysis_coverage = analysis.get("coverage") if isinstance(analysis.get("coverage"), dict) else {}
+        for source in (stats, coverage, analysis_coverage):
+            for key in ("total_collected", "collected_candidates", "unique_after_dedupe", "fresh_candidates"):
+                try:
+                    value = int(source.get(key) or 0)
+                except Exception:
+                    value = 0
+                if value > 0:
+                    return value
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI commands
 # ---------------------------------------------------------------------------
@@ -1797,10 +2057,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     analysis_pool = run_unique
     top = rank_candidates(analysis_pool, top_n=analysis_top_n)
 
-    # GLM analysis (skip if dry-run and no candidates)
+    # Analysis (skip network LLMs by default; GLM is opt-in only).
     analysis = {"analysis_status": "skipped", "items": []}
     if top and not dry_run:
-        analysis = analyze_with_glm(analysis_pool, top_n=analysis_top_n)
+        analysis = _analyze_with_default_model(analysis_pool, analysis_top_n, date_str=date_str)
     elif top and dry_run:
         # In dry-run, use local scoring only (no GLM/network LLM call)
         analysis = local_heuristic_analysis(analysis_pool, top_n=analysis_top_n)
@@ -1850,6 +2110,32 @@ def cmd_run(args: argparse.Namespace) -> int:
     raw_dir = Path(args.raw_dir) if args.raw_dir else DEFAULT_RAW_DIR
     digest_path = _digest_dir(raw_dir, effective_date)
     digest_path.mkdir(parents=True, exist_ok=True)
+    existing_collection_count = _existing_digest_collection_count(digest_path)
+    if len(all_candidates) == 0 and existing_collection_count > 0:
+        result["empty_scan_guard"] = {
+            "status": "preserved_existing_digest",
+            "existing_collection_count": existing_collection_count,
+            "marker": str(digest_path / "last-empty-scan.json"),
+        }
+        (digest_path / "last-empty-scan.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            "GUARD: empty social scan preserved existing non-empty digest "
+            f"(existing_collection_count={existing_collection_count}, date={effective_date})",
+            file=sys.stderr,
+        )
+        result["gmail"] = {
+            "status": "skipped",
+            "backend": "empty_scan_guard",
+            "reason": "preserved_existing_digest",
+        }
+        result["wiki_dispatch"] = None
+        print("Mail: skipped — empty_scan_guard preserved existing digest", file=sys.stderr)
+        print("Wiki ingest dispatch: skipped — empty_scan_guard", file=sys.stderr)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
 
     digest_json = render_digest_json(analysis, plan, result["stats"], effective_date)
     digest_md = render_digest_md(analysis, effective_date)
@@ -1986,8 +2272,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     top = rank_candidates(candidates, top_n=15)
     print(f"Scored {len(candidates)} candidates, top {len(top)}", file=sys.stderr)
 
-    # GLM analysis
-    analysis = analyze_with_glm(candidates, top_n=15)
+    # Analysis
+    analysis = _analyze_with_default_model(candidates, 15, date_str=args.date)
     print(json.dumps({
         "analysis_status": analysis["analysis_status"],
         "model": analysis["model"],

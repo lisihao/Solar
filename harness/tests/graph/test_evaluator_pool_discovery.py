@@ -14,7 +14,6 @@ def test_discover_evaluators_includes_lab_evaluator_lane(monkeypatch) -> None:
         [
             "solar-harness:0.3\tEvaluator 审判官 | 模型:Opus",
             "solar-harness-lab:0.1\tEvaluator 2 审判官 | 模型:GLM",
-            "solar-harness-lab:0.2\tPlanner 规划者 | 模型:GLM",
             "solar-harness-lab:0.0\tBuilder 1 | 模型:GLM",
             "solar-harness-lab:0.3\tBuilder 4 | 模型:Sonnet",
         ]
@@ -25,14 +24,13 @@ def test_discover_evaluators_includes_lab_evaluator_lane(monkeypatch) -> None:
     monkeypatch.setattr(gnd, "_pane_unavailable_reason", lambda pane: "")
     monkeypatch.setattr(gnd, "_pane_has_active_lease", lambda pane: False)
     monkeypatch.setattr(gnd, "_pane_tui_busy", lambda pane: False)
-    monkeypatch.setattr(gnd, "_models_for_pane", lambda pane, title="": ["opus"] if pane == "solar-harness:0.3" else ["claude-sonnet"])
+    monkeypatch.setattr(gnd, "_models_for_pane", lambda pane, *_: ["opus"] if pane == "solar-harness:0.3" else ["claude-sonnet"])
     monkeypatch.setattr(
         gnd,
         "_pane_title",
         lambda pane: {
             "solar-harness:0.3": "Evaluator 审判官 | 模型:Opus",
             "solar-harness-lab:0.1": "Evaluator 2 审判官 | 模型:GLM",
-            "solar-harness-lab:0.2": "Planner 规划者 | 模型:GLM",
             "solar-harness-lab:0.0": "Builder 1 | 模型:GLM",
             "solar-harness-lab:0.3": "Builder 4 | 模型:Sonnet",
         }.get(pane, ""),
@@ -48,6 +46,7 @@ def test_discover_evaluators_includes_lab_evaluator_lane(monkeypatch) -> None:
 
     assert "solar-harness:0.3" in panes
     assert "solar-harness-lab:0.1" in panes
-    assert "solar-harness-lab:0.0" in panes
-    assert "solar-harness-lab:0.3" in panes
-    assert "solar-harness-lab:0.2" not in panes
+    by_pane = {item["pane"]: item for item in evaluators}
+    assert by_pane["solar-harness-lab:0.1"]["evaluator_host_role"] == "evaluator"
+    assert by_pane["solar-harness-lab:0.0"]["evaluator_host_role"] == "lab_builder_spillover"
+    assert by_pane["solar-harness-lab:0.3"]["evaluator_host_role"] == "lab_builder_spillover"

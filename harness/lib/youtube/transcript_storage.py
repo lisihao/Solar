@@ -30,7 +30,7 @@ class TranscriptRecord:
 
 
 VALID_SOURCES = frozenset({
-    "standard_caption", "youtube_asr_caption", "browser_caption",
+    "standard_caption", "youtube_auto_caption", "browser_caption",
     "metadata",
 })
 

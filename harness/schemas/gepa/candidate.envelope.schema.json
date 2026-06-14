@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar.local/schemas/gepa/candidate.envelope.schema.json",
+  "title": "CandidateEnvelope",
+  "description": "Solar GEPA Optimizer – Candidate Envelope v1 (S03 core-runtime)",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "candidate_type",
+    "base_object_id",
+    "generation",
+    "immutable",
+    "mutable",
+    "mutation_trace",
+    "created_at",
+    "signed_by"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "UUID v4 identifying this candidate instance."
+    },
+    "candidate_type": {
+      "type": "string",
+      "enum": [
+        "skill",
+        "capsule",
+        "routing_policy",
+        "rewrite_rules",
+        "cost_model",
+        "compile_profile"
+      ],
+      "description": "Discriminated union tag for the candidate payload shape."
+    },
+    "base_object_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ID of the production object this candidate proposes to replace."
+    },
+    "parent_candidate_id": {
+      "type": ["string", "null"],
+      "description": "ID of the parent candidate (null for generation-0 candidates)."
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Mutation depth from the seed candidate (0 = seed)."
+    },
+    "immutable": {
+      "type": "object",
+      "description": "Hard-policy-pinned fields whose hash is committed at creation time.",
+      "required": ["hard_policy_refs", "sections", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "hard_policy_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of hard policy IDs (e.g. HP-SEC-001) that govern this candidate."
+        },
+        "sections": {
+          "type": "object",
+          "description": "Arbitrary key-value pairs whose content is hashed into sha256."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 hex digest of sections serialised with sort_keys + compact separators."
+        }
+      }
+    },
+    "mutable": {
+      "type": "object",
+      "description": "Content sections that mutation operators are permitted to modify.",
+      "required": ["sections"],
+      "additionalProperties": false,
+      "properties": {
+        "sections": {
+          "type": "object",
+          "description": "Mutable payload keyed by section name."
+        }
+      }
+    },
+    "mutation_trace": {
+      "type": "object",
+      "description": "Provenance record for the mutation that produced this candidate.",
+      "required": ["operator", "seed", "diff_summary", "parent_pareto_rank"],
+      "additionalProperties": false,
+      "properties": {
+        "operator": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the mutation operator (e.g. 'llm_rewrite', 'identity')."
+        },
+        "seed": {
+          "type": "integer",
+          "description": "PRNG seed used by the mutation operator for reproducibility."
+        },
+        "diff_summary": {
+          "type": "string",
+          "description": "Human-readable description of the diff from the parent candidate."
+        },
+        "parent_pareto_rank": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pareto rank of the parent candidate at selection time."
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 creation timestamp (UTC recommended)."
+    },
+    "signed_by": {
+      "type": "string",
+      "enum": ["gepa_optimizer"],
+      "description": "Identity of the system that produced this envelope."
+    }
+  }
+}

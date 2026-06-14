@@ -1,0 +1,379 @@
+{
+  "videoId": "ow1we5PzK-o",
+  "title": "The Multi-Agent Architecture That Actually Ships — Luke Alvoeiro, Factory",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 18164,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[music]\n>> Hi everyone. My name is Luke and my goal\nis that 20 minutes from now you'll be\nable to assemble agent teams that can\ncomplete tasks orders of magnitude\nharder than what you can complete with a\nsingle agent today.\nA little bit about me. So\nI come from a background in dev tools.\nAbout 2 and 1/2 years ago I started a\nproject at Block which is where I was\nworking at the time. And that project\nevolved into Goose.\nGoose is now one of the leading coding\nagents is open source\nand it's recently was was donated to the\nagentic AI Foundation. So it's been\nreally cool to see.\nNow nowadays I work at Factory where I\nlead our core agent harness and\nFactory's mission is to\nbring autonomy to the entire software\ndevelopment life cycle.\nSo I want to start off with a claim.\nThe bottleneck in software engineering\nnowadays is not intelligence. It's now\nlimited by human attention.\nEven the best engineers can only\ncomplete a couple of tasks at a time.\nThey may have a backlog of 50 features\nbut they can only drive a few forward\nper day because every task requires\ntheir attention. Every commit needs\ntheir review.\nToday's models are smart enough to\nfigure out all 50 of these tasks but\nthere's not enough uh just bandwidth to\nsupervise their implementation.\nSo we kept asking ourselves what if a\nhuman decides what to build and then a\nsystem figures out how to do so. Right?\nAn agent could just work for hours for\ndays and you come back to finish work.\nSo that's what I'm here to talk about.\nWhen you start researching multi-agent\nframeworks and systems you quickly\nrealize that the field's a bit of a\nmess. Everyone has their own framework,\ntheir own terminology, their own\nopinions of what works and doesn't work.\nAnd so I want to propose a simple\ntaxonomy. There's five frontier\nmulti-agent frameworks.\nOne is delegation. Right? This is where\none agent spawns another agent and the\nparent agent may say go figure out the\ndatabase schema and then gets a response\nback.\nThis is the simplest form of multi-agent\ncommunication as what most people\nimplement first. You have you know sub\nagents and coding tools are the most\ncommon example.\nThe other one is creator verifier.\nRight? Where one agent builds something\nand then you have another agent that\nchecks that work.\nAnd the key here is like a separation of\nconcerns. The parent the the agent that\nimplemented the the code is has some\ncost bias. Right? Wants that code to\nwork.\nA fresh agent with fresh context is way\nmore likely to find issues and this is\nwhy we do code review as humans as well.\nAnother one is direct communication.\nThis is when agents communicate without\na central coordinator. Right? It's the\nkind of like DMing each other.\nIt's hard to get right though because\nstate fragments across conversations\nwithout that coordinator and there's no\nsingle source of truth.\nThe next one is negotiation. Right?\nNegotiation is when agents communicate\nbut over a shared resource. So that may\nbe you know they want to use the same\nAPI. They want to modify the same\nportion of the code base.\nBut negotiation doesn't need to be\nadversarial. In fact the best use case\nis when there is\nnet positive sum trading. Right? And\nthat's\nwhen agents have like a potential\nwin-win situation while interacting. And\nthen the last one is broadcast and that\nis when one agent sends information to\nmany.\nThink of it like you know status\nupdates, new context that applies to\neveryone, you shared constraints.\nIt's a bit less flashy than the other\nones but it's critical for maintaining\ncoherence over long-running tasks.\nAnd so when you have all of these\ndifferent building blocks how do you\nassemble that into a system that can run\nfor many days?\nSo missions is our answer. It's a system\nthat combines four of those. Delegation,\ncreator verifier,\nbroadcast and negotiation\ninto a single workflow. You describe a\ngoal.\nYou scope that through a conversation.\nYou approve a plan and then the system\nhandles execution for hours or days and\nthat enables you to focus on something\nelse.\nNotably a mission is not a single agent\nsession. It's an ecosystem of agents\nthat communicate through structured\nhandoffs and shared state.\nIt uses a three-role architecture.\nThere's orchestrator, there's workers\nand then there's validators.\nThe orchestrator handles planning. When\nyou describe what you want the\norchestrator is kind of like your\nsounding board. Ask you the right\nstrategic questions. It\nyou know\nchecks out if there's any unclear\nrequirements in in the problem space and\nthen it eventually produces a plan that\nincludes features, milestones and then\nsomething that's called a validation\ncontract. And that validation contract\ndefines what done sort of means before\nany coding is done.\nAnd I'll come back to why that matters\nbecause it turns out to be really\nimportant to the system.\nThe next role are workers. They handle\nimplementation.\nWhen a feature is assigned to a worker\nthat worker has clean context, no\naccumulated baggage, no degraded\nattention. Right? The worker reads its\nspec. It implements the feature and then\ncommits\nby Git allowing the next worker to\ninherit a clean slate and a working code\nbase. And then the last role are\nvalidators. They handle verification.\nAnd so most systems validate by maybe\nrunning lint, type check, tests. Maybe\nthey do code review.\nMissions does all of that but we also\nvalidate behavior. Instead of just\nasking you know does the code look\nright? We wonder does this work end to\nend? That's the difference that lets\nlets missions run for many hours, many\ndays in a row without drifting. And\nmaking it work had to involve sort of\nrethinking validation entirely.\nwhen you've worked with coding agents\nbefore you've probably seen this pattern\nwhere an agent builds a feature.\nIt writes some tests. The tests pass.\nThere's full coverage.\nBut the tests were sort of shaped by the\ncode not by what the code was attempting\nto actually do.\nTests written after implementation don't\ncatch bugs. They confirm decisions. So\nif you rely on validation like that your\nsystem will eventually drift.\nThat's why this validation contract\nexists. It's written during planning\nbefore any code and it defines\ncorrectness independently of\nimplementation. So for a complex project\nthis can be hundreds of assertions and\neach feature is assigned one or more\nassertions that it must satisfy.\nThe sum of all features must mean that\nevery assertion is covered.\nAfter each after each milestone of\nfeatures we have two types of validators\nthat run.\nSo you have the scrutiny validator and\nthe user testing validator. The first\none\nis more traditional. It runs the test\nsuite, type checking, lints and\ncritically it spawns\ndedicated code review agents for each\ncompleted feature within the milestone.\nAnd then the second one which is the\nuser testing validator is more\ninteresting. It kind of acts like a QA\nengineer. It spawns the application. It\ninteracts with it through computer use\nor something similar to that. It fills\nout forms, you know,\nchecks that pages render correctly,\nclicks buttons and ensures that\nfunctional flows work holistically.\nSo this step takes significantly longer\nthan the previous one of the scrutiny\nvalidator\nbecause the the system is interacting\nwith a live application. And what we've\nnoticed is that missions most of the\nmissions wall clock time is actually\nspent here waiting for this like real\nworld execution to occur instead of\ngenerating tokens.\nCritically neither validator has seen\nthe code before.\nThey're not invested in the\nimplementation and so validation is\nadversarial by design.\nOkay. So then validation catches bugs.\nRight? But for a system that runs for\nmany days you also need to make sure\nthat context isn't lost between the\nagents.\nWhen a worker finishes a feature it\ndoesn't just say I'm done.\nIt fills out a structured handoff\ndetailing what was completed, what was\nleft undone, what commands were run\nthroughout that that agent loop and what\nwere the the exit codes of those\ncommands.\nWhat issues were discovered and did it\nabide by the procedures that the\norchestrator defined for that worker?\nThat's how we catch issues and how the\nsystem self-heals.\nThe errors get caught at milestone\nboundaries. Corrective work gets scoped\nand the mission sort of like pulls\nitself back on track. Not by hoping that\nagents remember what happened but by\nforcing them to write it down and then\nactually address issues and I'll I'll\npresent on that in just a sec.\nOur longest mission ran for 16 days\nwhich is much longer than a full sprint\nand we believe that they can run for 30.\nThat's only possible because of the\nstructure.\nSo once we had this architecture the\nnext question became became how do we\nactually run it? Right?\nThe most obvious choice is like\nparallelism. If you have 10 agents\nrunning at one point in time then you\nhave 10 times the throughput. But we\ntried that and it doesn't really work\nfor tasks in the like software dev\ndomain because agents conflict. They\nstep on each other's changes. They\nduplicate work. They make inconsistent\narchitectural decisions. And so the\ncoordination overhead ends up\neating up the speed gains all the while\nyou're burning tokens.\nThe difference with missions is that we\nrun features serially.\nSo there's only one worker or validator\nrunning at any given point in time.\nWithin a feature, we allow for\nparallelization on read-only operations.\nSo, you have something like\nsearching through the code base or\nresearching APIs, all that gets\nparallelized. Within validators, we also\nparallelize read-only operations such as\ncode review.\nThis is serial execution with with\ntargeted internal parallelization. It\nseems slower on paper, but the error\nrate drops dramatically, and when you\nhave tasks that run for many days, this\nsort of correctness compounds.\nNow,\nyour your standard chat interface\ndoesn't really work for something that\nlasts many days. At a quick glance, you\nneed to be able to be able to see how\nmuch of the project have you completed,\nand what's what amount of the budget\nthat you originally like set off with\nhave you burned through.\nSo, using a mission actually, we built\nmission control, which is a dedicated\nview for this. You can see what does\nwhat is active worker doing right now,\nuh read off handoff summary is that\ndetail. What did the worker the\nvalidator discover,\num how it's going to sort of like alter\nits course moving forward.\nOr,\nyou could just, you know,\ngo check out, um\ngo hang out with your friends that\nnight. This entire view lets you just\nrun missions asynchronously, and you\ncould be plugged in as a project manager\noverseeing implementation, or you could\njust, you know, go and and uh hang out\nwith your friends.\nOkay. So, the right model in each role.\neverything here sort of assumes one\nthing, and that is that you're using the\nright model in each role. Planning\nbenefits from slow, careful reasoning,\nimplementation from fast code fluency\nand creativity, validation benefits from\nuh precise instruction following, right?\nAnd so, no single model nor model\nprovider is best at all three of these.\nUsing systems like missions requires the\ndevelopment of a new skill, which\ninternally we've been calling droid\nwhispering,\nbut it's this idea that you need to be\nable to mentally model how different\nLLMs interact, where they fail, how\nthose failures compound over a multi-day\nrun,\nand then you need to make a deliberate\nchoice as to which model sits in which\nseat.\nTheo, the engineer who built our\nmissions prototype, came up with our our\nmodel defaults, but we really encourage\npeople to make these uh their own and\ncustomize them to the needs of their\nproject.\nSo, for example, validation might use a\ndifferent model provider entirely to\nmake sure that it's not biased by the\nsame training data.\nThis is a structural advantage of a\nmodel-agnostic architecture.\nYou're only as strong as your weakest\nlink. And if you're locked into one\nmodel provider, then you're constrained\nby that family's weakest capability.\nAs models continue to specialize,\nthe ability to put the right model in\nthe right seat becomes a compounding\nadvantage.\nIt works in the other direction, too. If\nyou're using missions, the structure of\nthat can compensate for models that are\nnot quite at like the frontier level\nperformance. So, the validation\ncontracts, the milestone checkpoints,\nthey allow you to run missions very very\nsuccessfully even using open-weight\nmodels.\nNow, this all sounds quite theoretical.\nWhat does it actually look like in\nproduction?\nI've got an example of building a clone\nof Slack right here. This slide has a\nton of info, but I'll walk you through\njust a few things that I want to call\nout.\n60% of our time is spent on\nimplementation,\nand 60% of our tokens as well.\nNotice how validation never succeeds on\nthe first go. That's in the mission\nWhat's it?\nThe one on the bottom left. Um we almost\nalways have to create follow-up\nfeatures. So, it really demonstrates\nlike the value of a system that does\nthis QA loop.\nYou end up with with 50% of your lines\nof code at the very end, in the bottom\nright, being tests, and 90% of your uh\ncode is covered by those tests.\nAnd lastly, we take advantage of prompt\ncaching heavily to make sure that we're\nsort of offsetting\nthe the price of running such a long\ntask.\nPeople have really taken to missions,\nand it's been awesome to see what folks\nhave been building with them. Um some\nexamples I've included in this slide,\nbut ones that I want to call out are\nspecifically in the enterprise setting,\nwhich is where Factory really shines. Um\nthey've been used to prototype new ideas\nand features overnight, to um\nmake sure that people can uh build\ninternal tools at increasingly rapid\nrates, to run huge refactors and\nmigrations, for ML search uh research,\nsorry, and to modernize uh codebases so\nthat agents are more productive in them.\nUm one thing that I wanted to talk about\nwas also this concept of like the bitter\nlesson, because every person building\nmulti-agent systems has this fear of the\nnext model release sort of like making\ntheir their architecture obsolete\novernight.\nUm so,\nwhen we were building missions, we\ndecided we had to make this system get\nbetter with every model improvement.\nThis means that almost all of the\norchestration logic is defined in\nprompts and skills,\num instead of like a hard-coded state\nmachine.\nHow it decomposes failures and um\nor decomposes features and handles\nfailures is all in about like 700 lines\nof text, and four sentences of this can\nalter the execution strategy pretty\ndramatically.\nWorker behavior is driven by skills that\nthe orchestrator defines per mission, so\nyou get very customized behavior,\nand the only deterministic logic is very\nthin, and it's focused on enabling\nmodels to do what they do best while the\nsystem handles like the bookkeeping,\nright? Stuff like running validation and\nensuring that progress is blocked when\nthere are some handoff issues that are\nnot addressed.\nSo, missions sort of ensure the the\ndiscipline, and the models provide the\nintelligence uh using primitives that\nthey're already familiar with, like\nagents.md, skills, etc.\nSo, what does this unlock?\nRemember the bottleneck that I started\noff with? Human attention.\nThe economics are sort of changing.\nBefore, a team of five engineers might\nbe able to\nuh work on 10 work streams at any given\npoint in time.\nNow, maybe with missions, we can bring\nthat up to 30.\nThe team can focus on interesting\nproblems such as\nuh the architecture, product decisions,\num instead of uh worrying about the\nexecution per se.\nAnd the important thing is the codebase\nends up cleaner than when you started.\nThe end-to-end tests, the unit tests,\nthe skills, the structure that missions\nprovide uh means that agents and humans\nare more productive in that environment\nmoving forward.\nSo, now that you understand how missions\nare structured and how they actually\nwork, you can see that they're really a\ncomposition of those original um\nstrategies, right? Delegation shows up\neverywhere in how the orchestrator\nspawns workers and how we spawn research\nsub-agents. Creator-verifier is\nfundamental in that validation and\nimplementation are always separate\nagents with separate context. Broadcast\nruns through the shared mission state\nthat every agent references, and\nnegotiation shows up at milestone\nboundaries, where the orchestrator\ndefines, you know, does this does this\nhandoff summary sort of like look\ncorrect? Do we need to create follow-up\nfeatures, rescope, etc.\nBut strategies aren't enough. You need\nthe connective tissue. You need uh these\nstructured handoffs so that agents don't\nlose context, you need the right model\nin each role, and you need an\narchitecture that will improve with each\nmodel improvement.\nSo,\nwhat I like to think about is that\npeople in this room who are thinking in\nterms of agent ecosystems, who develop\nan intuition for how different models\ncompose under pressure, um that those\nfolks are going to be really shipping\nthe next generation of innovation.\nUh there's a lot of open questions\nstill, right? Um how do we further\nparallelize the workload of missions so\nthat they run faster? How do we start\norchestrating missions themselves into\neven more complex workflows?\nUh but the data from production missions\nis clear. This works on real projects at\nscale today.\nSo,\nthis is what I'll leave you with. Open\nDroid,\ntry running /missions,\nargue with the orchestrator about the\nscope,\napprove the plan, and then go do\nsomething else.\nI'm excited to see what you guys build,\nand I'll be around to answer any\nquestions uh for the rest of the day.\nThanks.\n>> [applause]\n[music]",
+  "segments": [
+    {
+      "text": "[music] >> Hi everyone. My name is Luke and my goal is that 20 minutes from now you'll be able to assemble agent teams that can complete tasks orders of magnitude harder than what you can complete with a single agent today. A little bit about me. So",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "I come from a background in dev tools. About 2 and 1/2 years ago I started a project at Block which is where I was working at the time. And that project evolved into Goose. Goose is now one of the leading coding agents is open source",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "and it's recently was was donated to the agentic AI Foundation. So it's been really cool to see. Now nowadays I work at Factory where I lead our core agent harness and Factory's mission is to bring autonomy to the entire software development life cycle.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "So I want to start off with a claim. The bottleneck in software engineering nowadays is not intelligence. It's now limited by human attention. Even the best engineers can only complete a couple of tasks at a time. They may have a backlog of 50 features",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "but they can only drive a few forward per day because every task requires their attention. Every commit needs their review. Today's models are smart enough to figure out all 50 of these tasks but there's not enough uh just bandwidth to",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "supervise their implementation. So we kept asking ourselves what if a human decides what to build and then a system figures out how to do so. Right? An agent could just work for hours for days and you come back to finish work.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "So that's what I'm here to talk about. When you start researching multi-agent frameworks and systems you quickly realize that the field's a bit of a mess. Everyone has their own framework, their own terminology, their own",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "opinions of what works and doesn't work. And so I want to propose a simple taxonomy. There's five frontier multi-agent frameworks. One is delegation. Right? This is where one agent spawns another agent and the parent agent may say go figure out the",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "database schema and then gets a response back. This is the simplest form of multi-agent communication as what most people implement first. You have you know sub agents and coding tools are the most common example. The other one is creator verifier.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "Right? Where one agent builds something and then you have another agent that checks that work. And the key here is like a separation of concerns. The parent the the agent that implemented the the code is has some cost bias. Right? Wants that code to work.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "A fresh agent with fresh context is way more likely to find issues and this is why we do code review as humans as well. Another one is direct communication. This is when agents communicate without a central coordinator. Right? It's the",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "kind of like DMing each other. It's hard to get right though because state fragments across conversations without that coordinator and there's no single source of truth. The next one is negotiation. Right? Negotiation is when agents communicate",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "but over a shared resource. So that may be you know they want to use the same API. They want to modify the same portion of the code base. But negotiation doesn't need to be adversarial. In fact the best use case is when there is",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "net positive sum trading. Right? And that's when agents have like a potential win-win situation while interacting. And then the last one is broadcast and that is when one agent sends information to many. Think of it like you know status",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "updates, new context that applies to everyone, you shared constraints. It's a bit less flashy than the other ones but it's critical for maintaining coherence over long-running tasks. And so when you have all of these different building blocks how do you",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "assemble that into a system that can run for many days? So missions is our answer. It's a system that combines four of those. Delegation, creator verifier, broadcast and negotiation into a single workflow. You describe a goal.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "You scope that through a conversation. You approve a plan and then the system handles execution for hours or days and that enables you to focus on something else. Notably a mission is not a single agent session. It's an ecosystem of agents",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "that communicate through structured handoffs and shared state. It uses a three-role architecture. There's orchestrator, there's workers and then there's validators. The orchestrator handles planning. When you describe what you want the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "orchestrator is kind of like your sounding board. Ask you the right strategic questions. It you know checks out if there's any unclear requirements in in the problem space and then it eventually produces a plan that includes features, milestones and then",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "something that's called a validation contract. And that validation contract defines what done sort of means before any coding is done. And I'll come back to why that matters because it turns out to be really important to the system.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "The next role are workers. They handle implementation. When a feature is assigned to a worker that worker has clean context, no accumulated baggage, no degraded attention. Right? The worker reads its spec. It implements the feature and then commits",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "by Git allowing the next worker to inherit a clean slate and a working code base. And then the last role are validators. They handle verification. And so most systems validate by maybe running lint, type check, tests. Maybe they do code review.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "Missions does all of that but we also validate behavior. Instead of just asking you know does the code look right? We wonder does this work end to end? That's the difference that lets lets missions run for many hours, many days in a row without drifting. And",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "making it work had to involve sort of rethinking validation entirely. when you've worked with coding agents before you've probably seen this pattern where an agent builds a feature. It writes some tests. The tests pass. There's full coverage.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "But the tests were sort of shaped by the code not by what the code was attempting to actually do. Tests written after implementation don't catch bugs. They confirm decisions. So if you rely on validation like that your system will eventually drift.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "That's why this validation contract exists. It's written during planning before any code and it defines correctness independently of implementation. So for a complex project this can be hundreds of assertions and each feature is assigned one or more",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "assertions that it must satisfy. The sum of all features must mean that every assertion is covered. After each after each milestone of features we have two types of validators that run. So you have the scrutiny validator and",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "the user testing validator. The first one is more traditional. It runs the test suite, type checking, lints and critically it spawns dedicated code review agents for each completed feature within the milestone. And then the second one which is the",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "user testing validator is more interesting. It kind of acts like a QA engineer. It spawns the application. It interacts with it through computer use or something similar to that. It fills out forms, you know, checks that pages render correctly,",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "clicks buttons and ensures that functional flows work holistically. So this step takes significantly longer than the previous one of the scrutiny validator because the the system is interacting with a live application. And what we've",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "noticed is that missions most of the missions wall clock time is actually spent here waiting for this like real world execution to occur instead of generating tokens. Critically neither validator has seen the code before. They're not invested in the",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "implementation and so validation is adversarial by design. Okay. So then validation catches bugs. Right? But for a system that runs for many days you also need to make sure that context isn't lost between the agents. When a worker finishes a feature it",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "doesn't just say I'm done. It fills out a structured handoff detailing what was completed, what was left undone, what commands were run throughout that that agent loop and what were the the exit codes of those commands. What issues were discovered and did it",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "abide by the procedures that the orchestrator defined for that worker? That's how we catch issues and how the system self-heals. The errors get caught at milestone boundaries. Corrective work gets scoped and the mission sort of like pulls",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "itself back on track. Not by hoping that agents remember what happened but by forcing them to write it down and then actually address issues and I'll I'll present on that in just a sec. Our longest mission ran for 16 days",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "which is much longer than a full sprint and we believe that they can run for 30. That's only possible because of the structure. So once we had this architecture the next question became became how do we actually run it? Right? The most obvious choice is like",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "parallelism. If you have 10 agents running at one point in time then you have 10 times the throughput. But we tried that and it doesn't really work for tasks in the like software dev domain because agents conflict. They step on each other's changes. They",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "duplicate work. They make inconsistent architectural decisions. And so the coordination overhead ends up eating up the speed gains all the while you're burning tokens. The difference with missions is that we run features serially.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So there's only one worker or validator running at any given point in time. Within a feature, we allow for parallelization on read-only operations. So, you have something like searching through the code base or researching APIs, all that gets",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "parallelized. Within validators, we also parallelize read-only operations such as code review. This is serial execution with with targeted internal parallelization. It seems slower on paper, but the error rate drops dramatically, and when you",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "have tasks that run for many days, this sort of correctness compounds. Now, your your standard chat interface doesn't really work for something that lasts many days. At a quick glance, you need to be able to be able to see how",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "much of the project have you completed, and what's what amount of the budget that you originally like set off with have you burned through. So, using a mission actually, we built mission control, which is a dedicated view for this. You can see what does",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "what is active worker doing right now, uh read off handoff summary is that detail. What did the worker the validator discover, um how it's going to sort of like alter its course moving forward. Or, you could just, you know, go check out, um",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "go hang out with your friends that night. This entire view lets you just run missions asynchronously, and you could be plugged in as a project manager overseeing implementation, or you could just, you know, go and and uh hang out with your friends.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "Okay. So, the right model in each role. everything here sort of assumes one thing, and that is that you're using the right model in each role. Planning benefits from slow, careful reasoning, implementation from fast code fluency",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "and creativity, validation benefits from uh precise instruction following, right? And so, no single model nor model provider is best at all three of these. Using systems like missions requires the development of a new skill, which",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "internally we've been calling droid whispering, but it's this idea that you need to be able to mentally model how different LLMs interact, where they fail, how those failures compound over a multi-day run, and then you need to make a deliberate",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "choice as to which model sits in which seat. Theo, the engineer who built our missions prototype, came up with our our model defaults, but we really encourage people to make these uh their own and customize them to the needs of their project.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "So, for example, validation might use a different model provider entirely to make sure that it's not biased by the same training data. This is a structural advantage of a model-agnostic architecture. You're only as strong as your weakest",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "link. And if you're locked into one model provider, then you're constrained by that family's weakest capability. As models continue to specialize, the ability to put the right model in the right seat becomes a compounding advantage.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "It works in the other direction, too. If you're using missions, the structure of that can compensate for models that are not quite at like the frontier level performance. So, the validation contracts, the milestone checkpoints,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "they allow you to run missions very very successfully even using open-weight models. Now, this all sounds quite theoretical. What does it actually look like in production? I've got an example of building a clone of Slack right here. This slide has a",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "ton of info, but I'll walk you through just a few things that I want to call out. 60% of our time is spent on implementation, and 60% of our tokens as well. Notice how validation never succeeds on the first go. That's in the mission What's it?",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "The one on the bottom left. Um we almost always have to create follow-up features. So, it really demonstrates like the value of a system that does this QA loop. You end up with with 50% of your lines of code at the very end, in the bottom",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "right, being tests, and 90% of your uh code is covered by those tests. And lastly, we take advantage of prompt caching heavily to make sure that we're sort of offsetting the the price of running such a long task. People have really taken to missions,",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "and it's been awesome to see what folks have been building with them. Um some examples I've included in this slide, but ones that I want to call out are specifically in the enterprise setting, which is where Factory really shines. Um",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "they've been used to prototype new ideas and features overnight, to um make sure that people can uh build internal tools at increasingly rapid rates, to run huge refactors and migrations, for ML search uh research, sorry, and to modernize uh codebases so",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "that agents are more productive in them. Um one thing that I wanted to talk about was also this concept of like the bitter lesson, because every person building multi-agent systems has this fear of the next model release sort of like making",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "their their architecture obsolete overnight. Um so, when we were building missions, we decided we had to make this system get better with every model improvement. This means that almost all of the orchestration logic is defined in prompts and skills,",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "um instead of like a hard-coded state machine. How it decomposes failures and um or decomposes features and handles failures is all in about like 700 lines of text, and four sentences of this can alter the execution strategy pretty dramatically.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "Worker behavior is driven by skills that the orchestrator defines per mission, so you get very customized behavior, and the only deterministic logic is very thin, and it's focused on enabling models to do what they do best while the",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "system handles like the bookkeeping, right? Stuff like running validation and ensuring that progress is blocked when there are some handoff issues that are not addressed. So, missions sort of ensure the the discipline, and the models provide the",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "intelligence uh using primitives that they're already familiar with, like agents.md, skills, etc. So, what does this unlock? Remember the bottleneck that I started off with? Human attention. The economics are sort of changing.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "Before, a team of five engineers might be able to uh work on 10 work streams at any given point in time. Now, maybe with missions, we can bring that up to 30. The team can focus on interesting problems such as uh the architecture, product decisions,",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "um instead of uh worrying about the execution per se. And the important thing is the codebase ends up cleaner than when you started. The end-to-end tests, the unit tests, the skills, the structure that missions provide uh means that agents and humans",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "are more productive in that environment moving forward. So, now that you understand how missions are structured and how they actually work, you can see that they're really a composition of those original um strategies, right? Delegation shows up",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "everywhere in how the orchestrator spawns workers and how we spawn research sub-agents. Creator-verifier is fundamental in that validation and implementation are always separate agents with separate context. Broadcast runs through the shared mission state",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "that every agent references, and negotiation shows up at milestone boundaries, where the orchestrator defines, you know, does this does this handoff summary sort of like look correct? Do we need to create follow-up features, rescope, etc.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "But strategies aren't enough. You need the connective tissue. You need uh these structured handoffs so that agents don't lose context, you need the right model in each role, and you need an architecture that will improve with each model improvement. So,",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "what I like to think about is that people in this room who are thinking in terms of agent ecosystems, who develop an intuition for how different models compose under pressure, um that those folks are going to be really shipping",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "the next generation of innovation. Uh there's a lot of open questions still, right? Um how do we further parallelize the workload of missions so that they run faster? How do we start orchestrating missions themselves into even more complex workflows?",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "Uh but the data from production missions is clear. This works on real projects at scale today. So, this is what I'll leave you with. Open Droid, try running /missions, argue with the orchestrator about the scope, approve the plan, and then go do",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "something else. I'm excited to see what you guys build, and I'll be around to answer any questions uh for the rest of the day. Thanks. >> [applause] [music]",
+      "start": 432,
+      "duration": 6
+    }
+  ]
+}

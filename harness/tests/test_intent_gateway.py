@@ -44,8 +44,39 @@ def test_capture_writes_raw_rewritten_ir_and_trace(tmp_path):
     assert raw["source"]["channel"] == "codex_macbook"
     assert rewritten["schema_version"] == "solar.rewritten_intent.v1"
     assert ir["schema_version"] == "solar.requirement_ir.v1"
+    assert ir["source"] == "verbal"
+    assert ir["source_details"]["channel"] == "codex_macbook"
     assert ir["compiler_next"] == "pm_planner_task_graph"
     assert trace["stages"][-1]["stage"] == "requirement_ir_compile"
+
+
+def test_capture_maps_antigravity_channel_to_requirement_source(tmp_path):
+    env = dict(os.environ)
+    env["SOLAR_INTENT_GATEWAY_DIR"] = str(tmp_path / "intents")
+    env["SOLAR_HARNESS_SPRINTS_DIR"] = str(tmp_path / "sprints")
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "capture",
+            "--text",
+            "从 Antigravity Desktop App 捕获需求，并进入 Solar Requirement IR。",
+            "--source-channel",
+            "antigravity_app",
+            "--source-trust",
+            "antigravity_app_file",
+            "--json",
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
+    payload = json.loads(proc.stdout)
+    ir = json.loads((tmp_path / "intents" / payload["intent_id"] / "requirement_ir.json").read_text())
+
+    assert ir["source"] == "antigravity-app"
+    assert ir["source_details"]["channel"] == "antigravity_app"
 
 
 def test_bind_copies_intent_artifacts_to_sprint(tmp_path):
@@ -134,3 +165,109 @@ def test_capture_embeds_research_artifact_into_requirement_ir(tmp_path):
     assert raw["routing_hints"]["require_research_artifact"] is True
     assert raw["research"]["path"] == "/tmp/frontdoor-research.json"
     assert ir["source_inputs"]["research_artifact"]["conversation_id"] == "conv-frontdoor-001"
+
+
+def test_capture_triggers_gpt_requirement_writer_for_complex_research_intent(tmp_path):
+    env = dict(os.environ)
+    env["SOLAR_INTENT_GATEWAY_DIR"] = str(tmp_path / "intents")
+    env["SOLAR_HARNESS_SPRINTS_DIR"] = str(tmp_path / "sprints")
+    env["SOLAR_GPT_REQUIREMENT_WRITER_CMD"] = (
+        f"{sys.executable} -c \"print('# 增强需求设计\\\\n\\\\n## 功能需求\\\\n- 先做证据边界，再拆实现任务。')\""
+    )
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "capture",
+            "--text",
+            "先研究再实现 DeepDive 需求编译入口，避免污染普通需求管道。",
+            "--json",
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
+    payload = json.loads(proc.stdout)
+    base = tmp_path / "intents" / payload["intent_id"]
+    raw = json.loads((base / "raw_intent.json").read_text())
+    rewritten = json.loads((base / "rewritten_intent.json").read_text())
+    ir = json.loads((base / "requirement_ir.json").read_text())
+    trace = json.loads((base / "requirement_trace.json").read_text())
+
+    assert raw["routing_hints"]["requirement_enhancement"]["enabled"] is True
+    assert rewritten["rewrite_method"] == "gpt_requirement_writer"
+    assert "enhanced_requirement" in ir["source_inputs"]
+    assert "先做证据边界" in ir["source_inputs"]["enhanced_requirement"]["content"]
+    assert (base / "gpt_requirement_writer_output.json").exists()
+    assert (base / "gpt_requirement_writer_output.md").exists()
+    assert any(stage["stage"] == "requirement_enhancement" and stage["status"] == "ok" for stage in trace["stages"])
+
+
+def test_capture_intelligently_triggers_requirement_writer_without_phrase(tmp_path):
+    env = dict(os.environ)
+    env["SOLAR_INTENT_GATEWAY_DIR"] = str(tmp_path / "intents")
+    env["SOLAR_HARNESS_SPRINTS_DIR"] = str(tmp_path / "sprints")
+    env["SOLAR_GPT_REQUIREMENT_WRITER_CMD"] = (
+        f"{sys.executable} -c \"print('# 智能展开需求\\\\n\\\\n## 架构约束\\\\n- smart gate ok')\""
+    )
+    text = """
+    把 DeepDive 启动入口调整为先调用 compiler，然后再进入 source/evidence/chapter/chief-editor 流程。
+    要求恢复 GPTRequirementWriter 的普通需求管道能力，同时保持 DeepDive 的 schema、路由、registry、traceability 完全隔离。
+    需要补测试、验收标准、配置注册、回归验证和文档映射关系。
+    不能让普通需求分析和 DeepDive 分析互相污染。
+    """
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "capture",
+            "--text",
+            text,
+            "--json",
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
+    payload = json.loads(proc.stdout)
+    base = tmp_path / "intents" / payload["intent_id"]
+    raw = json.loads((base / "raw_intent.json").read_text())
+    ir = json.loads((base / "requirement_ir.json").read_text())
+
+    trigger = raw["routing_hints"]["requirement_enhancement"]
+    assert trigger["enabled"] is True
+    assert trigger["decision"] == "intelligent_score"
+    assert trigger["intelligence"]["score"] >= trigger["intelligence"]["threshold"]
+    assert "enhanced_requirement" in ir["source_inputs"]
+
+
+def test_capture_does_not_trigger_requirement_writer_for_plain_intent(tmp_path):
+    env = dict(os.environ)
+    env["SOLAR_INTENT_GATEWAY_DIR"] = str(tmp_path / "intents")
+    env["SOLAR_HARNESS_SPRINTS_DIR"] = str(tmp_path / "sprints")
+    env["SOLAR_GPT_REQUIREMENT_WRITER_CMD"] = f"{sys.executable} -c \"raise SystemExit(99)\""
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "capture",
+            "--text",
+            "修复一个普通状态页按钮样式问题。",
+            "--json",
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
+    payload = json.loads(proc.stdout)
+    base = tmp_path / "intents" / payload["intent_id"]
+    raw = json.loads((base / "raw_intent.json").read_text())
+    ir = json.loads((base / "requirement_ir.json").read_text())
+
+    assert raw["routing_hints"]["requirement_enhancement"]["enabled"] is False
+    assert raw["routing_hints"]["requirement_enhancement"]["decision"] == "below_threshold"
+    assert "enhanced_requirement" not in ir["source_inputs"]
+    assert not (base / "gpt_requirement_writer_output.json").exists()

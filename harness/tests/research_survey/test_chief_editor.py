@@ -4,11 +4,19 @@ import json
 import os
 import sys
 
+import pytest
+
 _HARNESS_LIB = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "lib")
 if _HARNESS_LIB not in sys.path:
     sys.path.insert(0, _HARNESS_LIB)
 
 from research.survey import chief_editor
+from research.survey.chief_editor import _insight_chapter_prompt, _is_insight_section
+
+
+@pytest.fixture(autouse=True)
+def _sandbox_harness_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("HARNESS_DIR", str(tmp_path / "harness-home"))
 
 
 def _write_human_final(root):
@@ -143,6 +151,39 @@ def test_chief_editor_local_command_records_real_usage_json(tmp_path):
     assert usage_rows[0]["total_tokens"] == 255
 
 
+def test_chief_editor_browser_agent_backend_records_usage(tmp_path, monkeypatch):
+    _write_human_final(tmp_path)
+    calls = []
+
+    def fake_run_browser_agent(prompt, *, model, timeout, task_dir, purpose):
+        calls.append({"model": model, "timeout": timeout, "task_dir": str(task_dir), "purpose": purpose})
+        heading = "架构范式" if "架构范式" in prompt else "评估体系"
+        return f"## {heading}\n\nBrowser agent chief editor output.\n", {}
+
+    monkeypatch.setattr(chief_editor, "_run_browser_agent", fake_run_browser_agent)
+
+    payload = chief_editor.run_chief_editor(
+        tmp_path,
+        backend="browser-agent-chatgpt",
+        model="chatgpt-5.5",
+        timeout=1800,
+        min_chars=40,
+    )
+
+    assert payload["ok"] is True
+    assert payload["backend"] == "browser-agent-chatgpt"
+    assert payload["model"] == "chatgpt-5.5"
+    assert len(calls) == 2
+    assert all(call["purpose"].startswith("survey-chief-editor") for call in calls)
+    usage_rows = [
+        json.loads(line)
+        for line in (tmp_path / "model_usage.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(usage_rows) == 2
+    assert usage_rows[0]["backend"] == "browser-agent-chatgpt"
+
+
 def test_chief_editor_publishes_status_projection(tmp_path, monkeypatch):
     _write_human_final(tmp_path)
     reports_root = tmp_path / "harness-home" / "reports"
@@ -189,3 +230,44 @@ def test_chief_editor_publishes_status_projection(tmp_path, monkeypatch):
     assert saved["status"] == "partial"
     assert saved["source_count"] == 23
     assert (report_dir / "chief_editor_final.md").exists()
+
+
+def test_insight_chapter_prompt_preserves_insight_structure():
+    prompt = _insight_chapter_prompt(
+        "DeepDive 洞察报告：Agent runtime",
+        "核心判断与中心论点",
+        "本节判断内容...",
+    )
+    assert "Chief Insight Editor" in prompt
+    assert "本节判断" in prompt
+    assert "证据链" in prompt
+    assert "影响与行动" in prompt
+    assert "反证和观察" in prompt
+    assert "Figure Spec" in prompt
+    assert "Solar 吸收映射" in prompt
+    assert "预测引用" in prompt
+
+
+def test_is_insight_section_detects_insight_headings():
+    assert _is_insight_section("核心判断", "本节判断内容\n证据链\n影响与行动") is True
+    assert _is_insight_section("核心判断", "普通内容没有insight标记") is False
+    assert _is_insight_section("标题", "包含 SectionRender JSON 块") is True
+
+
+def test_chief_editor_uses_insight_prompt_for_insight_sections(tmp_path):
+    _write_human_final(tmp_path)
+    insight_section = (
+        "# Professor-Grade Survey: Insight Test\n\n"
+        "## 核心结论\n\nInsight conclusion.\n\n"
+        "## 架构范式\n\n### 本节判断\n\nJudgment.\n\n### 证据链\n\nEvidence.\n\n"
+        "### 影响与行动\n\nAction.\n\n### 反证和观察\n\nCounter.\n\n"
+        "### Figure Spec\n\ntype: architecture_map\n\n"
+        "### SectionRender JSON\n\n{}\n\n"
+        "## 评估体系\n\n### 本节判断\n\nEval judgment.\n\n"
+    )
+    (tmp_path / "human_final.md").write_text(insight_section, encoding="utf-8")
+    payload = chief_editor.run_chief_editor(tmp_path, backend="deterministic", min_chars=100)
+    assert payload["ok"] is True
+    text = (tmp_path / "chief_editor_final.md").read_text(encoding="utf-8")
+    assert "## 架构范式" in text
+    assert "## 评估体系" in text

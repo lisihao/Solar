@@ -22,6 +22,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 try:
     import yaml  # type: ignore
@@ -29,8 +30,8 @@ except Exception:
     yaml = None
 
 UTC = dt.timezone.utc
-HARNESS_ROOT = Path("/Users/lisihao/Solar/harness")
-LIVE_ROOT = Path("/Users/lisihao/.solar/harness")
+HARNESS_ROOT = Path(os.path.expandvars(os.environ.get("SOLAR_REPO", str(Path.home() / "Solar")))).expanduser() / "harness"
+LIVE_ROOT = Path(os.path.expandvars(os.environ.get("HARNESS_DIR", str(Path.home() / ".solar" / "harness")))).expanduser()
 DEFAULT_DB = LIVE_ROOT / "state/tech-hotspot-radar/tech-hotspot-radar.sqlite"
 DEFAULT_STATE_DIR = LIVE_ROOT / "state/tech-hotspot-radar"
 DEFAULT_CONFIG = HARNESS_ROOT / "config/tech-hotspot-radar.yaml"
@@ -54,6 +55,37 @@ def parse_week(label: str) -> dt.date:
 def fmt_week(day: dt.date) -> str:
     year, week, _ = day.isocalendar()
     return f"{year}-W{week:02d}"
+
+
+def local_timezone() -> ZoneInfo:
+    return ZoneInfo(os.environ.get("LOCAL_TZ", "America/Toronto"))
+
+
+def local_business_date(value: str) -> dt.date | None:
+    try:
+        parsed = dt.datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(local_timezone()).date()
+    except Exception:
+        try:
+            return dt.date.fromisoformat(str(value or "")[:10])
+        except Exception:
+            return None
+
+
+def video_ids_for_week(conn: sqlite3.Connection, week: str) -> list[str]:
+    start = parse_week(week)
+    end = start + dt.timedelta(days=7)
+    return [
+        str(row["video_id"])
+        for row in conn.execute("SELECT video_id, published_at FROM youtube_videos")
+        if (local_business_date(str(row["published_at"] or "")) is not None and start <= local_business_date(str(row["published_at"] or "")) < end)
+    ]
+
+
+def sql_placeholders(values: list[str]) -> str:
+    return ",".join(["?"] * len(values))
 
 
 def week_labels_newest_first(start_week: str, end_week: str) -> list[str]:
@@ -80,7 +112,7 @@ def load_min_duration(config_path: Path) -> int:
 def open_db(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=DB_BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
-    conn.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA busy_timeout=" + str(int(DB_BUSY_TIMEOUT_MS)))
     try:
         conn.execute("PRAGMA journal_mode=WAL")
     except sqlite3.OperationalError:
@@ -157,13 +189,23 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
 
 
 def get_week_stats(conn: sqlite3.Connection, week: str, min_duration: int) -> dict[str, Any]:
-    start, end = week_bounds(week)
+    video_ids = video_ids_for_week(conn, week)
+    if not video_ids:
+        return {
+            "week": week,
+            "videos": 0,
+            "usable": 0,
+            "short_or_below_threshold": 0,
+            "needs_backfill": 0,
+            "jobs": {},
+        }
+    placeholders = sql_placeholders(video_ids)
     rows = conn.execute(
-        """SELECT v.video_id, v.duration_seconds, t.source, t.quality_tier, t.char_count
+        f"""SELECT v.video_id, v.duration_seconds, t.source, t.quality_tier, t.char_count
            FROM youtube_videos v
            LEFT JOIN youtube_transcripts t USING(video_id)
-           WHERE date(v.published_at) >= date(?) AND date(v.published_at) < date(?)""",
-        (start, end),
+           WHERE v.video_id IN ({placeholders})""",
+        video_ids,
     ).fetchall()
     videos = len(rows)
     usable = 0
@@ -187,14 +229,11 @@ def get_week_stats(conn: sqlite3.Connection, week: str, min_duration: int) -> di
             continue
         needs += 1
     jobs = conn.execute(
-        """SELECT status, COUNT(*) n
+        f"""SELECT status, COUNT(*) n
            FROM youtube_transcript_jobs
-           WHERE video_id IN (
-             SELECT video_id FROM youtube_videos
-             WHERE date(published_at) >= date(?) AND date(published_at) < date(?)
-           )
+           WHERE video_id IN ({placeholders})
            GROUP BY status""",
-        (start, end),
+        video_ids,
     ).fetchall()
     return {
         "week": week,
@@ -207,19 +246,22 @@ def get_week_stats(conn: sqlite3.Connection, week: str, min_duration: int) -> di
 
 
 def mark_short_metadata(conn: sqlite3.Connection, week: str, min_duration: int, limit: int) -> int:
-    start, end = week_bounds(week)
+    video_ids = video_ids_for_week(conn, week)
+    if not video_ids:
+        return 0
+    placeholders = sql_placeholders(video_ids)
     rows = conn.execute(
-        """SELECT v.video_id, v.duration_seconds
+        f"""SELECT v.video_id, v.duration_seconds
            FROM youtube_videos v
            LEFT JOIN youtube_transcripts t USING(video_id)
-           WHERE date(v.published_at) >= date(?) AND date(v.published_at) < date(?)
+           WHERE v.video_id IN ({placeholders})
              AND v.duration_seconds IS NOT NULL AND v.duration_seconds < ?
              AND (t.video_id IS NULL OR NOT (
                t.source IN ('standard_caption','youtube_asr_caption','browser_caption')
                AND t.quality_tier IN ('T0','T1','T2') AND t.char_count >= 200
              ))
            LIMIT ?""",
-        (start, end, min_duration, limit),
+        (*video_ids, min_duration, limit),
     ).fetchall()
     now = iso_z()
     for row in rows:
@@ -250,15 +292,18 @@ def purge_local_asr_transcripts(conn: sqlite3.Connection, week: str, limit: int 
     can re-acquire captions/browser transcript later. No ASR text remains
     usable or readable from youtube_transcripts after this update.
     """
-    start, end = week_bounds(week)
+    video_ids = video_ids_for_week(conn, week)
+    if not video_ids:
+        return 0
+    placeholders = sql_placeholders(video_ids)
     rows = conn.execute(
         f"""SELECT t.video_id
             FROM youtube_transcripts t
             JOIN youtube_videos v USING(video_id)
-            WHERE date(v.published_at) >= date(?) AND date(v.published_at) < date(?)
+            WHERE v.video_id IN ({placeholders})
               AND t.source IN ({','.join('?' for _ in LOCAL_ASR_SOURCES)})
             LIMIT ?""",
-        (start, end, *sorted(LOCAL_ASR_SOURCES), limit),
+        (*video_ids, *sorted(LOCAL_ASR_SOURCES), limit),
     ).fetchall()
     now = iso_z()
     for row in rows:
@@ -348,19 +393,22 @@ def reconcile_failed_jobs(conn: sqlite3.Connection, week: str, min_duration: int
     subtitle/caption failures go to browser_capture. Browser failures and short
     videos become metadata_only. ASR jobs are terminalized and scrubbed.
     """
-    start, end = week_bounds(week)
+    video_ids = video_ids_for_week(conn, week)
+    if not video_ids:
+        return {"to_browser_capture": 0, "to_metadata_only": 0, "asr_terminalized": 0}
+    placeholders = sql_placeholders(video_ids)
     rows = conn.execute(
-        """SELECT j.*, v.duration_seconds
+        f"""SELECT j.*, v.duration_seconds
            FROM youtube_transcript_jobs j
            JOIN youtube_videos v USING(video_id)
-           WHERE date(v.published_at) >= date(?) AND date(v.published_at) < date(?)
+           WHERE v.video_id IN ({placeholders})
              AND (
                j.job_type IN ('asr','premium_asr')
                OR (j.status='failed' AND j.job_type IN ('caption_discovery','subtitle_download'))
                OR (j.status='failed' AND (j.attempt_count >= j.max_attempts OR j.error_code='max_attempts'))
                OR (j.job_type='browser_capture' AND j.status IN ('pending','queued') AND j.error_code='max_attempts')
              )""",
-        (start, end),
+        video_ids,
     ).fetchall()
     counts = {"to_browser_capture": 0, "to_metadata_only": 0, "asr_terminalized": 0}
     now = iso_z()
@@ -411,12 +459,15 @@ def reconcile_failed_jobs(conn: sqlite3.Connection, week: str, min_duration: int
 
 
 def enqueue_caption_discovery(conn: sqlite3.Connection, week: str, min_duration: int, limit: int) -> int:
-    start, end = week_bounds(week)
+    video_ids = video_ids_for_week(conn, week)
+    if not video_ids:
+        return 0
+    placeholders = sql_placeholders(video_ids)
     rows = conn.execute(
-        """SELECT v.video_id, v.duration_seconds, t.source, t.quality_tier, t.char_count
+        f"""SELECT v.video_id, v.duration_seconds, t.source, t.quality_tier, t.char_count
            FROM youtube_videos v
            LEFT JOIN youtube_transcripts t USING(video_id)
-           WHERE date(v.published_at) >= date(?) AND date(v.published_at) < date(?)
+           WHERE v.video_id IN ({placeholders})
              AND (v.duration_seconds IS NULL OR v.duration_seconds >= ?)
              AND (t.video_id IS NULL OR NOT (
                t.source IN ('standard_caption','youtube_asr_caption','browser_caption')
@@ -431,10 +482,10 @@ def enqueue_caption_discovery(conn: sqlite3.Connection, week: str, min_duration:
                SELECT 1 FROM youtube_transcript_jobs j
                WHERE j.video_id=v.video_id
                  AND j.status IN ('metadata_only','cancelled','quarantined')
-             )
+           )
            ORDER BY datetime(v.published_at) DESC
            LIMIT ?""",
-        (start, end, min_duration, limit),
+        (*video_ids, min_duration, limit),
     ).fetchall()
     now = iso_z()
     for row in rows:

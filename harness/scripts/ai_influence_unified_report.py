@@ -33,8 +33,8 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 KNOWLEDGE_RAW = Path.home() / "Knowledge" / "_raw"
-DEFAULT_MAIL_TO = "sean.lisihao@huawei.com"
-DEFAULT_GMAIL_USER = "lisihao@gmail.com"
+DEFAULT_MAIL_TO = os.environ.get("AI_INFLUENCE_MAIL_TO", "user@example.com")
+DEFAULT_GMAIL_USER = os.environ.get("GMAIL_USER", "user@example.com")
 DEFAULT_GMAIL_KEYCHAIN_SERVICE = "solar-ai-influence-gmail"
 
 
@@ -61,6 +61,50 @@ def read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_new_github_digest(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    
+    cards = data.get("cards") or []
+    windows = {
+        "daily": [],
+        "weekly": [],
+        "monthly": [],
+        "quarter": []
+    }
+    
+    for card in cards:
+        period = card.get("trendshift_period") or "daily"
+        if period not in windows:
+            period = "daily"
+            
+        scores = card.get("scores") or {}
+        max_delta = scores.get("stars_delta_7d") or 0
+        max_delta_str = f"+{max_delta}" if isinstance(max_delta, int) and max_delta >= 0 else str(max_delta)
+        
+        category = card.get("positioning") or "N/A"
+        
+        mapped_repo = {
+            "repo": card.get("repo") or "N/A",
+            "url": card.get("html_url") or card.get("url") or f"https://github.com/{card.get('repo', '')}",
+            "category": category,
+            "language": card.get("language") or "N/A",
+            "stars": card.get("stars") or 0,
+            "max_delta": max_delta_str
+        }
+        windows[period].append(mapped_repo)
+        
+    return {
+        "analysis": {
+            "windows": windows
+        }
+    }
 
 
 def latest_file(paths: list[Path]) -> Path | None:
@@ -379,8 +423,30 @@ def render_report(date_str: str, ai_digest: dict[str, Any], github_digest: dict[
 
 def send_smtp(html_content: str, subject: str, attachments: list[Path]) -> dict[str, Any]:
     ai_daily = load_ai_daily_module()
-    gmail_user = os.environ.get("GMAIL_USER") or os.environ.get("AI_INFLUENCE_GMAIL_USER") or DEFAULT_GMAIL_USER
-    gmail_to = os.environ.get("GMAIL_TO") or os.environ.get("MAIL_TO") or os.environ.get("AI_INFLUENCE_MAIL_TO") or DEFAULT_MAIL_TO
+    mail_config_path = Path(
+        os.environ.get("AI_INFLUENCE_MAIL_CONFIG")
+        or str(Path.home() / ".solar" / "harness" / "state" / "ai-influence-mail-config.json")
+    ).expanduser()
+    mail_config = {}
+    if mail_config_path.exists():
+        try:
+            loaded = json.loads(mail_config_path.read_text(encoding="utf-8"))
+            mail_config = loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            mail_config = {}
+    gmail_user = (
+        os.environ.get("GMAIL_USER")
+        or os.environ.get("AI_INFLUENCE_GMAIL_USER")
+        or str(mail_config.get("from") or "")
+        or DEFAULT_GMAIL_USER
+    )
+    gmail_to = (
+        os.environ.get("GMAIL_TO")
+        or os.environ.get("MAIL_TO")
+        or os.environ.get("AI_INFLUENCE_MAIL_TO")
+        or str(mail_config.get("to") or "")
+        or DEFAULT_MAIL_TO
+    )
     recipients = [addr.strip() for addr in re.split(r"[,;]", gmail_to) if addr.strip()]
     if not recipients:
         return {"status": "warn", "backend": "gmail_smtp", "reason": "missing recipients"}
@@ -416,6 +482,7 @@ def send_smtp(html_content: str, subject: str, attachments: list[Path]) -> dict[
     return {
         "status": "sent",
         "backend": "gmail_smtp",
+        "sent_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "from": gmail_user,
         "to": recipients,
         "message_id": message_id,
@@ -427,9 +494,20 @@ def send_smtp(html_content: str, subject: str, attachments: list[Path]) -> dict[
 def run(date_str: str, raw: Path, send: bool) -> dict[str, Any]:
     ai_path = raw / "ai-influence-daily-digest" / date_str / "digest.json"
     github_path = raw / "github-trends-digest" / date_str / "digest.json"
+    
+    # Fallback to tech-hotspot-radar for github trends if legacy path doesn't exist
+    if not github_path.exists():
+        new_github_path = raw / "tech-hotspot-radar" / "github-trend-report" / date_str / "github-trend-pack.json"
+        if new_github_path.exists():
+            github_path = new_github_path
+            github_digest = load_new_github_digest(github_path)
+        else:
+            github_digest = {}
+    else:
+        github_digest = read_json(github_path)
+
     youtube_path = latest_youtube_digest(raw, date_str)
     ai_digest = read_json(ai_path)
-    github_digest = read_json(github_path)
     youtube = parse_youtube_digest(youtube_path)
     asr_files = youtube_asr_files(raw, date_str)
     asr_summaries = parse_asr_summary(asr_files)

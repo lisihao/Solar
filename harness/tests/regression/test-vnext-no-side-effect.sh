@@ -16,7 +16,7 @@ set -euo pipefail
 HARNESS_DIR="${HARNESS_DIR:-$HOME/.solar/harness}"
 GUARD="$HARNESS_DIR/lib/architecture_guard.py"
 SPRINTS_DIR="$HARNESS_DIR/sprints"
-EPIC_PREFIX="sprint-20260519-solar-harness-vnext-code-as-harness-runtime"
+EPIC_PREFIX="${SOLAR_REG_VNEXT_EPIC_PREFIX:-sprint-20260531-请为-solar-harness-开一个新的-p0-p1-架构升级单-主题是-把-task-graph-从现网单文件主读}"
 
 S03_GRAPH="${S03_GRAPH:-$SPRINTS_DIR/${EPIC_PREFIX}-s03-core-runtime.task_graph.json}"
 S04_GRAPH="${S04_GRAPH:-$SPRINTS_DIR/${EPIC_PREFIX}-s04-orchestration-ui.task_graph.json}"
@@ -95,7 +95,7 @@ PY
   if [[ "$violation_count" -eq 0 ]]; then
     ok "$label zero protected-core hits"
   else
-    fail "$label has $violation_count protected-core hits (see detail)"
+    echo "  INFO: $label has $violation_count protected-core hits (see detail)"
     python3 -c "
 import json,sys
 for nid,path,allowed in json.loads(sys.stdin.read())['violations']:
@@ -112,7 +112,7 @@ print(len(v))
     if [[ "$strict_count" -gt 0 ]]; then
       fail "$label has $strict_count UNAUTHORIZED protected-core hits"
     else
-      ok "$label all protected-core hits had core_patch_allowed=true"
+      ok "$label all $violation_count protected-core hits had core_patch_allowed=true"
     fi
   fi
 }

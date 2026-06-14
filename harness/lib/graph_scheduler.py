@@ -37,6 +37,7 @@ READY_STATUSES = {"pending", "queued", "blocked", "worker_blocked", ""}
 PASS_STATUSES = {"passed"}
 CLOSED_NON_PASS_STATUSES = {"skipped", "cancelled", "skipped_parent_passed"}
 SPRINTS_DIR = Path(os.environ.get("HARNESS_SPRINTS_DIR", HARNESS_DIR / "sprints"))
+COMPLETION_OUTCOME_STATUSES = {"passed", "completed", "finalized"}
 
 
 def _effective_graph_max_parallel(default: int | None = None) -> int | None:
@@ -71,6 +72,11 @@ LABEL_ALIAS_GROUPS = [
         "docs",
         "documentation",
         "spec.write",
+        "requirement-ir",
+        "product.requirements",
+        "writer-orchestration",
+        "writer.orchestration",
+        "section-render.orchestration",
     },
     {
         "algorithm_design",
@@ -86,6 +92,10 @@ LABEL_ALIAS_GROUPS = [
     {
         "code_impl",
         "ImplementationWorker",
+        "builder",
+        "edit",
+        "write",
+        "targeted-implementation",
         "backend-development",
         "backend.development",
         "backend",
@@ -96,6 +106,8 @@ LABEL_ALIAS_GROUPS = [
         "subprocess",
         "sqlite",
         "sqlite3",
+        "storage",
+        "persistence",
     },
     {
         "test_generation",
@@ -118,8 +130,15 @@ LABEL_ALIAS_GROUPS = [
         "verification",
         "verifier",
         "review",
+        "quality-gates",
         "testing",
         "test_execution",
+        "skill.patch-review-hardcore",
+        "patch-review-hardcore",
+        "patch-review",
+        "critical-review",
+        "critical-code-review",
+        "code-review",
         "code.review",
     },
     {
@@ -205,7 +224,10 @@ LABEL_ALIAS_GROUPS = [
 
 
 def _now() -> str:
-    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except AttributeError:
+        return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def load_graph(path: str | Path) -> dict[str, Any]:
@@ -287,6 +309,16 @@ def _attach_runtime_planes(
     for node_id, result in node_results.items():
         if node_id not in ids or not isinstance(result, dict):
             continue
+        node_artifacts = ids[node_id].get("artifacts")
+        if not isinstance(node_artifacts, dict):
+            node_artifacts = {}
+            ids[node_id]["artifacts"] = node_artifacts
+        result_artifacts = result.get("artifacts")
+        if isinstance(result_artifacts, dict):
+            # Runtime state may learn eval/handoff/proof sidecars after the
+            # immutable graph spec was written. Merge instead of replacing so
+            # later load/save cycles cannot erase proof artifacts.
+            node_artifacts.update({k: v for k, v in result_artifacts.items() if v})
         status = str(result.get("status") or "").strip().lower()
         if status:
             ids[node_id]["status"] = status
@@ -309,21 +341,49 @@ def _runtime_state_from_graph(graph: dict[str, Any], *, graph_path: Path | None 
     base_state["node_results"] = deepcopy(_node_results(graph))
     gate_results = graph.get("gate_results") if isinstance(graph.get("gate_results"), dict) else {}
     base_state["gate_results"] = deepcopy(gate_results)
-    leases = base_state.get("leases")
-    if not isinstance(leases, dict):
-        leases = {}
-    dispatch_ids = base_state.get("dispatch_ids")
-    if not isinstance(dispatch_ids, dict):
-        dispatch_ids = {}
-    for node_id, result in base_state["node_results"].items():
-        if not isinstance(result, dict):
+    node_status_projection: dict[str, dict[str, Any]] = {}
+    active_statuses = {
+        "assigned",
+        "blocked",
+        "dispatched",
+        "in_progress",
+        "pending",
+        "queued",
+        "reviewing",
+        "running",
+        "worker_blocked",
+    }
+    leases: dict[str, Any] = {}
+    dispatch_ids: dict[str, str] = {}
+    node_results = base_state["node_results"]
+    for node in graph.get("nodes", []):
+        node_id = str(node.get("id") or "").strip()
+        if not node_id:
             continue
-        dispatch_id = str(result.get("dispatch_id") or "").strip()
-        assigned_to = str(result.get("assigned_to") or "").strip()
+        result = node_results.get(node_id) if isinstance(node_results.get(node_id), dict) else {}
+        node_artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
+        result_artifacts = result.get("artifacts") if isinstance(result.get("artifacts"), dict) else {}
+        merged_artifacts = {}
+        merged_artifacts.update({k: v for k, v in result_artifacts.items() if v})
+        merged_artifacts.update({k: v for k, v in node_artifacts.items() if v})
+        if merged_artifacts:
+            result["artifacts"] = merged_artifacts
+            node["artifacts"] = merged_artifacts.copy()
+        status = str(result.get("status") or node.get("status") or "pending").strip().lower()
+        projection = {
+            "status": status,
+            "updated_at": str(result.get("updated_at") or node.get("updated_at") or _now()),
+        }
+        node_status_projection[node_id] = projection
+        if status not in active_statuses:
+            continue
+        dispatch_id = str(result.get("dispatch_id") or node.get("dispatch_id") or "").strip()
+        assigned_to = str(result.get("assigned_to") or node.get("assigned_to") or "").strip()
         if dispatch_id:
             dispatch_ids[node_id] = dispatch_id
         if assigned_to:
             leases[node_id] = {"pane": assigned_to, "dispatch_id": dispatch_id}
+    base_state["node_status"] = node_status_projection
     base_state["leases"] = leases
     base_state["dispatch_ids"] = dispatch_ids
     base_state["updated_at"] = _now()
@@ -780,6 +840,8 @@ def _status_rank(status: str) -> int:
     value = str(status or "pending").lower()
     if value in {"passed", "failed", "skipped", "cancelled"}:
         return 5
+    if value in {"blocked_by_verifier", "result_submitted", "verifying"}:
+        return 4
     if value == "reviewing":
         return 4
     if value in {"in_progress", "running", "working"}:
@@ -1006,6 +1068,55 @@ def _passed_without_required_eval(graph: dict[str, Any], node_id: str) -> bool:
     return _node_has_handoff(graph, node_id) and not _node_has_eval_json(graph, node_id)
 
 
+def _completion_gate_valid(result: dict[str, Any]) -> bool:
+    if not result.get("completion_gate_required"):
+        return True
+    gate = result.get("completion_gate")
+    if not isinstance(gate, dict):
+        return False
+    verdict = gate.get("verdict")
+    if not isinstance(verdict, dict):
+        return False
+    if verdict.get("status") != "passed" or verdict.get("trigger") != "post_result":
+        return False
+    result_id = str(result.get("result_id") or "")
+    covered_result_id = str(verdict.get("covered_result_id") or gate.get("covered_result_id") or "")
+    return bool(result_id and covered_result_id and result_id == covered_result_id)
+
+
+def _completion_gate_blocking_status(result: dict[str, Any]) -> str:
+    gate = result.get("completion_gate") if isinstance(result.get("completion_gate"), dict) else {}
+    gate_status = str(gate.get("status") or "").lower()
+    if gate_status == "blocked_by_verifier":
+        return "blocked_by_verifier"
+    return "result_submitted"
+
+
+def _parent_child_completion_gate(graph: dict[str, Any], node_ids: list[str]) -> dict[str, Any]:
+    results = _node_results(graph)
+    children = [
+        {"node_id": node_id, "result": results.get(node_id) if isinstance(results.get(node_id), dict) else {}}
+        for node_id in node_ids
+    ]
+    policy = graph.get("sprint_policy") if isinstance(graph.get("sprint_policy"), dict) else {}
+    allow_break_glass = bool(policy.get("allow_break_glass_parent_close"))
+    try:
+        from gate_controller import validate_parent_child_completion  # noqa: WPS433
+
+        return validate_parent_child_completion(children, allow_break_glass=allow_break_glass)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "checked_nodes": [],
+            "missing_child_verifiers": node_ids,
+            "stale_child_verifiers": [],
+            "break_glass_nodes": [],
+            "artifact_hash_mismatches": [],
+            "allow_break_glass": allow_break_glass,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def _assert_pass_mark_allowed(graph: dict[str, Any], node_id: str, status: str) -> None:
     normalized = str(status or "").lower()
     if normalized != "passed":
@@ -1117,6 +1228,8 @@ def node_status(graph: dict[str, Any], node_id: str) -> str:
 
     if status == "passed" and _passed_without_required_eval(graph, node_id):
         return "reviewing"
+    if status == "passed" and not _completion_gate_valid(results.get(node_id, {}) if isinstance(results.get(node_id), dict) else {}):
+        return _completion_gate_blocking_status(results.get(node_id, {}) if isinstance(results.get(node_id), dict) else {})
     return status
 
 
@@ -1314,6 +1427,70 @@ def _is_passed(graph: dict[str, Any], node_id: str) -> bool:
     return node_status(graph, node_id) in PASS_STATUSES
 
 
+def _completion_result_for_node(
+    graph: dict[str, Any],
+    node_id: str,
+    *,
+    status: str,
+    note: str | None = None,
+) -> dict[str, Any]:
+    ids = _node_map(graph)
+    node = ids[node_id]
+    sid = _sprint_id_for_graph(graph) or str(graph.get("id") or "graph")
+    handoff_path = str(_first_existing_path(_node_handoff_candidates(graph, node_id)) or (SPRINTS_DIR / f"{sid}.{node_id}-handoff.md"))
+    eval_path = str(_first_existing_path(_node_eval_json_candidates(graph, node_id)) or "")
+    attempt_id = str(node.get("dispatch_id") or node.get("attempt_id") or f"attempt-{node_id}")
+    run_dir = str(HARNESS_DIR / "runs" / sid / node_id)
+    try:
+        from completion_pipeline import OperatorResult, submit_result  # noqa: WPS433
+
+        return submit_result(
+            OperatorResult(
+                session_id=sid,
+                node_id=node_id,
+                attempt_id=attempt_id,
+                handoff_path=handoff_path,
+                eval_path=eval_path,
+                write_scope=list(node.get("write_scope") or []),
+                operator_status=status,
+                run_dir=run_dir,
+                graph_path=str(graph.get("graph_path") or ""),
+            ),
+            harness_dir=HARNESS_DIR,
+        )
+    except Exception as exc:
+        result_id = f"result_{node_id}_{attempt_id}"
+        return {
+            "status": "blocked_by_verifier",
+            "result": {
+                "session_id": sid,
+                "node_id": node_id,
+                "attempt_id": attempt_id,
+                "result_id": result_id,
+                "handoff_path": handoff_path,
+                "eval_path": eval_path,
+                "write_scope": list(node.get("write_scope") or []),
+                "operator_status": status,
+                "note": note or "",
+            },
+            "verdict": {
+                "trigger": "post_result",
+                "status": "failed",
+                "error": f"{type(exc).__name__}: {exc}",
+                "covered_result_id": result_id,
+                "covered_attempt_id": attempt_id,
+                "rules": [
+                    {
+                        "id": "solar.post_result.pipeline_error",
+                        "severity": "blocker",
+                        "status": "failed",
+                        "message": str(exc),
+                    }
+                ],
+            },
+        }
+
+
 def blocked_external_prerequisites(graph: dict[str, Any]) -> list[dict[str, Any]]:
     blocked = list(iter_blocked(graph, SPRINTS_DIR))
     seen = {str(item.get("requirement") or "") for item in blocked}
@@ -1330,6 +1507,32 @@ def blocked_external_prerequisites(graph: dict[str, Any]) -> list[dict[str, Any]
                 blocked.append(detail)
                 seen.add(key)
     return blocked
+
+
+def summarize_blocked_prerequisites(blocked: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return stable, user-facing prerequisite summaries without changing truth."""
+    summaries: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in blocked or []:
+        if not isinstance(item, dict):
+            continue
+        sprint_id = str(item.get("sprint_id") or item.get("dependency_sprint") or "").strip()
+        reason = str(item.get("reason") or "external_dependency_blocked").strip()
+        key = (sprint_id, reason)
+        summary = summaries.setdefault(
+            key,
+            {
+                "sprint_id": sprint_id,
+                "reason": reason,
+                "guidance": str(item.get("guidance") or "wait for dependency sprint to pass").strip(),
+                "blocked_by": [],
+                "blocked_prerequisites": [],
+            },
+        )
+        blocked_by = f"sprint:{sprint_id}" if sprint_id else "sprint:N/A"
+        if blocked_by not in summary["blocked_by"]:
+            summary["blocked_by"].append(blocked_by)
+        summary["blocked_prerequisites"].append(deepcopy(item))
+    return list(summaries.values())
 
 
 def ready_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1351,6 +1554,111 @@ def ready_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
         if all(_is_passed(graph, dep) for dep in deps):
             ready.append(deepcopy(ids[node_id]))
     return ready
+
+
+def _raw_inline_graph(graph: dict[str, Any], graph_path: str | Path | None) -> dict[str, Any]:
+    if not graph_path:
+        return deepcopy(graph)
+    try:
+        payload = json.loads(Path(graph_path).read_text(encoding="utf-8"))
+        if isinstance(payload, dict) and isinstance(payload.get("nodes"), list):
+            return payload
+        return deepcopy(graph)
+    except Exception:
+        return deepcopy(graph)
+
+
+def _ready_ids_from_graph(graph: dict[str, Any]) -> list[str]:
+    return [str(node.get("id") or "") for node in ready_nodes(deepcopy(graph)) if str(node.get("id") or "")]
+
+
+def _append_autopilot_cutover_event(
+    sid: str,
+    base_dir: Path,
+    *,
+    state_ready: list[str],
+    inline_ready: list[str],
+    diff_added: list[str],
+    diff_removed: list[str],
+    source: str,
+) -> None:
+    if not sid:
+        return
+    event = {
+        "ts": _now(),
+        "event": "autopilot_cutover_diff",
+        "by": "graph_scheduler",
+        "sprint_id": sid,
+        "state_ready": state_ready,
+        "inline_ready": inline_ready,
+        "diff_added": diff_added,
+        "diff_removed": diff_removed,
+        "source": source,
+        # Shadow evidence is always state-based; rollback only changes source.
+        "decision_taken": "state",
+    }
+    try:
+        event_path = base_dir / f"{sid}.events.jsonl"
+        event_path.parent.mkdir(parents=True, exist_ok=True)
+        with event_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    try:
+        trace_path = base_dir / f"{sid}.traceability.json"
+        trace = json.loads(trace_path.read_text(encoding="utf-8")) if trace_path.exists() else {}
+        if not isinstance(trace, dict):
+            trace = {}
+        trace.setdefault("s04_orchestration_ui:autopilot_drift", []).append(event)
+        tmp = trace_path.with_suffix(trace_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(trace, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, trace_path)
+    except Exception:
+        pass
+
+
+def autopilot_ready_decision(
+    graph: dict[str, Any],
+    graph_path: str | Path | None = None,
+    *,
+    emit_shadow: bool = False,
+) -> dict[str, Any]:
+    """State-first ready-node selector used by autopilot and real dispatch."""
+    state_ready = _ready_ids_from_graph(graph)
+    raw_graph = _raw_inline_graph(graph, graph_path)
+    inline_ready = _ready_ids_from_graph(raw_graph)
+    diff_added = sorted(set(state_ready) - set(inline_ready))
+    diff_removed = sorted(set(inline_ready) - set(state_ready))
+    source = str(os.environ.get("SOLAR_AUTOPILOT_DECISION", "state")).strip().lower()
+    if source not in {"state", "inline"}:
+        source = "state"
+    selected_ids = inline_ready if source == "inline" else state_ready
+    if emit_shadow and str(os.environ.get("SOLAR_AUTOPILOT_SHADOW", "1")).lower() not in {"0", "false", "off", "no"}:
+        if diff_added or diff_removed:
+            sid = _sprint_id_for_graph(graph, graph_path)
+            base_dir = Path(graph_path).expanduser().parent if graph_path else SPRINTS_DIR
+            _append_autopilot_cutover_event(
+                sid,
+                base_dir,
+                state_ready=state_ready,
+                inline_ready=inline_ready,
+                diff_added=diff_added,
+                diff_removed=diff_removed,
+                source=source,
+            )
+    ids = _node_map(graph)
+    selected_nodes = [deepcopy(ids[node_id]) for node_id in selected_ids if node_id in ids]
+    return {
+        "ready_nodes": selected_nodes,
+        "ready_node_ids": selected_ids,
+        "source": source,
+        "inline_ready": inline_ready,
+        "state_ready": state_ready,
+        "diff_added": diff_added,
+        "diff_removed": diff_removed,
+        "decision_taken": "state",
+        "shadow_enabled": str(os.environ.get("SOLAR_AUTOPILOT_SHADOW", "1")).lower() not in {"0", "false", "off", "no"},
+    }
 
 
 def _scope_list(node: dict[str, Any]) -> list[str]:
@@ -1635,6 +1943,36 @@ def _capabilities_match(worker: dict[str, Any], required_capabilities: list[str]
     return True
 
 
+def _capability_match_mode() -> str:
+    """P0 软约束 (2026-06-11 架构根治方案, 监护人拍板).
+
+    背景: capability enrichment (auto) 给节点标 175 种能力, 算子池仅 1 个算子
+    声明 5 种 → 匹配率 0%, 2193 个节点-需求对 100% no_matching_worker 静默堵死。
+    soft (默认): 能力不满足不淘汰 worker, 降级为 role+skills 匹配;
+                 排序仍偏好真有能力者 (cap_score); 选中缺能力者发 warn 事件留痕。
+    hard: 原行为 (P1 CapabilityRegistry 闭环、算子能力实测登记后逐步切回)。
+    """
+    return str(os.environ.get("SOLAR_CAPABILITY_MATCH_MODE", "soft")).strip().lower()
+
+
+def _emit_capability_soft_match(node_id: str, pane: str, missing: list[str]) -> None:
+    """软匹配留痕 (best-effort): 给 P1 registry 收口提供缺口高频数据。"""
+    try:
+        events = Path(os.environ.get("HARNESS_DIR", str(Path.home() / ".solar/harness"))) / "events" / "all.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "event": "capability_soft_match",
+            "by": "graph-scheduler",
+            "severity": "warn",
+            "data": {"node": node_id, "pane": pane, "missing_capabilities": missing[:40]},
+        }
+        with events.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception:
+        pass  # 留痕失败不阻断派发 (本函数自身就是可见性补丁, 不能反过来制造新故障点)
+
+
 def _missing_skills(worker: dict[str, Any], required_skills: list[str]) -> list[str]:
     worker_aliases: set[str] = set()
     for skill in worker.get("skills", []) or []:
@@ -1755,12 +2093,16 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             role_candidates_seen = True
             for item in _missing_skills(worker, required_skills):
                 missing_skill_union.add(item)
-            for item in _missing_capabilities(worker, required_capabilities):
+            worker_missing_caps = _missing_capabilities(worker, required_capabilities)
+            for item in worker_missing_caps:
                 missing_cap_union.add(item)
             if not _skills_match(worker, required_skills, required_capabilities):
                 continue
             if not _capabilities_match(worker, required_capabilities):
-                continue
+                # P0 软约束: soft 模式不淘汰, 降级为 role+skills 匹配 (排序仍偏好
+                # cap_score 高者); hard 模式保持原行为。见 _capability_match_mode()。
+                if _capability_match_mode() == "hard":
+                    continue
             if _worker_quota_exhausted(worker, preferred_model):
                 continue
             if _model_requires_strict_match(preferred_model, strict_model) and not _model_match(worker, preferred_model):
@@ -1780,7 +2122,12 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             skill_score = _skill_match_count(worker, required_skills)
             model_penalty = 0 if _model_match(worker, preferred_model) else 10
             load = int(worker.get("load", 0) or 0)
-            candidates.append((role_penalty, -cap_score, -skill_score, model_penalty, load, pane, worker))
+            # P0 软约束: missing_count 进排序键 (缺能力越少越优先), 让真持有
+            # 能力的 worker 始终先被选; hard 模式下缺能力者已被过滤, 恒为 0,
+            # 排序行为与原版完全一致。注意 cap_score 是"能力全局价值分",
+            # 不衡量拥有度, 不能替代此键。
+            candidates.append((role_penalty, len(worker_missing_caps), -cap_score,
+                               -skill_score, model_penalty, load, pane, worker))
 
         if not candidates:
             if blocked_by_runtime:
@@ -1807,10 +2154,10 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             queued.append({"node": node["id"], "reason": reason, "details": details})
             continue
 
-        candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3], item[4], item[5]))
-        role_rank, cap_rank, skill_rank, _model_penalty, _load, _pane, worker = candidates[0]
+        candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3], item[4], item[5], item[6]))
+        role_rank, _missing_n, cap_rank, skill_rank, _model_penalty, _load, _pane, worker = candidates[0]
         used_panes.add(str(worker.get("pane")))
-        assigned.append({
+        assignment = {
             "node": node["id"],
             "pane": worker.get("pane"),
             "dispatch_role": node_role,
@@ -1822,7 +2169,13 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             "role_penalty": int(role_rank),
             "capability_score": round(-cap_rank, 3),
             "skill_match_count": int(-skill_rank),
-        })
+        }
+        # P0 软约束留痕: 选中的 worker 缺能力时显式标记 + warn 事件 (不静默)
+        chosen_missing = _missing_capabilities(worker, required_capabilities)
+        if chosen_missing:
+            assignment["capability_soft_match"] = sorted(chosen_missing)
+            _emit_capability_soft_match(str(node["id"]), str(worker.get("pane") or ""), sorted(chosen_missing))
+        assigned.append(assignment)
 
     return {"ok": True, "assigned": assigned, "queued": queued}
 
@@ -1850,7 +2203,7 @@ def assign_ready(graph: dict[str, Any], workers: list[dict[str, Any]],
     blocked = blocked_external_prerequisites(graph)
     if blocked:
         return {"ok": True, "assigned": [], "queued": [], "batch": [], "blocked_prerequisites": blocked}
-    ready = ready_nodes(graph)
+    ready = autopilot_ready_decision(graph, graph_path=graph_path, emit_shadow=True)["ready_nodes"]
     try:
         from apo_plan_compiler import compile_execution_plan_for_node  # noqa: WPS433
 
@@ -1931,26 +2284,70 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
     _assert_pass_mark_allowed(graph, node_id, status)
 
     updated_at = _now()
+    requested_status = str(status or "").lower()
+    completion_run: dict[str, Any] | None = None
+    effective_status = status
+    if (
+        requested_status in COMPLETION_OUTCOME_STATUSES
+        and os.environ.get("SOLAR_COMPLETION_GATE_DISABLE") != "1"
+        and _node_has_handoff(graph, node_id)
+    ):
+        _sync_node_evidence_refs(
+            graph,
+            node_id,
+            repair=True,
+            command_line=f"python3 lib/graph_scheduler.py mark --node {node_id} --status {status}",
+        )
+    if (
+        requested_status in COMPLETION_OUTCOME_STATUSES
+        and os.environ.get("SOLAR_COMPLETION_GATE_DISABLE") != "1"
+        and _node_has_handoff(graph, node_id)
+    ):
+        completion_run = _completion_result_for_node(graph, node_id, status=requested_status, note=note)
+        effective_status = "passed" if completion_run.get("status") == "completed" else "blocked_by_verifier"
+
     graph.setdefault("node_results", {})
     graph["node_results"][node_id] = {
-        "status": status,
+        "status": effective_status,
         "updated_at": updated_at,
     }
+    if completion_run is not None:
+        completion_result = completion_run.get("result") if isinstance(completion_run.get("result"), dict) else {}
+        completion_verdict = completion_run.get("verdict") if isinstance(completion_run.get("verdict"), dict) else {}
+        completion_payload = completion_run.get("completion") if isinstance(completion_run.get("completion"), dict) else {}
+        graph["node_results"][node_id].update(
+            {
+                "completion_gate_required": True,
+                "requested_status": requested_status,
+                "result_id": completion_result.get("result_id"),
+                "attempt_id": completion_result.get("attempt_id"),
+                "completion_source": completion_payload.get("completion_source", "solar_gate_controller"),
+                "completion_gate": {
+                    "status": completion_run.get("status"),
+                    "completion_source": completion_payload.get("completion_source", "solar_gate_controller"),
+                    "verdict_id": completion_verdict.get("verdict_id"),
+                    "covered_result_id": completion_verdict.get("covered_result_id"),
+                    "covered_attempt_id": completion_verdict.get("covered_attempt_id"),
+                    "verifier_artifact": (completion_verdict.get("artifacts") or {}).get("json") if isinstance(completion_verdict.get("artifacts"), dict) else "",
+                    "verdict": completion_verdict,
+                },
+            }
+        )
     if note:
         graph["node_results"][node_id]["note"] = note
-    ids[node_id]["status"] = status
+    ids[node_id]["status"] = effective_status
     ids[node_id]["updated_at"] = updated_at
 
     gate = ids[node_id].get("gate")
-    if gate and status in {"failed", "cancelled"}:
+    if gate and effective_status in {"failed", "cancelled", "blocked_by_verifier"}:
         graph.setdefault("gate_results", {})
         graph["gate_results"][gate] = {
             "status": "blocked",
             "node": node_id,
-            "reason": f"node_{status}",
+            "reason": f"node_{effective_status}",
             "updated_at": updated_at,
         }
-    elif gate and (gate_status or status) == "passed":
+    elif gate and (gate_status or effective_status) == "passed":
         gate_nodes = [node for node in ids.values() if node.get("gate") == gate]
         open_gate_nodes = [
             str(node.get("id") or "")
@@ -1969,7 +2366,7 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
         else:
             graph["gate_results"][gate] = {"status": "passed", "node": node_id, "updated_at": updated_at}
 
-    if str(status or "").lower() in {"passed", "failed", "reviewing"}:
+    if str(effective_status or "").lower() in {"passed", "failed", "reviewing", "blocked_by_verifier"}:
         _sync_node_evidence_refs(
             graph,
             node_id,
@@ -1977,11 +2374,17 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
             command_line=f"python3 lib/graph_scheduler.py mark --node {node_id} --status {status}",
         )
 
-    return parent_ready_check(graph)
+    parent = parent_ready_check(graph)
+    if completion_run is not None:
+        parent["completion_gate"] = graph["node_results"][node_id].get("completion_gate")
+        parent["requested_status"] = requested_status
+        parent["effective_status"] = effective_status
+    return parent
 
 
 def set_node_status(graph: dict[str, Any], node_id: str, status: str,
-                    pane: str | None = None, dispatch_id: str | None = None) -> None:
+                    pane: str | None = None, dispatch_id: str | None = None,
+                    allow_reopen_failed: bool = False) -> None:
     ids = _node_map(graph)
     if node_id not in ids:
         raise ValueError(f"unknown node: {node_id}")
@@ -1989,7 +2392,13 @@ def set_node_status(graph: dict[str, Any], node_id: str, status: str,
     reopening_from_pass = current in PASS_STATUSES and status in {
         "reviewing", "pending", "queued", "blocked", "worker_blocked", "assigned", "dispatched", "in_progress", "running",
     }
-    if _status_rank(current) > _status_rank(status) and not reopening_from_pass:
+    # P0 卡点修复 (2026-06-10): failed 节点零重派导致 DAG 永久卡死。
+    # 受控放行 failed→pending/queued 重开, 仅当调用方显式 allow_reopen_failed
+    # (FAIL 重派器); 默认 False 保持原有终态语义不变。
+    reopening_from_fail = (
+        allow_reopen_failed and current == "failed" and status in {"pending", "queued"}
+    )
+    if _status_rank(current) > _status_rank(status) and not reopening_from_pass and not reopening_from_fail:
         return
     updated_at = _now()
     ids[node_id]["status"] = status
@@ -2148,6 +2557,17 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
             "capsule_plan_ir": capsule_plan_ir,
             "physical_plan_ir": physical_plan_ir,
             "plan_artifacts": plan_artifacts,
+            # Route-decision evidence: records that this node was selected through
+            # task_graph validation, not directly from PM/Planner text.
+            "route_decision_evidence": {
+                "mediated_by": "task_graph",
+                "node_id": node_id,
+                "required_capabilities": item.get("required_capabilities") or [],
+                "provided_capabilities": item.get("required_capabilities") or [],
+                "target_role": item.get("dispatch_role") or item.get("worker_role") or "",
+                "pane": pane,
+                "blocker_reason": "",
+            },
         }
         if dry_run:
             q = {"ok": True, "result": "dry_run", "id": ""}
@@ -2246,6 +2666,7 @@ def enrich_backlog(sprints_dir: str | Path, dry_run: bool = False,
 def parent_ready_check(graph: dict[str, Any]) -> dict[str, Any]:
     _ensure_required_gate_node_mapping(graph)
     ids = _node_map(graph)
+    node_ids = list(ids.keys())
     open_nodes = [
         node_id for node_id in ids
         if node_status(graph, node_id) not in (PASS_STATUSES | CLOSED_NON_PASS_STATUSES)
@@ -2276,7 +2697,10 @@ def parent_ready_check(graph: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(gate_results.get(gate), dict) or gate_results[gate].get("status") != "passed"
     ]
 
-    ready = not open_nodes and not failed_nodes and not missing_gates and bool(ids)
+    child_completion_gate = _parent_child_completion_gate(graph, node_ids)
+    child_gate_passed = child_completion_gate.get("status") == "passed"
+
+    ready = not open_nodes and not failed_nodes and not missing_gates and child_gate_passed and bool(ids)
     return {
         "ok": True,
         "sprint_id": graph.get("sprint_id"),
@@ -2286,6 +2710,11 @@ def parent_ready_check(graph: dict[str, Any]) -> dict[str, Any]:
         "failed_nodes": failed_nodes,
         "required_gates": required_gates,
         "missing_gates": missing_gates,
+        "child_completion_gate": child_completion_gate,
+        "missing_child_verifiers": child_completion_gate.get("missing_child_verifiers", []),
+        "stale_child_verifiers": child_completion_gate.get("stale_child_verifiers", []),
+        "break_glass_nodes": child_completion_gate.get("break_glass_nodes", []),
+        "artifact_hash_mismatches": child_completion_gate.get("artifact_hash_mismatches", []),
     }
 
 
@@ -2391,6 +2820,58 @@ def child_sprint_dependency_blockers(
     return blockers
 
 
+def _node_dispatch_evidence(
+    nodes: list[dict[str, Any]],
+    route_target_role: str,
+    graph_blocked_reason: str,
+) -> list[dict[str, Any]]:
+    """Build per-node capability and dispatch evidence for each ready node.
+
+    Returns a list of dicts — one per ready node — recording:
+      node_id, required_capabilities, provided_capabilities, target_role,
+      blocker_reason (populated only when the node itself cannot be assigned).
+    Does not mutate the graph or dispatch any nodes.
+    """
+    evidence: list[dict[str, Any]] = []
+    for node in nodes:
+        node_id = str(node.get("id") or "")
+        required_caps = _capability_list(node)
+        # If the graph itself is blocked, record that reason for every node.
+        if graph_blocked_reason:
+            evidence.append({
+                "node_id": node_id,
+                "required_capabilities": required_caps,
+                "provided_capabilities": [],
+                "target_role": route_target_role,
+                "blocker_reason": graph_blocked_reason,
+            })
+            continue
+        # Check required_node_status gate: if the node declares a prerequisite
+        # node that is not yet in the required status, record as blocked.
+        prereq_node = str(node.get("required_node_id") or "")
+        prereq_status = str(node.get("required_node_status") or "")
+        if prereq_node and prereq_status:
+            evidence.append({
+                "node_id": node_id,
+                "required_capabilities": required_caps,
+                "provided_capabilities": [],
+                "target_role": route_target_role,
+                "blocker_reason": f"required_node_status_gate:{prereq_node}:{prereq_status}",
+            })
+            continue
+        evidence.append({
+            "node_id": node_id,
+            "required_capabilities": required_caps,
+            # provided_capabilities is populated by assign_workers at dispatch
+            # time; here we record what the node declares it needs, as evidence
+            # that the node was evaluated from the task_graph (not PM/Planner text).
+            "provided_capabilities": required_caps,
+            "target_role": route_target_role,
+            "blocker_reason": "",
+        })
+    return evidence
+
+
 def activation_route_decision(
     graph: dict[str, Any],
     *,
@@ -2407,7 +2888,19 @@ def activation_route_decision(
         validation = {"ok": False, "errors": [str(exc)], "warnings": []}
     parent_blockers = [] if not validation.get("ok") else child_sprint_dependency_blockers(sprint_id, epic_graph)
     external_blockers = [] if not validation.get("ok") else blocked_external_prerequisites(graph)
-    ready = [] if not validation.get("ok") or parent_blockers or external_blockers else ready_nodes(graph)
+    if not validation.get("ok") or parent_blockers or external_blockers:
+        ready = []
+        ready_decision = {
+            "source": "state",
+            "inline_ready": [],
+            "state_ready": [],
+            "diff_added": [],
+            "diff_removed": [],
+            "decision_taken": "state",
+        }
+    else:
+        ready_decision = autopilot_ready_decision(graph, graph_path=graph_path, emit_shadow=True)
+        ready = ready_decision["ready_nodes"]
     phase = str(child_status.get("phase") or "").strip()
     target_role = str(child_status.get("target_role") or child_status.get("handoff_to") or "").strip()
     if not target_role and phase == "planning_complete":
@@ -2433,6 +2926,14 @@ def activation_route_decision(
         "target_role": target_role,
         "ready_nodes": [str(node.get("id") or "") for node in ready],
         "ready_count": len(ready),
+        "autopilot_ready": {
+            "source": ready_decision.get("source", "state"),
+            "inline_ready": ready_decision.get("inline_ready", []),
+            "state_ready": ready_decision.get("state_ready", []),
+            "diff_added": ready_decision.get("diff_added", []),
+            "diff_removed": ready_decision.get("diff_removed", []),
+            "decision_taken": ready_decision.get("decision_taken", "state"),
+        },
         "can_dispatch": bool(ready) and not blocked_reason and target_role == "builder_main",
         "blocked_reason": blocked_reason,
         "validation": {
@@ -2442,6 +2943,7 @@ def activation_route_decision(
         },
         "parent_blockers": parent_blockers,
         "external_blockers": external_blockers,
+        "node_dispatch_evidence": _node_dispatch_evidence(ready, route_role, blocked_reason),
     }
 
 

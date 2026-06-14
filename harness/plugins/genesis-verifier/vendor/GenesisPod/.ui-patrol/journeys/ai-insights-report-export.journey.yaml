@@ -1,0 +1,62 @@
+# Journey: AI Insights Report Export
+id: ai-insights-report-export
+tier: critical
+auth: session
+description: "Verify report export in PDF/DOCX formats, including WYSIWYG fallback handling"
+
+sampleTopicId: "8a5a6aeb-b2dd-4673-80cd-73687db4f96c"
+
+steps:
+  - navigate: /ai-insights/topic/{sampleTopicId}
+  - wait: "button:has-text('洞察报告'), button:has-text('Insights Report')"
+  - click: "button:has-text('洞察报告'), button:has-text('Insights Report')"
+  - wait: 3000
+
+  # ─── 1. Open Export Dialog ───
+  - click: "button[aria-label*='export'], button[aria-label*='导出'], button:has(svg.lucide-download)"
+  - wait: "[role='dialog']"
+  - screenshot: "export-dialog-opened"
+  - assert:
+      - element_visible: "[role='dialog']"
+      - text_visible_any: ["Export", "导出"]
+      - element_visible: "select, [role='listbox'], button:has-text('PDF')"
+
+  # ─── 2. Select PDF Format ───
+  - click: "button:has-text('PDF'), option[value='PDF']"
+  - wait: 500
+
+  # ─── 3. Trigger Export ───
+  - click: "button[type='submit'], button:has-text('Export'), button:has-text('导出')"
+  - wait: 10000
+  - screenshot: "export-in-progress"
+  - assert:
+      - text_visible_any:
+          [
+            "Processing",
+            "处理中",
+            "Downloading",
+            "下载",
+            "Export complete",
+            "导出完成",
+          ]
+        message: "Export should show progress or completion"
+      - text_not_contains: "Error"
+      - text_not_contains: "Failed"
+
+  # ─── 4. Verify Download or Job Status ───
+  - assert:
+      - any_of:
+          - download_started: true
+          - text_visible: "Download"
+          - text_visible: "下载"
+        message: "Download should start or download link should appear"
+
+  # ─── 5. Close Dialog ───
+  - click: "button[aria-label='close'], button:has-text('Close'), button:has-text('关闭')"
+
+summary:
+  pass_criteria:
+    - "Export dialog opens"
+    - "PDF export triggers without error"
+    - "Download starts or job status shows"
+    - "No error messages during export"

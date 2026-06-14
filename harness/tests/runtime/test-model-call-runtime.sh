@@ -2,8 +2,8 @@
 # test-model-call-runtime.sh — observable model-call boundary events
 set -euo pipefail
 
-HARNESS_DIR="${HOME}/.solar/harness"
-LIB_DIR="${HARNESS_DIR}/lib"
+export HARNESS_DIR="${HARNESS_DIR:-${HOME}/.solar/harness}"
+LIB_DIR="${LIB_DIR:-${HARNESS_DIR}/lib}"
 SESSION_ID="test-model-call-$$"
 DISPATCH_FILE="${HARNESS_DIR}/run/test-model-call-${SESSION_ID}.md"
 PASS=0
@@ -43,7 +43,7 @@ python3 "${LIB_DIR}/model_call_runtime.py" request --session-id "$SESSION_ID" --
 python3 "${LIB_DIR}/model_call_runtime.py" succeeded --session-id "$SESSION_ID" --pane "%test-model-pane" --dispatch-id "dispatch-1" --instruction-file "$DISPATCH_FILE" --status "tmux_submit_accepted" --tries 1 --json >/tmp/model-call-success.$$.json
 OUT=$(python3 - "$SESSION_ID" <<'PY'
 import sys
-sys.path.insert(0, "/Users/sihaoli/.solar/harness/lib")
+import os; sys.path.insert(0, os.environ.get("LIB_DIR", os.path.join(os.environ["HARNESS_DIR"], "lib")))
 from session_log import SessionLog
 events = SessionLog(sys.argv[1]).all_events()
 types = [e["type"] for e in events]

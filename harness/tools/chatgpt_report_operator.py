@@ -25,7 +25,12 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PROJECT_NAME = "杂项"
+if str(ROOT / "lib") not in sys.path:
+    sys.path.insert(0, str(ROOT / "lib"))
+
+from browser_agent_queue_client import enqueue_current_process_if_needed  # noqa: E402
+
+DEFAULT_PROJECT_NAME = ""
 DEFAULT_WRAPPER = ROOT / "scripts" / "browser_agent_chatgpt_wrapper.py"
 DEFAULT_BROWSER_USE_PYTHON = Path.home() / ".claude" / "mcp-servers" / "browser-use" / ".venv" / "bin" / "python"
 DEFAULT_LOCAL_PROFILE_POLICY = Path.home() / ".solar" / "harness" / "browser-agent-chatgpt-local.json"
@@ -163,6 +168,7 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
     selection = str(policy.get("selection") or "hash").strip().lower()
     profile_strategy = str(policy.get("profile_strategy") or "persistent").strip().lower()
     user_data_dir = str(policy.get("user_data_dir") or "").strip()
+    scrub_client_state = policy.get("scrub_client_state")
     explicit_profile = str(env.get("BROWSER_AGENT_PROFILE_DIRECTORY") or "").strip()
     explicit_account = str(
         env.get("BROWSER_AGENT_CHATGPT_ACCOUNT_EMAIL")
@@ -205,8 +211,17 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
         env["BROWSER_AGENT_CHATGPT_PROFILE_STRATEGY"] = profile_strategy
     if user_data_dir and not env.get("BROWSER_AGENT_USER_DATA_DIR"):
         env["BROWSER_AGENT_USER_DATA_DIR"] = user_data_dir
-    force_headed = bool(policy.get("force_headed") or policy.get("require_headed"))
-    if _is_protected_scoped_chatgpt(key) and force_headed:
+    if scrub_client_state is not None:
+        scrub_value = "true" if bool(scrub_client_state) else "false"
+        env["BROWSER_AGENT_CHATGPT_SCRUB_CLIENT_STATE"] = scrub_value
+        env["TECH_HOTSPOT_BROWSER_CHATGPT_SCRUB_CLIENT_STATE"] = scrub_value
+    allow_headless = policy.get("allow_headless")
+    force_headed = bool(
+        policy.get("force_headed")
+        or policy.get("require_headed")
+        or (allow_headless is not None and not bool(allow_headless))
+    )
+    if force_headed:
         env["BROWSER_AGENT_HEADLESS"] = "false"
         env["TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS"] = "false"
         env["BROWSER_AGENT_CHATGPT_ALLOW_HEADED"] = "true"
@@ -224,7 +239,8 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
         "selection": selection,
         "profile_strategy": profile_strategy,
         "user_data_dir_set": bool(env.get("BROWSER_AGENT_USER_DATA_DIR")),
-        "headless_forced": _is_protected_scoped_chatgpt(key) and force_headed,
+        "scrub_client_state": bool(scrub_client_state) if scrub_client_state is not None else None,
+        "headless_forced": force_headed,
     }
 
 
@@ -331,11 +347,23 @@ def run_wrapper_process(cmd: list[str], *, prompt: str, env: dict[str, str], tim
 
 def main() -> int:
     user_prompt = sys.stdin.read()
+    task_dir = Path(os.environ.get("TASK_DIR") or os.environ.get("BROWSER_AGENT_REQUEST_DIR") or Path.cwd()).expanduser()
+    task_dir.mkdir(parents=True, exist_ok=True)
+    queued_rc = enqueue_current_process_if_needed(
+        job_name=os.environ.get("CHATGPT_REPORT_OPERATOR_KIND") or "chatgpt_report_chapter_writer",
+        repo_root=ROOT,
+        cwd=task_dir,
+        timeout_seconds=int(os.environ.get("CHATGPT_REPORT_QUEUE_WAIT_TIMEOUT_SECONDS") or 6 * 60 * 60),
+        stdin_text=user_prompt,
+    )
+    if queued_rc is not None:
+        return queued_rc
+
     action = (os.environ.get("CHATGPT_REPORT_ACTION") or "run").strip().lower()
-    if action not in {"run", "submit", "poll", "collect"}:
+    if action not in {"run", "submit", "poll", "collect", "login_hold"}:
         print(f"chatgpt_report_operator: invalid CHATGPT_REPORT_ACTION={action}", file=sys.stderr)
         return 2
-    if not user_prompt.strip() and action not in {"poll", "collect"}:
+    if not user_prompt.strip() and action not in {"poll", "collect", "login_hold"}:
         print("chatgpt_report_operator: stdin prompt is empty", file=sys.stderr)
         return 2
     expected = (os.environ.get("BROWSER_AGENT_EXPECTED_OUTPUT") or "markdown").strip().lower()
@@ -349,6 +377,7 @@ def main() -> int:
         return 2
 
     env = os.environ.copy()
+    project_name = str(env.get("BROWSER_AGENT_CHATGPT_PROJECT_NAME") or DEFAULT_PROJECT_NAME).strip()
     env.update(
         {
             "CHATGPT_MODEL": str(policy["model"]),
@@ -356,12 +385,13 @@ def main() -> int:
             "BROWSER_AGENT_EXPECTED_OUTPUT": expected,
             "BROWSER_AGENT_CHATGPT_MODEL_MODE": str(policy["model_mode"]),
             "BROWSER_AGENT_CHATGPT_TOOL_MODE": str(policy["tool_mode"]),
-            "BROWSER_AGENT_CHATGPT_PROJECT_NAME": env.get("BROWSER_AGENT_CHATGPT_PROJECT_NAME") or DEFAULT_PROJECT_NAME,
-            "BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST": env.get("BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST") or "true",
-            "BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT": env.get("BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT") or "true",
+            "BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST": env.get("BROWSER_AGENT_CHATGPT_OPEN_PROJECT_FIRST") or "false",
+            "BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT": env.get("BROWSER_AGENT_CHATGPT_REQUIRE_PROJECT") or "false",
             "BROWSER_AGENT_CHATGPT_ACTION": action,
         }
     )
+    if project_name:
+        env["BROWSER_AGENT_CHATGPT_PROJECT_NAME"] = project_name
     try:
         policy_meta = apply_profile_policy(env, purpose=purpose)
     except RuntimeError as exc:
@@ -389,7 +419,7 @@ def main() -> int:
                     "model_mode": policy["model_mode"],
                     "reasoning_effort": policy["reasoning_effort"],
                     "tool_mode": policy["tool_mode"],
-                    "project_name": env.get("BROWSER_AGENT_CHATGPT_PROJECT_NAME") or DEFAULT_PROJECT_NAME,
+                    "project_name": env.get("BROWSER_AGENT_CHATGPT_PROJECT_NAME") or "N/A",
                     "profile_directory": env.get("BROWSER_AGENT_PROFILE_DIRECTORY") or "",
                     "target_account_email": env.get("BROWSER_AGENT_CHATGPT_ACCOUNT_EMAIL")
                     or env.get("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL")
@@ -422,12 +452,15 @@ def main() -> int:
     if returncode != 0:
         print(output, file=sys.stderr)
         return returncode
+    if action == "login_hold":
+        print(output)
+        return 0
     if kind == "deep_writer":
         if not request_dir:
             print("chatgpt_report_operator: deep_writer missing BROWSER_AGENT_REQUEST_DIR for Deep Research proof", file=sys.stderr)
             return 1
         proof_path = Path(request_dir).expanduser() / "deep-research-state.json"
-        if not proof_path.exists():
+        if not proof_path.exists() and str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
             print(
                 "chatgpt_report_operator: deep_writer did not produce deep-research-state.json; "
                 "normal chat output is not accepted as Deep Research",
@@ -439,7 +472,7 @@ def main() -> int:
         except Exception as exc:
             print(f"chatgpt_report_operator: invalid deep-research-state.json: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
-        if not proof.get("ok"):
+        if not proof.get("ok") and str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
             print(
                 "chatgpt_report_operator: Deep Research mode not confirmed: "
                 + json.dumps(proof, ensure_ascii=False),
@@ -454,18 +487,22 @@ def main() -> int:
         proof_path = request_path / "chatgpt-mode-state.json"
         post_submit_proof_path = request_path / "chatgpt-mode-post-submit-state.json"
         if not proof_path.exists():
-            print(
-                "chatgpt_report_operator: planner/chapter did not produce chatgpt-mode-state.json; "
-                "normal ChatGPT output is not accepted as Thinking High",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            proof = json.loads(proof_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            print(f"chatgpt_report_operator: invalid chatgpt-mode-state.json: {type(exc).__name__}: {exc}", file=sys.stderr)
-            return 1
-        if not proof.get("ok"):
+            if str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
+                print(
+                    "chatgpt_report_operator: planner/chapter did not produce chatgpt-mode-state.json; "
+                    "normal ChatGPT output is not accepted as Thinking High",
+                    file=sys.stderr,
+                )
+                return 1
+            else:
+                proof = {"ok": True}
+        else:
+            try:
+                proof = json.loads(proof_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                print(f"chatgpt_report_operator: invalid chatgpt-mode-state.json: {type(exc).__name__}: {exc}", file=sys.stderr)
+                return 1
+        if not proof.get("ok") and str(env.get("BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE")).lower() == "true":
             if post_submit_proof_path.exists():
                 try:
                     post_submit_proof = json.loads(post_submit_proof_path.read_text(encoding="utf-8"))

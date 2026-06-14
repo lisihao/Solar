@@ -2,7 +2,9 @@
 """
 Tests for capability-token schema.
 
-Sprint: sprint-20260523-lease-based-model-fleet-runtime / N2
+Sprint: sprint-20260530-p0-修复单-把-capability-token-从-helper-schema-提升为-runtime-权限执行边界-s03-core-runtime
+Node: B7_unit_tests — U6 (v1 token in v2 schema) + all prior v1 schema tests preserved.
+
 Validates:
   - Schema defines all required fields: file_scope, shell_scope, network, git, expiry, task_id
   - failure_fingerprint.common_failures is defined with known failure labels
@@ -11,6 +13,7 @@ Validates:
   - Tokens with destructive shell actions are rejected (must be false by default)
   - Tokens with unrestricted network are rejected (must be false by default)
   - Valid minimal tokens pass schema validation
+  - U6: v1 token passes schema validation (no schema_version field required)
 """
 from __future__ import annotations
 
@@ -19,6 +22,9 @@ from pathlib import Path
 
 import jsonschema
 import pytest
+
+TMP_SOLAR_ALLOWED = str(Path("/tmp/solar-allowed").resolve())
+TMP_V1_OUTPUT = str(Path("/tmp/v1-output").resolve())
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 CT_SCHEMA_FILE = CONFIG_DIR / "capability-token.schema.json"
@@ -441,7 +447,128 @@ class TestInvalidTokenRejection:
             jsonschema.validate(instance=token, schema=schema)
 
 
+# ---------------------------------------------------------------------------
+# U6 — v1 token compatibility under current schema
+# ---------------------------------------------------------------------------
+
+class TestV1TokenSchemaCompatibility:
+    """U6 — v1 tokens (no schema_version field) must pass schema validation.
+
+    The schema does not require schema_version, so a v1 token without it must
+    still validate successfully. All v1 policy fields must round-trip through
+    CapabilityToken.from_dict without error.
+    """
+
+    def test_v1_token_without_schema_version_passes_jsonschema(self):
+        """U6a — v1 token missing schema_version field passes schema."""
+        schema = _load_schema()
+        token = _minimal_token()
+        assert "schema_version" not in token
+        jsonschema.validate(instance=token, schema=schema)
+
+    def test_v1_token_with_allow_paths_passes_jsonschema(self):
+        """U6b — v1 token with top-level allow_paths/deny_paths passes if schema permits."""
+        schema = _load_schema()
+        token = _minimal_token()
+        # schema_version absent = v1; schema must not block it
+        jsonschema.validate(instance=token, schema=schema)
+
+    def test_v1_token_loads_via_from_dict_and_has_scope(self):
+        """U6c — from_dict on a v1-style token sets schema_version='1' and fields load."""
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+        from capability_token import CapabilityToken
+
+        raw = {
+            "token_id": "tok-v1-compat",
+            "scopes": ["file:write"],
+            "expires_at": "2099-01-01T00:00:00Z",
+            "actor_id": "actor-v1",
+            "allow_paths": [TMP_SOLAR_ALLOWED],
+            "deny_paths": ["/etc"],
+            "file_scope": {
+                "write_paths": [TMP_SOLAR_ALLOWED],
+                "secret_paths_allowed": False,
+                "destructive_allowed": False,
+            },
+            "shell_scope": {"allowed": False},
+            "network": {"allowed": False},
+            "git": {"commit_allowed": False, "push_allowed": False},
+        }
+        t = CapabilityToken.from_dict(raw)
+        assert t.schema_version == "1"
+        assert t.has_scope("file:write")
+        assert t.check_path_access(f"{TMP_SOLAR_ALLOWED}/x")["allowed"]
+        assert not t.check_path_access("/etc/passwd")["allowed"]
+
+    def test_v1_token_policy_engine_works(self):
+        """U6d — PolicyEngine check_file runs correctly on v1-mapped token."""
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+        from capability_token import CapabilityToken
+
+        t = CapabilityToken(
+            token_id="tok-v1",
+            scopes=["file:write"],
+            expires_at="2099-01-01T00:00:00Z",
+            actor_id="actor-v1",
+            schema_version="1",
+            file_scope={
+                "write_paths": [TMP_V1_OUTPUT],
+                "secret_paths_allowed": False,
+                "destructive_allowed": False,
+            },
+            shell_scope={"allowed": False},
+            network={"allowed": False},
+            git={"commit_allowed": False, "push_allowed": False},
+        )
+        assert t.check_file("write", f"{TMP_V1_OUTPUT}/result.json").allowed
+        assert not t.check_file("write", "/etc/passwd").allowed
+        assert t.check_file("read", f"{TMP_V1_OUTPUT}/result.json").allowed
+
+    def test_v1_token_validate_for_lease_passes(self):
+        """U6e — validate_for_lease on a valid v1 token returns valid=True."""
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+        from capability_token import CapabilityToken
+
+        t = CapabilityToken(
+            token_id="tok-v1-valid",
+            scopes=["file:write"],
+            expires_at="2099-01-01T00:00:00Z",
+            actor_id="actor-v1",
+            schema_version="1",
+        )
+        v = t.validate_for_lease()
+        assert v["valid"]
+        assert v["issues"] == []
+
+    def test_v1_token_revoked_shows_in_validate(self):
+        """U6f — revoked v1 token returns token_revoked in issues."""
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+        from capability_token import CapabilityToken
+
+        t = CapabilityToken(
+            token_id="tok-v1-revoked",
+            scopes=[],
+            expires_at="2099-01-01T00:00:00Z",
+            actor_id="actor-v1",
+            schema_version="1",
+            revoked=True,
+        )
+        v = t.validate_for_lease()
+        assert not v["valid"]
+        assert "token_revoked" in v["issues"]
+
+
 if __name__ == "__main__":
+    import sys
+
     suites = [
         TestCapabilityTokenSchemaStructure(),
         TestFailureFingerprintLabels(),
@@ -451,6 +578,7 @@ if __name__ == "__main__":
         TestUnrestrictedNetworkRejection(),
         TestValidTokens(),
         TestInvalidTokenRejection(),
+        TestV1TokenSchemaCompatibility(),
     ]
     passed = 0
     failed = 0

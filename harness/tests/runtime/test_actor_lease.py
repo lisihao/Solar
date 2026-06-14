@@ -94,6 +94,21 @@ def test_stale_lease_timeout():
         assert broker.check_stale("a1")
         print("PASS: stale_lease_timeout")
 
+def test_acquire_reclaims_expired_leased_actor():
+    with tempfile.TemporaryDirectory() as td:
+        broker = LeaseBroker(Path(td))
+        first = broker.acquire("a1", "t1", "s1", "n1", ttl_sec=0)
+        assert first is not None
+        time.sleep(0.01)
+
+        second = broker.acquire("a1", "t2", "s2", "n2")
+
+        assert second is not None
+        assert second.state == LEASED
+        assert second.task_id == "t2"
+        assert second.sprint_id == "s2"
+        print("PASS: acquire_reclaims_expired_leased_actor")
+
 def test_no_tmux_scheduler_calls():
     """Verify no tmux send-keys in the module."""
     import actor_lease
@@ -127,7 +142,8 @@ if __name__ == "__main__":
     test_ready_to_leased_to_running_to_finalizing_to_ready()
     test_exception_states()
     test_stale_lease_timeout()
+    test_acquire_reclaims_expired_leased_actor()
     test_no_tmux_scheduler_calls()
     test_invalid_transition()
     test_concurrent_lease()
-    print(f"\n8/8 passed")
+    print(f"\n9/9 passed")

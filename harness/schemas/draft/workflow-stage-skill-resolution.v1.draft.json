@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar.local/schemas/draft/workflow-stage-skill-resolution.v1.draft.json",
+  "title": "Workflow Stage to Skill Resolution v1",
+  "description": "Maps logical workflow stages to resolved skill metadata, MCP requirements, and capsule bindings. APO produces this as skill_plan output for each workflow expansion.",
+  "schema_status": "draft",
+  "schema_version": "v1.0.0-draft",
+  "type": "object",
+  "required": ["workflow_id", "stages"],
+  "additionalProperties": true,
+  "properties": {
+    "workflow_id": {
+      "type": "string",
+      "description": "Workflow template ID (e.g. performance_debug_workflow)."
+    },
+    "task_class": {
+      "type": "string",
+      "description": "Task class that triggered this workflow (e.g. PERFORMANCE_REGRESSION)."
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage_name", "position", "stage_type", "skills"],
+        "additionalProperties": true,
+        "properties": {
+          "stage_name": {
+            "type": "string",
+            "description": "Workflow stage name (e.g. DebugRCA, RunBenchmark)."
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Ordinal position in the workflow."
+          },
+          "stage_type": {
+            "type": "string",
+            "enum": ["read_only", "analysis", "design", "implementation", "evaluation", "review", "verification"],
+            "description": "Stage classification."
+          },
+          "maps_to_operators": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Logical operator IDs that can fulfill this stage."
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["skill_id", "selection_state"],
+              "additionalProperties": true,
+              "properties": {
+                "skill_id": {
+                  "type": "string",
+                  "description": "Canonical APO skill ID (e.g. skill.root-cause-debug)."
+                },
+                "selection_state": {
+                  "type": "string",
+                  "enum": ["selected", "candidate", "rejected", "unresolved"],
+                  "description": "APO resolution state."
+                },
+                "selection_reason": {
+                  "type": ["string", "null"],
+                  "description": "Why this skill was selected or rejected."
+                },
+                "required_capabilities": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Capability tokens required by this skill."
+                },
+                "output_artifacts": {
+                  "type": "array",
+                  "items": {"type": "string"},
+                  "description": "Short artifact names produced by this skill."
+                },
+                "mcp_requirements": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["capability", "access", "why"],
+                    "properties": {
+                      "capability": {"type": "string"},
+                      "access": {"type": "string", "enum": ["readonly", "write", "execute"]},
+                      "why": {"type": "string"},
+                      "provider_candidates": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Known provider IDs. Empty = unresolved-provider."
+                      },
+                      "unresolved_reason": {"type": ["string", "null"]}
+                    },
+                    "additionalProperties": true
+                  },
+                  "description": "Structured MCP capability requirements with why-needed rationale."
+                },
+                "capsule_binding": {
+                  "type": ["object", "null"],
+                  "description": "Capsule that provides this skill's execution context.",
+                  "properties": {
+                    "capsule_id": {"type": "string"},
+                    "capsule_kind": {"type": "string", "enum": ["capability", "guard", "resource"]},
+                    "required_guard_capsules": {
+                      "type": "array",
+                      "items": {"type": "string"}
+                    },
+                    "required_resource_capsules": {
+                      "type": "array",
+                      "items": {"type": "string"}
+                    },
+                    "operator_compatibility": {
+                      "type": "object",
+                      "properties": {
+                        "preferred": {"type": "array", "items": {"type": "string"}},
+                        "forbidden": {"type": "array", "items": {"type": "string"}}
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "description": "Resolved skills for this stage, with selection state and metadata."
+          }
+        }
+      },
+      "description": "Ordered list of workflow stages with resolved skill metadata."
+    },
+    "selection_mode": {
+      "type": "string",
+      "enum": ["goal_driven", "static_default_fallback"],
+      "description": "How skills were resolved. static_default_fallback indicates legacy path was used."
+    },
+    "fallback_reason": {
+      "type": ["string", "null"],
+      "description": "If selection_mode is static_default_fallback, why goal-driven resolution failed."
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "References to planner artifact sections that justify this resolution."
+    }
+  }
+}

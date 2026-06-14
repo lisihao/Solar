@@ -18,6 +18,7 @@ import knowledge_ingest_registry as registry
 
 LAYERS = ("raw", "vault", "semantic")
 DEFAULT_LOCK_PATH = Path.home() / "Knowledge" / "_registry" / "qmd-update.lock"
+ALLOWED_MANIFEST_COLUMN_DDL = {"TEXT"}
 
 
 def _connect(db_path: Path):
@@ -36,7 +37,10 @@ def ensure_manifest_columns(conn) -> None:
     }
     for name, ddl in additions.items():
         if name not in cols:
-            conn.execute(f"ALTER TABLE qmd_index_events ADD COLUMN {name} {ddl}")
+            quoted_name = registry.quote_sql_identifier(name)
+            if quoted_name is None or ddl not in ALLOWED_MANIFEST_COLUMN_DDL:
+                raise ValueError(f"unsafe qmd_index_events column migration: {name} {ddl}")
+            conn.execute("ALTER TABLE qmd_index_events ADD COLUMN " + quoted_name + " " + ddl)
     conn.commit()
 
 

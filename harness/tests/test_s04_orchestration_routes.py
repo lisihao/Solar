@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
+"""Tests for S04/N4 orchestration status API — APO chain, enforcers, pane evidence, blockers."""
 from __future__ import annotations
 
 import importlib.util
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTE_PATH = ROOT / "status-server" / "routes" / "orchestration_routes.py"
@@ -119,6 +122,10 @@ def _patch_dirs(mod, tree: dict[str, Path]) -> None:
     mod.EVENTS_JSONL = tree["root"] / "events.jsonl"
 
 
+# ---------------------------------------------------------------------------
+# Pre-N4 tests (preserved)
+# ---------------------------------------------------------------------------
+
 def test_dashboard_payload_separates_actorhost_from_pane_carrier(tmp_path: Path) -> None:
     mod = _load_routes()
     tree = _fixture_tree(tmp_path)
@@ -165,3 +172,134 @@ def test_dashboard_payload_reports_degraded_missing_task_graph(tmp_path: Path) -
     assert any(item.startswith("task_graph:missing") for item in degraded)
     assert payload["blocker_diagnostics"][0]["kind"] == "task_graph"
     assert payload["progress"]["total_nodes"] == 0
+
+
+# ---------------------------------------------------------------------------
+# N4 tests — APO chain, enforcers, backward compat
+# ---------------------------------------------------------------------------
+
+class TestBackwardCompat:
+    def test_all_pre_n4_keys_still_present(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, degraded = mod.build_dashboard_payload("sprint-active")
+
+        for key in ("focus_sprint_id", "active_sprints", "dag", "capabilities",
+                     "progress", "blocker_diagnostics", "resources",
+                     "generated_from"):
+            assert key in payload, f"backward-compat key missing: {key}"
+
+        assert "required_gates" in payload["dag"]
+        assert "nodes" in payload["dag"]
+        assert "edges" in payload["dag"]
+
+
+class TestAPOChain:
+    def test_dashboard_has_apo_chain(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, _ = mod.build_dashboard_payload("sprint-active")
+
+        assert "apo_chain" in payload, "apo_chain key missing"
+        assert isinstance(payload["apo_chain"], dict)
+
+    def test_apo_chain_has_entries_for_nodes(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, _ = mod.build_dashboard_payload("sprint-active")
+
+        apo = payload["apo_chain"]
+        assert "N1" in apo
+        assert "N2" in apo
+
+    def test_apo_chain_entry_has_mode_and_degraded_sources(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, _ = mod.build_dashboard_payload("sprint-active")
+
+        entry = payload["apo_chain"]["N1"]
+        assert "mode" in entry
+        assert "degraded_sources" in entry
+        # No capsule/physical plan files → unknown_degraded
+        assert entry["mode"] == "unknown_degraded"
+
+
+class TestEnforcersRejected:
+    def test_node_cards_have_enforcers_and_rejected(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, _ = mod.build_dashboard_payload("sprint-active")
+
+        nodes = payload["dag"]["nodes"]
+        for card in nodes:
+            assert "enforcers" in card, f"node {card['id']} missing enforcers"
+            assert "rejected_candidates" in card, f"node {card['id']} missing rejected_candidates"
+            assert "apo_mode" in card, f"node {card['id']} missing apo_mode"
+
+    def test_enforcers_empty_when_no_physical_plan(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, _ = mod.build_dashboard_payload("sprint-active")
+
+        for card in payload["dag"]["nodes"]:
+            assert card["enforcers"] == []
+            assert card["rejected_candidates"] == []
+
+
+class TestMissingSources:
+    def test_apo_degraded_produces_blocker_diagnostic(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, _ = mod.build_dashboard_payload("sprint-active")
+
+        diags = payload["blocker_diagnostics"]
+        apo_diags = [d for d in diags if d.get("kind") == "apo_source_degraded"]
+        assert len(apo_diags) >= 1, \
+            f"Expected APO degraded diagnostic, got kinds: {[d.get('kind') for d in diags]}"
+
+    def test_apo_diagnostic_has_required_fields(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, _ = mod.build_dashboard_payload("sprint-active")
+
+        diags = payload["blocker_diagnostics"]
+        apo_diags = [d for d in diags if d.get("kind") == "apo_source_degraded"]
+        for diag in apo_diags:
+            for field in ("severity", "kind", "title", "detail", "guidance"):
+                assert field in diag, f"APO diagnostic missing field: {field}"
+            assert isinstance(diag["guidance"], list)
+
+    def test_dashboard_has_pane_evidence_key(self, tmp_path: Path) -> None:
+        mod = _load_routes()
+        tree = _fixture_tree(tmp_path)
+        _patch_dirs(mod, tree)
+        mod._capability_registry = lambda: {"pane-builder": ["harness.status"]}
+
+        payload, _ = mod.build_dashboard_payload("sprint-active")
+
+        assert "pane_evidence" in payload
+        assert isinstance(payload["pane_evidence"], list)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 import types
 from pathlib import Path
@@ -65,6 +66,70 @@ def test_post_submit_confirms_chinese_thinking_banner():
     assert result["ok"] is True
     assert result["model_ok"] is True
     assert result["reasoning_ok"] is True
+
+
+def test_profile_policy_selects_hf_default_profile(tmp_path, monkeypatch):
+    ns = _load_namespace()
+    policy = tmp_path / "browser-agent-chatgpt-local.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "policies": {
+                    "default": {
+                        "expected_account_email": "wrong@example.com",
+                        "allowed_profiles": ["Profile X"],
+                    },
+                    "hf_paper_insight": {
+                        "expected_account_email": "haogege1977@gmail.com",
+                        "allowed_profiles": ["Default"],
+                        "allow_headless": False,
+                        "force_headed": True,
+                        "profile_strategy": "persistent",
+                        "user_data_dir": "/Users/lisihao/Library/Application Support/Google/Chrome",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE", str(policy))
+    selected = ns["_select_chatgpt_profile_policy"]("hf-paper-report-plan-2026-06-13")
+    assert selected["enabled"] is True
+    assert selected["policy_key"] == "hf_paper_insight"
+    assert selected["selected_profile_directory"] == "Default"
+    assert selected["selected_account_email"] == "haogege1977@gmail.com"
+    assert selected["allow_headless"] is False
+    assert selected["force_headed"] is True
+
+
+def test_profile_policy_rejects_scratch_profile_mismatch(tmp_path, monkeypatch):
+    ns = _load_namespace()
+    policy = tmp_path / "browser-agent-chatgpt-local.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "policies": {
+                    "default": {
+                        "expected_account_email": "haogege1977@gmail.com",
+                        "allowed_profiles": ["Default"],
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE", str(policy))
+    monkeypatch.setenv("BROWSER_AGENT_PROFILE_DIRECTORY", "Profile 7")
+    try:
+        ns["_select_chatgpt_profile_policy"]("github-trend-report-2026-06-13")
+    except RuntimeError as exc:
+        assert "browser_agent_profile_policy_profile_mismatch" in str(exc)
+    else:
+        raise AssertionError("expected profile mismatch")
 
 
 def test_post_submit_accepts_configured_high_reasoning_when_response_started():
@@ -160,13 +225,97 @@ def test_chatgpt_wrapper_defaults_to_chrome_channel(monkeypatch):
     assert ns["_browser_channel"]() == "chrome"
 
 
+def test_submit_js_rejects_continue_button_for_long_prompt_submit():
+    ns = _load_namespace()
+    submit_js = ns["SUBMIT_JS"]
+    assert "continue|继续|resume|next|下一步" in submit_js
+    assert "candidate.strict && !sendLike(label)" in submit_js
+
+
+def test_chatgpt_wrapper_disables_extensions_by_default(monkeypatch):
+    ns = _load_namespace()
+    monkeypatch.delenv("BROWSER_AGENT_CHATGPT_DISABLE_EXTENSIONS", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_DISABLE_EXTENSIONS", raising=False)
+    assert ns["_disable_browser_extensions"]() is True
+
+
+def test_chatgpt_wrapper_can_reenable_extensions(monkeypatch):
+    ns = _load_namespace()
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_DISABLE_EXTENSIONS", "false")
+    assert ns["_disable_browser_extensions"]() is False
+
+
 def test_cloudflare_challenge_grace_defaults_and_expires(monkeypatch):
     ns = _load_namespace()
     monkeypatch.delenv("BROWSER_AGENT_CHATGPT_CHALLENGE_GRACE_SECONDS", raising=False)
     monkeypatch.delenv("BROWSER_AGENT_CHALLENGE_GRACE_SECONDS", raising=False)
-    assert ns["_challenge_grace_seconds"]() == 20.0
-    assert ns["_challenge_persisted_too_long"](100.0, now=119.9, grace_s=20.0) is False
-    assert ns["_challenge_persisted_too_long"](100.0, now=120.0, grace_s=20.0) is True
+    assert ns["_challenge_grace_seconds"]() == 75.0
+    assert ns["_challenge_persisted_too_long"](100.0, now=174.9, grace_s=75.0) is False
+    assert ns["_challenge_persisted_too_long"](100.0, now=175.0, grace_s=75.0) is True
+
+
+def test_cloudflare_detector_does_not_match_generic_chinese_wait_text():
+    ns = _load_namespace()
+    capture_js = ns["CAPTURE_JS"]
+    assert "请稍候" not in capture_js
+    assert "verify you are human" in capture_js
+    assert "turnstile" in capture_js
+
+
+def test_reasoning_retry_triggers_only_for_stalled_generating_conversation(monkeypatch):
+    ns = _load_namespace()
+    monkeypatch.delenv("BROWSER_AGENT_CHATGPT_REASONING_RETRY_AFTER_SECONDS", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_REASONING_RETRY_AFTER_SECONDS", raising=False)
+    assert ns["_should_attempt_reasoning_retry"](
+        {
+            "is_generating": True,
+            "assistant_count": 0,
+            "message_count": 1,
+            "conversation_id": "abc",
+            "url": "https://chatgpt.com/c/abc",
+        },
+        elapsed_s=25.0,
+        retried=False,
+    ) is True
+
+
+def test_reasoning_retry_skips_once_response_or_no_conversation(monkeypatch):
+    ns = _load_namespace()
+    assert ns["_should_attempt_reasoning_retry"](
+        {
+            "is_generating": True,
+            "assistant_count": 1,
+            "message_count": 2,
+            "conversation_id": "abc",
+            "url": "https://chatgpt.com/c/abc",
+        },
+        elapsed_s=25.0,
+        retried=False,
+    ) is False
+    assert ns["_should_attempt_reasoning_retry"](
+        {
+            "is_generating": True,
+            "assistant_count": 0,
+            "message_count": 1,
+            "conversation_id": "",
+            "url": "https://chatgpt.com/",
+        },
+        elapsed_s=25.0,
+        retried=False,
+    ) is False
+
+
+def test_minimum_answer_chars_defaults_and_reads_env(monkeypatch):
+    ns = _load_namespace()
+    monkeypatch.delenv("BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS", raising=False)
+    monkeypatch.delenv("BROWSER_AGENT_MIN_ANSWER_CHARS", raising=False)
+    assert ns["_minimum_answer_chars"]() == 0
+
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS", "1500")
+    assert ns["_minimum_answer_chars"]() == 1500
+
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS", "bad")
+    assert ns["_minimum_answer_chars"]() == 0
 
 
 def test_browser_user_agent_defaults_to_non_headless_chrome(monkeypatch):
@@ -176,3 +325,34 @@ def test_browser_user_agent_defaults_to_non_headless_chrome(monkeypatch):
     ua = ns["_browser_user_agent"](browser_channel="chrome")
     assert "Chrome/" in ua
     assert "HeadlessChrome/" not in ua
+
+
+def test_normalize_capture_payload_prefers_substantive_assistant_text():
+    ns = _load_namespace()
+    payload = ns["_normalize_capture_payload"](
+        {
+            "latest_assistant_text": "已思考 9s",
+            "messages": [
+                {"role": "user", "text": "prompt"},
+                {"role": "assistant", "text": "{\"date\": \"2026-06-05\", \"accepted\": true}"},
+                {"role": "assistant", "text": "已思考 9s"},
+            ],
+        }
+    )
+    assert payload["latest_assistant_text_raw"] == "已思考 9s"
+    assert payload["latest_assistant_text"] == "{\"date\": \"2026-06-05\", \"accepted\": true}"
+
+
+def test_normalize_capture_payload_keeps_status_only_when_no_body_exists():
+    ns = _load_namespace()
+    payload = ns["_normalize_capture_payload"](
+        {
+            "latest_assistant_text": "正在思考",
+            "messages": [
+                {"role": "user", "text": "prompt"},
+                {"role": "assistant", "text": "正在思考"},
+            ],
+        }
+    )
+    assert payload["latest_assistant_text_raw"] == "正在思考"
+    assert payload["latest_assistant_text"] == ""

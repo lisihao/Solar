@@ -1,0 +1,644 @@
+{
+  "videoId": "FnYtIGYkLRU",
+  "title": "SREcon26 Americas - The Unconspicuous Role of Conntrack in Kubernetes Networking",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 30609,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "I hope this talk is not too much and too\nheavy after lunch. Um\nwe are going to go through an incident\nthat we had back in September\nuh 2025 where we were reminded of the\nimportance of understanding the Linux\nnetwork fundamentals uh when\ntroubleshooting Kubernetes network\nrelated incidents. So to keep you\nengaged, quick show of hands. Who's\nwatched HBO's fantastic Turnway show?\nAll right, that's a fair that's a fair\nnumber. You should watch it. But for\nthose who have, I want this talk to sort\nof feel like uh that one last scene\nwhere Legasov, the show's chief\nscientist, walks us through the physics\nof the Chernobyl tragedy, which I know\nsounds super fun, but that sort of mix\nof an incident postmortem plus one of\nthose life of a packet talks and\nhopefully one that shows both the\nKubernetes side of things, but also the\nunderlying Linux side of things and\nmerges both so you can all understand\nand serve as reference for when you're\ntroubleshooting how a pod pod sends a\npacket and how that ends up being ones\nand zeros on the line\nto set a little bit of a system problem\nwhich is called these days and level set\nthe room. Uh this is going to cover\nbecause of time upstream kubernetes\nrunning on relatively modern Linux with\nrelatively common container runtimes uh\nmainly containerd or cio and also\nrelatively common uh network\nimplementations. There are some that are\nthat we're going to cover uh which are\nfancier uh than others, but basically\nwhat you would call vanilla Kubernetes.\nUh if you're doing something special,\nyou should know better than me. Um so\nyeah, I'm also going to cover because\nthat's simply what we used uh and what\nwe keep using uh during that incident.\nSo no way around that. Um but yeah,\nquick refresher uh for the room on how\nKubernetes works. I'm going to try to go\nas fast as possible about this because I\ndon't have much time. But basically in\nKubernetes when you want a pod, a pod is\na collection of containers and a\ncontainer is just a Linux process. When\nyou want a pod, you need to request that\nthrough the API server. You can also\nrequest that through some other\nresources like deployments or stateful\nsets which are then picked up by the\nKubernetes controller manager and then\nthe Kubernetes controller manager\ncreates those pods for you just like you\nwould. Point being, if you want a pod,\nyou have to go through the API server.\nWhen a pod is created, it immediately\nenters its pending state. And that's\nimportant because that's what the cube\nscheduleuler looks for. Cube\nscheduleuler is a different damon that\nruns alongside the cube API server and\nlooks for pods in pending state that\nhave no node assigned to them. And then\nit goes to the list of nodes in ready\nstate, which are nodes that can take new\npods and assigns one node to that pod.\nAnd so that pod now is ready to be\nscheduled on uh the target node. That's\nwhen the cublet on that node picks up on\nthat pod and fetches all its details.\nCublet is Kubernetes Kubernetes agent uh\nthat runs on all of the worker nodes and\nit's what makes sure that picks up all\nof those spots and then run those\nworkloads. So it does that it figures\nout it gets all the details and then it\ncalls the high level container runtime.\nThe high level container runtime which\nis typically containerd or CIO basically\npulls the image from the registry. It\nunpacks them, prepares the file systems\nuh for all of the containers in the pod\nand then runs the low-level container\nruntime which is typically C run or run\nC which are equivalent implementations\nof the same spec and C run is actually\nthe low-level container runtime is what\nit actually does all of the heavy\nlifting in terms of creating what we\ntoday call a container. It's what does\nall of the sys calls related to creating\nan isolated Linux process which is all a\ncontainer is and that includes cloning\ninto a child process. cloning is just\nlike a fancier fork mounting all of the\nfile systems that the high level\ncontainer runtime prepared for us\npivoting into that root file system.\nPivot is again like a fancier ch route\nand then execing into its entry points\nand so with that our pod is running\nright.\nSo September 4th, 2025, it was a regular\nThursday. Nothing major going out. Um\nnothing firing on alerts. Everything\nlooked fine. And then at precisely 2:50\np.m. UTC, uh the right time zone, an\nincident is declared. Um what for? An\nabnormally high rate of 500 responses\nfrom multiple services.\nWe look at the logs from those services\nand immediately we figure out hey we're\nhaving issues with DNS resolution and\nit's widespread across the cluster but\nit's not consistent like right now some\npots are able to resolve and some are\nnot uh and if we look at a given pod a\ngiven pod may not be able to resolve for\n10 seconds and then it can so it's very\nvery inconsistent\nso how do containers how do pods in\nKubernetes resolve names uh in\nKubernetes well somewhere in your\nprogram there's is a function that takes\na host name and returns an IP address.\nIf your program links to one of the C\nlibraries like glyc or muscle, that\nfunction is called get address info. If\nit doesn't, like for example, most go\nprograms that don't use sego. I'm going\nto assume that it behaves like it does\nwith get address info. Not so that my\nupcoming breakdown is accurate, but\nbecause non-standard behavior really\nhurts my feelings. Should put that into\na t-shirt.\nSo get address info. When your program\nwants to resolve a name, it calls get\naddress info with the host name and then\nit what get address info does is it\nreads Etsy hosts first. You're probably\nfamiliar with Etsy hosts. What it is is\na file which was injected by cublet at\nthe beginning of the pod runtime which\ncontains static mappings. Uh this file\nfor example is what makes sure that\nlocal host equals 127001.\nThere's nothing special about the name\nlocal host. It's just the convention\nthat we chose to represent the this\nhost. And there's also nothing special\nabout 127001\nother than we chose that to be the IP\naddress of loop back interfaces by\ndefault. So when you connect to local\nhost that name is resolved by Etsy host\nby get address info through Etsy host\nand then you get that IP address and\nthen you connect to your own interface.\nBut what happens if there's no such host\nname in Etsy host right? Because if\nthere is we're going to return its first\nmatch and the story but in our case\nthose host names were not in Etsy host.\nSo we need to fall back to DNS\nresolution.\nTo do DNS resolution however we need the\nIP address of a DNS server. That IP\naddress is configured in etsu\nresolve.com which is also injected by\ncublet uh at the beginning of runtime.\nWith that IP address which typically in\nKubernetes is the IP address of a\nservice running core DNS uh because it\ncould technically be any uh DNS server.\nIt could be a public resolver for all\nthe matters, but it's typically a core\nDNS service because Kubernetes and its\nusers expect certain behavior from DNS\nsuch as resolving services by name. And\nso you're going to need a program that's\nable to do that. And for that, you're\nalso going to need a program that's able\nto talk to the Kubernetes API server to\nfigure out what services are running on\nthe cluster. Cords just so happens to be\nopen source performant and take all\nthose boxes. So most people choose it\nfor that. So with our IP with the IP\naddress of our DNS server ready and our\nhost name get address info goes out\ncreates a socket a UDP socket and then\nit sends the message with our DNS\nrequest and at that point precisely\nthat's when the packet leaves user space\nand it enters the Linux uh kernel\nnetwork stack and then blocks by running\npoll which basically waits for a message\nto come back on the socket and once\nthere is a message the DNS future DNS\nresponse we then receive from and that\nshould be the DNS response and then that\nhands that back to the to our program.\nSo what happens between leaving user\nspace and receiving a response back?\nWell, this is a rough depiction of\nLinux's egress path. When a program, no\nmatter which one it is, I set program\nhere in allc because that applies uh to\nany other program. When your program\nwants to send a packet on the network,\nwhat the kernel does as soon as it\nreceives it on a socket is it declares\nsomething called a socket buffer. A\nsocket buffer or skuff or sk uh which\nyou'll see in the kernel source code is\nthe data structure that Linux uses to\nrepresent that packet all throughout its\njourney across all of the layers of the\nnetwork stack. Right? So we declare that\nsocket buffer. All we have right now is\nthe payload and its length. Uh not much\nelse. So we have a P a pointer to the\nmemory address where the payload begins\nand what length it has. And we also have\nthrough the fact that this is uh UDP\nsocket and we sent a message to a given\nIP address and port. We also have the\ndestination port which goes into the UDP\nheader not TCP in this in this graph but\nthe UDP header and then we also have the\ndestination IP address. Now one thing\nthat we don't have for example is the\nsource IP address because we don't know\nyet what interface we're going to be\nleaving from. So we first need to make a\nrouting decision.\nBefore we do that, let me explain\nnetwork namespaces. So the way\ncontainers work in Linux is that your\npod doesn't have access to the host's\nF-Zero interface. It doesn't see any of\nits interfaces. All pods have one\nnamespace each and each namespace which\nis different from each other and\ndifferent from the hosts has its own\nlist of interfaces, has its own route\ntable, has its own contract table, has\nits own um\nyeah, basically has all of its context\nand it's contained into that namespace.\nIt's not shared with any other pod or\nwith the host. So we need to make a\nrouting decision. We go through the pods\nnamespace route table and we see that\nthere's no specific entry for our\ndestination IP address. So we just take\nthe default route and the default route\nsays go through at zero. With that we go\nthrough the output IP tables chain of\nthe pod. All good. Nothing happens\nthere. Same with the post routing.\nNothing major happens there. And then\nwe're ready because we know the\ndestination uh sorry the egress\ninterface. We know what MAC address\nwe're going to leave from and we know\nwhat MAC address we want to go to. So we\nslap a MAC Heather to it and then we\nceue it up on the egress Q of the\ninterface at which point the interfaces\ndriver will pick it up and convert that\nSK buff all of that metadata into ones\nand zeros on the line.\nNow E0 on the pod is not a regular\ninterface. It's not the port that you\nhave on the server. it zero sorry\nit zero is actually a virtual Ethernet\ninterface which is a special kind of\nLinux interface that you can think of\nabout as like a cable it's basically it\nhas two ends and what it does is you can\nwhen the pod was initialized one end was\nconnected to the pod as f0 and the other\nend was connected to the host as veth\nsomething right virtual ethernet\nsomething this ve interface is what\nallows the pod's traffic to leave the\npod's namespace into the host name\nspace. Otherwise, pods would be\nisolated. They would have no way of\njumping because again the hosts at zero\nis not the pods at zero. All of the\ninterfaces the pot has are virtual. So\nwhen the interface driver takes the\ntakes the skuff and puts it down as ones\nand zeros on the line since at zero is a\nvirtual interface that shows up at the\nhost ve interface as an inbound packet.\nSo it goes through the same scrutiny as\nevery other inbound packet that that\ninterface gets. So first thing that\nhappens the interface driver on the\nother side picks up that slice of ones\nand zeros allocates another SK buff. So\nwe fill it up with that payload and all\nof its details cues it up for receiving\nand then we jump to the pre-outing\nchain. This is where most of the\nKubernetes service routing magic\nhappens. The pre-outing chain typically\nin Kubernet well in Kubernetes has a\nrule a special rule that matches all\ntraffic based on the destination IP\naddresses CI range. We configure that\nrange back when we provisioned the\nKubernetes cluster and so our service or\ncore DNS has an IP address that's within\nthat C and so it matches that rule and\nthen we jump from the pre-outing chain\nto the cube services IP tables chain.\nThis IP tables chain has one rule per\nservice. Right now we only have cord DNS\nso it only has one but it would have one\nper service and it matches IP addresses\nand destination ports to Kubernetes\nservices.\nIn this case our egress packet from the\npod or the one we're receiving right now\nthe host is receiving right now matches\nthe rule for our cords service because\nit has that destination IP address and\nthat destination UDP port. So we jump to\nits cube service chain. Now that cube\nservice chain has this right here. Does\nanyone know what this garbage means?\n>> Come again.\n>> Balancing decision.\n>> That's right. That's right. So we tend\nto think about services as load\nbalancers when we're doing design and\nand and Kubernetes deployments, but it's\nnot a low balancer. It's not a proxy.\nThere's no process that gets the data\nand hands that over to another process.\nAll it is, it's this. We have IP tables\non the host that probabilistically\ndistribute that traffic across all of\nits endpoints. It's more similar to what\none would call a virtual IP address\nrather than a load balancer. So these\nrules are IP tables. So they're\nevaluated sequentially top to bottom. So\nif we have three pods, we have three\nrules. The packet first enters the first\nrule. So we need to match for a third of\nthe traffic. That's why the probability\nis 033. If it matches, then we jump to\nthat cube SEP chain. SEP stands for\nservice endpoint. A service endpoint is\na pod matched by the services selector\nthat's in ready state so that it can\ntake traffic. And if it doesn't, we jump\nto the next rule, which is why we have a\n50/50 probability because we only have\ntwo pods now. And then if it doesn't\nmatch, it matches the last one, which\nhas 100% probability of matching.\nWhichever we choose, we're going to jump\nto its cube seep chain which has the\ndetails on how to destination to that\npod. Right? This is these rules are\nwhere the pause IP addresses actually\nare. If you have a Kubernetes service\nand you've also configured different\nports on how your pod listens and how\nyour service listens, that's also where\nthat multiplexing is done. We can set\nwhatever port we want here, but the\nservice is running on UDP53. So, we\ncould run it if we wanted on whatever\nother port. Uh, and we could also do\nthat port destination mapping.\nSo, who keeps tabs on all of these rules\nbecause I sure didn't and Cublet doesn't\neither. And also, you got to remember\nlike we have one of these rules per\nservice and then we have one of those\nrules per service endpoint which is a\npod and then we have one of those as\nwell one chain and rule for all the\npods, right? So this is a ton of rules\nand especially at larger scales. There's\nno way we can keep track of all of those\nespecially with Kubernetes uh ephemeral\nnotion of what a pod is and and that it\ncan come and go right. So cube proxy is\na damon that sits alongside cublet on\nworker nodes and it does exactly just\nthat. Its only job is to get the cluster\nstate the list of services pods\nendpoints and then translate that to a\nmatching IP tables rule set on the node.\nAnd this happens on every node across\nyour cluster. This is fine for certain\nscales, but it gets to a point where the\npropagation delay of this can get\ntroublesome. If you have enough nodes,\nthe time between the first node that\nupdates and the time between the last\nnode that updates could lead to some\nsplit horizon events that are not very\nfun to troubleshoot. Um, so allow me to\njust quickly talk about psyllium. This\nis not an ad, but I'm really a fan about\nit. Um, Psyllium replaces this ordeal\nwith sequential matching of things and\nstuff with map-based lookups. Instead of\nhaving to go through a list of a\nthousand services and matching the\nnumber 700 and having spent CPU time for\n699 of them, Selium does a map-based\nlookup and then it redirects you right\nthere and there and it scales in\nconstant time. It doesn't scale linearly\nto the number of services. Another very\ncool thing that Selium does is it scraps\neverything that I just said and it\nbuilds a dedicated ebpf powered data\npath through Linux Express data path API\nwhich allows it to skip the fact that we\njust run twice over the Linux kernel\nstack. Remember we left the pod so we\nrun the egress side of the chain and\nthen we're now entering the host. We're\nstill entering the host. So we're\nrunning again through that stack and so\nwe're running the same packet twice.\nWe're allocating two SK buffers for\nevery single SK buffer that we actually\nneed. Selium avoids all of that and just\nbuilds a direct pipeline that bypasses\nall of that from the pods at zero to the\nhosts at zero,\nbut again I could speak about it for\nhours. Um, so back to our ingress path.\nWe're coming out of the pre-outing\nchain. We have a packet that finally has\nthe the right destination IP address. It\nhas the source IP address of our pod.\nEverything is set. So we're now ready to\nmake another routing decision. Now we\nhave two choices. We either go through\nthe input chain or we go through the\nforward chain. If the pot is the\ndestination pod is not running in this\nnode, we're of course going to go\nthrough the forward chain. That's\nthere's no debate about that. But what\nif the pot is running on the same node\nwe're in right now? Does anyone know?\nAny bets it's 50/50?\n>> Input. It's not input,\nbut that's good. Uh because now I I can\nexplain why. Thank you. Um, we never go\nthrough the input chain because of what\nI said about namespaces, right? We are\ndoing this routing decision based on\nwhether any of the of the interfaces in\nthe host is assuming the destination IP\naddress of the SK buffer. We are not\nbecause the if if the pot was running on\nour host the interface that's assuming\nthat IP address is on the pot's nameace.\nSo, we don't see it when we do that\nrouting decision. We don't see it. And\nso no matter what we go through the\nforward chain, nothing major happens in\nthe forward and post routing chains at\nthis point. So we queue up the packet\nagain. We hand it over to the driver.\nAnd now finally our packet is ones and\nzeros on the line.\nWe then repeat this whole process again\non the destination node. So I'm of\ncourse I'm not going through all of the\nswitches and everything in between, but\nwhen we get to the destination node, we\nreceived it on the nodes at zero. driver\npicks it up, cues it up, we go through\npre-erouting, we don't go again through\ncube services because the destination IP\naddress no longer matches that of the\ncubeet services. It it's now the IP\naddress of a pod. It's not in the same\nC. And so we go through the forward\nchain again, even though the pod is\nrunning on our node and in our routing\ndecision, sorry, we'll just skip that.\nIn our routing decision, what we do have\nin the node is a route that points to\nthat pod's ve. So, we do have a route in\nour host's namespace that says to get to\nthis pod's IP address, go through that\nve. I don't know if that ve assumes that\nIP address, but I just know that is a\nfact. And that was configured, I think,\nby the CNI if I'm not wrong. So, we go\nthrough the forward chain, we go through\npro routing, all good. Ceue it up,\ninterface driver picks it up, puts it on\nthe VET, and then it shows up at the\npods at zero. And this process repeats\nagain, but instead of routing to the\nforward chain once again, this is now a\ndestination IP address that's assumed by\none of our interfaces, our pods at zero.\nAnd so we go through the input chain and\neventually it shows up on the socket on\ncordns's socket. At that point, cordns\ngets note of that. It picks up the\npacket. It reads off the socket. And so\nthat SK buffer now disappears. And now\nfinally our DNS request has gone to core\nDNS and it's back on user space. When\nit's on user space, core DNS does its\nthing. It generates a response and then\nthis whole process repeats once again\nthe other way around to send the\nresponse to the client that was asking\nfor it. So\nwith all of that in mind,\nwhen we went through our when we went\nand looked at our cords deployment, we\nsaw something that tripped us a little\nbit, which is one of the pods in our\ncords deployment was killed because it\nran out of memory. Now, we looked at the\nlogs and those logs showed\nmysteriously a huge spike in DNS request\nrate right before it got killed. and\ntalking like 100x um which is quite a it\nrang a bell as a number because we have\nabout 90 cordion spots at the time and\nso that was weird and when we went\nthrough the names that were being\nresolved especially during that spike\nrelative to the names that were being\nresolved before that spike we saw\nsomething relatively familiar uh which\nleads me to introduce you to our first\nagent of chaos sorry second first one\nwas qxroxy second one is sto is our\nservice measure choice. Something I'd\nlike to say about service meshes is that\nthey make complex things very simple but\nvery simple things very complex\nand specifically we run STO in sidecar\nmode which means that every pod gets a\nsidecar process that runs alongside it\nand hijacks all its traffic for STO to\nbuild all of its features on top. Now\nthe way that works is in three steps.\nOne, we have STOD which listens for\nnewly created pods on the API server and\nmutates them to add two things. The ST\ninit container which is an init\ncontainer and then the sidecar the S2\nproxy sidecar. The init container runs\nbefore we provision all the other\ncontainers and modifies the pod\nnamespaces IP tables rule set to hijack\nand redirect all of the pods egress into\nthe ST proxy. That's how it's able to\nintercept all of that traffic and then\nbuild its features on top. And then the\nST proxy gets all of that traffic and\ndepending on what it is, it does one\nthing or does the other. And most\nimportantly, it implements all of its\nfeatures like observability, layer 7\nrouting, access control list, all sorts\nof funny stuff. Now, the feature we got\nto learn about on September 4th is\nservice entries. Service entries are a\nfeature of STO that let you expose an\nexternal service, let's say the stripe\nAPI endpoint as a service within S2 so\nthat S2 knows about it and then you can\napply all of these features to it. You\ncan then filter what for example what\nkind of HTTP requests your pots can make\nto that stripe API. You can gate that as\nmuch as you want. You can rate limit it.\nYou can do whatever you want uh because\nthe service is now registered as part of\nthe cluster. Now the way service entries\nworks uh mechanically is that the STTO\nproxy runs a DNS uh forwarder cache\nright next to the pod on the sidecard.\nThis happens on every pod that runs the\nSTO sidecar. So that is all of the pods\non your cluster. This cache gets fetches\nproactively all of these service entries\nthat you have in your cluster and stores\nthem in memory so that it can\nimmediately respond to the pods\nrequests. That's good, I guess, for\nperformance, but given enough pods and\ngiven enough service entries, if you\nhave a thousand of each, that's a\nmillion DNS requests every 30 seconds.\nAnd I say every 30 seconds because\nthat's the refreshing interval of that\nfeature. And it's still hardcoded. That\npicture was taken yesterday. So, because\nof all this volume, a third of our DNS\ntraffic was these uh requests. Now that\nalone wouldn't be enough for our core\nDNS service to get overloaded, right? We\nhave 90 pods of it. It auto out of\nscales. Uh we adapt to how much capacity\nwe need and it was running fine right\nbefore it got on killed. So what else\nhappened? Allow me to introduce the\nthird agent of chaos. Contract\nconnection tracking.\nIn my earlier breakdown of the Linux uh\nnetwork stack, I skipped over contract\nuh purposefully. Ha um so that I could\nspeak about it. Now contract is a\nfeature of net filter which is what we\ncall IP tables uh the firewall of Linux\nwhich basically before we enter IP\ntables looks at a packet and tries to\nmatch the packet to an existing\nconnection that we know about. It keeps\nan in-memory list of active connections\nand then for every packet that get gets\ninto the host it tries to match that\npacket to one of those connections and\nif it does it sets the attribute to a\ncertain way such that a rule that you\noften find in all of these\nconfigurations of IP tables makes it\nskip all of that rule evaluation right\nif you have a a connection that has a\nthousand packets and those thousand\npackets need to get evaluated for your\n700 services cube services chain that's\ngoing to take a lot of CPU view and we\ndid that logic on the first packet of\nthat connection. So what this does is it\nsort of keeps that cache of active\nconnections so that only the first\npacket goes through the full chain\nevaluation and then everything else is\njust jumped straight into accept.\nNow\nthat would be okay um were it not\nbecause we were lacking a feature in\ncube proxies. So the way STO resolved\nnames we got to figure out September 4th\nis through Envoy's CRSD DNS resolver.\nNow that DNS resolver resolves names in\na way that it reuses the same socket for\nall of its DNS resolution. So all of\nthis thousands and thousands of DNS\nrecords that happen every 30 seconds.\nThey all go through the same socket and\nso they show up as the same source port\nin the pot's nameace. And so because\nit's running every 30 seconds, it reuses\nthe same contract entry because one\nthing that uh might have puzzled you a\nlittle bit given that we're talking\nabout DNS and this is contract is\nconnection tracking.\nHow do we track a UDP connection?\nThere's no such thing, right? So the way\ncontract does it, the way the Linux\nkernel does it is it makes up it sort of\npretends that there are UDP connections\nin TCP. you just look for a FIN or an\nRSD packet and then when you see one of\nthose you know that the connection is\nterminated you can remove that entry for\nUDP it uses a simple timeout so for\nbirectional uh flows of UDP traffic that\ntimeout defaults to 120 seconds so\nbecause we're we're reusing the same\nsource port on our DNS resolver and\nbecause we have that rule and that rule\nexpires at 120 seconds and we do so at\nevery 30 seconds that rule never expires\nso once a pod for the very first time\nresolves a name. Once resolves its first\nname, that pot is forever pegged to that\ncore DNS destination port. We no longer\ngo through all of the load balancing on\nthe cube services chain. Not again until\none of the two pods dies. And so that\nwas a problem because whenever one of\nthose pods gets terminated, now we have\nn minus one pods to redistribute all of\nits traffic. And so in the meantime, our\nservice is losing uh the ability to\nresolve him. So it impacts our services.\nBut then when it eventually times out\nand it gets reassigned, if we had 90\npods, we're now assigned to one of 89\nbecause the other one is still being\nreprovisioned somewhere else. And do\nthat enough times, do that reassigning n\nminus one all of the time, enough\ncycles, and eventually you get a single\npod that gets all of the traffic. When\nwe plotted our traffic for DNS request\nrate on all of our core DNS pods, we\nweren't making any new requests. It was\nnot new volume. It was all of the\ncluster volume being sent to one single\npod because of these iterations and\neventually landing on a single pod. We\nwere death raying that c that poor cords\npod or it sometimes was one, it\nsometimes was two or three, but we were\ndeath raying them with all of the\nclusters traffic and so they couldn't\nkeep up exceeded their limits and then\nonce they ran out of memory they were\nkilled which repeats this process\nbecause we now need to reallocate that\npod. We need to find another pod to\nserve the traffic. traffic times out,\nrequests are failed, and so on and on\nand on. We repeat that cycle forever.\nNow, one solution to this came later.\nUh, Kubernetes 132 introduced a feature\nin qroxy, which is why it's one of our\nagents of chaos, the first one, which is\na contract reconciler. Contract\nreconciler basically is a feature of\nproxy that removes clears the contract\ntable of terminated pods because the\nissue we were seeing is that those stale\nentries would keep sending traffic to\npods that no longer exist and because\nwe're routing traffic to a ve that we\nassume will have that IP address because\nwe're not redirecting traffic to a\ninterface that actually has that IP\naddress. traffic was being black holed\nbecause we were sending it to a pod that\ndidn't exist. And so that's what\nultimately failed our client's DNS\nrequests.\nSo to sum it up, our three agents of\nchaos estto its extremely aggressive\ncache refresh mechanism which is still\nhardcoded today made it such that\nbecause it also reuses the same client\nport for all DNS requests and because\ncontract has a default UDP birectional\nUDP stream timeout I say birectional\nbecause there's also a setting for\nunidirectional but the default\nbirectional UDP stream timeout is two\nminutes and we were refreshing every 30\nseconds. So we were never leaving that\ncontract rule. We were always using that\ncontract rule. And so we were pegged to\na single cords spot. And because Q proxy\ndidn't have such a cleanup mechanism for\nstale contract entries, we were death\nraying those cords bots. And that's\nultimately what made our DNS requests\nfail on September 4th, 2025. This issue\nis no longer an issue because it was\nfixed on 132. It was released before uh\nwe had the incident, but we weren't up\nto date. Um but now we are. Um, so yeah,\nthat's the inconspicuous role of\ncontract in Kubernetes working. My name\nis Ricardano. Thank you so much. I'm a\nlead SR at Cisco and I'm happy to take\nany questions.",
+  "segments": [
+    {
+      "text": "I hope this talk is not too much and too heavy after lunch. Um we are going to go through an incident that we had back in September uh 2025 where we were reminded of the importance of understanding the Linux network fundamentals uh when",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "troubleshooting Kubernetes network related incidents. So to keep you engaged, quick show of hands. Who's watched HBO's fantastic Turnway show? All right, that's a fair that's a fair number. You should watch it. But for those who have, I want this talk to sort",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "of feel like uh that one last scene where Legasov, the show's chief scientist, walks us through the physics of the Chernobyl tragedy, which I know sounds super fun, but that sort of mix of an incident postmortem plus one of those life of a packet talks and",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "hopefully one that shows both the Kubernetes side of things, but also the underlying Linux side of things and merges both so you can all understand and serve as reference for when you're troubleshooting how a pod pod sends a",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "packet and how that ends up being ones and zeros on the line to set a little bit of a system problem which is called these days and level set the room. Uh this is going to cover because of time upstream kubernetes running on relatively modern Linux with",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "relatively common container runtimes uh mainly containerd or cio and also relatively common uh network implementations. There are some that are that we're going to cover uh which are fancier uh than others, but basically what you would call vanilla Kubernetes.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "Uh if you're doing something special, you should know better than me. Um so yeah, I'm also going to cover because that's simply what we used uh and what we keep using uh during that incident. So no way around that. Um but yeah,",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "quick refresher uh for the room on how Kubernetes works. I'm going to try to go as fast as possible about this because I don't have much time. But basically in Kubernetes when you want a pod, a pod is a collection of containers and a",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "container is just a Linux process. When you want a pod, you need to request that through the API server. You can also request that through some other resources like deployments or stateful sets which are then picked up by the",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "Kubernetes controller manager and then the Kubernetes controller manager creates those pods for you just like you would. Point being, if you want a pod, you have to go through the API server. When a pod is created, it immediately",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "enters its pending state. And that's important because that's what the cube scheduleuler looks for. Cube scheduleuler is a different damon that runs alongside the cube API server and looks for pods in pending state that have no node assigned to them. And then",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "it goes to the list of nodes in ready state, which are nodes that can take new pods and assigns one node to that pod. And so that pod now is ready to be scheduled on uh the target node. That's when the cublet on that node picks up on",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "that pod and fetches all its details. Cublet is Kubernetes Kubernetes agent uh that runs on all of the worker nodes and it's what makes sure that picks up all of those spots and then run those workloads. So it does that it figures",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "out it gets all the details and then it calls the high level container runtime. The high level container runtime which is typically containerd or CIO basically pulls the image from the registry. It unpacks them, prepares the file systems",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "uh for all of the containers in the pod and then runs the low-level container runtime which is typically C run or run C which are equivalent implementations of the same spec and C run is actually the low-level container runtime is what",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "it actually does all of the heavy lifting in terms of creating what we today call a container. It's what does all of the sys calls related to creating an isolated Linux process which is all a container is and that includes cloning",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "into a child process. cloning is just like a fancier fork mounting all of the file systems that the high level container runtime prepared for us pivoting into that root file system. Pivot is again like a fancier ch route and then execing into its entry points",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "and so with that our pod is running right. So September 4th, 2025, it was a regular Thursday. Nothing major going out. Um nothing firing on alerts. Everything looked fine. And then at precisely 2:50 p.m. UTC, uh the right time zone, an",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "incident is declared. Um what for? An abnormally high rate of 500 responses from multiple services. We look at the logs from those services and immediately we figure out hey we're having issues with DNS resolution and it's widespread across the cluster but",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "it's not consistent like right now some pots are able to resolve and some are not uh and if we look at a given pod a given pod may not be able to resolve for 10 seconds and then it can so it's very very inconsistent so how do containers how do pods in",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Kubernetes resolve names uh in Kubernetes well somewhere in your program there's is a function that takes a host name and returns an IP address. If your program links to one of the C libraries like glyc or muscle, that function is called get address info. If",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "it doesn't, like for example, most go programs that don't use sego. I'm going to assume that it behaves like it does with get address info. Not so that my upcoming breakdown is accurate, but because non-standard behavior really",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "hurts my feelings. Should put that into a t-shirt. So get address info. When your program wants to resolve a name, it calls get address info with the host name and then it what get address info does is it reads Etsy hosts first. You're probably",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "familiar with Etsy hosts. What it is is a file which was injected by cublet at the beginning of the pod runtime which contains static mappings. Uh this file for example is what makes sure that local host equals 127001. There's nothing special about the name",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "local host. It's just the convention that we chose to represent the this host. And there's also nothing special about 127001 other than we chose that to be the IP address of loop back interfaces by default. So when you connect to local",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "host that name is resolved by Etsy host by get address info through Etsy host and then you get that IP address and then you connect to your own interface. But what happens if there's no such host name in Etsy host right? Because if",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "there is we're going to return its first match and the story but in our case those host names were not in Etsy host. So we need to fall back to DNS resolution. To do DNS resolution however we need the IP address of a DNS server. That IP",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "address is configured in etsu resolve.com which is also injected by cublet uh at the beginning of runtime. With that IP address which typically in Kubernetes is the IP address of a service running core DNS uh because it could technically be any uh DNS server.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "It could be a public resolver for all the matters, but it's typically a core DNS service because Kubernetes and its users expect certain behavior from DNS such as resolving services by name. And so you're going to need a program that's",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "able to do that. And for that, you're also going to need a program that's able to talk to the Kubernetes API server to figure out what services are running on the cluster. Cords just so happens to be open source performant and take all",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "those boxes. So most people choose it for that. So with our IP with the IP address of our DNS server ready and our host name get address info goes out creates a socket a UDP socket and then it sends the message with our DNS request and at that point precisely",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "that's when the packet leaves user space and it enters the Linux uh kernel network stack and then blocks by running poll which basically waits for a message to come back on the socket and once there is a message the DNS future DNS",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "response we then receive from and that should be the DNS response and then that hands that back to the to our program. So what happens between leaving user space and receiving a response back? Well, this is a rough depiction of",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "Linux's egress path. When a program, no matter which one it is, I set program here in allc because that applies uh to any other program. When your program wants to send a packet on the network, what the kernel does as soon as it",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "receives it on a socket is it declares something called a socket buffer. A socket buffer or skuff or sk uh which you'll see in the kernel source code is the data structure that Linux uses to represent that packet all throughout its",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "journey across all of the layers of the network stack. Right? So we declare that socket buffer. All we have right now is the payload and its length. Uh not much else. So we have a P a pointer to the memory address where the payload begins",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "and what length it has. And we also have through the fact that this is uh UDP socket and we sent a message to a given IP address and port. We also have the destination port which goes into the UDP header not TCP in this in this graph but",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "the UDP header and then we also have the destination IP address. Now one thing that we don't have for example is the source IP address because we don't know yet what interface we're going to be leaving from. So we first need to make a routing decision.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "Before we do that, let me explain network namespaces. So the way containers work in Linux is that your pod doesn't have access to the host's F-Zero interface. It doesn't see any of its interfaces. All pods have one namespace each and each namespace which",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "is different from each other and different from the hosts has its own list of interfaces, has its own route table, has its own contract table, has its own um yeah, basically has all of its context and it's contained into that namespace.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "It's not shared with any other pod or with the host. So we need to make a routing decision. We go through the pods namespace route table and we see that there's no specific entry for our destination IP address. So we just take",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "the default route and the default route says go through at zero. With that we go through the output IP tables chain of the pod. All good. Nothing happens there. Same with the post routing. Nothing major happens there. And then we're ready because we know the",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "destination uh sorry the egress interface. We know what MAC address we're going to leave from and we know what MAC address we want to go to. So we slap a MAC Heather to it and then we ceue it up on the egress Q of the interface at which point the interfaces",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "driver will pick it up and convert that SK buff all of that metadata into ones and zeros on the line. Now E0 on the pod is not a regular interface. It's not the port that you have on the server. it zero sorry it zero is actually a virtual Ethernet",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "interface which is a special kind of Linux interface that you can think of about as like a cable it's basically it has two ends and what it does is you can when the pod was initialized one end was connected to the pod as f0 and the other",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "end was connected to the host as veth something right virtual ethernet something this ve interface is what allows the pod's traffic to leave the pod's namespace into the host name space. Otherwise, pods would be isolated. They would have no way of",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "jumping because again the hosts at zero is not the pods at zero. All of the interfaces the pot has are virtual. So when the interface driver takes the takes the skuff and puts it down as ones and zeros on the line since at zero is a",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "virtual interface that shows up at the host ve interface as an inbound packet. So it goes through the same scrutiny as every other inbound packet that that interface gets. So first thing that happens the interface driver on the",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "other side picks up that slice of ones and zeros allocates another SK buff. So we fill it up with that payload and all of its details cues it up for receiving and then we jump to the pre-outing chain. This is where most of the Kubernetes service routing magic",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "happens. The pre-outing chain typically in Kubernet well in Kubernetes has a rule a special rule that matches all traffic based on the destination IP addresses CI range. We configure that range back when we provisioned the",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "Kubernetes cluster and so our service or core DNS has an IP address that's within that C and so it matches that rule and then we jump from the pre-outing chain to the cube services IP tables chain. This IP tables chain has one rule per",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "service. Right now we only have cord DNS so it only has one but it would have one per service and it matches IP addresses and destination ports to Kubernetes services. In this case our egress packet from the pod or the one we're receiving right now",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "the host is receiving right now matches the rule for our cords service because it has that destination IP address and that destination UDP port. So we jump to its cube service chain. Now that cube service chain has this right here. Does",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "anyone know what this garbage means? >> Come again. >> Balancing decision. >> That's right. That's right. So we tend to think about services as load balancers when we're doing design and and and Kubernetes deployments, but it's",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "not a low balancer. It's not a proxy. There's no process that gets the data and hands that over to another process. All it is, it's this. We have IP tables on the host that probabilistically distribute that traffic across all of",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "its endpoints. It's more similar to what one would call a virtual IP address rather than a load balancer. So these rules are IP tables. So they're evaluated sequentially top to bottom. So if we have three pods, we have three",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "rules. The packet first enters the first rule. So we need to match for a third of the traffic. That's why the probability is 033. If it matches, then we jump to that cube SEP chain. SEP stands for service endpoint. A service endpoint is",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "a pod matched by the services selector that's in ready state so that it can take traffic. And if it doesn't, we jump to the next rule, which is why we have a 50/50 probability because we only have two pods now. And then if it doesn't",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "match, it matches the last one, which has 100% probability of matching. Whichever we choose, we're going to jump to its cube seep chain which has the details on how to destination to that pod. Right? This is these rules are",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "where the pause IP addresses actually are. If you have a Kubernetes service and you've also configured different ports on how your pod listens and how your service listens, that's also where that multiplexing is done. We can set",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "whatever port we want here, but the service is running on UDP53. So, we could run it if we wanted on whatever other port. Uh, and we could also do that port destination mapping. So, who keeps tabs on all of these rules because I sure didn't and Cublet doesn't",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "either. And also, you got to remember like we have one of these rules per service and then we have one of those rules per service endpoint which is a pod and then we have one of those as well one chain and rule for all the",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "pods, right? So this is a ton of rules and especially at larger scales. There's no way we can keep track of all of those especially with Kubernetes uh ephemeral notion of what a pod is and and that it can come and go right. So cube proxy is",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "a damon that sits alongside cublet on worker nodes and it does exactly just that. Its only job is to get the cluster state the list of services pods endpoints and then translate that to a matching IP tables rule set on the node.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "And this happens on every node across your cluster. This is fine for certain scales, but it gets to a point where the propagation delay of this can get troublesome. If you have enough nodes, the time between the first node that",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "updates and the time between the last node that updates could lead to some split horizon events that are not very fun to troubleshoot. Um, so allow me to just quickly talk about psyllium. This is not an ad, but I'm really a fan about",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "it. Um, Psyllium replaces this ordeal with sequential matching of things and stuff with map-based lookups. Instead of having to go through a list of a thousand services and matching the number 700 and having spent CPU time for",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "699 of them, Selium does a map-based lookup and then it redirects you right there and there and it scales in constant time. It doesn't scale linearly to the number of services. Another very cool thing that Selium does is it scraps",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "everything that I just said and it builds a dedicated ebpf powered data path through Linux Express data path API which allows it to skip the fact that we just run twice over the Linux kernel stack. Remember we left the pod so we",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "run the egress side of the chain and then we're now entering the host. We're still entering the host. So we're running again through that stack and so we're running the same packet twice. We're allocating two SK buffers for",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "every single SK buffer that we actually need. Selium avoids all of that and just builds a direct pipeline that bypasses all of that from the pods at zero to the hosts at zero, but again I could speak about it for hours. Um, so back to our ingress path.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "We're coming out of the pre-outing chain. We have a packet that finally has the the right destination IP address. It has the source IP address of our pod. Everything is set. So we're now ready to make another routing decision. Now we",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "have two choices. We either go through the input chain or we go through the forward chain. If the pot is the destination pod is not running in this node, we're of course going to go through the forward chain. That's there's no debate about that. But what",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "if the pot is running on the same node we're in right now? Does anyone know? Any bets it's 50/50? >> Input. It's not input, but that's good. Uh because now I I can explain why. Thank you. Um, we never go through the input chain because of what",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "I said about namespaces, right? We are doing this routing decision based on whether any of the of the interfaces in the host is assuming the destination IP address of the SK buffer. We are not because the if if the pot was running on",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "our host the interface that's assuming that IP address is on the pot's nameace. So, we don't see it when we do that routing decision. We don't see it. And so no matter what we go through the forward chain, nothing major happens in",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "the forward and post routing chains at this point. So we queue up the packet again. We hand it over to the driver. And now finally our packet is ones and zeros on the line. We then repeat this whole process again on the destination node. So I'm of",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "course I'm not going through all of the switches and everything in between, but when we get to the destination node, we received it on the nodes at zero. driver picks it up, cues it up, we go through pre-erouting, we don't go again through",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "cube services because the destination IP address no longer matches that of the cubeet services. It it's now the IP address of a pod. It's not in the same C. And so we go through the forward chain again, even though the pod is",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "running on our node and in our routing decision, sorry, we'll just skip that. In our routing decision, what we do have in the node is a route that points to that pod's ve. So, we do have a route in our host's namespace that says to get to",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "this pod's IP address, go through that ve. I don't know if that ve assumes that IP address, but I just know that is a fact. And that was configured, I think, by the CNI if I'm not wrong. So, we go through the forward chain, we go through",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "pro routing, all good. Ceue it up, interface driver picks it up, puts it on the VET, and then it shows up at the pods at zero. And this process repeats again, but instead of routing to the forward chain once again, this is now a",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "destination IP address that's assumed by one of our interfaces, our pods at zero. And so we go through the input chain and eventually it shows up on the socket on cordns's socket. At that point, cordns gets note of that. It picks up the",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "packet. It reads off the socket. And so that SK buffer now disappears. And now finally our DNS request has gone to core DNS and it's back on user space. When it's on user space, core DNS does its thing. It generates a response and then",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "this whole process repeats once again the other way around to send the response to the client that was asking for it. So with all of that in mind, when we went through our when we went and looked at our cords deployment, we",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "saw something that tripped us a little bit, which is one of the pods in our cords deployment was killed because it ran out of memory. Now, we looked at the logs and those logs showed mysteriously a huge spike in DNS request rate right before it got killed. and",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "talking like 100x um which is quite a it rang a bell as a number because we have about 90 cordion spots at the time and so that was weird and when we went through the names that were being resolved especially during that spike",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "relative to the names that were being resolved before that spike we saw something relatively familiar uh which leads me to introduce you to our first agent of chaos sorry second first one was qxroxy second one is sto is our",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "service measure choice. Something I'd like to say about service meshes is that they make complex things very simple but very simple things very complex and specifically we run STO in sidecar mode which means that every pod gets a",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "sidecar process that runs alongside it and hijacks all its traffic for STO to build all of its features on top. Now the way that works is in three steps. One, we have STOD which listens for newly created pods on the API server and",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "mutates them to add two things. The ST init container which is an init container and then the sidecar the S2 proxy sidecar. The init container runs before we provision all the other containers and modifies the pod namespaces IP tables rule set to hijack",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "and redirect all of the pods egress into the ST proxy. That's how it's able to intercept all of that traffic and then build its features on top. And then the ST proxy gets all of that traffic and depending on what it is, it does one",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "thing or does the other. And most importantly, it implements all of its features like observability, layer 7 routing, access control list, all sorts of funny stuff. Now, the feature we got to learn about on September 4th is",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "service entries. Service entries are a feature of STO that let you expose an external service, let's say the stripe API endpoint as a service within S2 so that S2 knows about it and then you can apply all of these features to it. You",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "can then filter what for example what kind of HTTP requests your pots can make to that stripe API. You can gate that as much as you want. You can rate limit it. You can do whatever you want uh because the service is now registered as part of",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "the cluster. Now the way service entries works uh mechanically is that the STTO proxy runs a DNS uh forwarder cache right next to the pod on the sidecard. This happens on every pod that runs the STO sidecar. So that is all of the pods",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "on your cluster. This cache gets fetches proactively all of these service entries that you have in your cluster and stores them in memory so that it can immediately respond to the pods requests. That's good, I guess, for performance, but given enough pods and",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "given enough service entries, if you have a thousand of each, that's a million DNS requests every 30 seconds. And I say every 30 seconds because that's the refreshing interval of that feature. And it's still hardcoded. That",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "picture was taken yesterday. So, because of all this volume, a third of our DNS traffic was these uh requests. Now that alone wouldn't be enough for our core DNS service to get overloaded, right? We have 90 pods of it. It auto out of",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "scales. Uh we adapt to how much capacity we need and it was running fine right before it got on killed. So what else happened? Allow me to introduce the third agent of chaos. Contract connection tracking. In my earlier breakdown of the Linux uh",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "network stack, I skipped over contract uh purposefully. Ha um so that I could speak about it. Now contract is a feature of net filter which is what we call IP tables uh the firewall of Linux which basically before we enter IP",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "tables looks at a packet and tries to match the packet to an existing connection that we know about. It keeps an in-memory list of active connections and then for every packet that get gets into the host it tries to match that",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "packet to one of those connections and if it does it sets the attribute to a certain way such that a rule that you often find in all of these configurations of IP tables makes it skip all of that rule evaluation right if you have a a connection that has a",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "thousand packets and those thousand packets need to get evaluated for your 700 services cube services chain that's going to take a lot of CPU view and we did that logic on the first packet of that connection. So what this does is it",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "sort of keeps that cache of active connections so that only the first packet goes through the full chain evaluation and then everything else is just jumped straight into accept. Now that would be okay um were it not because we were lacking a feature in",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "cube proxies. So the way STO resolved names we got to figure out September 4th is through Envoy's CRSD DNS resolver. Now that DNS resolver resolves names in a way that it reuses the same socket for all of its DNS resolution. So all of",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "this thousands and thousands of DNS records that happen every 30 seconds. They all go through the same socket and so they show up as the same source port in the pot's nameace. And so because it's running every 30 seconds, it reuses",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "the same contract entry because one thing that uh might have puzzled you a little bit given that we're talking about DNS and this is contract is connection tracking. How do we track a UDP connection? There's no such thing, right? So the way",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "contract does it, the way the Linux kernel does it is it makes up it sort of pretends that there are UDP connections in TCP. you just look for a FIN or an RSD packet and then when you see one of those you know that the connection is",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "terminated you can remove that entry for UDP it uses a simple timeout so for birectional uh flows of UDP traffic that timeout defaults to 120 seconds so because we're we're reusing the same source port on our DNS resolver and",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "because we have that rule and that rule expires at 120 seconds and we do so at every 30 seconds that rule never expires so once a pod for the very first time resolves a name. Once resolves its first name, that pot is forever pegged to that",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "core DNS destination port. We no longer go through all of the load balancing on the cube services chain. Not again until one of the two pods dies. And so that was a problem because whenever one of those pods gets terminated, now we have",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "n minus one pods to redistribute all of its traffic. And so in the meantime, our service is losing uh the ability to resolve him. So it impacts our services. But then when it eventually times out and it gets reassigned, if we had 90",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "pods, we're now assigned to one of 89 because the other one is still being reprovisioned somewhere else. And do that enough times, do that reassigning n minus one all of the time, enough cycles, and eventually you get a single",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "pod that gets all of the traffic. When we plotted our traffic for DNS request rate on all of our core DNS pods, we weren't making any new requests. It was not new volume. It was all of the cluster volume being sent to one single",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "pod because of these iterations and eventually landing on a single pod. We were death raying that c that poor cords pod or it sometimes was one, it sometimes was two or three, but we were death raying them with all of the clusters traffic and so they couldn't",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "keep up exceeded their limits and then once they ran out of memory they were killed which repeats this process because we now need to reallocate that pod. We need to find another pod to serve the traffic. traffic times out,",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "requests are failed, and so on and on and on. We repeat that cycle forever. Now, one solution to this came later. Uh, Kubernetes 132 introduced a feature in qroxy, which is why it's one of our agents of chaos, the first one, which is",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "a contract reconciler. Contract reconciler basically is a feature of proxy that removes clears the contract table of terminated pods because the issue we were seeing is that those stale entries would keep sending traffic to",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "pods that no longer exist and because we're routing traffic to a ve that we assume will have that IP address because we're not redirecting traffic to a interface that actually has that IP address. traffic was being black holed",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "because we were sending it to a pod that didn't exist. And so that's what ultimately failed our client's DNS requests. So to sum it up, our three agents of chaos estto its extremely aggressive cache refresh mechanism which is still",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "hardcoded today made it such that because it also reuses the same client port for all DNS requests and because contract has a default UDP birectional UDP stream timeout I say birectional because there's also a setting for unidirectional but the default",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "birectional UDP stream timeout is two minutes and we were refreshing every 30 seconds. So we were never leaving that contract rule. We were always using that contract rule. And so we were pegged to a single cords spot. And because Q proxy",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "didn't have such a cleanup mechanism for stale contract entries, we were death raying those cords bots. And that's ultimately what made our DNS requests fail on September 4th, 2025. This issue is no longer an issue because it was",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "fixed on 132. It was released before uh we had the incident, but we weren't up to date. Um but now we are. Um, so yeah, that's the inconspicuous role of contract in Kubernetes working. My name is Ricardano. Thank you so much. I'm a",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "lead SR at Cisco and I'm happy to take any questions.",
+      "start": 750,
+      "duration": 6
+    }
+  ]
+}

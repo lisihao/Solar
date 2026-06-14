@@ -17,6 +17,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 import browser_job_runtime as bjrt
+from browser_agent_profile_policy import select_profile_policy
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
 from playwright.async_api import async_playwright
@@ -691,8 +692,14 @@ async def _run(payload: dict) -> int:
     notebook_name = str(payload.get("notebook_name") or "").strip() or "AI Influence"
     output_dir = Path(str(payload.get("output_dir") or request_dir)).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
-    profile_directory = str(os.environ.get("BROWSER_AGENT_NOTEBOOKLM_PROFILE_DIRECTORY") or DEFAULT_PROFILE_DIRECTORY)
-    user_data_dir = Path(os.environ.get("BROWSER_AGENT_NOTEBOOKLM_USER_DATA_DIR") or str(DEFAULT_USER_DATA_DIR)).expanduser()
+    profile_policy = select_profile_policy(
+        service="notebooklm",
+        purpose=str(payload.get("purpose") or "notebooklm"),
+        default_profile_directory=DEFAULT_PROFILE_DIRECTORY,
+        default_user_data_dir=DEFAULT_USER_DATA_DIR,
+    )
+    profile_directory = str(profile_policy.get("selected_profile_directory") or DEFAULT_PROFILE_DIRECTORY)
+    user_data_dir = Path(str(profile_policy.get("user_data_dir") or DEFAULT_USER_DATA_DIR)).expanduser()
     target_url = str(os.environ.get("BROWSER_AGENT_NOTEBOOKLM_URL") or DEFAULT_URL)
     timeout_s = int(os.environ.get("BROWSER_AGENT_NOTEBOOKLM_TIMEOUT") or "1800")
 
@@ -704,6 +711,8 @@ async def _run(payload: dict) -> int:
         "provider": "browser_agent_notebooklm",
         "notebook_name": notebook_name,
         "profile_directory": profile_directory,
+        "target_account_email": profile_policy.get("selected_account_email") or "",
+        "profile_policy": profile_policy,
         "target_url": target_url,
         "source_files": payload.get("source_files") or [],
         "started_at": bjrt._now(),

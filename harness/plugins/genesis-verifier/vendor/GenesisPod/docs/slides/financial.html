@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家庭财务自由规划器</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --card: #1a1d28; --card-hover: #222636; --border: #2a2e3d;
+    --text: #e4e6ed; --text-dim: #8b8fa3;
+    --accent: #6c8cff; --accent-glow: rgba(108,140,255,0.15);
+    --green: #34d399; --green-dim: rgba(52,211,153,0.12);
+    --red: #f87171; --red-dim: rgba(248,113,113,0.12);
+    --orange: #fbbf24; --orange-dim: rgba(251,191,36,0.12);
+    --purple: #a78bfa; --pink: #f472b6; --cyan: #22d3ee;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+  .container{max-width:1440px;margin:0 auto;padding:24px;}
+  header{text-align:center;padding:32px 0 24px;border-bottom:1px solid var(--border);margin-bottom:32px;}
+  header h1{font-size:28px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px;}
+  header p{color:var(--text-dim);font-size:14px;}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;}
+  @media(max-width:1000px){.grid-2,.grid-3{grid-template-columns:1fr;}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;transition:background .2s;}
+  .card:hover{background:var(--card-hover);}
+  .card h2{font-size:16px;font-weight:600;margin-bottom:20px;display:flex;align-items:center;gap:8px;}
+  .card h2 .icon{width:20px;height:20px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;}
+  .card h3{font-size:13px;font-weight:600;margin:16px 0 12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;}
+  .section{margin-bottom:28px;}
+  .form-group{margin-bottom:12px;}
+  .form-group label{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--text-dim);margin-bottom:5px;}
+  .form-group label .value{color:var(--accent);font-weight:600;font-size:14px;}
+  input[type="range"]{width:100%;height:6px;-webkit-appearance:none;appearance:none;background:var(--border);border-radius:3px;outline:none;cursor:pointer;}
+  input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 0 8px var(--accent-glow);}
+  .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:28px;}
+  @media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,1fr);}}
+  @media(max-width:700px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;text-align:center;}
+  .kpi .label{font-size:11px;color:var(--text-dim);margin-bottom:6px;}
+  .kpi .number{font-size:24px;font-weight:700;}
+  .kpi .sub{font-size:11px;color:var(--text-dim);margin-top:4px;}
+  .kpi.green{border-color:rgba(52,211,153,0.3);}.kpi.green .number{color:var(--green);}
+  .kpi.blue{border-color:rgba(108,140,255,0.3);}.kpi.blue .number{color:var(--accent);}
+  .kpi.orange{border-color:rgba(251,191,36,0.3);}.kpi.orange .number{color:var(--orange);}
+  .kpi.purple{border-color:rgba(167,139,250,0.3);}.kpi.purple .number{color:var(--purple);}
+  .kpi.pink{border-color:rgba(244,114,182,0.3);}.kpi.pink .number{color:var(--pink);}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+  .badge.free{background:var(--green-dim);color:var(--green);}
+  .badge.tight{background:var(--orange-dim);color:var(--orange);}
+  .table-wrap{overflow-x:auto;border-radius:12px;border:1px solid var(--border);}
+  table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
+  thead th{background:var(--card);padding:10px 10px;text-align:right;font-weight:600;color:var(--text-dim);border-bottom:1px solid var(--border);position:sticky;top:0;}
+  thead th:first-child{text-align:center;}
+  tbody td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--border);}
+  tbody td:first-child{text-align:center;font-weight:600;color:var(--accent);}
+  tbody tr:hover{background:var(--card-hover);}
+  tbody tr.milestone td:first-child{position:relative;}
+  tbody tr.milestone td:first-child::before{content:'';position:absolute;left:3px;top:50%;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;background:var(--accent);}
+  .positive{color:var(--green);}.negative{color:var(--red);}
+  .chart-container{position:relative;height:300px;margin-top:12px;}
+  .tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+  .tab{padding:7px 14px;border-radius:8px;font-size:12px;cursor:pointer;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);transition:all .2s;}
+  .tab:hover{border-color:var(--accent);color:var(--text);}
+  .tab.active{background:var(--accent);color:white;border-color:var(--accent);}
+  .toggle-group{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .toggle{position:relative;width:40px;height:22px;background:var(--border);border-radius:11px;cursor:pointer;transition:background .2s;flex-shrink:0;}
+  .toggle.on{background:var(--accent);}
+  .toggle::after{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:white;top:2px;left:2px;transition:transform .2s;}
+  .toggle.on::after{transform:translateX(18px);}
+  .toggle-label{font-size:13px;color:var(--text-dim);}
+  .milestones{display:flex;flex-direction:column;gap:8px;margin-top:12px;}
+  .milestone-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg);border-radius:8px;font-size:13px;}
+  .milestone-year{font-weight:700;color:var(--accent);min-width:50px;}
+  .family-header{display:flex;gap:14px;padding:14px 18px;background:var(--bg);border-radius:10px;margin-bottom:20px;flex-wrap:wrap;}
+  .family-member{display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;border:1px solid var(--border);font-size:13px;}
+  .family-member .avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;}
+  .family-member .info span{display:block;}
+  .family-member .info .name{font-weight:600;font-size:14px;}
+  .family-member .info .detail{color:var(--text-dim);font-size:11px;}
+  .info-box{padding:16px;background:var(--bg);border-radius:8px;margin-top:12px;}
+  .info-box .row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border);}
+  .info-box .row:last-child{border-bottom:none;}
+  .info-box .row .lbl{color:var(--text-dim);}
+  .info-box .row .val{font-weight:600;}
+  .canada-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px;}
+  @media(max-width:900px){.canada-grid{grid-template-columns:1fr;}}
+  .canada-item{padding:16px;background:var(--bg);border-radius:8px;border-left:3px solid var(--cyan);}
+  .canada-item .title{font-size:12px;color:var(--text-dim);margin-bottom:6px;}
+  .canada-item .amount{font-size:22px;font-weight:700;color:var(--cyan);}
+  .canada-item .note{font-size:11px;color:var(--text-dim);margin-top:4px;}
+  footer{text-align:center;padding:32px 0;color:var(--text-dim);font-size:12px;border-top:1px solid var(--border);margin-top:40px;}
+  .btn{padding:8px 18px;border-radius:8px;font-size:13px;cursor:pointer;border:none;background:var(--accent);color:white;font-weight:600;transition:all .2s;}
+  .btn:hover{opacity:.85;}
+  .btn-outline{background:transparent;border:1px solid var(--border);color:var(--text-dim);}
+  .btn-outline:hover{border-color:var(--accent);color:var(--text);}
+  .btn-sm{padding:5px 12px;font-size:11px;}
+  .btn-danger{background:var(--red);color:white;}
+  .save-list{display:flex;flex-direction:column;gap:8px;max-height:200px;overflow-y:auto;padding:8px 0;}
+  .save-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--bg);border-radius:8px;border:1px solid var(--border);}
+  .save-item .info{flex:1;}
+  .save-item .sname{font-weight:600;font-size:13px;}
+  .save-item .time{font-size:11px;color:var(--text-dim);}
+  .save-item .actions{display:flex;gap:6px;}
+  /* Allocation bar */
+  .alloc-bar{display:flex;height:24px;border-radius:6px;overflow:hidden;margin:8px 0 12px;}
+  .alloc-bar div{display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:white;min-width:2px;transition:width .3s;}
+  .alloc-summary{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;font-size:12px;}
+  .alloc-summary .as-item{display:flex;justify-content:space-between;padding:4px 8px;background:var(--bg);border-radius:4px;}
+  .alloc-summary .as-label{display:flex;align-items:center;gap:6px;color:var(--text-dim);}
+  .alloc-summary .as-dot{width:8px;height:8px;border-radius:50%;}
+  .alloc-preset{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+  .alloc-preset .ap{padding:4px 12px;border-radius:6px;font-size:11px;cursor:pointer;background:var(--bg);border:1px solid var(--border);color:var(--text-dim);transition:all .2s;}
+  .alloc-preset .ap:hover,.alloc-preset .ap.active{border-color:var(--accent);color:var(--accent);}
+  .weighted-return{padding:10px 14px;background:var(--bg);border-radius:8px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;}
+  .weighted-return .wr-label{font-size:12px;color:var(--text-dim);}
+  .weighted-return .wr-value{font-size:20px;font-weight:700;color:var(--green);}
+  .glide-info{font-size:11px;color:var(--text-dim);padding:8px 12px;background:var(--bg);border-radius:6px;margin-top:8px;border-left:3px solid var(--purple);}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>家庭财务自由规划器</h1>
+    <p>杭州 · 全家资产 / 资产配置 / 社保 / 教育 / 海外资金 动态测算</p>
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <button class="btn" onclick="saveToLocal()">保存方案</button>
+      <button class="btn btn-outline" onclick="showLoadDialog()">加载方案</button>
+      <button class="btn btn-outline" onclick="exportJSON()">导出JSON</button>
+      <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">导入JSON</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
+      <button class="btn btn-outline" onclick="resetAll()">恢复默认</button>
+    </div>
+    <div id="loadDialog" style="display:none;margin-top:12px;"></div>
+    <div id="saveMsg" style="margin-top:8px;font-size:12px;color:var(--green);display:none;"></div>
+  </header>
+
+  <!-- Family bar -->
+  <div class="family-header">
+    <div class="family-member">
+      <div class="avatar" style="background:var(--accent-glow);color:var(--accent);">H</div>
+      <div class="info"><span class="name">先生</span><span class="detail" id="fam-husband">1983 · 43岁</span></div>
+    </div>
+    <div class="family-member">
+      <div class="avatar" style="background:rgba(244,114,182,0.15);color:var(--pink);">W</div>
+      <div class="info"><span class="name">太太</span><span class="detail" id="fam-wife">1983 · 43岁</span></div>
+    </div>
+    <div class="family-member">
+      <div class="avatar" style="background:var(--orange-dim);color:var(--orange);">D</div>
+      <div class="info"><span class="name">女儿</span><span class="detail" id="fam-child">2012 · 14岁 · 加拿大</span></div>
+    </div>
+    <div class="family-member">
+      <div class="avatar" style="background:rgba(34,211,238,0.12);color:var(--cyan);">C</div>
+      <div class="info"><span class="name">海外储备</span><span class="detail" id="fam-canada">加拿大资金规划</span></div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid">
+    <div class="kpi green"><div class="label">家庭金融净资产</div><div class="number" id="kpi-networth">-</div><div class="sub" id="kpi-networth-sub">-</div></div>
+    <div class="kpi blue"><div class="label">年被动收入</div><div class="number" id="kpi-passive">-</div><div class="sub" id="kpi-passive-sub">-</div></div>
+    <div class="kpi orange"><div class="label">教育总投入</div><div class="number" id="kpi-edu">-</div><div class="sub" id="kpi-edu-sub">-</div></div>
+    <div class="kpi pink"><div class="label">社保月领（退休后）</div><div class="number" id="kpi-pension">-</div><div class="sub" id="kpi-pension-sub">-</div></div>
+    <div class="kpi purple"><div class="label">60岁家庭总资产</div><div class="number" id="kpi-retire">-</div><div class="sub">含房产</div></div>
+  </div>
+
+  <!-- Asset Allocation Card (new, full width) -->
+  <div class="card section">
+    <h2><span class="icon" style="background:var(--green-dim);color:var(--green);">A</span> 理财资产配置模型</h2>
+    <div class="grid-2" style="gap:24px;">
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:13px;color:var(--text-dim);">理财总额（万）</span>
+          <span style="font-size:20px;font-weight:700;color:var(--accent);" id="allocTotal">1,500</span>
+        </div>
+        <div class="form-group"><label>理财总资金（万）<span class="value" id="v-cash">1500</span></label><input type="range" id="cash" min="0" max="5000" step="50" value="1500"></div>
+
+        <div style="font-size:12px;color:var(--text-dim);margin:12px 0 6px;">配置预设模板</div>
+        <div class="alloc-preset">
+          <div class="ap" onclick="applyPreset('conservative')">保守型</div>
+          <div class="ap" onclick="applyPreset('balanced')">稳健型</div>
+          <div class="ap active" onclick="applyPreset('moderate')">平衡型</div>
+          <div class="ap" onclick="applyPreset('growth')">成长型</div>
+          <div class="ap" onclick="applyPreset('aggressive')">激进型</div>
+        </div>
+
+        <!-- Allocation visual bar -->
+        <div class="alloc-bar" id="allocBar"></div>
+
+        <!-- Allocation sliders -->
+        <div class="form-group"><label><span style="display:flex;align-items:center;gap:6px;"><span class="as-dot" style="background:#fbbf24;display:inline-block;width:8px;height:8px;border-radius:50%;"></span>现金/货币基金</span> <span class="value" id="v-allocCash">15%</span></label><input type="range" id="allocCash" min="0" max="100" step="1" value="15"></div>
+        <div class="form-group"><label><span style="display:flex;align-items:center;gap:6px;"><span class="as-dot" style="background:#34d399;display:inline-block;width:8px;height:8px;border-radius:50%;"></span>债券/固收理财</span> <span class="value" id="v-allocBond">25%</span></label><input type="range" id="allocBond" min="0" max="100" step="1" value="25"></div>
+        <div class="form-group"><label><span style="display:flex;align-items:center;gap:6px;"><span class="as-dot" style="background:#6c8cff;display:inline-block;width:8px;height:8px;border-radius:50%;"></span>指数基金/ETF</span> <span class="value" id="v-allocIndex">35%</span></label><input type="range" id="allocIndex" min="0" max="100" step="1" value="35"></div>
+        <div class="form-group"><label><span style="display:flex;align-items:center;gap:6px;"><span class="as-dot" style="background:#a78bfa;display:inline-block;width:8px;height:8px;border-radius:50%;"></span>QDII/海外基金</span> <span class="value" id="v-allocOversea">15%</span></label><input type="range" id="allocOversea" min="0" max="100" step="1" value="15"></div>
+        <div class="form-group"><label><span style="display:flex;align-items:center;gap:6px;"><span class="as-dot" style="background:#f472b6;display:inline-block;width:8px;height:8px;border-radius:50%;"></span>另类/私募/黄金</span> <span class="value" id="v-allocAlt">10%</span></label><input type="range" id="allocAlt" min="0" max="100" step="1" value="10"></div>
+
+        <div id="allocWarning" style="font-size:12px;color:var(--red);display:none;margin-top:4px;"></div>
+      </div>
+
+      <div>
+        <!-- Per-class return rates -->
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">各类资产预期年化收益率</div>
+        <div class="form-group"><label>现金/货币基金 <span class="value" id="v-retCash">1.5%</span></label><input type="range" id="retCash" min="0" max="8" step="0.1" value="1.5"></div>
+        <div class="form-group"><label>债券/固收理财 <span class="value" id="v-retBond">4%</span></label><input type="range" id="retBond" min="0" max="12" step="0.1" value="4"></div>
+        <div class="form-group"><label>指数基金/ETF <span class="value" id="v-retIndex">8%</span></label><input type="range" id="retIndex" min="0" max="20" step="0.5" value="8"></div>
+        <div class="form-group"><label>QDII/海外基金 <span class="value" id="v-retOversea">7%</span></label><input type="range" id="retOversea" min="0" max="20" step="0.5" value="7"></div>
+        <div class="form-group"><label>另类/私募/黄金 <span class="value" id="v-retAlt">6%</span></label><input type="range" id="retAlt" min="0" max="25" step="0.5" value="6"></div>
+
+        <!-- Weighted return -->
+        <div class="weighted-return">
+          <div>
+            <div class="wr-label">加权平均年化收益</div>
+            <div style="font-size:11px;color:var(--text-dim);" id="wrDetail">-</div>
+          </div>
+          <div class="wr-value" id="wrRate">-</div>
+        </div>
+
+        <!-- Allocation summary -->
+        <div style="margin-top:14px;">
+          <div class="alloc-summary" id="allocSummary"></div>
+        </div>
+
+        <!-- Glide path -->
+        <div class="toggle-group" style="margin-top:14px;">
+          <div class="toggle" id="toggleGlide" onclick="toggleGlide(this)"></div>
+          <span class="toggle-label">启用年龄滑道（随年龄自动调保守）</span>
+        </div>
+        <div class="glide-info" id="glideInfo" style="display:none;">
+          年龄滑道：每增长1岁，现金+债券占比自动增加 <strong>1%</strong>，指数基金占比对应减少。<br>
+          模拟"100减年龄"经典法则，确保临近退休时风险自动降低。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Parameters: 3 columns -->
+  <div class="grid-3 section">
+    <!-- Col 1: Assets (non-allocation) -->
+    <div class="card">
+      <h2><span class="icon" style="background:var(--accent-glow);color:var(--accent);">$</span> 家庭核心资产</h2>
+      <h3>先生</h3>
+      <div class="form-group"><label>出生年份 <span class="value" id="v-birthYear">1983</span></label><input type="range" id="birthYear" min="1960" max="2000" value="1983"></div>
+      <div class="form-group"><label>股票本金（万·固定分红）<span class="value" id="v-stock">800</span></label><input type="range" id="stock" min="0" max="3000" step="50" value="800"></div>
+      <div class="form-group"><label>股票年分红率 <span class="value" id="v-stockRate">10%</span></label><input type="range" id="stockRate" min="0" max="30" step="0.5" value="10"></div>
+      <h3>太太</h3>
+      <div class="form-group"><label>出生年份 <span class="value" id="v-wifeBirth">1983</span></label><input type="range" id="wifeBirth" min="1960" max="2000" value="1983"></div>
+      <div class="form-group"><label>个人资产（万）<span class="value" id="v-wifeAsset">200</span></label><input type="range" id="wifeAsset" min="0" max="2000" step="10" value="200"></div>
+      <div class="form-group"><label>资产年化收益 <span class="value" id="v-wifeRate">3%</span></label><input type="range" id="wifeRate" min="0" max="15" step="0.5" value="3"></div>
+      <h3>房产（3套）</h3>
+      <div class="form-group"><label>总价值（万）<span class="value" id="v-house">1000</span></label><input type="range" id="house" min="0" max="5000" step="50" value="1000"></div>
+      <div class="form-group"><label>年租金收入（万）<span class="value" id="v-rent">0</span></label><input type="range" id="rent" min="0" max="100" step="1" value="0"></div>
+      <div class="form-group"><label>年增值率 <span class="value" id="v-houseRate">0%</span></label><input type="range" id="houseRate" min="-5" max="10" step="0.5" value="0"></div>
+    </div>
+
+    <!-- Col 2: Pension & Income -->
+    <div class="card">
+      <h2><span class="icon" style="background:var(--green-dim);color:var(--green);">P</span> 杭州社保 & 收入</h2>
+      <h3>社保参数（杭州最高限额）</h3>
+      <div class="form-group"><label>开始缴纳年份 <span class="value" id="v-ssStart">2006</span></label><input type="range" id="ssStart" min="1990" max="2026" value="2006"></div>
+      <div class="form-group"><label>杭州社平月薪（元）<span class="value" id="v-avgWage">15000</span></label><input type="range" id="avgWage" min="8000" max="30000" step="500" value="15000"></div>
+      <div class="form-group"><label>缴费基数倍数 <span class="value" id="v-ssIndex">3</span></label><input type="range" id="ssIndex" min="0.6" max="3" step="0.1" value="3"></div>
+      <div class="form-group"><label>先生退休年龄 <span class="value" id="v-retireAge">60</span></label><input type="range" id="retireAge" min="50" max="70" value="60"></div>
+      <div class="form-group"><label>太太退休年龄 <span class="value" id="v-wifeRetireAge">55</span></label><input type="range" id="wifeRetireAge" min="45" max="70" value="55"></div>
+      <div class="form-group"><label>社平工资年增长 <span class="value" id="v-wageGrowth">5%</span></label><input type="range" id="wageGrowth" min="0" max="10" step="0.5" value="5"></div>
+      <div class="info-box" id="pensionDetail"></div>
+      <h3>工作收入</h3>
+      <div class="form-group"><label>每年新增储蓄（万）<span class="value" id="v-annualSave">0</span></label><input type="range" id="annualSave" min="0" max="500" step="10" value="0"></div>
+      <div class="form-group"><label>收入持续到年份 <span class="value" id="v-incomeEnd">2030</span></label><input type="range" id="incomeEnd" min="2026" max="2055" value="2030"></div>
+      <h3>规划范围</h3>
+      <div class="form-group"><label>起算年份 <span class="value" id="v-startYear">2030</span></label><input type="range" id="startYear" min="2026" max="2035" value="2030"></div>
+      <div class="form-group"><label>规划到年龄 <span class="value" id="v-endAge">70</span></label><input type="range" id="endAge" min="50" max="90" value="70"></div>
+    </div>
+
+    <!-- Col 3: Expenses & Education & Canada -->
+    <div class="card">
+      <h2><span class="icon" style="background:var(--red-dim);color:var(--red);">-</span> 支出 & 教育 & 海外</h2>
+      <h3>家庭支出</h3>
+      <div class="form-group"><label>夫妻月生活费（万）<span class="value" id="v-monthly">4</span></label><input type="range" id="monthly" min="1" max="20" step="0.5" value="4"></div>
+      <div class="form-group"><label>通胀率 <span class="value" id="v-inflation">0%</span></label><input type="range" id="inflation" min="0" max="10" step="0.5" value="0"></div>
+      <h3>负债（房贷）</h3>
+      <div class="form-group"><label>当前负债（万）<span class="value" id="v-debt">500</span></label><input type="range" id="debt" min="0" max="2000" step="50" value="500"></div>
+      <div class="form-group"><label>清零年份 <span class="value" id="v-debtYear">2028</span></label><input type="range" id="debtYear" min="2026" max="2045" value="2028"></div>
+      <h3>女儿教育（加拿大）</h3>
+      <div class="form-group"><label>出生年 <span class="value" id="v-childBirth">2012</span></label><input type="range" id="childBirth" min="2005" max="2020" value="2012"></div>
+      <div class="form-group"><label>开始收费年 <span class="value" id="v-feeStart">2027</span></label><input type="range" id="feeStart" min="2026" max="2035" value="2027"></div>
+      <div class="form-group"><label>高中年费用（万）<span class="value" id="v-highFee">10</span></label><input type="range" id="highFee" min="0" max="50" value="10"></div>
+      <div class="form-group"><label>大学入学年 <span class="value" id="v-uniStart">2030</span></label><input type="range" id="uniStart" min="2028" max="2038" value="2030"></div>
+      <div class="form-group"><label>大学年费用（万）<span class="value" id="v-uniFee">32</span></label><input type="range" id="uniFee" min="0" max="80" value="32"></div>
+      <div class="form-group"><label>大学年数 <span class="value" id="v-uniYears">4</span></label><input type="range" id="uniYears" min="2" max="8" value="4"></div>
+      <div class="toggle-group"><div class="toggle" id="toggleMasters" onclick="toggleMastersSwitch(this)"></div><span class="toggle-label">包含研究生（+2年）</span></div>
+      <h3>加拿大海外资金</h3>
+      <div class="form-group"><label>CAD汇率 <span class="value" id="v-cadRate">5.2</span></label><input type="range" id="cadRate" min="3" max="8" step="0.1" value="5.2"></div>
+      <div class="form-group"><label>定居首付（万CAD）<span class="value" id="v-cadDownpay">20</span></label><input type="range" id="cadDownpay" min="0" max="50" step="1" value="20"></div>
+      <div class="form-group"><label>应急金（万CAD）<span class="value" id="v-cadEmergency">5</span></label><input type="range" id="cadEmergency" min="0" max="30" step="1" value="5"></div>
+      <div class="form-group"><label>启动金（万CAD）<span class="value" id="v-cadSettle">3</span></label><input type="range" id="cadSettle" min="0" max="20" step="1" value="3"></div>
+    </div>
+  </div>
+
+  <!-- Canada -->
+  <div class="card section">
+    <h2><span class="icon" style="background:rgba(34,211,238,0.12);color:var(--cyan);">C</span> 加拿大海外资金建议</h2>
+    <div class="canada-grid" id="canadaGrid"></div>
+    <div id="canadaSummary" style="margin-top:16px;"></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="grid-2 section">
+    <div class="card"><h2>家庭资产增长趋势</h2><div class="chart-container"><canvas id="chartAssets"></canvas></div></div>
+    <div class="card"><h2>年度现金流（含社保）</h2><div class="chart-container"><canvas id="chartCashflow"></canvas></div></div>
+  </div>
+  <div class="grid-2 section">
+    <div class="card"><h2>资产构成</h2><div class="chart-container" style="height:260px"><canvas id="chartPie"></canvas></div></div>
+    <div class="card"><h2>关键里程碑</h2><div class="milestones" id="milestones"></div></div>
+  </div>
+
+  <!-- Freedom -->
+  <div class="card section"><h2>财务自由评估</h2><div id="freedomContent"></div></div>
+
+  <!-- Table -->
+  <div class="card section">
+    <h2>逐年家庭明细表</h2>
+    <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
+      <table><thead><tr>
+        <th>年份</th><th>先生</th><th>太太</th><th>女儿</th>
+        <th>股票</th><th>理财池</th><th>太太</th><th>房产</th><th>总资产</th>
+        <th>负债</th><th>净资产</th><th>理财收益</th><th>被动总收入</th><th>社保/年</th>
+        <th>教育</th><th>生活</th><th>年盈余</th><th>状态</th>
+      </tr></thead><tbody id="tableBody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- Scenarios -->
+  <div class="card section">
+    <h2>情景对比</h2>
+    <div class="tabs">
+      <div class="tab active" onclick="setScenario('current',this)">当前配置</div>
+      <div class="tab" onclick="setScenario('conservative',this)">全保守配置</div>
+      <div class="tab" onclick="setScenario('aggressive',this)">全成长配置</div>
+      <div class="tab" onclick="setScenario('rent2',this)">出租2套房</div>
+      <div class="tab" onclick="setScenario('sell1stock',this)">卖1套→股票</div>
+      <div class="tab" onclick="setScenario('reinvest',this)">分红50%再投</div>
+    </div>
+    <div id="scenarioResult"></div>
+  </div>
+
+  <footer>家庭财务自由规划器 · 杭州社保按最高限额测算 · 资产配置加权收益模型 · 数据仅供参考</footer>
+</div>
+
+<script>
+let charts = {};
+let mastersOn = false;
+let glideOn = false;
+
+function toggleMastersSwitch(el) { mastersOn = !mastersOn; el.classList.toggle('on', mastersOn); calculate(); }
+function toggleGlide(el) { glideOn = !glideOn; el.classList.toggle('on', glideOn); document.getElementById('glideInfo').style.display = glideOn ? 'block' : 'none'; calculate(); }
+
+function g(id) { return parseFloat(document.getElementById(id).value); }
+
+// === Allocation presets ===
+const PRESETS = {
+  conservative: { allocCash: 30, allocBond: 40, allocIndex: 15, allocOversea: 10, allocAlt: 5 },
+  balanced:     { allocCash: 20, allocBond: 30, allocIndex: 25, allocOversea: 15, allocAlt: 10 },
+  moderate:     { allocCash: 15, allocBond: 25, allocIndex: 35, allocOversea: 15, allocAlt: 10 },
+  growth:       { allocCash: 10, allocBond: 15, allocIndex: 45, allocOversea: 20, allocAlt: 10 },
+  aggressive:   { allocCash: 5,  allocBond: 10, allocIndex: 50, allocOversea: 25, allocAlt: 10 },
+};
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  Object.entries(p).forEach(([id, val]) => { document.getElementById(id).value = val; });
+  document.querySelectorAll('.alloc-preset .ap').forEach(el => el.classList.toggle('active', el.textContent.includes({conservative:'保守',balanced:'稳健',moderate:'平衡',growth:'成长',aggressive:'激进'}[name])));
+  calculate();
+  autoSave();
+}
+
+// === Allocation helpers ===
+const ALLOC_CLASSES = [
+  { id: 'Cash', color: '#fbbf24', label: '现金/货币' },
+  { id: 'Bond', color: '#34d399', label: '债券/固收' },
+  { id: 'Index', color: '#6c8cff', label: '指数/ETF' },
+  { id: 'Oversea', color: '#a78bfa', label: 'QDII/海外' },
+  { id: 'Alt', color: '#f472b6', label: '另类/黄金' },
+];
+
+function getAlloc() {
+  const alloc = {};
+  let total = 0;
+  ALLOC_CLASSES.forEach(c => { alloc[c.id] = g('alloc' + c.id); total += alloc[c.id]; });
+  alloc._total = total;
+  return alloc;
+}
+
+function getReturnRates() {
+  return { Cash: g('retCash')/100, Bond: g('retBond')/100, Index: g('retIndex')/100, Oversea: g('retOversea')/100, Alt: g('retAlt')/100 };
+}
+
+function getWeightedReturn(alloc, rates) {
+  if (alloc._total === 0) return 0;
+  let wr = 0;
+  ALLOC_CLASSES.forEach(c => { wr += (alloc[c.id] / alloc._total) * rates[c.id]; });
+  return wr;
+}
+
+// Get allocation adjusted for age (glide path)
+function getAllocForAge(baseAlloc, age) {
+  if (!glideOn) return baseAlloc;
+  const shift = Math.max(0, age - 47); // Start shifting from start age
+  const a = { ...baseAlloc };
+  // Increase cash+bond, decrease index
+  const indexReduce = Math.min(shift, a.Index);
+  a.Index -= indexReduce;
+  a.Bond += Math.round(indexReduce * 0.5);
+  a.Cash += indexReduce - Math.round(indexReduce * 0.5);
+  a._total = baseAlloc._total; // keep same total
+  return a;
+}
+
+function renderAllocVisual() {
+  const alloc = getAlloc();
+  const rates = getReturnRates();
+  const wr = getWeightedReturn(alloc, rates);
+  const cash = g('cash');
+
+  // Bar
+  const bar = document.getElementById('allocBar');
+  bar.innerHTML = ALLOC_CLASSES.map(c => {
+    const pct = alloc._total > 0 ? (alloc[c.id] / alloc._total * 100) : 0;
+    return `<div style="width:${pct}%;background:${c.color};">${pct >= 8 ? Math.round(pct)+'%' : ''}</div>`;
+  }).join('');
+
+  // Warning
+  const warn = document.getElementById('allocWarning');
+  if (Math.abs(alloc._total - 100) > 0.5) {
+    warn.textContent = `配置比例合计 ${alloc._total}%（应为100%），差额会按比例归一化`;
+    warn.style.display = 'block';
+  } else { warn.style.display = 'none'; }
+
+  // Summary
+  document.getElementById('allocSummary').innerHTML = ALLOC_CLASSES.map(c => {
+    const pct = alloc._total > 0 ? alloc[c.id] / alloc._total : 0;
+    const amount = cash * pct;
+    const ret = rates[c.id] * 100;
+    return `<div class="as-item">
+      <span class="as-label"><span class="as-dot" style="background:${c.color}"></span>${c.label}</span>
+      <span style="font-weight:600">${fmt(Math.round(amount))}万 · ${ret.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+
+  // Weighted return
+  document.getElementById('wrRate').textContent = (wr * 100).toFixed(2) + '%';
+  document.getElementById('wrDetail').textContent = `理财${fmt(cash)}万 × ${(wr*100).toFixed(2)}% = 年收益 ${fmt(Math.round(cash * wr))}万`;
+  document.getElementById('allocTotal').textContent = cash.toLocaleString('zh-CN');
+}
+
+// === Params ===
+function getParams() {
+  const alloc = getAlloc();
+  const rates = getReturnRates();
+  const wr = getWeightedReturn(alloc, rates);
+  return {
+    stock: g('stock'), stockRate: g('stockRate')/100,
+    cash: g('cash'), cashRate: wr, // Now uses weighted return!
+    alloc, rates, // Pass allocation details
+    house: g('house'), rent: g('rent'), houseRate: g('houseRate')/100,
+    wifeAsset: g('wifeAsset'), wifeRate: g('wifeRate')/100, wifeBirth: g('wifeBirth'),
+    monthly: g('monthly'), inflation: g('inflation')/100,
+    debt: g('debt'), debtYear: g('debtYear'),
+    childBirth: g('childBirth'), feeStart: g('feeStart'),
+    highFee: g('highFee'), uniStart: g('uniStart'),
+    uniFee: g('uniFee'), uniYears: g('uniYears'), masters: mastersOn,
+    birthYear: g('birthYear'), startYear: g('startYear'), endAge: g('endAge'),
+    annualSave: g('annualSave'), incomeEnd: g('incomeEnd'),
+    retireAge: g('retireAge'), wifeRetireAge: g('wifeRetireAge'),
+    ssStart: g('ssStart'), avgWage: g('avgWage'), ssIndex: g('ssIndex'), wageGrowth: g('wageGrowth')/100,
+    cadRate: g('cadRate'), cadDownpay: g('cadDownpay'), cadEmergency: g('cadEmergency'), cadSettle: g('cadSettle'),
+  };
+}
+
+// === Pension ===
+function calcPension(p) {
+  function calcOne(retireYear, retireAge) {
+    const payYears = retireYear - p.ssStart;
+    if (payYears <= 0) return { basic:0, personal:0, total:0, payYears:0 };
+    const retireAvgWage = p.avgWage * Math.pow(1 + p.wageGrowth, retireYear - 2026);
+    const basic = retireAvgWage * (1 + p.ssIndex) / 2 * payYears * 0.01;
+    let account = 0;
+    for (let yr = p.ssStart; yr < retireYear; yr++) {
+      const yearAvg = p.avgWage * Math.pow(1 + p.wageGrowth, yr - 2026);
+      account += yearAvg * p.ssIndex * 0.08 * 12;
+      account *= 1.03;
+    }
+    const months = retireAge <= 50 ? 195 : retireAge <= 55 ? 170 : retireAge <= 60 ? 139 : 120;
+    const personal = account / months;
+    return { basic: Math.round(basic), personal: Math.round(personal), total: Math.round(basic + personal), payYears };
+  }
+  const husband = calcOne(p.birthYear + p.retireAge, p.retireAge);
+  const wife = calcOne(p.wifeBirth + p.wifeRetireAge, p.wifeRetireAge);
+  return { husband, wife, combined: husband.total + wife.total };
+}
+
+// === Projection ===
+function project(p, reinvestPct) {
+  reinvestPct = reinvestPct || 0;
+  const pension = calcPension(p);
+  const endYear = p.birthYear + p.endAge;
+  const rows = [];
+  let cashPool = p.cash, wifePool = p.wifeAsset, houseVal = p.house, stockPool = p.stock;
+  const totalUniYears = p.uniYears + (p.masters ? 2 : 0);
+  const hRY = p.birthYear + p.retireAge, wRY = p.wifeBirth + p.wifeRetireAge;
+  const baseAlloc = p.alloc;
+
+  for (let year = p.startYear; year <= endYear; year++) {
+    const age = year - p.birthYear, wifeAge = year - p.wifeBirth, childAge = year - p.childBirth;
+    const yfs = year - p.startYear;
+    const living = p.monthly * 12 * Math.pow(1 + p.inflation, yfs);
+    let edu = 0;
+    if (year >= p.feeStart && year < p.uniStart) edu = p.highFee;
+    else if (year >= p.uniStart && year < p.uniStart + totalUniYears) edu = p.uniFee;
+
+    const rawDiv = stockPool * p.stockRate;
+    const reinvest = rawDiv * reinvestPct;
+    const dividend = rawDiv - reinvest;
+    stockPool += reinvest;
+
+    // Glide path: adjust allocation by age
+    const yearAlloc = getAllocForAge(baseAlloc, age);
+    const yearRate = getWeightedReturn(yearAlloc, p.rates);
+    const cashIncome = cashPool * yearRate;
+    const wifeIncome = wifePool * p.wifeRate;
+    const passive = dividend + cashIncome + wifeIncome + p.rent;
+
+    const hPM = year >= hRY ? pension.husband.total * Math.pow(1.03, year - hRY) : 0;
+    const wPM = year >= wRY ? pension.wife.total * Math.pow(1.03, year - wRY) : 0;
+    const pensionAnnual = (hPM + wPM) * 12 / 10000;
+
+    const workSave = year <= p.incomeEnd ? p.annualSave : 0;
+    const debtRemaining = year < p.debtYear ? Math.max(0, p.debt * (p.debtYear - year) / (p.debtYear - 2026)) : 0;
+    const surplus = passive + pensionAnnual + workSave - living - edu;
+
+    const tp = cashPool + wifePool;
+    if (tp > 0 && surplus !== 0) { cashPool += surplus * (cashPool / tp); wifePool += surplus * (wifePool / tp); }
+    else { cashPool += surplus; }
+    if (cashPool < 0) { wifePool += cashPool; cashPool = 0; }
+    if (wifePool < 0) wifePool = 0;
+    houseVal *= (1 + p.houseRate);
+
+    const totalAssets = stockPool + cashPool + wifePool + houseVal;
+    rows.push({
+      year, age, wifeAge, childAge,
+      stock: Math.round(stockPool), cash: Math.round(cashPool), wifeAsset: Math.round(wifePool),
+      house: Math.round(houseVal), total: Math.round(totalAssets),
+      debt: Math.round(debtRemaining), net: Math.round(totalAssets - debtRemaining),
+      passive: Math.round(passive), cashIncome: Math.round(cashIncome),
+      pensionAnnual: Math.round(pensionAnnual),
+      edu: Math.round(edu), living: Math.round(living), surplus: Math.round(surplus),
+      dividend: Math.round(dividend), wifeIncome: Math.round(wifeIncome), rentIncome: Math.round(p.rent),
+      yearRate: (yearRate * 100).toFixed(1),
+      isFree: (passive + pensionAnnual) >= (living + edu),
+    });
+  }
+  return rows;
+}
+
+function fmt(n) { if(n==null)return'-'; if(Math.abs(n)>=10000)return(n/10000).toFixed(1)+'亿'; return Math.round(n).toLocaleString('zh-CN'); }
+
+function calculate() {
+  const p = getParams();
+  const pension = calcPension(p);
+  const rows = project(p);
+
+  // Update slider displays
+  const pct=['stockRate','houseRate','inflation','wifeRate','wageGrowth','retCash','retBond','retIndex','retOversea','retAlt'];
+  const pctSuffix=['allocCash','allocBond','allocIndex','allocOversea','allocAlt'];
+  document.querySelectorAll('input[type="range"]').forEach(el => {
+    const v=document.getElementById('v-'+el.id);
+    if(v) v.textContent = pct.includes(el.id) ? el.value+'%' : pctSuffix.includes(el.id) ? el.value+'%' : el.value;
+  });
+
+  renderAllocVisual();
+
+  // Family bar
+  document.getElementById('fam-husband').textContent=`${p.birthYear} · ${2026-p.birthYear}岁`;
+  document.getElementById('fam-wife').textContent=`${p.wifeBirth} · ${2026-p.wifeBirth}岁 · 资产${p.wifeAsset}万`;
+  document.getElementById('fam-child').textContent=`${p.childBirth} · ${2026-p.childBirth}岁 · 加拿大`;
+
+  // Pension
+  document.getElementById('pensionDetail').innerHTML=`
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--green);">社保测算（杭州${p.ssIndex}倍基数）</div>
+    <div class="row"><span class="lbl">先生（${p.retireAge}岁，缴${pension.husband.payYears}年）</span><span class="val" style="color:var(--accent)">${pension.husband.total.toLocaleString()}元/月</span></div>
+    <div class="row"><span class="lbl">&nbsp;&nbsp;基础${pension.husband.basic.toLocaleString()} + 个账${pension.husband.personal.toLocaleString()}</span></div>
+    <div class="row"><span class="lbl">太太（${p.wifeRetireAge}岁，缴${pension.wife.payYears}年）</span><span class="val" style="color:var(--pink)">${pension.wife.total.toLocaleString()}元/月</span></div>
+    <div class="row"><span class="lbl">&nbsp;&nbsp;基础${pension.wife.basic.toLocaleString()} + 个账${pension.wife.personal.toLocaleString()}</span></div>
+    <div class="row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;">
+      <span class="lbl" style="font-weight:600;">合计</span>
+      <span class="val" style="color:var(--green);font-size:16px;">${pension.combined.toLocaleString()}元/月</span>
+    </div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:6px;">* 退休后按年3%调增</div>`;
+
+  // KPIs
+  const r0=rows[0], r60=rows.find(r=>r.age===60)||rows[rows.length-1];
+  document.getElementById('kpi-networth').textContent=fmt(r0.stock+r0.cash+r0.wifeAsset)+'万';
+  document.getElementById('kpi-networth-sub').textContent=`${p.startYear}年 · 理财加权${(p.cashRate*100).toFixed(1)}% · 房产另计`;
+  document.getElementById('kpi-passive').textContent=fmt(r0.passive)+'万';
+  document.getElementById('kpi-passive-sub').textContent=`分红${fmt(r0.dividend)}+理财${fmt(r0.cashIncome)}+太太${fmt(r0.wifeIncome)}`+(r0.rentIncome>0?`+租${fmt(r0.rentIncome)}`:'');
+  const totalEdu=rows.reduce((s,r)=>s+r.edu,0);
+  const highTotal=rows.filter(r=>r.year>=p.feeStart&&r.year<p.uniStart).reduce((s,r)=>s+r.edu,0);
+  document.getElementById('kpi-edu').textContent=fmt(totalEdu)+'万';
+  document.getElementById('kpi-edu-sub').textContent=`高中${fmt(highTotal)}+大学${fmt(totalEdu-highTotal)}`;
+  document.getElementById('kpi-pension').textContent=(pension.combined/10000).toFixed(1)+'万';
+  document.getElementById('kpi-pension-sub').textContent=`先生${(pension.husband.total/10000).toFixed(1)}万+太太${(pension.wife.total/10000).toFixed(1)}万`;
+  document.getElementById('kpi-retire').textContent=fmt(r60.total)+'万';
+
+  renderCanada(p,totalEdu);
+
+  // Table
+  const tuy=p.uniYears+(p.masters?2:0);
+  document.getElementById('tableBody').innerHTML=rows.map(r=>{
+    const cls=(r.age%5===0||r.year===p.uniStart||r.year===p.uniStart+tuy)?'milestone':'';
+    return `<tr class="${cls}">
+      <td>${r.year}</td><td>${r.age}</td><td>${r.wifeAge}</td><td>${r.childAge}</td>
+      <td>${fmt(r.stock)}</td><td>${fmt(r.cash)}</td><td>${fmt(r.wifeAsset)}</td><td>${fmt(r.house)}</td>
+      <td>${fmt(r.total)}</td><td>${r.debt>0?fmt(r.debt):'-'}</td>
+      <td style="font-weight:600">${fmt(r.net)}</td>
+      <td class="positive">${fmt(r.cashIncome)}<span style="color:var(--text-dim);font-size:10px;"> ${r.yearRate}%</span></td>
+      <td class="positive">${fmt(r.passive)}</td>
+      <td>${r.pensionAnnual>0?'<span class="positive">'+fmt(r.pensionAnnual)+'</span>':'-'}</td>
+      <td>${r.edu>0?'<span class="negative">'+fmt(r.edu)+'</span>':'-'}</td>
+      <td class="negative">${fmt(r.living)}</td>
+      <td class="${r.surplus>=0?'positive':'negative'}">${r.surplus>=0?'+':''}${fmt(r.surplus)}</td>
+      <td>${r.isFree?'<span class="badge free">自由</span>':'<span class="badge tight">积累</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  renderFreedom(rows,p,pension);
+  renderMilestones(rows,p);
+  renderCharts(rows);
+  renderPie(r0);
+}
+
+function renderCanada(p,totalEdu){
+  const rate=p.cadRate,dp=p.cadDownpay,em=p.cadEmergency,st=p.cadSettle;
+  const eduCAD=(totalEdu*10000/rate/10000).toFixed(1);
+  const nonEduCAD=dp+em+st;
+  const totalCAD=parseFloat(eduCAD)+nonEduCAD;
+  document.getElementById('canadaGrid').innerHTML=`
+    <div class="canada-item"><div class="title">教育总费用</div><div class="amount">${eduCAD}万CAD</div><div class="note">≈${fmt(totalEdu)}万RMB</div></div>
+    <div class="canada-item"><div class="title">定居首付</div><div class="amount">${dp}万CAD</div><div class="note">≈${fmt(dp*rate)}万RMB</div></div>
+    <div class="canada-item"><div class="title">应急金</div><div class="amount">${em}万CAD</div><div class="note">≈${fmt(em*rate)}万RMB</div></div>
+    <div class="canada-item"><div class="title">启动金</div><div class="amount">${st}万CAD</div><div class="note">≈${fmt(st*rate)}万RMB</div></div>
+    <div class="canada-item" style="border-left-color:var(--orange)"><div class="title">海外需求（不含教育）</div><div class="amount" style="color:var(--orange)">${nonEduCAD}万CAD</div><div class="note">≈${fmt(nonEduCAD*rate)}万RMB</div></div>
+    <div class="canada-item" style="border-left-color:var(--green)"><div class="title">总需求（含教育）</div><div class="amount" style="color:var(--green)">${totalCAD.toFixed(0)}万CAD</div><div class="note">≈${fmt(totalCAD*rate)}万RMB · 占金融资产${((totalCAD*rate)/(p.stock+p.cash+p.wifeAsset)*100).toFixed(1)}%</div></div>`;
+  document.getElementById('canadaSummary').innerHTML=`<div style="padding:14px 18px;background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.2);border-radius:8px;font-size:13px;">
+    <strong style="color:var(--cyan);">建议：</strong>2030年前预留<strong>${nonEduCAD}万CAD（≈${fmt(nonEduCAD*rate)}万RMB）</strong>存入加拿大账户。教育费用每年换汇支付。海外总需求占家庭金融资产<strong>${((totalCAD*rate)/(p.stock+p.cash+p.wifeAsset)*100).toFixed(1)}%</strong>。</div>`;
+  document.getElementById('fam-canada').textContent=`预留${nonEduCAD}万CAD ≈ ${fmt(nonEduCAD*rate)}万RMB`;
+}
+
+function renderFreedom(rows,p,pension){
+  const r0=rows[0];
+  const exp0=r0.living+r0.edu, inc0=r0.passive+r0.pensionAnnual;
+  const ratio0=exp0>0?(inc0/exp0*100).toFixed(0):0;
+  const firstFree=rows.find(r=>r.isFree);
+  const fullPR=rows.find(r=>r.year>=p.birthYear+p.retireAge&&r.year>=p.wifeBirth+p.wifeRetireAge);
+  const firNum=p.monthly*12/0.04;
+  const curFin=r0.stock+r0.cash+r0.wifeAsset;
+  document.getElementById('freedomContent').innerHTML=`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px;">
+    <div style="padding:14px;background:var(--bg);border-radius:8px;">
+      <div style="font-size:11px;color:var(--text-dim);">被动收入覆盖率（${p.startYear}）</div>
+      <div style="font-size:28px;font-weight:700;color:${ratio0>=100?'var(--green)':'var(--orange)'};margin:6px 0;">${ratio0}%</div>
+      <div style="font-size:11px;color:var(--text-dim);">收入${fmt(inc0)}万/支出${fmt(exp0)}万</div>
+    </div>
+    <div style="padding:14px;background:var(--bg);border-radius:8px;">
+      <div style="font-size:11px;color:var(--text-dim);">财务自由达成</div>
+      <div style="font-size:28px;font-weight:700;color:var(--green);margin:6px 0;">${firstFree?firstFree.year+'年':'未达成'}</div>
+      <div style="font-size:11px;color:var(--text-dim);">${firstFree?'先生'+firstFree.age+'岁 · 太太'+firstFree.wifeAge+'岁':''}</div>
+    </div>
+    <div style="padding:14px;background:var(--bg);border-radius:8px;">
+      <div style="font-size:11px;color:var(--text-dim);">双人社保全额</div>
+      <div style="font-size:28px;font-weight:700;color:var(--pink);margin:6px 0;">${fullPR?fullPR.year+'年':'-'}</div>
+      <div style="font-size:11px;color:var(--text-dim);">约${(pension.combined/10000).toFixed(1)}万/月 · 年${fmt(pension.combined*12/10000)}万</div>
+    </div>
+    <div style="padding:14px;background:var(--bg);border-radius:8px;">
+      <div style="font-size:11px;color:var(--text-dim);">4%法则FIRE</div>
+      <div style="font-size:28px;font-weight:700;color:${curFin/firNum>=1?'var(--green)':'var(--orange)'};margin:6px 0;">${(curFin/firNum*100).toFixed(0)}%</div>
+      <div style="font-size:11px;color:var(--text-dim);">需${fmt(firNum)}万</div>
+    </div>
+  </div>`;
+}
+
+function renderMilestones(rows,p){
+  const ev=[];
+  const tuy=p.uniYears+(p.masters?2:0);
+  if(p.debtYear>2026) ev.push({year:p.debtYear,text:'房贷清零',color:'var(--green)'});
+  ev.push({year:p.feeStart,text:'女儿开始缴费（国际生）',color:'var(--orange)'});
+  ev.push({year:p.uniStart,text:'女儿进入大学',color:'var(--orange)'});
+  ev.push({year:p.uniStart+tuy,text:p.masters?'女儿研究生毕业':'女儿本科毕业',color:'var(--green)'});
+  const wRY=p.wifeBirth+p.wifeRetireAge, hRY=p.birthYear+p.retireAge;
+  ev.push({year:Math.min(wRY,hRY),text:`${wRY<hRY?'太太':'先生'}退休，开始领社保`,color:'var(--pink)'});
+  if(wRY!==hRY) ev.push({year:Math.max(wRY,hRY),text:`${wRY>hRY?'太太':'先生'}退休，双人全额`,color:'var(--pink)'});
+  [50,55,60,65,70].forEach(age=>{
+    const yr=p.birthYear+age, row=rows.find(r=>r.year===yr);
+    if(row) ev.push({year:yr,text:`${age}岁 · 净资产${fmt(row.net)}万 · 年收入${fmt(row.passive+row.pensionAnnual)}万 · 理财${row.yearRate}%`,color:'var(--accent)'});
+  });
+  ev.sort((a,b)=>a.year-b.year);
+  document.getElementById('milestones').innerHTML=ev.filter(e=>e.year>=p.startYear-5&&e.year<=p.birthYear+p.endAge).map(e=>`
+    <div class="milestone-item"><span class="milestone-year">${e.year}</span><span style="width:8px;height:8px;border-radius:50%;background:${e.color};flex-shrink:0;"></span><span>${e.text}</span></div>
+  `).join('');
+}
+
+function renderCharts(rows){
+  const labels=rows.map(r=>r.year);
+  if(charts.assets) charts.assets.destroy();
+  charts.assets=new Chart(document.getElementById('chartAssets'),{type:'line',data:{labels,datasets:[
+    {label:'股票',data:rows.map(r=>r.stock),borderColor:'#6c8cff',backgroundColor:'rgba(108,140,255,0.1)',fill:true,tension:.3,pointRadius:0},
+    {label:'理财池',data:rows.map(r=>r.cash),borderColor:'#34d399',backgroundColor:'rgba(52,211,153,0.1)',fill:true,tension:.3,pointRadius:0},
+    {label:'太太',data:rows.map(r=>r.wifeAsset),borderColor:'#f472b6',backgroundColor:'rgba(244,114,182,0.1)',fill:true,tension:.3,pointRadius:0},
+    {label:'房产',data:rows.map(r=>r.house),borderColor:'#fbbf24',backgroundColor:'rgba(251,191,36,0.1)',fill:true,tension:.3,pointRadius:0},
+    {label:'净资产',data:rows.map(r=>r.net),borderColor:'#a78bfa',borderWidth:2,borderDash:[5,3],fill:false,tension:.3,pointRadius:0},
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b8fa3',font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.round(c.parsed.y)+'万'}}},scales:{x:{ticks:{color:'#8b8fa3',font:{size:10}},grid:{color:'rgba(42,46,61,0.5)'}},y:{ticks:{color:'#8b8fa3',font:{size:10},callback:v=>v>=10000?(v/10000).toFixed(1)+'亿':v+'万'},grid:{color:'rgba(42,46,61,0.5)'}}}}});
+
+  if(charts.cashflow) charts.cashflow.destroy();
+  charts.cashflow=new Chart(document.getElementById('chartCashflow'),{type:'bar',data:{labels,datasets:[
+    {label:'被动收入',data:rows.map(r=>r.passive),backgroundColor:'rgba(52,211,153,0.7)',borderRadius:3},
+    {label:'社保',data:rows.map(r=>r.pensionAnnual),backgroundColor:'rgba(244,114,182,0.7)',borderRadius:3},
+    {label:'教育',data:rows.map(r=>-r.edu),backgroundColor:'rgba(251,191,36,0.7)',borderRadius:3},
+    {label:'生活',data:rows.map(r=>-r.living),backgroundColor:'rgba(248,113,113,0.6)',borderRadius:3},
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b8fa3',font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+Math.abs(Math.round(c.parsed.y))+'万'}}},scales:{x:{stacked:true,ticks:{color:'#8b8fa3',font:{size:10}},grid:{color:'rgba(42,46,61,0.5)'}},y:{stacked:true,ticks:{color:'#8b8fa3',font:{size:10},callback:v=>Math.abs(v)+'万'},grid:{color:'rgba(42,46,61,0.5)'}}}}});
+}
+
+function renderPie(row){
+  if(charts.pie) charts.pie.destroy();
+  charts.pie=new Chart(document.getElementById('chartPie'),{type:'doughnut',data:{labels:['股票','理财池','太太资产','房产'],datasets:[{data:[row.stock,row.cash,row.wifeAsset,row.house],backgroundColor:['rgba(108,140,255,0.8)','rgba(52,211,153,0.8)','rgba(244,114,182,0.8)','rgba(251,191,36,0.8)'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8b8fa3',font:{size:11},padding:14}},tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);return c.label+': '+Math.round(c.parsed)+'万 ('+(c.parsed/t*100).toFixed(1)+'%)';}}}}}});
+}
+
+// === Scenarios ===
+function setScenario(name,tabEl){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  if(tabEl) tabEl.classList.add('active');
+  const p=getParams();
+  // Override allocation for scenario comparisons
+  const consRates = { Cash:0.015, Bond:0.04, Index:0.08, Oversea:0.07, Alt:0.06 };
+  const consAlloc = { Cash:30, Bond:40, Index:15, Oversea:10, Alt:5, _total:100 };
+  const consWR = getWeightedReturn(consAlloc, consRates);
+  const aggAlloc = { Cash:5, Bond:10, Index:50, Oversea:25, Alt:10, _total:100 };
+  const aggWR = getWeightedReturn(aggAlloc, consRates);
+
+  const scenarios = {
+    current: { ...p, label:'当前配置（加权'+((p.cashRate*100).toFixed(1))+'%）' },
+    conservative: { ...p, cashRate:consWR, alloc:consAlloc, rates:consRates, label:'全保守（加权'+(consWR*100).toFixed(1)+'%）' },
+    aggressive: { ...p, cashRate:aggWR, alloc:aggAlloc, rates:consRates, label:'全成长（加权'+(aggWR*100).toFixed(1)+'%）' },
+    rent2: { ...p, rent:15, label:'出租2套房（+15万/年）' },
+    sell1stock: { ...p, house:p.house-400, stock:p.stock+400, label:'卖1套(400万)→股票' },
+    reinvest: { ...p, label:'分红50%再投入' },
+  };
+  const results={};
+  for(const [key,sp] of Object.entries(scenarios)){
+    const rows=project(sp, key==='reinvest'?0.5:0);
+    const r60=rows.find(r=>r.age===60)||rows[rows.length-1];
+    const rL=rows[rows.length-1];
+    results[key]={label:sp.label, net60:r60.net, inc60:r60.passive+r60.pensionAnnual, netEnd:rL.net, incEnd:rL.passive+rL.pensionAnnual, endAge:rL.age};
+  }
+  document.getElementById('scenarioResult').innerHTML=`<div class="table-wrap"><table>
+    <thead><tr><th style="text-align:left">情景</th><th>60岁净资产</th><th>60岁年收入</th><th>${results.current.endAge}岁净资产</th><th>${results.current.endAge}岁年收入</th></tr></thead>
+    <tbody>${Object.entries(results).map(([k,r])=>`
+      <tr${k===name?' style="background:var(--accent-glow)"':''}>
+        <td style="text-align:left;font-weight:600">${r.label}</td>
+        <td>${fmt(r.net60)}万</td><td class="positive">${fmt(r.inc60)}万</td>
+        <td>${fmt(r.netEnd)}万</td><td class="positive">${fmt(r.incEnd)}万</td>
+      </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+// === Save/Load ===
+const STORAGE_KEY='financial-planner-saves', AUTOSAVE_KEY='financial-planner-autosave';
+function getAllSliderValues(){
+  const data={masters:mastersOn, glide:glideOn};
+  document.querySelectorAll('input[type="range"]').forEach(el=>{data[el.id]=parseFloat(el.value);});
+  return data;
+}
+function applySliderValues(data){
+  if(data.masters!==undefined){mastersOn=data.masters;document.getElementById('toggleMasters').classList.toggle('on',mastersOn);}
+  if(data.glide!==undefined){glideOn=data.glide;document.getElementById('toggleGlide').classList.toggle('on',glideOn);document.getElementById('glideInfo').style.display=glideOn?'block':'none';}
+  document.querySelectorAll('input[type="range"]').forEach(el=>{if(data[el.id]!==undefined)el.value=data[el.id];});
+  calculate();
+}
+function showMsg(t,c){const el=document.getElementById('saveMsg');el.textContent=t;el.style.color=c||'var(--green)';el.style.display='block';setTimeout(()=>{el.style.display='none';},3000);}
+function getSaves(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');}catch{return[];}}
+function setSaves(s){localStorage.setItem(STORAGE_KEY,JSON.stringify(s));}
+function saveToLocal(){const name=prompt('方案名称：','方案 '+new Date().toLocaleDateString('zh-CN'));if(!name)return;const saves=getSaves();saves.unshift({name,data:getAllSliderValues(),time:new Date().toISOString()});if(saves.length>20)saves.length=20;setSaves(saves);showMsg('已保存: '+name);}
+function autoSave(){localStorage.setItem(AUTOSAVE_KEY,JSON.stringify(getAllSliderValues()));}
+function loadAutoSave(){try{const d=JSON.parse(localStorage.getItem(AUTOSAVE_KEY));if(d){applySliderValues(d);return true;}}catch{}return false;}
+function showLoadDialog(){
+  const el=document.getElementById('loadDialog'),saves=getSaves();
+  if(!saves.length){el.innerHTML='<div style="text-align:center;padding:16px;color:var(--text-dim);font-size:13px;">没有保存的方案</div>';el.style.display='block';setTimeout(()=>{el.style.display='none';},2000);return;}
+  el.innerHTML=`<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:600px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-weight:600;">已保存方案</span><button class="btn btn-outline btn-sm" onclick="document.getElementById('loadDialog').style.display='none'">关闭</button></div>
+    <div class="save-list">${saves.map((s,i)=>`<div class="save-item"><div class="info"><div class="sname">${escHtml(s.name)}</div><div class="time">${new Date(s.time).toLocaleString('zh-CN')}</div></div><div class="actions"><button class="btn btn-sm" onclick="loadSave(${i})">加载</button><button class="btn btn-sm btn-danger" onclick="deleteSave(${i})">删除</button></div></div>`).join('')}</div></div>`;
+  el.style.display='block';
+}
+function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function loadSave(i){const saves=getSaves();if(saves[i]){applySliderValues(saves[i].data);document.getElementById('loadDialog').style.display='none';showMsg('已加载: '+saves[i].name);}}
+function deleteSave(i){const saves=getSaves(),name=saves[i]?.name;if(!confirm('删除 "'+name+'"？'))return;saves.splice(i,1);setSaves(saves);showLoadDialog();showMsg('已删除','var(--red)');}
+function exportJSON(){const blob=new Blob([JSON.stringify({version:2,exported:new Date().toISOString(),params:getAllSliderValues()},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='财务规划_'+new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')+'.json';a.click();}
+function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){try{const d=JSON.parse(ev.target.result);applySliderValues(d.params||d);showMsg('已导入');}catch{showMsg('格式错误','var(--red)');}};r.readAsText(f);e.target.value='';}
+function resetAll(){
+  if(!confirm('恢复默认？'))return;
+  applySliderValues({birthYear:1983,stock:800,stockRate:10,cash:1500,wifeBirth:1983,wifeAsset:200,wifeRate:3,house:1000,rent:0,houseRate:0,monthly:4,inflation:0,debt:500,debtYear:2028,childBirth:2012,feeStart:2027,highFee:10,uniStart:2030,uniFee:32,uniYears:4,ssStart:2006,avgWage:15000,ssIndex:3,retireAge:60,wifeRetireAge:55,wageGrowth:5,annualSave:0,incomeEnd:2030,startYear:2030,endAge:70,cadRate:5.2,cadDownpay:20,cadEmergency:5,cadSettle:3,allocCash:15,allocBond:25,allocIndex:35,allocOversea:15,allocAlt:10,retCash:1.5,retBond:4,retIndex:8,retOversea:7,retAlt:6,masters:false,glide:false});
+  showMsg('已恢复默认');
+}
+
+function init(){
+  document.querySelectorAll('input[type="range"]').forEach(el=>el.addEventListener('input',()=>{calculate();autoSave();}));
+  if(!loadAutoSave()) calculate();
+  setTimeout(()=>{const t=document.querySelector('.tab');if(t)setScenario('current',t);},100);
+}
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>

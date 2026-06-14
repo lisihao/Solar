@@ -1,0 +1,679 @@
+{
+  "videoId": "eF6joJdLaVc",
+  "title": "SREcon26 Americas - Low Latency Serving of Offline Data: Efficient, Safe, and Reliable Data...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 32886,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Excellent. Welcome everybody and thank\nyou Joe for the introduction. Thank you\neveryone for being here. It's a it's an\nhonor to present. Um as you heard I'm\nI'm from Netflix and from the online\ndata source group. And the the problem\nI'm going to talk about uh\nis one we've solved at Netflix, one that\nwe think other companies are likely\nfacing and and will have to solve or\nhave solved in some way. And um I'm\ngoing to talk about the system that we\nbuilt.\nUh I'm going to talk about the kind of\narchitectural choices we made. And I I\nthink that this is particularly relevant\nto the SRE con because\nour our the kind of architectural\ndecisions we made and the trade-offs we\nfaced uh really skew towards the\noperational side. So, we have to\nwe had to think a lot about how we're\ngoing to operate this new system and we\nhad to make trade-offs, some of which\nincrease our our kind of operational\nload but made other things easier as as\nI'll kind of get into.\nUm so, let's start with what what is our\nfundamental challenge we're trying to\nsolve. And and that is that we have this\ndata offline, things like ML features,\nprecomputed\nindices or or\nthere you can imagine there's many data\nsets of this shape. And these are are\ncomputed and assembled offline, but we\nwant to serve them online. We want to\nserve them with low latency in the hot\npath uh when we make queries um\nto serve our users' videos.\nAnd when they log in and\neverything else in that line. So, the\nsystem that we use and the team I work\non is the key value team. So, the system\nthat we're we're working on here is a\nkey value store. And I'll give a quick\nkind of\noverview of the what we had coming into\nthis project and that's this this kind\nof key value abstraction which is not\nany given database but rather just say\nan interface over the kind of concept of\nkey value and Netflix has especially\ndata platform is really leaned into\nabstractions and many of my colleagues\nhave talked about this and and written\nblogs about this so there's a lot of\ncontent on this particular topic and it\nI'll talk about how it's relevant for us\nas well. And one thing you'll notice is\nthat this middle layer this API layer is\nstateless. And in our original build of\nthe key value system uh\nstatelessness of the of the API layer\nwas something that we kind of\nbuilt into the system and we relied on\nother existing databases like Cassandra\nto provide us the persistence layer and\nas we evolve the system we kind of start\nto challenge that fundamental piece.\nSo okay, let's get to back to our\nproblem. We want to move all the state\nonline. Why can't we just write it? We\nhave a KB store we can just call put\nover and over and over again. Why not\njust write the state in our mutable\nstore?\nThe problem is if you write enough\nif you keep on sending you know\n50 terabytes 100 terabytes of data\neventually you're going to degrade any\ngiven store. You're not going to be able\nto support the throughput\nof of all those rights and then in fact\nthat throughput will dwarf the actual\ncapacity you need to serve the reads.\nSo okay, you start to degrade your\ntraffic and then you know eventually you\ncause incidents.\nThis is is not where we want to be as\noperators.\nSo okay, fine. Don't write that fast.\nLet's just back pressure the rights.\nThat works, right? Now we can kind of\nsafely serve things. I will say it's\nharder than it sounds. It's actually\nhard to do kind of perfectly safe back\npressure in a kind of a resource based\nway but it's possible and so this is\nsomething we we looked at. Um but all of\na sudden you have a kind of this fixed\nrate and what if that fixed rate just\nisn't fast enough? What if you as you\nload your data you want to load too much\ndata in too short of a time.\nOkay, again, now you're back to the\nfirst problem. You have to push your\nrate limits up and you start to overload\nyour database.\nOkay, well, let's just give ourselves\nmore capacity. Can we just scale up?\nWe can't. We can't just scale up. We can\nthrow hardware at the problem. We can\njust spend more money.\nUm and that will get us somewhere,\nright? Now now cases that we couldn't do\nbefore we can do.\nBut there's two problems here. The first\nwe're we're paying for this capacity at\nall times. So, unless you have very\nflexible auto scaling on your data\nstores, which is its own operational\nchallenge,\nthen you find that you have to scale\nyour data stores to support the right\nthroughput and the read throughput,\nwhich is I kind of your real use case,\nis actually not not not no longer\ndriving your cost. So, your your cost is\ndriven by the amount of data and the the\nhow quickly you want to move that data.\nAnd you have these big troughs where\nyou're just reading that data, but\nyou're you're not kind of fully\nutilizing your system. The other point\nis even if you accept this this kind of\noutcome, which is reasonable, there\nthere are systems that work this way, at\ncertain scales, it's just cost\nprohibitive. So, if you want to move\nenough data fast enough, the throughput\nyou have to pay to write it all through\nCassandra really is just extremely\nexpensive or or it's at least not in the\nbudget for the project you want to do\nit.\nSo,\nwe come to this this trilemma. We have\nwe have three things that we want\nand we can't have them all. So, if we\njust write everything, then okay, we get\nin we have this risky situation where we\noverload the database.\nIf we uh\nkind of give up on data freshness and\nback pressure everything, then it's hard\nto to quickly write data and the use\ncases it it might not work for your use\ncase because\nyou know, you want to write data every\nday, but it takes you two days to write\nthe data. All of a sudden all all your\nyour reads are stale.\nAnd uh finally, you can scale up and\njust spend money.\nBut of course, that's a limit. Can we\nhave all three of these? That's the\nquestion that we are trying to to answer\nhere.\nSo yeah, so so towards that let's think\nabout what we're really doing when we\nwrite this data. A kind of key question\nwe should ask is, why are we doing all\nthis work? What is all this work we're\ndoing when we write you know, a million\ntimes per second to this database? What\nwe're actually doing is reconstructing\ninformation that we already have\noffline. So\nKB is backed by Cassandra. What does\nCassandra do? You take all these rights,\nyou write them to SS tables, you compact\nthose SS tables, and you end up\nassembling a structure which is\nbasically the data laid out and sorted\nwhich you already know. Right? This is\ndifferent from a normal database where\nyou aren't sure what rights you're going\nto get, and so that's what Cassandra's\ndesigned to solve and does very well.\nBut in this case, you already know the\nexact structure of the data you want to\nread. You have it offline, you already\ncomputed it. So you're you're really\nwasting time redoing this kind of\nthis um\nthese rights. And and you're you're\nactually it's it's even worse than that\nbecause you are breaking it down into\nall these little operations, you know,\none right at a time. And then you have\nto kind of for each one, there's\noverhead, you have to reconstruct this\nbig data set.\nOkay, what what can we um\nwhat can we do with this? Right, so we\nare we already know this this final\nlayout. Why rediscover it in real time?\nThere's this is this is kind of one\ninsight. We can generate these tables\noffline, right? We So we have it in some\nstore like Iceberg, but we can still\njust compute in a kind of closed fashion\nthe exact SS tables that we eventually\nwant to serve online.\nAnd once we do that, now we have a very\ndifferent sort of problem. We have these\nfiles\nthat we are going to kind of deploy.\nAnd this is a a problem that we're all\nvery familiar with. You have a set of\nfiles and you want to kind of revenue\ninfrastructure with those files not the\nold files. That's a lot like code\ndeployments. So, this is a kind of a\nmutable set of of data that we're now\nspinning like a code deployment. That\ngets us into a very familiar world of\ntooling and of operations and we can\nlearn from how we've all learned to\ndeploy code over the years and apply\nthese same principles to deploying data.\nSo, okay. First, let's start with what\nthe offline\npath really does and\nI'm very lucky to work with some very\ntalented and\nexpert engineers on the data movement\nteam who built this pipeline so that I\ndon't have to think much about it. From\nmy point of view, these these files just\nappear materialize in S3.\nBut, under the hood, this is what\nhappens. We have kind of offline data in\nIceberg. We read it with Spark or other\nother processors. We We write it to\nRocksDB SSTables. We load it into S3.\nAnd then\nfrom there, I'll talk about the system\nthat we've built around these kind of\nfiles\nbased on those those insights that we\ntalked about to actually serve this in\nthe hot path.\nYeah, so so as I I mentioned at the\nbeginning that we have that stateless KB\nlayer.\nOne of the decisions we made going into\nthis was to explore making that layer\nstateful.\nAnd that's a significant tradeoff. So,\nwe have all these these kind of sets of\ndata and RocksDB SSTables and we built a\nsystem that's so far mostly around kind\nof fronting Cassandra, but now we're\nusing the the data set in a very\nfundamentally different way.\nThe question was, why not take these\ndata sets that we've assembled offline\nand just stick them on the disks of the\nAPI layer and read them right off the\ndisk. Um\nWe did that, but that it was not an easy\nquestion. So, as you can imagine,\noperating a stateless system is very\ndifferent from operating stateful\nsystem. So, we gained some stuff, right?\nWe solved the the Charlemagne we were\ntalking about. We have the CICD\ncomponent that we talked about and I'll\nget into more detail there. Um we\ndecouple the loading and serving. I'll\nshow that in some detail. But, we opt\ninto all these things that are hard. All\nthe things that make stateful systems\nhard, that make databases in some ways\nmore complex than stateless systems. So,\nwe have to manage leases.\nRight? Not every node is the same\nanymore. Nodes have different data where\nyou can't have every the whole data set\non every node.\nWe have to capacity plan in a much more\nkind of intr- intricate way. We can't\njust have an auto scaling group that\nscales up and scales down. We have to\nevery time you add a new node, that node\nhas to have some subset of the data.\nThat subset has to\nhas some relationship to the other nodes\nin the system. So, this\nstate capacity planning becomes much\nmore complex. And then we need to route\nour request to the right node. So, in a\nstateless system, right? You can just\nuse round robin. You or there's many\nload balancing algorithms, but your core\ngoal is just to balance load. In this\ncase, there's a correctness element,\nright? If if you are searching for a\nspecific ID, you're writing not writing,\nif you're reading a specific ID, you\nhave to send that to a specific node.\nRight? Otherwise, the data won't be\nthere.\nSo, this is a a kind of core decision\npoint that we had, but we we pushed\nthrough and and moved towards a stateful\nsystem\num because of what we gained.\nAnd in I'll talk about I think kind of\none of the key components of why we were\nable to do that without adding a ton of\ncomplexity. But, first, let's dive into\nwhat this complexity really was. I'll\nalso code deploys get harder.\nUm so, first, leasing. This is a kind of\nsolve\nproblem. Like, this is a a very common\nproblem, right? You if you need a set of\nnodes to each own a a\npiece of a data set, there's ways to do\nthat. But,\nthese are often coupled to databases. Um\nso that while the techniques are there,\nthere there's kind of some, uh,\nlike we weren't able to just\nout of the box reuse Cassandra token\nrings. We had to kind of create\nsomething. Um,\nit it but it ends up being that this is\na very possible and and kind of potted\nthing. So,\none of this was one of the things that\nseemed scary at first was we have this\nnew correctness element we're\nintroducing to our formerly stateless\nsystem. And this was almost seemed like\na blocker, but if you explore it, it's\nactually something that's quite doable.\nAnd we were able to do it fairly fairly\nrobustly on top of just a kind of\nrelational database using transactions.\nThere are many other ways to do this.\nSystems like Zookeeper can do this, and\nthere are practical reasons to go one\nway or another.\nBut just to lay out what we're actually\ndoing, if we have our serving fleet, you\ncan imagine that each instance is\nresponsible for some subset of the data.\nYou know, you can divide your data set\ninto into some number of groups. Let's\ncall them partitions. And then when a\nnode comes up, it becomes responsible\nfor that partition. It has to go\ndownload all the data associated with\nthat partition. And that's exactly how\nthe system works. We have all the data\nstaged in S3. A node comes up, it\nacquires a lease, and it goes and\ndownloads the data associated with that\nlease.\nBut this introduces another problem,\nwhich is\nhow much data do you put on each node,\nand how how do you decide which, yeah,\nexactly how to chop up your data set,\nexactly which data goes where. You get\ninto this kind of complexity of\na of capacity planning. And then it's\nmade even more complex by some of the\nkind of practical\nuh, limitations of of the\nI mean, very very reasonable\nlimitations, but still practical\nlimitations of uh, EC2, which is the\nplatform we work with. So,\nthe the first is that there's this\nchunkiness, right? Like\neach instance type has a specific amount\nof disk and a specific ratio of of\ncompute to disk. So, you can't just say,\n\"Oh, I exactly It'd be great if I could\nchop my data set into exactly these\ninstances and use exactly 90% of each\ndisk, but it doesn't work that way.\nThe the the of all use cases, the actual\ndata to compute ratio varies. So, there\nare some use cases that say, we have\nthis huge data set and we want random\naccess to small portions really quickly.\nThere are other use cases that are more\nlike a almost like a traditional cache\nof like, I have this small amount of\ndata. I just want it online. I want to\nbe able to access it. And I I want to\naccess it a lot. I want to access it a\nlittle. There there's kind of\nevery shape that you can imagine of of\nthis ratio exists.\nAnd so, okay. This this makes the\nproblem of picking across these chunky\nsort of allocations difficult. There's\nalso the question of NVMe versus EBS,\nright?\nThere are\nThere's one kind of high-level\ntrade-off, right? There's some fixed\nlatency cost to EBS. But, then there's\nalso these these cost trade-offs and\nplanning trade-offs. EBS is\nis very flexible, but as as we'll get\ninto, the cost profile doesn't make it\nperfect for every use case. So, let's\ntalk about um\nhow we we approach this problem.\nThis is actually open source. We have a\ncapacity planning model we published and\nwe added a we call it read-only KB\nmodel. So, if you're really curious,\nplease go take a look.\nUm but, we we have an algorithm\nthat we call partition aware sizing,\nwhere we compute kind of an optimal\noutlay of this data across our nodes and\nthen kind of do another pass to reinsure\nthat we reuse all the extra capacity\nthat may have been left over\nin the shape we're forced into. So, we\ncan think about this kind of as a\nbucketing problem, right? So, we we have\nthis this kind of we have this amount of\ndata divided by into certain partitions.\nWe know how many partitions we can fit\non a given node. Let's say a node has\nfixed disk\na fixed disk size.\nAnd then we know, okay, if we can fit\nthat much data on one node we need of\nthis type, we need at least this many\nnodes.\nOkay, and then if we don't have enough\ncores with that layout to to serve the\ndata set, okay, let's add replicas, and\nthen all of a sudden we can have more of\neach type and we can serve the data set.\nThis is effectively the algorithm we run\nand we just run through every instance\ntype, every shape, and perform this math\nand come out to a optimal shape.\nThe the next key part though is\nif you have a compute heavy\nuh data set, you'll end up with all this\nfree disk because you requested\nokay, I I need you know\nI need so much compute to serve this.\nThere's a chunky relationship between\ncompute and disk. So, if you get\ncompute, you're are getting disk with it\nin the non-EBS case.\nThe The key thing that we then can do is\nwe can use that disk, not just waste it,\nby filling it with additional\nadditional copies of the data. So, we\ncan increase our replication factor into\nlike huge numbers. We can have data sets\nthat are replicated 16-fold.\nAnd it's free. It's free to do. So, this\nwas a kind of fundamental shift in how\nwe think about replication factor. Often\nwhen you're thinking about a database,\nyou say, \"Okay, I want three copies\nbecause that gives me sort of\nthe that's the minimum to to assure the\navailability I want.\" This actually\nworks the other way. You have all this\ncompute you have or rather you have all\nthis disk lying around, you may as well\nuse it. And so, this is something that\num kind of really pushed our our\ntolerance to failures up because we can\nhave really uh\nhighly replicated data.\nOkay, the second question is NVMe versus\nEBS in general.\nThere's this kind of interesting\nrelationship between the two.\nIf you think about what EBS really does,\nit's decoupling the compute from the\nstorage. So, what this allows you to do\nis if you have a lot of storage and you\ndon't need much compute, you can scale\nyour EBS volumes high and keep your your\ncompu- pay for less compute nodes kind\nof the\nThis works when your savings on compute\nare sufficient to justify the increased\nspend on EBS because per gigabyte EBS\nactually ends up being more expensive\nthan NVMe for for certain instance\ntypes.\nUm and this works well, but there there\nis this breaking point where eventually\nit's no longer worth it and actually\nit's better just to pay for the NVMe.\nThere's also just in general if you have\nso much data\nuh that the EBS cost dominates, then\nagain it's better to pick NVMe. So, the\nthe point is EBS sounds like it solves\nthis problem kind of and and we don't\nhave to worry about the NVMe case\nbecause we can just\njust decouple it and you know, scale\nthese two independently. And that that\ndoes work in some cases, but at enough\nscale you actually do have to start\nthinking hard about how you're going to\nallocate these kind of chunky\nrelationships of compute and storage.\nNice.\nOkay, let's talk about the next part\nhere. So, we we have our data, we've\neach node we've picked how much data\ngoes on the node, we've gotten a lease\nand downloaded it. Now we need our\nclient to talk to those nodes and again\nthere's a a level of statefulness here,\nright? So, if we send the request to the\nwrong node, the data won't be there. So,\nwe we devised just a very simple scheme\nhere where when we partition the data,\nwe partition it by hashing and modding\nthe ID. And so that each group of data\nis is kind of has this relationship to\neach other via hash mod, we can\nrecompute that same relationship on the\nquery path. So, when we make a query to\na given ID, we compute the same hash, we\ncompute the same modulus, and we pick\nour node. This diagram is slightly\nsimplified because it's showing picking\none node out of three. In reality,\nyou're picking a set of nodes, all of\nwhich have your data, and then you can\nround robin or or load balance across\nthose accordingly.\nyeah, this does I I\nhand-waved away before the the offline\npath as owned by\nby our great data movement folks. This\nis one piece where we do have to\nintegrate. So,\nthe the way they partition the data and\nthe way we\ntell our users how the data is\npartitioned\nhas to be connected.\nAnother kind of difficulty. So, yeah, we\nwe get to this question of like I've\ntalked about all these difficult\nproblems seemingly difficult problems.\nHow have we not just built another\ndatabase and kind of pushed so much\ncomplexity to our consumers? And I I\nthink the answer really is\nare the KB abstractions. Netflix has\nreally leaned into abstractions and this\nis a version of of that paying off\nbecause\nthe same user interface, the same client\nlibraries were all reusable um\nfrom by all our users. They didn't have\nto know about any of this. All they had\nto say is, \"Oh, I want a key value shard\nand I plan only to do reads.\" And behind\nthe scenes we can kind of control all of\nthis. So, even though we are increasing\nthe scope operationally, we're\ncontaining the the the scope to the\nplatform. We're completely con-\ncontaining it to to our team. Well, one\nother thing to call out is this is\nuseful for our team as operators as\nwell. So,\nwe're not just introducing some kind of\nfully new service with new metrics and\nnew libraries. This is built into\nexisting services, existing alerting\nsystems, existing observability systems.\nSo, as operators, my teammates\nare able to\nto kind of take the knowledge they have\nof operating the key value system in\ngeneral and reapply it to operating this\nsystem, which is just another variant of\nKB.\nOkay. So,\nwe've gotten to this point where we we\nhave all these challenges. We're able to\nat least hide them. So, fine. But, what\ndoes this buy us? Like, why even bother\nwith this in the first place? And we\ngain a lot from it. The first is CI this\nCI the idea of CICD for data. So,\nyou know, everyone's kind of familiar\nwith this sort of blue green patterns,\nbut one thing that we can do that's very\npowerful is when we bring up our our new\ndata, our green server here, we can run\neffectively arbitrary validation on it\nrisk-free.\nSo, the offline team, for example, just\nproduced this data set and we just\nloaded it. They know exactly what data\nshould be there. They know what it\nshould look like. They have some idea of\nhow latent\nrequests should be. We can really beat\nit up. We can send all kinds of\nrequests. We can check schemas. We can\ncheck hashes, check sums. And and we can\nhave gain a ton of confidence in this\nnew data set before the production side\never sees it. But it's the actual\nserving layer that will be in\nproduction. So, we we're very close.\nWe're validating something that's very\nclose to what's actually going to be in\nproduction. And that's really useful.\nThis gave us a ton of confidence in\nrolling this out. Like, there's a whole\nclass of bugs that you can imagine of\nlike some metadata gets mismatched and\nwe don't download one of the SS tables\nand there's a data hole. We can actually\njust actually especially because of our\nclose integration with the the right\nside,\nwe can assert, oh, we did a read from a\nkey that we know appears in each SS\ntable and each one came back. So, we\nhave we must have downloaded at least\npart of each SS table. This kind of\nvalidation gave us like really really\nenormous confidence in rolling out and\nit does on every deploy. So, on every\ndeployment we can continue to have this\nthis integration, this this testing. So,\nany regression can immediately stop the\npipeline and we can debug and and see\nwhat happened.\nonce this passes, again, because we\ncontrol our own serving layer, we can\nthen cut the traffic over to our new now\nvalidated deployment only once we're\nwe're ready.\nUm and this is\ninstantaneous. It's it's just like a\njust as you would imagine a red black\nhappens in the normal kind of\nstateless system or any other system.\nUm of course this means we also can go\nthe other direction. Right? Let's say\nthat we we cut over the green and\nsomething goes wrong that we didn't\ndetect. Uh\nthere are certain classes of issue that\nwe can't detect that are even outside\nthe correctness of the system. Maybe we\ndeliver the right data but for some\nreason there's a regression in in the\nrecommendation system. Like we we notice\nimpressions are going down or something\nlike this and the the team that owns the\ndata set wants to roll back. We can now\nwe can facilitate that and we can do it\neffectively instantaneously. Again, it's\njust a DNS swap to move back to the the\nwarm standby and it's like now a a kind\nof last known version. It's very similar\nto the idea of a code revert where you\ncan just I know this commit was good,\nsomething's going wrong, let's revert to\nthat commit. That gave our users this\nkind of enormous freedom to experiment\nbecause the the stakes of doing the\nof serving the new data set are low.\nRight?\nIt's if you imagine you had written all\nthis data one by one to Cassandra, the\nrollback story is much more complicated.\nso yeah, no data reload. I I think some\npeople might be thinking now this is\ngreat but aren't you kind of paying for\nthis data twice? You have this this blue\nand this green server. And that's right.\nSo there there are trade-offs. If you\nkeep the old ASG warm, you can\nimmediately fall back to it but it cost\ndouble. If you destroy and redeploy from\nS3, you have to can tear down the old\nASG and you can recover but you have to\nmove the data back online. We support\nboth and we support this as a\nconfigurable spectrum of trade-offs and\neach use case can decide based on\nbasically their confidence, their their\ncriticality, how much they want to pay\nand what they get for that cost.\nSo yeah, making this tunable I think is\nkind of a a key thing and again this is\nsomething that we learned from code\ndeployments. So code deployments use use\nsame strategy. It's not at the same\nscale often because\nyou can keep an old ASG around that's\nconfigured with the old code for cheap,\nbut\nthe idea is the same.\nlet's see. Okay, the the other thing\nthat we really gain from this is this\ndecoupling of of two things that are of\nvery different criticality, which is the\nserving and the loading. And this comes\nback to the\nthe triangle we had at the beginning,\nthe trilemma we had at the beginning,\nwhere if you overload your server, you\nhave this risk of\ndegrading the availability of your uh\nof your online serving for reads while\nyou're doing all these rights. And you\nyou might see an image like this where\nokay, we're going along at it's kind of\nnominal CPU usage just doing these easy\nreads. All of a sudden we have this huge\n80% spike and spike up to 80% CPU\nutilization, reads might be degraded.\nAnd this actually this is an image that\nlooks a lot like what we saw in uh\nin the the Cassandra world before and it\nit's this but this image actually is\nfrom this new system. The key thing\nthough is that this is split into two,\nright? So, there are two pieces of infra\nhere. Uh\nhopefully you can see that well enough.\nThere's this orange line, which is our\nold capacity, and you can see the CPU of\nthe orange line never goes up. So, this\nis just serving reads and all of a\nsudden this new blue line appears and it\nstarts loading all the data. It shoots\nup, it saturates the disk, it saturates\nthe network. We're we're working hard\nactually on pushing this even further to\nreally fully utilize every available\nresource and move data absolutely as\nfast as possible. Um\nbut the old service is completely\nuninterrupted because it's totally\nindependent, it's totally different\nnodes. And so, you can see then at\n15:30 or so the the switch happens and\nthe the CPU drops totally off for the\nold and jumps back up for the new.\nand the latency remains flat this whole\ntime.\nAnd\nthat looks Does that look flat? Almost\nflat. There's a little spike there. What\nis that little spike? It You'll notice\nit's at that 15\n30 mark. And if I go back, that's\nactually not the time of the load,\nright? So, during the load, it is\ntotally flat. But during Oops. During\nthe time of the cutover, there's this\nlittle latency glitch. Um\nI left this in because it's kind of just\nan interesting fact about what that is\nand and we\nin some cases I've worked to ameliorate\nthis, in other cases it doesn't matter.\nWhat that is is that the new nodes,\ntheir page cache is empty. So, the old\nnodes are are have the page cache warm,\nthey're serving a lot of large\npercentage of the reads out of memory,\nor at least some percentage of the read\nout of memory. Um when you hit the new\nnode, nothing's in the page cache. We\nhave techniques actually to pre-warm the\npage cache.\nDepending on the use case, it matters or\nit doesn't. Um\nbut yeah, that's why that little bump is\nthere.\nSo, okay, we've gotten to this point\nwhere we really have\nmade data deploys a lot like code\ndeploys.\nWe We've been able to reuse this\nplaybook of of CICD, of roll out and\nroll back, of blue-greens, and we're\nusing it not just for for code that\nwe're all used to, but we're using it\nfor for data itself, for the actual\nmovement of data to online systems. The\nonly\ncost is we have to do some of these\nthings ourselves. We have to do our\nlease management, we have to do our own\nrouting layer, we have to manage the\nstateful identity of nodes,\nbut we we get a lot out of it. That's\nkind of the key point. So, yeah, this is\njust some some uh\nnumbers here about So,\nwe had a data set before that we\nactually said we thought at our maximum\nbudget it would take about a week to\nload. We can load in 30 minutes. We have\n50 TB data sets that are moving weekly\nor daily. We we have huge cost\nreductions in some of these clusters\nkind of fleet wide that were over scaled\nto to to accept rights.\nAnd we can do hundreds of of data\ndeploys per day across several hundred\napproaching thousands of data sets. And\nwe serve this all with a like a P99 of\nless than 5 milliseconds because it's\nreally quite fast, especially on NVMe\nwith a big page cache. I mean, you can\njust imagine it's like it's really\nripping. It's great.\nSo, yeah, we we've let let I'll take a\nmoment here to summarize. Like there's\nsome some key lessons that we've learned\nhere. The first is that the abstraction\nreally enabled this. Like if we had no\nattraction, if we were just had our\nclients connected to Cassandra directly,\nwhere in this pipeline could we have\ninserted this new system?\nThis gave us a degree of freedom to\npivot and and kind of change the\nfundamental nature of our serving layer\nwithout having any\nimpact on our clients without having\nthem need to learn anything new, rewrite\nany apps. We were able to onboard the\nsystem to to existing consumers of our\nof our interface.\nAnd and that's like abstraction's really\npaying off in ways that that are hard to\npredict even ahead of time. It just\nshows the value of the the idea. The\nsecond is the how important familiarity\nis. And there's two pieces of this. The\nfirst is to our customers, right? So, if\nyou are if you're any developer at\nNetflix, you're familiar with how to\ndeploy code or how to deploy code, how\nto do CICD. You can now apply that same\nthinking to data and that is a\ncompelling story for our users. And they\ncan they can think about how to write\nvalidations in the same way they'd think\nabout how to write smoke tests and\nthat's kind of a\npowerful thing. And it's also\nit's also useful for us as operators to\nbuild on our existing abstraction\nbecause it's so familiar that\noperationally it's not it doesn't feel\nlike okay, now we have to just support\nthis whole new thing that seems\nseparate. It's more like we're\nsupporting something we're very familiar\nwith in the new mode. And that that\nmakes it easier for us\nto think about and and to to observe and\nto operate.\nThe third is that statefulness often is\nis talked about as something that's kind\nof daunting and maybe best avoided or\nbest left to the database. And\nmaybe in certain cases there's some\nwisdom to that, but it's a trade-off,\nright? There are some powerful things\nyou can do if you just reach past that\nthat blocker and allow yourself to to\nventure into the world of of stateful\nsystems. And there are some things that\nare actually not as hard as they first\nappear. So,\nI I think like we originally were facing\nthis trade-off of is it are we adding\njust far too much complexity by adding\nyet another set of stateful systems\nhere? And I think we\nthe conclusion of this project is that\nit's not. It's it's worthwhile. The\nbenefits outweigh the the operational\ncosts.\nNice. That's all for me. Thank you very\nmuch for your time and listening and",
+  "segments": [
+    {
+      "text": "Excellent. Welcome everybody and thank you Joe for the introduction. Thank you everyone for being here. It's a it's an honor to present. Um as you heard I'm I'm from Netflix and from the online data source group. And the the problem I'm going to talk about uh",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "is one we've solved at Netflix, one that we think other companies are likely facing and and will have to solve or have solved in some way. And um I'm going to talk about the system that we built. Uh I'm going to talk about the kind of",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "architectural choices we made. And I I think that this is particularly relevant to the SRE con because our our the kind of architectural decisions we made and the trade-offs we faced uh really skew towards the operational side. So, we have to",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "we had to think a lot about how we're going to operate this new system and we had to make trade-offs, some of which increase our our kind of operational load but made other things easier as as I'll kind of get into. Um so, let's start with what what is our",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "fundamental challenge we're trying to solve. And and that is that we have this data offline, things like ML features, precomputed indices or or there you can imagine there's many data sets of this shape. And these are are computed and assembled offline, but we",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "want to serve them online. We want to serve them with low latency in the hot path uh when we make queries um to serve our users' videos. And when they log in and everything else in that line. So, the system that we use and the team I work",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "on is the key value team. So, the system that we're we're working on here is a key value store. And I'll give a quick kind of overview of the what we had coming into this project and that's this this kind of key value abstraction which is not",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "any given database but rather just say an interface over the kind of concept of key value and Netflix has especially data platform is really leaned into abstractions and many of my colleagues have talked about this and and written",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "blogs about this so there's a lot of content on this particular topic and it I'll talk about how it's relevant for us as well. And one thing you'll notice is that this middle layer this API layer is stateless. And in our original build of",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "the key value system uh statelessness of the of the API layer was something that we kind of built into the system and we relied on other existing databases like Cassandra to provide us the persistence layer and as we evolve the system we kind of start",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "to challenge that fundamental piece. So okay, let's get to back to our problem. We want to move all the state online. Why can't we just write it? We have a KB store we can just call put over and over and over again. Why not just write the state in our mutable",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "store? The problem is if you write enough if you keep on sending you know 50 terabytes 100 terabytes of data eventually you're going to degrade any given store. You're not going to be able to support the throughput of of all those rights and then in fact",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "that throughput will dwarf the actual capacity you need to serve the reads. So okay, you start to degrade your traffic and then you know eventually you cause incidents. This is is not where we want to be as operators. So okay, fine. Don't write that fast.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "Let's just back pressure the rights. That works, right? Now we can kind of safely serve things. I will say it's harder than it sounds. It's actually hard to do kind of perfectly safe back pressure in a kind of a resource based",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "way but it's possible and so this is something we we looked at. Um but all of a sudden you have a kind of this fixed rate and what if that fixed rate just isn't fast enough? What if you as you load your data you want to load too much",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "data in too short of a time. Okay, again, now you're back to the first problem. You have to push your rate limits up and you start to overload your database. Okay, well, let's just give ourselves more capacity. Can we just scale up?",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "We can't. We can't just scale up. We can throw hardware at the problem. We can just spend more money. Um and that will get us somewhere, right? Now now cases that we couldn't do before we can do. But there's two problems here. The first",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "we're we're paying for this capacity at all times. So, unless you have very flexible auto scaling on your data stores, which is its own operational challenge, then you find that you have to scale your data stores to support the right",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "throughput and the read throughput, which is I kind of your real use case, is actually not not not no longer driving your cost. So, your your cost is driven by the amount of data and the the how quickly you want to move that data.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "And you have these big troughs where you're just reading that data, but you're you're not kind of fully utilizing your system. The other point is even if you accept this this kind of outcome, which is reasonable, there there are systems that work this way, at",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "certain scales, it's just cost prohibitive. So, if you want to move enough data fast enough, the throughput you have to pay to write it all through Cassandra really is just extremely expensive or or it's at least not in the",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "budget for the project you want to do it. So, we come to this this trilemma. We have we have three things that we want and we can't have them all. So, if we just write everything, then okay, we get in we have this risky situation where we",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "overload the database. If we uh kind of give up on data freshness and back pressure everything, then it's hard to to quickly write data and the use cases it it might not work for your use case because you know, you want to write data every",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "day, but it takes you two days to write the data. All of a sudden all all your your reads are stale. And uh finally, you can scale up and just spend money. But of course, that's a limit. Can we have all three of these? That's the",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "question that we are trying to to answer here. So yeah, so so towards that let's think about what we're really doing when we write this data. A kind of key question we should ask is, why are we doing all this work? What is all this work we're",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "doing when we write you know, a million times per second to this database? What we're actually doing is reconstructing information that we already have offline. So KB is backed by Cassandra. What does Cassandra do? You take all these rights,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "you write them to SS tables, you compact those SS tables, and you end up assembling a structure which is basically the data laid out and sorted which you already know. Right? This is different from a normal database where",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "you aren't sure what rights you're going to get, and so that's what Cassandra's designed to solve and does very well. But in this case, you already know the exact structure of the data you want to read. You have it offline, you already",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "computed it. So you're you're really wasting time redoing this kind of this um these rights. And and you're you're actually it's it's even worse than that because you are breaking it down into all these little operations, you know,",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "one right at a time. And then you have to kind of for each one, there's overhead, you have to reconstruct this big data set. Okay, what what can we um what can we do with this? Right, so we are we already know this this final",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "layout. Why rediscover it in real time? There's this is this is kind of one insight. We can generate these tables offline, right? We So we have it in some store like Iceberg, but we can still just compute in a kind of closed fashion",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "the exact SS tables that we eventually want to serve online. And once we do that, now we have a very different sort of problem. We have these files that we are going to kind of deploy. And this is a a problem that we're all",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "very familiar with. You have a set of files and you want to kind of revenue infrastructure with those files not the old files. That's a lot like code deployments. So, this is a kind of a mutable set of of data that we're now",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "spinning like a code deployment. That gets us into a very familiar world of tooling and of operations and we can learn from how we've all learned to deploy code over the years and apply these same principles to deploying data.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "So, okay. First, let's start with what the offline path really does and I'm very lucky to work with some very talented and expert engineers on the data movement team who built this pipeline so that I don't have to think much about it. From",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "my point of view, these these files just appear materialize in S3. But, under the hood, this is what happens. We have kind of offline data in Iceberg. We read it with Spark or other other processors. We We write it to RocksDB SSTables. We load it into S3.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "And then from there, I'll talk about the system that we've built around these kind of files based on those those insights that we talked about to actually serve this in the hot path. Yeah, so so as I I mentioned at the beginning that we have that stateless KB",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "layer. One of the decisions we made going into this was to explore making that layer stateful. And that's a significant tradeoff. So, we have all these these kind of sets of data and RocksDB SSTables and we built a system that's so far mostly around kind",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "of fronting Cassandra, but now we're using the the data set in a very fundamentally different way. The question was, why not take these data sets that we've assembled offline and just stick them on the disks of the API layer and read them right off the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "disk. Um We did that, but that it was not an easy question. So, as you can imagine, operating a stateless system is very different from operating stateful system. So, we gained some stuff, right? We solved the the Charlemagne we were",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "talking about. We have the CICD component that we talked about and I'll get into more detail there. Um we decouple the loading and serving. I'll show that in some detail. But, we opt into all these things that are hard. All",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "the things that make stateful systems hard, that make databases in some ways more complex than stateless systems. So, we have to manage leases. Right? Not every node is the same anymore. Nodes have different data where you can't have every the whole data set",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "on every node. We have to capacity plan in a much more kind of intr- intricate way. We can't just have an auto scaling group that scales up and scales down. We have to every time you add a new node, that node has to have some subset of the data.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "That subset has to has some relationship to the other nodes in the system. So, this state capacity planning becomes much more complex. And then we need to route our request to the right node. So, in a stateless system, right? You can just",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "use round robin. You or there's many load balancing algorithms, but your core goal is just to balance load. In this case, there's a correctness element, right? If if you are searching for a specific ID, you're writing not writing,",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "if you're reading a specific ID, you have to send that to a specific node. Right? Otherwise, the data won't be there. So, this is a a kind of core decision point that we had, but we we pushed through and and moved towards a stateful system",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "um because of what we gained. And in I'll talk about I think kind of one of the key components of why we were able to do that without adding a ton of complexity. But, first, let's dive into what this complexity really was. I'll also code deploys get harder.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "Um so, first, leasing. This is a kind of solve problem. Like, this is a a very common problem, right? You if you need a set of nodes to each own a a piece of a data set, there's ways to do that. But, these are often coupled to databases. Um",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "so that while the techniques are there, there there's kind of some, uh, like we weren't able to just out of the box reuse Cassandra token rings. We had to kind of create something. Um, it it but it ends up being that this is",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "a very possible and and kind of potted thing. So, one of this was one of the things that seemed scary at first was we have this new correctness element we're introducing to our formerly stateless system. And this was almost seemed like",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "a blocker, but if you explore it, it's actually something that's quite doable. And we were able to do it fairly fairly robustly on top of just a kind of relational database using transactions. There are many other ways to do this.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "Systems like Zookeeper can do this, and there are practical reasons to go one way or another. But just to lay out what we're actually doing, if we have our serving fleet, you can imagine that each instance is responsible for some subset of the data.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "You know, you can divide your data set into into some number of groups. Let's call them partitions. And then when a node comes up, it becomes responsible for that partition. It has to go download all the data associated with",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "that partition. And that's exactly how the system works. We have all the data staged in S3. A node comes up, it acquires a lease, and it goes and downloads the data associated with that lease. But this introduces another problem, which is",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "how much data do you put on each node, and how how do you decide which, yeah, exactly how to chop up your data set, exactly which data goes where. You get into this kind of complexity of a of capacity planning. And then it's",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "made even more complex by some of the kind of practical uh, limitations of of the I mean, very very reasonable limitations, but still practical limitations of uh, EC2, which is the platform we work with. So, the the first is that there's this",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "chunkiness, right? Like each instance type has a specific amount of disk and a specific ratio of of compute to disk. So, you can't just say, \"Oh, I exactly It'd be great if I could chop my data set into exactly these instances and use exactly 90% of each",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "disk, but it doesn't work that way. The the the of all use cases, the actual data to compute ratio varies. So, there are some use cases that say, we have this huge data set and we want random access to small portions really quickly.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "There are other use cases that are more like a almost like a traditional cache of like, I have this small amount of data. I just want it online. I want to be able to access it. And I I want to access it a lot. I want to access it a",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "little. There there's kind of every shape that you can imagine of of this ratio exists. And so, okay. This this makes the problem of picking across these chunky sort of allocations difficult. There's also the question of NVMe versus EBS, right? There are",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "There's one kind of high-level trade-off, right? There's some fixed latency cost to EBS. But, then there's also these these cost trade-offs and planning trade-offs. EBS is is very flexible, but as as we'll get into, the cost profile doesn't make it",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "perfect for every use case. So, let's talk about um how we we approach this problem. This is actually open source. We have a capacity planning model we published and we added a we call it read-only KB model. So, if you're really curious, please go take a look.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "Um but, we we have an algorithm that we call partition aware sizing, where we compute kind of an optimal outlay of this data across our nodes and then kind of do another pass to reinsure that we reuse all the extra capacity that may have been left over",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "in the shape we're forced into. So, we can think about this kind of as a bucketing problem, right? So, we we have this this kind of we have this amount of data divided by into certain partitions. We know how many partitions we can fit",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "on a given node. Let's say a node has fixed disk a fixed disk size. And then we know, okay, if we can fit that much data on one node we need of this type, we need at least this many nodes. Okay, and then if we don't have enough",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "cores with that layout to to serve the data set, okay, let's add replicas, and then all of a sudden we can have more of each type and we can serve the data set. This is effectively the algorithm we run and we just run through every instance",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "type, every shape, and perform this math and come out to a optimal shape. The the next key part though is if you have a compute heavy uh data set, you'll end up with all this free disk because you requested okay, I I need you know",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "I need so much compute to serve this. There's a chunky relationship between compute and disk. So, if you get compute, you're are getting disk with it in the non-EBS case. The The key thing that we then can do is we can use that disk, not just waste it,",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "by filling it with additional additional copies of the data. So, we can increase our replication factor into like huge numbers. We can have data sets that are replicated 16-fold. And it's free. It's free to do. So, this was a kind of fundamental shift in how",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "we think about replication factor. Often when you're thinking about a database, you say, \"Okay, I want three copies because that gives me sort of the that's the minimum to to assure the availability I want.\" This actually works the other way. You have all this",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "compute you have or rather you have all this disk lying around, you may as well use it. And so, this is something that um kind of really pushed our our tolerance to failures up because we can have really uh highly replicated data.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "Okay, the second question is NVMe versus EBS in general. There's this kind of interesting relationship between the two. If you think about what EBS really does, it's decoupling the compute from the storage. So, what this allows you to do",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "is if you have a lot of storage and you don't need much compute, you can scale your EBS volumes high and keep your your compu- pay for less compute nodes kind of the This works when your savings on compute are sufficient to justify the increased",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "spend on EBS because per gigabyte EBS actually ends up being more expensive than NVMe for for certain instance types. Um and this works well, but there there is this breaking point where eventually it's no longer worth it and actually",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "it's better just to pay for the NVMe. There's also just in general if you have so much data uh that the EBS cost dominates, then again it's better to pick NVMe. So, the the point is EBS sounds like it solves this problem kind of and and we don't",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "have to worry about the NVMe case because we can just just decouple it and you know, scale these two independently. And that that does work in some cases, but at enough scale you actually do have to start thinking hard about how you're going to",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "allocate these kind of chunky relationships of compute and storage. Nice. Okay, let's talk about the next part here. So, we we have our data, we've each node we've picked how much data goes on the node, we've gotten a lease and downloaded it. Now we need our",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "client to talk to those nodes and again there's a a level of statefulness here, right? So, if we send the request to the wrong node, the data won't be there. So, we we devised just a very simple scheme here where when we partition the data,",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "we partition it by hashing and modding the ID. And so that each group of data is is kind of has this relationship to each other via hash mod, we can recompute that same relationship on the query path. So, when we make a query to",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "a given ID, we compute the same hash, we compute the same modulus, and we pick our node. This diagram is slightly simplified because it's showing picking one node out of three. In reality, you're picking a set of nodes, all of",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "which have your data, and then you can round robin or or load balance across those accordingly. yeah, this does I I hand-waved away before the the offline path as owned by by our great data movement folks. This is one piece where we do have to integrate. So,",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "the the way they partition the data and the way we tell our users how the data is partitioned has to be connected. Another kind of difficulty. So, yeah, we we get to this question of like I've talked about all these difficult",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "problems seemingly difficult problems. How have we not just built another database and kind of pushed so much complexity to our consumers? And I I think the answer really is are the KB abstractions. Netflix has really leaned into abstractions and this",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "is a version of of that paying off because the same user interface, the same client libraries were all reusable um from by all our users. They didn't have to know about any of this. All they had to say is, \"Oh, I want a key value shard",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "and I plan only to do reads.\" And behind the scenes we can kind of control all of this. So, even though we are increasing the scope operationally, we're containing the the the scope to the platform. We're completely con- containing it to to our team. Well, one",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "other thing to call out is this is useful for our team as operators as well. So, we're not just introducing some kind of fully new service with new metrics and new libraries. This is built into existing services, existing alerting",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "systems, existing observability systems. So, as operators, my teammates are able to to kind of take the knowledge they have of operating the key value system in general and reapply it to operating this system, which is just another variant of KB. Okay. So,",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "we've gotten to this point where we we have all these challenges. We're able to at least hide them. So, fine. But, what does this buy us? Like, why even bother with this in the first place? And we gain a lot from it. The first is CI this",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "CI the idea of CICD for data. So, you know, everyone's kind of familiar with this sort of blue green patterns, but one thing that we can do that's very powerful is when we bring up our our new data, our green server here, we can run",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "effectively arbitrary validation on it risk-free. So, the offline team, for example, just produced this data set and we just loaded it. They know exactly what data should be there. They know what it should look like. They have some idea of how latent",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "requests should be. We can really beat it up. We can send all kinds of requests. We can check schemas. We can check hashes, check sums. And and we can have gain a ton of confidence in this new data set before the production side",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "ever sees it. But it's the actual serving layer that will be in production. So, we we're very close. We're validating something that's very close to what's actually going to be in production. And that's really useful. This gave us a ton of confidence in",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "rolling this out. Like, there's a whole class of bugs that you can imagine of like some metadata gets mismatched and we don't download one of the SS tables and there's a data hole. We can actually just actually especially because of our",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "close integration with the the right side, we can assert, oh, we did a read from a key that we know appears in each SS table and each one came back. So, we have we must have downloaded at least part of each SS table. This kind of",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "validation gave us like really really enormous confidence in rolling out and it does on every deploy. So, on every deployment we can continue to have this this integration, this this testing. So, any regression can immediately stop the",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "pipeline and we can debug and and see what happened. once this passes, again, because we control our own serving layer, we can then cut the traffic over to our new now validated deployment only once we're we're ready. Um and this is",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "instantaneous. It's it's just like a just as you would imagine a red black happens in the normal kind of stateless system or any other system. Um of course this means we also can go the other direction. Right? Let's say that we we cut over the green and",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "something goes wrong that we didn't detect. Uh there are certain classes of issue that we can't detect that are even outside the correctness of the system. Maybe we deliver the right data but for some reason there's a regression in in the",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "recommendation system. Like we we notice impressions are going down or something like this and the the team that owns the data set wants to roll back. We can now we can facilitate that and we can do it effectively instantaneously. Again, it's",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "just a DNS swap to move back to the the warm standby and it's like now a a kind of last known version. It's very similar to the idea of a code revert where you can just I know this commit was good, something's going wrong, let's revert to",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "that commit. That gave our users this kind of enormous freedom to experiment because the the stakes of doing the of serving the new data set are low. Right? It's if you imagine you had written all this data one by one to Cassandra, the",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "rollback story is much more complicated. so yeah, no data reload. I I think some people might be thinking now this is great but aren't you kind of paying for this data twice? You have this this blue and this green server. And that's right.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "So there there are trade-offs. If you keep the old ASG warm, you can immediately fall back to it but it cost double. If you destroy and redeploy from S3, you have to can tear down the old ASG and you can recover but you have to",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "move the data back online. We support both and we support this as a configurable spectrum of trade-offs and each use case can decide based on basically their confidence, their their criticality, how much they want to pay and what they get for that cost.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "So yeah, making this tunable I think is kind of a a key thing and again this is something that we learned from code deployments. So code deployments use use same strategy. It's not at the same scale often because you can keep an old ASG around that's",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "configured with the old code for cheap, but the idea is the same. let's see. Okay, the the other thing that we really gain from this is this decoupling of of two things that are of very different criticality, which is the",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "serving and the loading. And this comes back to the the triangle we had at the beginning, the trilemma we had at the beginning, where if you overload your server, you have this risk of degrading the availability of your uh",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "of your online serving for reads while you're doing all these rights. And you you might see an image like this where okay, we're going along at it's kind of nominal CPU usage just doing these easy reads. All of a sudden we have this huge",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "80% spike and spike up to 80% CPU utilization, reads might be degraded. And this actually this is an image that looks a lot like what we saw in uh in the the Cassandra world before and it it's this but this image actually is from this new system. The key thing",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "though is that this is split into two, right? So, there are two pieces of infra here. Uh hopefully you can see that well enough. There's this orange line, which is our old capacity, and you can see the CPU of the orange line never goes up. So, this",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "is just serving reads and all of a sudden this new blue line appears and it starts loading all the data. It shoots up, it saturates the disk, it saturates the network. We're we're working hard actually on pushing this even further to",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "really fully utilize every available resource and move data absolutely as fast as possible. Um but the old service is completely uninterrupted because it's totally independent, it's totally different nodes. And so, you can see then at",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "15:30 or so the the switch happens and the the CPU drops totally off for the old and jumps back up for the new. and the latency remains flat this whole time. And that looks Does that look flat? Almost flat. There's a little spike there. What",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "is that little spike? It You'll notice it's at that 15 30 mark. And if I go back, that's actually not the time of the load, right? So, during the load, it is totally flat. But during Oops. During the time of the cutover, there's this little latency glitch. Um",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "I left this in because it's kind of just an interesting fact about what that is and and we in some cases I've worked to ameliorate this, in other cases it doesn't matter. What that is is that the new nodes, their page cache is empty. So, the old",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "nodes are are have the page cache warm, they're serving a lot of large percentage of the reads out of memory, or at least some percentage of the read out of memory. Um when you hit the new node, nothing's in the page cache. We",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "have techniques actually to pre-warm the page cache. Depending on the use case, it matters or it doesn't. Um but yeah, that's why that little bump is there. So, okay, we've gotten to this point where we really have made data deploys a lot like code deploys.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "We We've been able to reuse this playbook of of CICD, of roll out and roll back, of blue-greens, and we're using it not just for for code that we're all used to, but we're using it for for data itself, for the actual movement of data to online systems. The",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "only cost is we have to do some of these things ourselves. We have to do our lease management, we have to do our own routing layer, we have to manage the stateful identity of nodes, but we we get a lot out of it. That's kind of the key point. So, yeah, this is",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "just some some uh numbers here about So, we had a data set before that we actually said we thought at our maximum budget it would take about a week to load. We can load in 30 minutes. We have 50 TB data sets that are moving weekly",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "or daily. We we have huge cost reductions in some of these clusters kind of fleet wide that were over scaled to to to accept rights. And we can do hundreds of of data deploys per day across several hundred approaching thousands of data sets. And",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "we serve this all with a like a P99 of less than 5 milliseconds because it's really quite fast, especially on NVMe with a big page cache. I mean, you can just imagine it's like it's really ripping. It's great. So, yeah, we we've let let I'll take a",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "moment here to summarize. Like there's some some key lessons that we've learned here. The first is that the abstraction really enabled this. Like if we had no attraction, if we were just had our clients connected to Cassandra directly,",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "where in this pipeline could we have inserted this new system? This gave us a degree of freedom to pivot and and kind of change the fundamental nature of our serving layer without having any impact on our clients without having",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "them need to learn anything new, rewrite any apps. We were able to onboard the system to to existing consumers of our of our interface. And and that's like abstraction's really paying off in ways that that are hard to predict even ahead of time. It just",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "shows the value of the the idea. The second is the how important familiarity is. And there's two pieces of this. The first is to our customers, right? So, if you are if you're any developer at Netflix, you're familiar with how to",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "deploy code or how to deploy code, how to do CICD. You can now apply that same thinking to data and that is a compelling story for our users. And they can they can think about how to write validations in the same way they'd think",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "about how to write smoke tests and that's kind of a powerful thing. And it's also it's also useful for us as operators to build on our existing abstraction because it's so familiar that operationally it's not it doesn't feel",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "like okay, now we have to just support this whole new thing that seems separate. It's more like we're supporting something we're very familiar with in the new mode. And that that makes it easier for us to think about and and to to observe and to operate.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "The third is that statefulness often is is talked about as something that's kind of daunting and maybe best avoided or best left to the database. And maybe in certain cases there's some wisdom to that, but it's a trade-off,",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "right? There are some powerful things you can do if you just reach past that that blocker and allow yourself to to venture into the world of of stateful systems. And there are some things that are actually not as hard as they first appear. So,",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "I I think like we originally were facing this trade-off of is it are we adding just far too much complexity by adding yet another set of stateful systems here? And I think we the conclusion of this project is that it's not. It's it's worthwhile. The",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "benefits outweigh the the operational costs. Nice. That's all for me. Thank you very much for your time and listening and",
+      "start": 792,
+      "duration": 6
+    }
+  ]
+}

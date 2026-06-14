@@ -1,0 +1,579 @@
+{
+  "videoId": "XU5YsjXxe-k",
+  "title": "SREcon26 Americas - Designing Layered High‑Availability Architectures for PostgreSQL on a Budget",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 28232,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thank you. Thank you everyone for being\nhere. Two back-to-back talks on\nPostgres.\nI feel sorry for you folks.\nOkay, so we're going to be talking about\nlayered high availability. The key thing\nbeing on a budget.\nShow of hands, how many of you been\npresented with a $100,000 problem and\ngiven a $10,000 budget?\nOkay, so\npretty common.\nNow, the the the idea behind this talk\nand I emerged as we work with different\ncustomers and you know, when we ask how\navailable do you want your database to\nbe? The natural answer is all the time,\n100%.\nThen we present, well, this is the\nbudget and this is the expertise and\nthis is the infrastructure that you'll\nneed in order to achieve that kind of\navailability and then the conversation\nchanges.\nSo,\nwhat we came up with is rather than\ngoing through this back and forth, how\nabout we start at a foundational level,\nwe understand what it is that the\norganization requires and then we build\naccordingly.\nSo, that is what we're going to be\ntalking about today.\nNow, what the problem is.\nWhen it comes to availability of\ndatabases,\ngenerally speaking, we encounter two\ncamps.\nOn one camp\nis this group led by a manager who\nhappened to read a blog post, got scared\nabout downtime and said let's just throw\neverything at the database.\nYou end up with an infrastructure that\nis extremely complicated,\num costs a lot,\nand nobody understands.\nAnd the other camp is\nwe'll implement HA in the next quarter.\nThere's always that next quarter. We're\nactually currently working with a\ncustomer who's been saying next quarter\nfor the past 2 years.\nRight? They say Q2, we're right around\nthe corner, just a few days away from\nQ2. Let's see, fingers crossed.\nNow,\nthese under-built systems have undefined\nRTOs and RPOs, and there's always, you\nknow, kind of pushing out in the future.\nBy the way, um\nhow many of you here actually understand\nwhat RPO and RTO is?\nOkay, quite a few. So, that's good.\nWe'll be talking about that in a little\nbit as well.\nSo,\nthe problem is there two camps,\nand we're going to try and figure out\nhow to uh save on costs, not just in\nterms of money, but also in terms of the\nexpertise that is needed, and the\nsophistication of uh the system that we\nhave at our disposal.\nAnd the approach\nthat I'm proposing here today is what if\nhigh availability could be built in an\nincremental way, rather than thinking\nabout it as on or off?\nWhat if we can design a system where you\ncan add layers as needed,\nremove layers as needed without\ndisrupting the system?\nA system that is aware of the budget\nthat you have, and is conscious of the\namount of money that you have the\nability to spend.\nA system that is aware of the skills\nthat you have in-house, and the um\nsophistication of the infrastructure\nthat you could actually maintain and\ntroubleshoot. There was a talk yesterday\nthat made a very good point and that\nsaid um\ntroubleshooting a system probably\nrequires 2 x the expertise of building\nthe system in the first place.\nRight? So, troubleshooting is where, you\nknow, you you really get tested. So,\nwhat kind of infrastructure you need to\nbuild where you have the talent to\nactually troubleshoot it as well.\nNow,\nin order to build that kind of system,\nwhat you need to do is you to need to\nstart with outcomes. And the outcomes\nthat you need to define, number one,\nfailure scope, number two, RPO, and\nnumber three, RTO.\nLet's double-click on each of these for\na minute.\nIn terms of failure scope,\ndo you want to plan or protect against\nindividual node failure?\nDo you want to protect against an entire\navailability zone going down? A data\ncenter going down? Do you want to\nprotect against a power outage? Flood?\nEarthquake? An entire region goes down?\nWho here got impacted by the AWS\nregional outage last year?\nOkay, a few hands. I'm surprised there\nnot more. Okay.\nBut, yeah, you you know, do do you want\nto protect yourself against that?\nUh so so that would be your failure\nscope.\nRPO, recovery point objective.\nHow much data, in case of a disaster, in\ncase of downtime, how much data can your\nsystem afford to lose?\nAre you okay with losing 15 minutes of\ndata?\nFor most systems, the answers is answer\nto that is yes.\nFor financial transactions,\nhard no. 15 minutes of losing data for a\nbank? Hard no.\nRight?\nSo, understand uh your tolerance of RPO.\nRTO, recovery time objective.\nHow long can you tolerate for the system\nto take to recover?\nIf it goes down, if disaster strikes,\nhow long\nwill it take to actually come back on?\nAre you okay with waiting 30 minutes?\n30 minutes in a is enough for somebody's\npager to go off, them to get out of bed,\nlog on, SSH into the system, and start\nworking on it.\nIf it's seconds that you're looking for,\nyou got to automate.\nYou can you need to remove humans from\nthe loop. Seconds, the moment you insert\nhuman, you cannot achieve\nan RTO of seconds. So, define what\nexactly is it that you want your RTO to\nbe.\nAnd my my my stance over here, my stance\nfor this talk is that you can get very\nstrong outcomes if you define\nthese starting points first, and then\npick the layers that you want to\nimplement.\nAnd your manager is going to be happy\nbecause it saved them money.\nNow,\num this is a brief summary of the layers\nthat I'm going to be proposing in the\nyou know today in this talk. We'll go\ninto each of these layers one by one.\nStarting off with layer zero because\nwell, hey, we're all computer\nscientists. We always start with zero,\nright? We never start with one.\nSo, layer zero is where you have a\nsingle node.\nIf that single node goes down, you can't\nreally define up front how much data\nyou're going to lose. It's possible that\nyou recover all of the data. It's\npossible that you lose all of your data.\nYou don't know.\nRight? You don't know how long it will\ntake for that node to come back up?\nIf the disk has crashed, how long will\nit take to replace the disk? If there's\na network connectivity problem, how long\nwill it take for that network to come\nback? If the server has burnt down, how\nlong will it take to order a new server\nand ship it in and I have it set up? You\ndon't know.\nThat is single node.\nAdd on top of it one layer of an offsite\nbackup. So, you're taking a periodic\nbackup, you're putting it on a different\nsite, and all of a sudden, now you have\na real chance at recovering from\ndisasters.\nNow, your RPO becomes defined.\nIt's not great, but it's not undefined.\nIf you take a backup every 24 hours,\nthe most data that you're going to lose\nis 23 hours and 59 minutes and 59\nseconds.\nRight? So, that's defined.\nRTO remains hours because you still need\nto set up an instance, set up a server,\nand then restore that backup to that\nserver when disaster does strike, so\nit's still, you know, in hours.\nNow,\non top of layer one, now add wall\narchiving.\nUm who all know what wall is in\nPostgres?\nOkay, a few few hands. So, Postgres\nworks with write-ahead logs, and wall is\nthe short form for that, and write-ahead\nlogs kind of make the core and the\nbackbone of everything that gets written\nto disk, how data is stored, how data is\nreplicated, how backups are taken. Wall\nis kind of, you know, it it's the core\nof it. And\nto achieve point-in-time recovery in\nPostgres, you need to rely on these wall\nfiles. Now, if you're shipping, along\nwith taking a periodic backup, if you're\nshipping wall files to that same offsite\nbackup, now you have the ability to\nrecover to a particular point in time\nand your RPO, the data loss, becomes\nminutes, not hours.\nNow, if let's say a disaster strikes at\n2:00 p.m. in the afternoon, although it\nusually strikes at 2:00 a.m., but\nanyways, you know, if if it strikes at\n2:00 p.m. in the in the afternoon and um\nuh you had taken a backup, let's say at\n6:00 in the morning.\nYou've got\n8 hours of wall logs that have been\nshipped onto this offsite and you need\nto you can replay those logs and\nactually get exactly to the point in\ntime where disaster struck. Now, the\ndata loss, the possibility of data loss\nare only the wall files that have not\nyet been shipped and hence you cannot\nreplay them.\nUh the RTO, the time it takes to\nrecover, is still in, you know, hours\nbecause you do need to set up the\nserver,\nrestore the backup, and replay all the\nwall files in order to get to the state\nof the system that you are aiming for.\nNow, layer three adds on top of it by\nadding a hot standby,\nan asynchronous replica of your primary\ndatabase\nthat is\ngetting that that's a subscriber to your\nprimary database and getting data in\nreal time,\nalbeit asynchronously from your primary.\nNow,\nin case your primary goes down,\nyou have the ability to immediately\nswitch over to your async replica.\nNow, because this this node is actually\nreplicating data uh asynchronously or\nonto it uh constantly,\nthe recovery point objective, the the\nthe possibility of data loss, now\nbecomes seconds.\nSeconds because the only data that is\nyou're going to lose is the data that\nhas not yet been replicated onto the\nstandby.\nAnd if you have the ability to implement\nauto failover, now your RTO, the time\nobjective of of recovery, becomes\nseconds as well.\nBecause you have auto failover, because\nyou've removed human from the loop, you\ndon't have the need to set up things\nfrom scratch and you know, restore the\nbackup and you know, replay the log\nfiles.\nAll you need to do is switch over to the\nreplica. Now your RTO is seconds.\nAnother layer, number four, you have\nanother hot standby, this time sync\nreplicating data synchronously.\nWhat synchronous replication does is it\ngives you an RPO of zero.\nNow you have data redundancy in real\ntime where you've got two nodes that are\nabsolutely in sync all the time. One\nnode goes down, the other is ready with\nall of the data\nright there. RPO is zero, RTO is still\nseconds because you do need a few\nseconds to kind of fail over.\nNow this is when all of these nodes are\nkind of close together. What happens if\nan entire region goes down?\nThat's where the final layer comes in\nand that adds regional redundancy by\nadding a warm standby in a different\nregion.\nNow an entire region goes down, your\nprimary is gone, your asynchronous\nstandby is gone, your synchronous\nstandby is gone.\nNow you can failover to your warm\nstandby in a different region and the\ndata that you're going to lose is in\nminutes, it's only the data that has not\nyet been shipped to the warm standby.\nThe time it takes to recover is again in\nminutes because this time there is human\nin the loop. A cross-region failover\nwell, technically can be automated but\nreally should not be. We'll get into\nthat in a little bit more detail in in\nin just a bit. So, an RPO and RTO of a\nregional failure are is is measured in\nminutes.\nNow, let's take a deep dive into each of\nthese architectures. I've tried to\nplay my hand at illustrating. Um I\nprobably should have used AI\nuh for this, but anyways. Um\nso, this is your baseline, right? You've\ngot a single uh\nThis is not working. Oh, it is. You've\ngot a single node right here. The\napplication is writing to this database.\nIt's also reading from the same\ndatabase.\nUm the application and the server might\nreside on the same site. They might\nreside on different sites. Doesn't\nreally matter. It's a network\nconnectivity thing. Um and in case\nthis site goes down or the database\ncrashes or the host of the database goes\ndown for some shape or form, whatever it\nis. Um your RPO is undefined and you it\nmight takes hours it might take to\nrecover from that disaster.\nPerfectly fine for developer\nenvironments. Perfectly fine for QA.\nMaybe even staging here and there, but\nI'm not saying that this architecture is\nbad. I'm saying this is the baseline.\nThis is where you start from. For some\ncases, this might be perfectly\nacceptable. So, we just, you know, we we\nwe can just use this.\nOne layer beyond this. Now, what you\nhave is\nthe backup\non site B.\nAnd as I had mentioned in the, you know,\nin the in the previous slide, now\nyou have this real chance at recovery\nfrom disasters because\nyou've got this separate site. It's\ndisk storage. It's not really a database\nthat's that's that's over there, but you\nyou do have backups. It might be They\nmight be compressed. They might be\nencrypted. Uh but you do have backups on\na different site. You have redundancy\nfor sites in this in case this entire\nthing goes down. You have the ability to\nspin up a cluster on site B, restore\nthis backup, and you'll be good to go.\nIt will take a few hours for you to do\nthat. You might lose some data in the\nprocess, and that data would be the one\nthat had not yet been shipped over here.\nYou could you you could you still have a\nreal chance at recovering from a\ndisaster.\nThe next visual just adds one more\narrow. Right? The only difference\nbetween uh\nlayer one and layer two is this arrow\nright here.\nNow, wall archiving gives you the\nability to point-in-time recovery. Now,\none very interesting thing that this\nenables you to do, it enables you to\nrecover from human errors.\nRight?\nA developer needed to do a delete\nfrom a table where ID is X, and they\nforgot to add the where clause.\nRight? The entire table is gone.\nIt happens. It happens. I'm sure that\nall of you have experienced something\nlike this in some shape or form. It\nhappens. How do you recover from it?\nNow, the data is gone.\nIf you only have a backup that was\ntaken, you know, that that is taken\nevery 24 hours,\nyour only bet of recovering is to that\nlast point.\nIf you have wall archiving over here,\nnow again let's go back to our disaster\nat 2:00 p.m. example. If that delete\nstatement without a where clause was run\nat 2:00 p.m., now you have the ability\nto recover to 1:59\np.m. Just before that delete happened,\nright? So you have the ability to kind\nof recover from human errors as well.\nNext layer.\nNow this layer adds a hot standby.\nNow\nnotice how over here we have a\nsegregation. The site is the same, but\nthe data centers are kind of split. You\nknow, in the in the world of the cloud,\nthink of this as, you know, multiple\navailability zones. You're adding zone\nredundancy.\nIn bare metal zone or in data center\nzone, you think of it as data center\nredundancy that you're implementing over\nhere.\nNow the reason is\nwhat you're what you are\nkind of protecting against is a data\ncenter level or an availability zone\nlevel failure.\nIn case an AZ goes down, in case a DC\ngoes down, you still have the you still\nhave a hot standby right here that the\napplication can immediately switch to.\nNow the RPU and RTU in both the both of\nthem in this case is seconds. You don't\nlose a whole lot of data. The only data\nthat is lost is the one that is in\ntransit over here.\nAnd it takes just a few seconds.\nIf you're automating this entire\nfailover process, it just takes a few\nseconds to promote this standby to\nbecome the primary and the application\ncan start talking to it. How we do that,\nI'll explain that in just a little bit\nas well.\nBut one thing that interesting, you\nknow, functionality that this particular\nsetup also gives you is the ability to\nbalance your load amongst distributed\ndatabases. So,\nyou can have your read your hot standby\nact as a read replica. So, the\napplication can read from both the\nprimary and the standby,\nalthough it writes only to the primary.\nNow, this illustration over here\nis showing the application reading from\nthe hot standby. You could also have\nyour BI system reading from the standby.\nYou could also be running analytics from\nyour standby, and that helps you kind of\ndistribute the load in the cluster and\nmake sure that you're not overwhelming a\nsingle node.\nLayer four adds synchronous replica\nright here in the hot standby.\nUm the reason why we would want\nsynchronous replication over here is we\nwant to achieve an RPO of absolute zero.\nSo, these two the the primary and the\nsynchronous standby are always in sync\nwith each other.\nAnd now, you actually have three nodes\nthat you could potentially read from.\nOnly one node will take a right, but you\nhave three nodes that you could read\nfrom.\nNow,\nthe reason why we have synchronous\nreplica in the same data center and not\nacross data centers. Synchronous\nreplication adds latency to uh write\noperations. We'll do a deeper dive on\nthat just in just a little bit, but\ngenerally speaking, if there is latency\nbetween nodes,\nwe advise against setting up synchronous\nreplication because that will slow down\nyour entire database cluster.\nAnd now, we have the final layer where\nthe the storage at site B is upgraded to\na warm standby.\nNow, this is, you know, a sophisticated\narchitecture\nuh where you've got a total of four\nnodes\nthat are interacting with each other in\ndifferent shapes or forms.\nThe primary is still single. You've got\none synchronous replica, one\nasynchronous replica, and one warm\nstandby.\nAll of them are taking in data from um\nfrom the primary. You cannot use a warm\nstandby as a read replica. That's by\ndesign. Again, we can deep do a deeper\ndive in just a little bit. But now\nyour RPO within a region\nis still zero.\nYour RTO within a region is still\nseconds, but now you have the ability\nfor cross-region failover and your in\ncase this entire thing goes down,\nyou can very quickly switch your\napplication to point to this warm\nstandby right here, which can start\ntaking rights and reads as well with\nvery minimal losses of of data and in\nvery little time.\nNow,\nagain, a summary. What is the layer that\nyou need?\nThe factors that you need to consider\nbefore you decide on which layer you\nneed for high availability of your\ndatabase.\nYou need to define how much of downtime\nis acceptable to you.\nThat is your RTO.\nYou need to define how much data loss\ncan the system absorb.\nThat's your RPO.\nHow much budget you want to assign to\nthis architecture, to this\ninfrastructure? Right?\nHow much expertise does the team have\ninternally?\nRight? Now, at times these requirements\nand these decision-making factors are\ncompeting with each other. The desire of\nthe management is always to go at the\nhighest level of availability, and yet\nthey don't have the budget.\nThe engineers want to have a beautiful,\nsophisticated piece of infrastructure\nand architecture that can be very\nresilient, but it might not have the\nin-house skills to be able to maintain\nand troubleshoot that system. Right? So,\nyou have to draw that balance. You need\nto define all of these factors before\nyou decide which layer to go to. As you\ngo down in this table, the requirement\nwhile RTO and RPO are decreasing,\nthe requirement for the budget goes up.\nThe requirement for the skills that you\nneed in-house also go up.\nSo,\nNow, uh who all here understand the\nsplit brain, what the split brain means?\nOkay, a few hands. Good. Good. So, for\nfor those who don't,\na split brain is a\nWell, a nightmare scenario, really.\nThat's that that might be if you know if\nif somebody were to ask me what's the\nsingle biggest thing that will keep a\nDBA up at night, it would be split\nbrain.\nHorrible situation to be in.\nNo real remediation other than very\npainstakingly\nmanually fixing the entire cluster. That\nwill take hours, days, I don't know how\nlong. Horrible situation to be in, but\na very real situation or a very real\npossibility when you have\na a high availability cluster\nwith automated failovers without proper\nguardrails.\nWhat happens is\nthat\nan incident occurs.\nMaybe it's a temporary network glitch.\nThe cluster decides to promote the\nstandby to be the primary,\nbut the primary refuses to let go.\nRight? It's holding on.\nAnd now in your cluster, you've got two\nnodes who think they are primary,\ntwo nodes that are accepting rights,\nand are completely out of sync from each\nother.\nThat's split brain.\nNow, the guardrails that you need to put\nin place in order to make sure that you\ndon't get into the split brain\nsituation,\nyou need to have a mechanism to fence\nthe primary, the old primary.\nIf a standby is being promoted,\nthe primary needs to be\ndemoted,\nand it needs to be fenced out out of the\nentire cluster.\na DCS-based consensus, we're going to\nget to get into this a little bit as\nwell,\nuh you need to implement to make sure\nthat a majority of uh the participants\nof the cluster can vote on uh which node\nis the actual primary.\nAnd then, you can rely on the Linux\nkernel as well and integrate into\nwatchdog and make sure that that is your\nkind of last line of defense\nin case\nuh a primary refuses to go go down, in\ncase a primary refuses to kind of let\ngo. Um\nwatchdog can just completely kill that\nnode.\nIt's it it's it's dirty, it's brutal,\nbut it's effective. It's certainly a lot\nmore cleaner, it's certainly a lot\neasier than to get into a split brain\nsituation.\nNow, our tool of choice to implement\nhigh availability clusters, and this\nauto failover that we've been speaking\nabout, is Patroni.\nNow, what Patroni does, it's a tool that\nleverages the built-in replication\nfunctionality of Postgres, the streaming\nphysical replication functionality of\nPostgres.\nAnd it help it it\nkind of\nencapsulate the entire functionality of\nsetting up that cluster. You can set up\nthe replication type. You can set up\nthresholds. You can set up how to elect\na leader.\nYou can set up how to, you know, drive\nconsensus. Monitoring of the entire\ncluster, the health checks,\nand you know, thresholds for automatic\nfailover. Right?\nAll of these are extremely important,\nnot just because, you know, you want to\navoid the split brain kind of scenarios,\nbut also to automate the entire process\nbecause you want to take human out of\nthe loop. You want to\nhave the entire system do the\ndecision-making and failing over\nautomatically without the need for a\nhuman to press the button.\nRight? That will That is what will give\nyou seconds of RTO rather than minutes\nor hours of RTO.\nSynchronous replication. Now, one of the\nthings that I I I didn't dive deeper on\nwhen I was showing you the architectures\nsynchronous replication will give you an\nRPO of absolute zero. So, you'll have an\nexact replica with two nodes exactly in\nsync, but there is a cost associated\nwith it.\nAnd the cost is in terms of write\nlatency.\nNow, the way synchronous works is you\nhave a transaction that gets that is\nsupposed to be committed on the primary,\nbut\nit has to also go to your hot standby.\nOnce the hot standby confirms that it\nhas received the transaction and is\nready to commit, it sends a signal back\nto the primary,\nand that is when the transaction\nactually gets committed. So, instead of\nnow one commit on one system, you're\nlooking at two commits on two systems\nthat are separated from each other and\nhave some latency of transfer of\ninformation between them.\nThe higher the latency, the slower your\nsystem is going to become if it is set\nup in a synchronous replication uh mode.\nSo,\nif you are in the same availability\nzone, if you are in the same data\ncenter, if your systems are kind of\nright next to each other, the latency is\nsmall enough that we can absorb it. But,\nyou do not want to set up synchronous\nreplication where latency is high.\nAnother interesting scenario is\nuh what if it's not the primary that\nfails, it's the standby that goes down\nfor whatever reason.\nRight? Now, the primary has taken a\ntransaction, it has sent the signal to\nthe standby and now waiting for standby\nto confirm that it has committed the\ntransaction,\nand it's just, you know, sitting there\nwaiting\nbecause it's synchronous replication. It\nhas to wait.\nThat essentially\nmakes your primary database become a\nread-only database. It will not be able\nto process rights.\nYou need to have a system in place to\nensure that, you know, you you document\nwhat happens if the standby fails. And\nthen, of course, there's operational\ncomplexity of setting up this entire\ncluster. You need to have the skills\nin-house to be able to not only set this\nup, but maintain, manage, and\ntroubleshoot.\nSome cost-saving techniques, some of the\nthese are intuitive. Make sure that you\nare right-sizing your your standbys. The\nstandbys don't need to be at the same\nlevel as your primary database. They can\nbe smaller instances and hence costing\nless.\nUm make sure that you're compressing\nyour your data. Postgres comes with uh\nsome excellent compression techniques\nthat uh\ngenerally work with a 5:1 ratio. So 500\nGB of uh data can be compressed to 100\nGB. So take backups compressed backups\nand\nmake sure that you are deciding on your\nlayers in a very conscious level.\nSome lessons to share from experience in\nproduction environments.\nNumber one,\ntest your failover.\nTest, test, test.\nRun drills, make sure that\nthe system works the way it is designed\nto work.\nYou don't want to find out that the\nsystem is not working because somebody\nforgot to\nI don't know.\nUm, or somebody just added two\nsemicolons into the code where it was\nsupposed to be one or you know, somebody\njust left a dangling\nopen string somewhere. Um, and you don't\nwant to find that out when disaster has\nactually struck.\nNow, backups, just like you want to test\nfailovers, you also want to test\nbackups.\nUm,\na backup that is not tested essentially\nis a Schrödinger's backup. And I do not\nwant to be in your shoes if disaster has\nstruck\nand you have to tell your manager that\nyour backup cannot restore.\nYou you you got to test your backups.\nWall archiving, you know, you you want\npoint-in-time recovery, you have\nconfigured wall archiving,\nand but you're not monitoring it.\nWhat can happen is if the producer is\nproducing walls faster than the consumer\ncan consume them.\nThe logs will pile up. They will choke\nyour primary\nand well, it will put disk pressure on\nyour primary.\nVery closely related to that is\nreplication slots.\nRight?\nReplication slots, if they are taking\nlonger for the to release the\nwrite-ahead logs on your primary, can\nmake your primary stop working. You\nknow, so\nit it it's almost like your standby has\nmade your primary stop working. You\ndon't want to be in that situation.\nSynchronous replication, write a clear\nfailure policy. If a standby goes down,\nwhat do you want to do? Do you want to\ntreat your primary database as\nread-only, or do you want to temporarily\nabsorb the impact of an RPO being not\nzero?\nRight? Till you bring the standby back\nup.\nWhen you're\nNow, lesson number six.\nWhen you're routing your read traffic to\nthe standbys, understand that the data\ncan be stale.\nRight? Standbys, especially when they\nare asynchronous,\nuh the data will be slightly older than\nthe primary, even if it is by seconds.\nIf your analytics or your read queries\nrequire real-time data, direct them to\nyour primary, not to your standbys.\nAnd do not Finally, do not skip the\nwatchdog.\nThat's your friend in the Linux kernel,\nand it can be very helpful when all else\nfails.\nSome key takeaways that I want uh you\nknow, for for for all the audience over\nhere to kind of walk out with.\nHA is not an on or off switch. It's not\nbinary in nature. It's layers.\nStart at a lower layer,\nbuild, and earn your way up to a higher\nlayer.\nUnderstand the skills that you have\nand build accordingly.\nTopology matters.\nSynchronous replication\nmight be a killer if there is too much\nlatency between the nodes.\nAsynchronous replication may be\nperfectly fine if you have uh monitoring\nin place for your replication lag.\nTest. Test. Test.\nRun drills. Run tests. Make sure that\nyour failover is sane. Make sure that\nyour backups are sane.\nAnd that brings me to the end of this\ntalk. The QR code is my LinkedIn\nprofile. If you want to get connected, I\ntend to be pretty active there. And uh I\nam happy to take questions.",
+  "segments": [
+    {
+      "text": "Thank you. Thank you everyone for being here. Two back-to-back talks on Postgres. I feel sorry for you folks. Okay, so we're going to be talking about layered high availability. The key thing being on a budget. Show of hands, how many of you been",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "presented with a $100,000 problem and given a $10,000 budget? Okay, so pretty common. Now, the the the idea behind this talk and I emerged as we work with different customers and you know, when we ask how available do you want your database to",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "be? The natural answer is all the time, 100%. Then we present, well, this is the budget and this is the expertise and this is the infrastructure that you'll need in order to achieve that kind of availability and then the conversation changes. So,",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "what we came up with is rather than going through this back and forth, how about we start at a foundational level, we understand what it is that the organization requires and then we build accordingly. So, that is what we're going to be talking about today.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Now, what the problem is. When it comes to availability of databases, generally speaking, we encounter two camps. On one camp is this group led by a manager who happened to read a blog post, got scared about downtime and said let's just throw",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "everything at the database. You end up with an infrastructure that is extremely complicated, um costs a lot, and nobody understands. And the other camp is we'll implement HA in the next quarter. There's always that next quarter. We're",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "actually currently working with a customer who's been saying next quarter for the past 2 years. Right? They say Q2, we're right around the corner, just a few days away from Q2. Let's see, fingers crossed. Now, these under-built systems have undefined",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "RTOs and RPOs, and there's always, you know, kind of pushing out in the future. By the way, um how many of you here actually understand what RPO and RTO is? Okay, quite a few. So, that's good. We'll be talking about that in a little bit as well. So,",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "the problem is there two camps, and we're going to try and figure out how to uh save on costs, not just in terms of money, but also in terms of the expertise that is needed, and the sophistication of uh the system that we have at our disposal. And the approach",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "that I'm proposing here today is what if high availability could be built in an incremental way, rather than thinking about it as on or off? What if we can design a system where you can add layers as needed, remove layers as needed without",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "disrupting the system? A system that is aware of the budget that you have, and is conscious of the amount of money that you have the ability to spend. A system that is aware of the skills that you have in-house, and the um sophistication of the infrastructure",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "that you could actually maintain and troubleshoot. There was a talk yesterday that made a very good point and that said um troubleshooting a system probably requires 2 x the expertise of building the system in the first place.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "Right? So, troubleshooting is where, you know, you you really get tested. So, what kind of infrastructure you need to build where you have the talent to actually troubleshoot it as well. Now, in order to build that kind of system,",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "what you need to do is you to need to start with outcomes. And the outcomes that you need to define, number one, failure scope, number two, RPO, and number three, RTO. Let's double-click on each of these for a minute. In terms of failure scope,",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "do you want to plan or protect against individual node failure? Do you want to protect against an entire availability zone going down? A data center going down? Do you want to protect against a power outage? Flood? Earthquake? An entire region goes down?",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "Who here got impacted by the AWS regional outage last year? Okay, a few hands. I'm surprised there not more. Okay. But, yeah, you you know, do do you want to protect yourself against that? Uh so so that would be your failure scope.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "RPO, recovery point objective. How much data, in case of a disaster, in case of downtime, how much data can your system afford to lose? Are you okay with losing 15 minutes of data? For most systems, the answers is answer to that is yes.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "For financial transactions, hard no. 15 minutes of losing data for a bank? Hard no. Right? So, understand uh your tolerance of RPO. RTO, recovery time objective. How long can you tolerate for the system to take to recover? If it goes down, if disaster strikes,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "how long will it take to actually come back on? Are you okay with waiting 30 minutes? 30 minutes in a is enough for somebody's pager to go off, them to get out of bed, log on, SSH into the system, and start working on it.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "If it's seconds that you're looking for, you got to automate. You can you need to remove humans from the loop. Seconds, the moment you insert human, you cannot achieve an RTO of seconds. So, define what exactly is it that you want your RTO to be.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "And my my my stance over here, my stance for this talk is that you can get very strong outcomes if you define these starting points first, and then pick the layers that you want to implement. And your manager is going to be happy because it saved them money.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "Now, um this is a brief summary of the layers that I'm going to be proposing in the you know today in this talk. We'll go into each of these layers one by one. Starting off with layer zero because well, hey, we're all computer",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "scientists. We always start with zero, right? We never start with one. So, layer zero is where you have a single node. If that single node goes down, you can't really define up front how much data you're going to lose. It's possible that",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "you recover all of the data. It's possible that you lose all of your data. You don't know. Right? You don't know how long it will take for that node to come back up? If the disk has crashed, how long will it take to replace the disk? If there's",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "a network connectivity problem, how long will it take for that network to come back? If the server has burnt down, how long will it take to order a new server and ship it in and I have it set up? You don't know. That is single node.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "Add on top of it one layer of an offsite backup. So, you're taking a periodic backup, you're putting it on a different site, and all of a sudden, now you have a real chance at recovering from disasters. Now, your RPO becomes defined.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "It's not great, but it's not undefined. If you take a backup every 24 hours, the most data that you're going to lose is 23 hours and 59 minutes and 59 seconds. Right? So, that's defined. RTO remains hours because you still need",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "to set up an instance, set up a server, and then restore that backup to that server when disaster does strike, so it's still, you know, in hours. Now, on top of layer one, now add wall archiving. Um who all know what wall is in Postgres?",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "Okay, a few few hands. So, Postgres works with write-ahead logs, and wall is the short form for that, and write-ahead logs kind of make the core and the backbone of everything that gets written to disk, how data is stored, how data is",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "replicated, how backups are taken. Wall is kind of, you know, it it's the core of it. And to achieve point-in-time recovery in Postgres, you need to rely on these wall files. Now, if you're shipping, along with taking a periodic backup, if you're",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "shipping wall files to that same offsite backup, now you have the ability to recover to a particular point in time and your RPO, the data loss, becomes minutes, not hours. Now, if let's say a disaster strikes at 2:00 p.m. in the afternoon, although it",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "usually strikes at 2:00 a.m., but anyways, you know, if if it strikes at 2:00 p.m. in the in the afternoon and um uh you had taken a backup, let's say at 6:00 in the morning. You've got 8 hours of wall logs that have been shipped onto this offsite and you need",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "to you can replay those logs and actually get exactly to the point in time where disaster struck. Now, the data loss, the possibility of data loss are only the wall files that have not yet been shipped and hence you cannot replay them.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "Uh the RTO, the time it takes to recover, is still in, you know, hours because you do need to set up the server, restore the backup, and replay all the wall files in order to get to the state of the system that you are aiming for.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "Now, layer three adds on top of it by adding a hot standby, an asynchronous replica of your primary database that is getting that that's a subscriber to your primary database and getting data in real time, albeit asynchronously from your primary. Now,",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "in case your primary goes down, you have the ability to immediately switch over to your async replica. Now, because this this node is actually replicating data uh asynchronously or onto it uh constantly, the recovery point objective, the the",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "the possibility of data loss, now becomes seconds. Seconds because the only data that is you're going to lose is the data that has not yet been replicated onto the standby. And if you have the ability to implement auto failover, now your RTO, the time",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "objective of of recovery, becomes seconds as well. Because you have auto failover, because you've removed human from the loop, you don't have the need to set up things from scratch and you know, restore the backup and you know, replay the log files.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "All you need to do is switch over to the replica. Now your RTO is seconds. Another layer, number four, you have another hot standby, this time sync replicating data synchronously. What synchronous replication does is it gives you an RPO of zero.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "Now you have data redundancy in real time where you've got two nodes that are absolutely in sync all the time. One node goes down, the other is ready with all of the data right there. RPO is zero, RTO is still seconds because you do need a few",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "seconds to kind of fail over. Now this is when all of these nodes are kind of close together. What happens if an entire region goes down? That's where the final layer comes in and that adds regional redundancy by adding a warm standby in a different region.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "Now an entire region goes down, your primary is gone, your asynchronous standby is gone, your synchronous standby is gone. Now you can failover to your warm standby in a different region and the data that you're going to lose is in",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "minutes, it's only the data that has not yet been shipped to the warm standby. The time it takes to recover is again in minutes because this time there is human in the loop. A cross-region failover well, technically can be automated but",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "really should not be. We'll get into that in a little bit more detail in in in just a bit. So, an RPO and RTO of a regional failure are is is measured in minutes. Now, let's take a deep dive into each of these architectures. I've tried to",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "play my hand at illustrating. Um I probably should have used AI uh for this, but anyways. Um so, this is your baseline, right? You've got a single uh This is not working. Oh, it is. You've got a single node right here. The",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "application is writing to this database. It's also reading from the same database. Um the application and the server might reside on the same site. They might reside on different sites. Doesn't really matter. It's a network connectivity thing. Um and in case",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "this site goes down or the database crashes or the host of the database goes down for some shape or form, whatever it is. Um your RPO is undefined and you it might takes hours it might take to recover from that disaster. Perfectly fine for developer",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "environments. Perfectly fine for QA. Maybe even staging here and there, but I'm not saying that this architecture is bad. I'm saying this is the baseline. This is where you start from. For some cases, this might be perfectly",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "acceptable. So, we just, you know, we we we can just use this. One layer beyond this. Now, what you have is the backup on site B. And as I had mentioned in the, you know, in the in the previous slide, now you have this real chance at recovery",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "from disasters because you've got this separate site. It's disk storage. It's not really a database that's that's that's over there, but you you do have backups. It might be They might be compressed. They might be encrypted. Uh but you do have backups on",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "a different site. You have redundancy for sites in this in case this entire thing goes down. You have the ability to spin up a cluster on site B, restore this backup, and you'll be good to go. It will take a few hours for you to do",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "that. You might lose some data in the process, and that data would be the one that had not yet been shipped over here. You could you you could you still have a real chance at recovering from a disaster. The next visual just adds one more",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "arrow. Right? The only difference between uh layer one and layer two is this arrow right here. Now, wall archiving gives you the ability to point-in-time recovery. Now, one very interesting thing that this enables you to do, it enables you to",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "recover from human errors. Right? A developer needed to do a delete from a table where ID is X, and they forgot to add the where clause. Right? The entire table is gone. It happens. It happens. I'm sure that all of you have experienced something",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "like this in some shape or form. It happens. How do you recover from it? Now, the data is gone. If you only have a backup that was taken, you know, that that is taken every 24 hours, your only bet of recovering is to that last point.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "If you have wall archiving over here, now again let's go back to our disaster at 2:00 p.m. example. If that delete statement without a where clause was run at 2:00 p.m., now you have the ability to recover to 1:59 p.m. Just before that delete happened,",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "right? So you have the ability to kind of recover from human errors as well. Next layer. Now this layer adds a hot standby. Now notice how over here we have a segregation. The site is the same, but the data centers are kind of split. You",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "know, in the in the world of the cloud, think of this as, you know, multiple availability zones. You're adding zone redundancy. In bare metal zone or in data center zone, you think of it as data center redundancy that you're implementing over here.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "Now the reason is what you're what you are kind of protecting against is a data center level or an availability zone level failure. In case an AZ goes down, in case a DC goes down, you still have the you still have a hot standby right here that the",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "application can immediately switch to. Now the RPU and RTU in both the both of them in this case is seconds. You don't lose a whole lot of data. The only data that is lost is the one that is in transit over here. And it takes just a few seconds.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "If you're automating this entire failover process, it just takes a few seconds to promote this standby to become the primary and the application can start talking to it. How we do that, I'll explain that in just a little bit as well.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "But one thing that interesting, you know, functionality that this particular setup also gives you is the ability to balance your load amongst distributed databases. So, you can have your read your hot standby act as a read replica. So, the",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "application can read from both the primary and the standby, although it writes only to the primary. Now, this illustration over here is showing the application reading from the hot standby. You could also have your BI system reading from the standby.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "You could also be running analytics from your standby, and that helps you kind of distribute the load in the cluster and make sure that you're not overwhelming a single node. Layer four adds synchronous replica right here in the hot standby.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "Um the reason why we would want synchronous replication over here is we want to achieve an RPO of absolute zero. So, these two the the primary and the synchronous standby are always in sync with each other. And now, you actually have three nodes",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "that you could potentially read from. Only one node will take a right, but you have three nodes that you could read from. Now, the reason why we have synchronous replica in the same data center and not across data centers. Synchronous",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "replication adds latency to uh write operations. We'll do a deeper dive on that just in just a little bit, but generally speaking, if there is latency between nodes, we advise against setting up synchronous replication because that will slow down",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "your entire database cluster. And now, we have the final layer where the the storage at site B is upgraded to a warm standby. Now, this is, you know, a sophisticated architecture uh where you've got a total of four nodes that are interacting with each other in",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "different shapes or forms. The primary is still single. You've got one synchronous replica, one asynchronous replica, and one warm standby. All of them are taking in data from um from the primary. You cannot use a warm standby as a read replica. That's by",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "design. Again, we can deep do a deeper dive in just a little bit. But now your RPO within a region is still zero. Your RTO within a region is still seconds, but now you have the ability for cross-region failover and your in case this entire thing goes down,",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "you can very quickly switch your application to point to this warm standby right here, which can start taking rights and reads as well with very minimal losses of of data and in very little time. Now, again, a summary. What is the layer that you need?",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "The factors that you need to consider before you decide on which layer you need for high availability of your database. You need to define how much of downtime is acceptable to you. That is your RTO. You need to define how much data loss can the system absorb.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "That's your RPO. How much budget you want to assign to this architecture, to this infrastructure? Right? How much expertise does the team have internally? Right? Now, at times these requirements and these decision-making factors are",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "competing with each other. The desire of the management is always to go at the highest level of availability, and yet they don't have the budget. The engineers want to have a beautiful, sophisticated piece of infrastructure and architecture that can be very",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "resilient, but it might not have the in-house skills to be able to maintain and troubleshoot that system. Right? So, you have to draw that balance. You need to define all of these factors before you decide which layer to go to. As you",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "go down in this table, the requirement while RTO and RPO are decreasing, the requirement for the budget goes up. The requirement for the skills that you need in-house also go up. So, Now, uh who all here understand the split brain, what the split brain means?",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "Okay, a few hands. Good. Good. So, for for those who don't, a split brain is a Well, a nightmare scenario, really. That's that that might be if you know if if somebody were to ask me what's the single biggest thing that will keep a",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "DBA up at night, it would be split brain. Horrible situation to be in. No real remediation other than very painstakingly manually fixing the entire cluster. That will take hours, days, I don't know how long. Horrible situation to be in, but",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "a very real situation or a very real possibility when you have a a high availability cluster with automated failovers without proper guardrails. What happens is that an incident occurs. Maybe it's a temporary network glitch. The cluster decides to promote the",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "standby to be the primary, but the primary refuses to let go. Right? It's holding on. And now in your cluster, you've got two nodes who think they are primary, two nodes that are accepting rights, and are completely out of sync from each other.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "That's split brain. Now, the guardrails that you need to put in place in order to make sure that you don't get into the split brain situation, you need to have a mechanism to fence the primary, the old primary. If a standby is being promoted,",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "the primary needs to be demoted, and it needs to be fenced out out of the entire cluster. a DCS-based consensus, we're going to get to get into this a little bit as well, uh you need to implement to make sure that a majority of uh the participants",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "of the cluster can vote on uh which node is the actual primary. And then, you can rely on the Linux kernel as well and integrate into watchdog and make sure that that is your kind of last line of defense in case uh a primary refuses to go go down, in",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "case a primary refuses to kind of let go. Um watchdog can just completely kill that node. It's it it's it's dirty, it's brutal, but it's effective. It's certainly a lot more cleaner, it's certainly a lot easier than to get into a split brain situation.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "Now, our tool of choice to implement high availability clusters, and this auto failover that we've been speaking about, is Patroni. Now, what Patroni does, it's a tool that leverages the built-in replication functionality of Postgres, the streaming",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "physical replication functionality of Postgres. And it help it it kind of encapsulate the entire functionality of setting up that cluster. You can set up the replication type. You can set up thresholds. You can set up how to elect a leader.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "You can set up how to, you know, drive consensus. Monitoring of the entire cluster, the health checks, and you know, thresholds for automatic failover. Right? All of these are extremely important, not just because, you know, you want to",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "avoid the split brain kind of scenarios, but also to automate the entire process because you want to take human out of the loop. You want to have the entire system do the decision-making and failing over automatically without the need for a",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "human to press the button. Right? That will That is what will give you seconds of RTO rather than minutes or hours of RTO. Synchronous replication. Now, one of the things that I I I didn't dive deeper on when I was showing you the architectures",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "synchronous replication will give you an RPO of absolute zero. So, you'll have an exact replica with two nodes exactly in sync, but there is a cost associated with it. And the cost is in terms of write latency. Now, the way synchronous works is you",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "have a transaction that gets that is supposed to be committed on the primary, but it has to also go to your hot standby. Once the hot standby confirms that it has received the transaction and is ready to commit, it sends a signal back to the primary,",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "and that is when the transaction actually gets committed. So, instead of now one commit on one system, you're looking at two commits on two systems that are separated from each other and have some latency of transfer of information between them.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "The higher the latency, the slower your system is going to become if it is set up in a synchronous replication uh mode. So, if you are in the same availability zone, if you are in the same data center, if your systems are kind of",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "right next to each other, the latency is small enough that we can absorb it. But, you do not want to set up synchronous replication where latency is high. Another interesting scenario is uh what if it's not the primary that",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "fails, it's the standby that goes down for whatever reason. Right? Now, the primary has taken a transaction, it has sent the signal to the standby and now waiting for standby to confirm that it has committed the transaction,",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "and it's just, you know, sitting there waiting because it's synchronous replication. It has to wait. That essentially makes your primary database become a read-only database. It will not be able to process rights. You need to have a system in place to",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "ensure that, you know, you you document what happens if the standby fails. And then, of course, there's operational complexity of setting up this entire cluster. You need to have the skills in-house to be able to not only set this up, but maintain, manage, and",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "troubleshoot. Some cost-saving techniques, some of the these are intuitive. Make sure that you are right-sizing your your standbys. The standbys don't need to be at the same level as your primary database. They can be smaller instances and hence costing less.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "Um make sure that you're compressing your your data. Postgres comes with uh some excellent compression techniques that uh generally work with a 5:1 ratio. So 500 GB of uh data can be compressed to 100 GB. So take backups compressed backups and",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "make sure that you are deciding on your layers in a very conscious level. Some lessons to share from experience in production environments. Number one, test your failover. Test, test, test. Run drills, make sure that the system works the way it is designed",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "to work. You don't want to find out that the system is not working because somebody forgot to I don't know. Um, or somebody just added two semicolons into the code where it was supposed to be one or you know, somebody just left a dangling",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "open string somewhere. Um, and you don't want to find that out when disaster has actually struck. Now, backups, just like you want to test failovers, you also want to test backups. Um, a backup that is not tested essentially",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "is a Schrödinger's backup. And I do not want to be in your shoes if disaster has struck and you have to tell your manager that your backup cannot restore. You you you got to test your backups. Wall archiving, you know, you you want",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "point-in-time recovery, you have configured wall archiving, and but you're not monitoring it. What can happen is if the producer is producing walls faster than the consumer can consume them. The logs will pile up. They will choke your primary",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "and well, it will put disk pressure on your primary. Very closely related to that is replication slots. Right? Replication slots, if they are taking longer for the to release the write-ahead logs on your primary, can make your primary stop working. You",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "know, so it it it's almost like your standby has made your primary stop working. You don't want to be in that situation. Synchronous replication, write a clear failure policy. If a standby goes down, what do you want to do? Do you want to",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "treat your primary database as read-only, or do you want to temporarily absorb the impact of an RPO being not zero? Right? Till you bring the standby back up. When you're Now, lesson number six. When you're routing your read traffic to",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "the standbys, understand that the data can be stale. Right? Standbys, especially when they are asynchronous, uh the data will be slightly older than the primary, even if it is by seconds. If your analytics or your read queries",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "require real-time data, direct them to your primary, not to your standbys. And do not Finally, do not skip the watchdog. That's your friend in the Linux kernel, and it can be very helpful when all else fails. Some key takeaways that I want uh you",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "know, for for for all the audience over here to kind of walk out with. HA is not an on or off switch. It's not binary in nature. It's layers. Start at a lower layer, build, and earn your way up to a higher layer. Understand the skills that you have",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "and build accordingly. Topology matters. Synchronous replication might be a killer if there is too much latency between the nodes. Asynchronous replication may be perfectly fine if you have uh monitoring in place for your replication lag. Test. Test. Test.",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "Run drills. Run tests. Make sure that your failover is sane. Make sure that your backups are sane. And that brings me to the end of this talk. The QR code is my LinkedIn profile. If you want to get connected, I tend to be pretty active there. And uh I",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "am happy to take questions.",
+      "start": 672,
+      "duration": 6
+    }
+  ]
+}

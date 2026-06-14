@@ -1,0 +1,61 @@
+flowchart TD
+  USER_INPUT(["User Input"]) --> QUERY_ENTRY["query() Entry\nAsyncGenerator"]
+
+  QUERY_ENTRY --> LOOP_START{"while(true)"}
+
+  LOOP_START --> PREFETCH["Parallel Prefetch\n· Memory relevance\n· Skill discovery"]
+
+  PREFETCH --> BUDGET_APPLY["applyToolResultBudget()\nTrim oversized tool results"]
+
+  BUDGET_APPLY --> SNIP{"HISTORY_SNIP?"}
+  SNIP -->|Yes| SNIP_COMPACT["snipCompactIfNeeded()\nTrim history messages"]
+  SNIP -->|No| MC
+  SNIP_COMPACT --> MC
+
+  MC["microcompact()\nTrim oldest message pairs"]
+  MC --> COLLAPSE{"CONTEXT_COLLAPSE?"}
+  COLLAPSE -->|Yes| CTX_COLLAPSE["applyCollapsesIfNeeded()\nCollapse old interactions"]
+  COLLAPSE -->|No| AC
+  CTX_COLLAPSE --> AC
+
+  AC["autocompact()\nFull context compaction"]
+  AC --> BLOCKING{"Token at\nblocking limit?"}
+  BLOCKING -->|Yes| BLOCK_ERR["yield error\nreturn blocking_limit"]
+  BLOCKING -->|No| API_CALL
+
+  API_CALL["deps.callModel()\nAnthropic Streaming API"]
+
+  API_CALL --> STREAM_LOOP{"for await\nstream messages"}
+
+  STREAM_LOOP -->|AssistantMessage| YIELD_MSG["yield → UI"]
+  STREAM_LOOP -->|tool_use block| ADD_TOOL["streamingToolExecutor\n.addTool()"]
+  STREAM_LOOP -->|Streaming Fallback| FALLBACK["discard() + switch model\n+ retry"]
+
+  ADD_TOOL --> CHECK_RESULTS["getCompletedResults()"]
+  CHECK_RESULTS --> YIELD_RESULT["yield toolResult → UI"]
+  YIELD_MSG --> STREAM_LOOP
+  YIELD_RESULT --> STREAM_LOOP
+
+  STREAM_LOOP -->|Stream ends| POST_STREAM
+
+  POST_STREAM{"needsFollowUp?\ntool_use blocks exist?"}
+
+  POST_STREAM -->|No tools| STOP_CHECK{"StopHook\ncheck"}
+  STOP_CHECK -->|Pass| TERMINAL(["return Terminal\nTurn ends"])
+  STOP_CHECK -->|Reject| INJECT_MSG["Inject stop hook message"] --> LOOP_START
+
+  POST_STREAM -->|Has tools| RUN_TOOLS
+
+  RUN_TOOLS["Non-streaming: runTools()\nor collect streaming results"]
+  RUN_TOOLS --> COLLECT["Collect tool_results\nUpdate toolUseContext"]
+
+  COLLECT --> ATTACHMENTS["getAttachmentMessages()\nMemory / Skill attachments"]
+  ATTACHMENTS --> TOKEN_CHECK{"Token budget\ncheck"}
+
+  TOKEN_CHECK -->|Exceeded| BUDGET_TERMINAL(["return token_budget"])
+  TOKEN_CHECK -->|OK| TURN_CHECK{"maxTurns\nlimit?"}
+  TURN_CHECK -->|Exceeded| TURN_TERMINAL(["return max_turns"])
+  TURN_CHECK -->|OK| UPDATE_STATE["Update state.messages\nstate.turnCount++"]
+  UPDATE_STATE --> LOOP_START
+
+  FALLBACK --> STREAM_LOOP

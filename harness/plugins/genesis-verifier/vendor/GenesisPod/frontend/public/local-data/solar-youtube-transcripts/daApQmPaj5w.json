@@ -1,0 +1,974 @@
+{
+  "videoId": "daApQmPaj5w",
+  "title": "FAST '26 - Keynote Address: Everything You Always Wanted to Know about Storage Analysis...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 47260,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thank you for inviting me.\nUh when I was thinking about what do I\nwant to say today, I thought, \"Hm, I can\ntell you about one of my latest research\nprojects and you'll be all excited at\nthe moment, but you know, a couple of\nyears from now the field has moved on,\nit might seem a little stale.\" So,\ninstead, I thought, \"Let me try and\ndistill over 30 years of experience\ndeveloping and optimizing characterizing\nstorage systems into, well, 1 hour or\nso, maybe.\" Necessarily, I'm going to be\nleaving a lot of stuff out, but I'm\nhappy to talk to you.\nAll right.\nSo, let me start with this statement,\nokay?\nStorage is complex.\nData is everywhere.\nLife is good.\nAll right. So, let's see if this uh\nholds up at the end. All right, let's\nstart with some motivation, okay? We've\nall seen this storage hierarchy pyramid,\nright? Where at the bottom, we have\nbigger, slower, cheaper devices. At the\ntop, we have smaller, faster, more\nexpensive devices. Um all kinds of\ndevices have come through the years and\nthey kind of move up and down, some\noverlaps. Uh but the interesting part is\nthere's orders of magnitude performance\ndifference between each of these layers\nand across them. There's not that many\nfields you can think about where the\nslowest and fastest operations differ by\nsix to eight orders of magnitude. That\nposes a challenge for us, a significant\nchallenge. And I've been thinking about\nthis uh for a long time, trying to\nthink, \"Why is it that this has kind of\nremained true over time?\" Yes, over over\ntime everything gets cheaper, faster,\nbigger, but these differences remain\nstill true. And I think it boils down to\neconomics\nand physics.\nIf you want to move some mechanical\ndevice faster, it's going to cost you\nmore energy. More energy costs more\nmoney. If you want to move electrons\nfrom here to there faster, it costs more\nenergy, therefore it costs more money.\nAnd fundamentally, that's a limited\nresource. And so, we can't afford to\ncreate storage systems that are going to\nput all of our data in some non-volatile\nsuper fast devices. It just would be\nprohibitively expensive. So,\nfundamentally, we're always going to\nhave these kind of tiers, and we're\ngoing to have to deal with them no\nmatter what.\nOkay.\nNow,\nthe storage stack is deep and it's\ngetting deeper. And as I said, data is\neverywhere. So, I'm going to use this\nsimple example here. I have some file\nsystem X, I have some benchmark running\nin userland. Uh it goes to the block\nlayer into some storage device. And I'm\ngoing to use this running example in my\ntalk of um I took some file system, I\nwanted to add some features to it. Let's\nsay I added encryption to it. Why?\nBecause you know, that's my favorite\nexample, okay? So, I have now uh an uh\nvanilla file system and one that I\nmodified to add some encryption to it.\nBut there's a lot of things I might want\nuh to do in this\nuh system. For example,\nuh there's a trend to move more and more\nstuff into userland. So, now I have to\nworry about the userland components in\nthe system, um not just what's in the\nkernel. Um there's memory and caches at\nevery layer, and they interact in very\ncomplicated ways with every layer of the\nsoftware. What about networking? Maybe\nmy storage goes to a local area network\nlike NFS or wide area far away network\nlike cloud. I have to figure out that\ncomplexity on top of everything. There\nmay be multiple storage devices all the\ntime. The different storage devices,\ndifferent characteristics, they come up.\nUh what about other layers of\nvirtualization, like LVM, RAID, more\nvirtualization? There's a lot of this\nkind of stuff that happens.\nUm, and so my simple file system that I\nwant to characterize now looks a lot\nmore complicated because there's a lot\nof components I have to worry about.\nFundamentally, what we have to worry is\nhow can we isolate the impact of\ndifferent components on\nuh our performance? And hopefully, I'll\nshow you some of these examples. All\nright. Now, storage benchmarking is\ntime-consuming. I want to give you an\nexample\num of what what I think uh we have to\ndo. So, in my opinion, a typical process\nof doing some research project, and by\nthe way, this applies to industry as\nwell, is we do a little bit of a\nliterature review, a good amount of\ndesign, a good amount of\nuh um implementation,\nand and some testing, and some\nbenchmarking, and we're done. We call it\na a done deal. In reality,\nthe picture looks different and\ndefinitely should look different. The\nreality should look more like this.\nFirst of all, we should do more\nliterature review um\nto find out everything uh\nthat's available in the state of art.\nThe design implementation to be\nrelatively small, we should spend a lot\nmore time on testing and debugging, and\na whole lot more time on benchmarking\nsuch a storage system. And there's\nreasons for that because benchmarking\noften reveals problems. It reveals bugs\nand crashes. Your system crashes, you\nhave to go and figure out what the bug\nis, fix it. Uh, it may reveal a\nperformance bottleneck. Something didn't\nwork the way you expected it to work.\nYou got to have to go and figure out\nwhere's the problem, fix it. Maybe an\nimplementation problem, maybe even the\nworst-case design problem. You have to\ngo back to the drawing board, redo\neverything. All these things consume\nmore time in benchmarking as you go back\nto implementation, go back to even the\ndesign. Um, that's why it takes a lot of\ntime. Moreover, if you change your code\nin any fundamental way, you have to\nthrow away all the results that you did\nbefore. You have to start them from\nscratch.\nand that's not even taking into account\nany kind of hardening of the code for\nany kind of release, any regressions you\nmight want to run or or release, any\ncode or data releases. All right. And\nwhen you see this little Mr. Burns icon,\nthat means I have a dirty little secret\nto tell you. In fact, I have two of them\nhere. Uh the first thing is literature\nreview is very critical. If you miss\nsome important uh related work, that's\nusually a good way to get a paper\nrejected. I tell my students that they\nbetter find out all the papers uh that\nare relevant and cite them, especially\nthose of the program committee members,\ncuz you don't want to offend them\npersonally. All right. The other thing\nthat I I want to tell you is how do I\nreview papers? Before I review papers\nfrom beginning to end, I usually look at\nthe abstract, a little bit the intro,\nand then I jump to the evaluation. I\nwant to look at the figures. I want to\nlook how good they look, how well\nexplained are they self-explanatory, do\nthey look clean, uh are they impressive?\nIf I see what looks like good\nevaluation, I'm already thinking very\npositively about the paper, because you\ncan have the greatest design, but if you\nhave not evaluated properly, then it's\nhard to\nbelieve that what you have is really\nworking very well. So, that's a good uh\nadditional good reason why you want to\npay a lot of attention on evaluation.\nOkay.\nSo, let's talk about what it takes to do\nuh benchmarking. All right.\nSo,\nwhat tools should you should you use to\nbenchmark? There are lots of tools, but\nthere there's really more classes of\ntools that I want to tell you about.\nWell, one example is microbenchmarks.\nLike FIO and DD. There's many more. I\ncouldn't even list all of them, so I\nwant to I don't want to tell you use\nthis tool or use that tool, but rather\nthink about classes of tools. So, what\nare microbenchmarks good for? Uh\nusually, they're good for testing\nspecific features or narrow features,\nisolating the worst-case performance of\na particular feature. But the criticism\nis that they're not that realistic\nbecause they are very specific to one a\nparticular\nfeature that you're testing. So, there's\nwhat's called macro benchmarks, bigger\nthings that they try to test multiple\noperations. They're more considered more\nrealistic, but still they're sort of\nsynthetically generated and many of us\nwill say, \"Well, maybe that's not as\nrealistic as possible.\" So, of course,\nnow there's traces. I can use some\ntraces and thankfully SNIA has lots and\nlots of these traces that have been\ncollected and and released. They're\nconsidered more realistic\nbecause usually they're captured under a\nreal scenarios, but you know, traces can\nstill, you know, be stale if they're\nvery old and what system they were\ncaptured on.\nAnd there's a good question of how do\nyou replay them? If you replay them in\nclock time, could take as long as the\noriginal trace was running. Or do you\nplay it as fast as possible? Those are\nall kind of questions. So, the the\nquestion is which one of these options\nyou should choose and the right answer\nis D, all of the above.\nShould really pick as many of those and\nhave a wide spread so there's no one\ncould have a question like, \"Oh, I don't\nknow how your system will operate on\nthis this mode or that mode.\" Okay?\nNow,\nlet's see how many of these benchmark\nexperiments you have. So, let's say I\nhave I selected three kinds of\nbenchmarks, one micro, one macro, and\none trace.\nLet's say in terms of workloads, I\nselected one sequential, one random, and\none mix so I can have kind of coverage\ngood coverage of all kinds of workloads.\nAnd now what about the workload size or\nthe cache size or some other parameter?\nWell, I want maybe some some default and\nthen maybe something a little larger,\nsomething a little smaller because\nagain, if you pick only one thing, it's\nvery hard to know what impact that\nparameter will have on your overall\nperformance.\nNumber of threads or or something\nsimilar to that, maybe I'll pick three\ndifferent values. Remember this this was\nan an experiment where I have a an\nencrypting file system that I developed.\nSo, of course I have to test the the CPU\nbound operations like hashing and\nciphers. So, maybe five more parameters.\nUm how many times should I run each\nexperiment? At least five so I can get\nsome good statistical uh stability.\nAll this alone will get you over 4,000\nexperiments. At 1 minute per experiment,\nthat's over 2 days of clock time. Um if\nyou go to 2 minutes, it's 5 plus days.\nIf you go to 15 minutes, it's 42 days.\nAnd these um\nthese are highly conservative values.\nBecause a lot of experiments actually\nneed to run much longer than that. We\nrun experiments that each run will take\nan hour or two. So, now you you can see\nhow experiments could take months to\nconclude in order to get really good\nstable results.\nUm that's why\nbenchmarking can be so time-consuming.\nAll right. Now, let's talk about\npresenting data. All right. I have not\nseen\num any information uh about how to\npresent information. And not just in\ntalks like this or talks like many of\nyou are giving, but presenting it in\nprint uh media. The last time I've seen\nsomething like this was when I was in\ngrad school. So, I'm hoping that this\nwill serve as sort of a resource for\nmany of you to use. All right. So,\nlet's take this particular fictitious\nexample. I have a a two systems, the um\nthe baseline system and my system. And\nI'm I ran it under three different\nbenchmarks. It could be the same\nbenchmarks in diff- three different\nconfigurations. But, I have three\ndifferent settings, and I calculated\num some uh metric, and I pre- presented\nit. Uh and I put it into these bar\ngraphs. All right. So, the question for\nyou now is how many wrong things do you\nsee with this figure?\nAll right, let's start.\nX and Y axis starts at zero. Many tools\ndo that by default. It's very annoying,\nfrustrating because it magnifies the\nimpact of what what you're doing. For\nexample, on the leftmost graph, it seems\nlike my system is three about three\ntimes better than the baseline, but in\nreality, it's not. So, I I would urge\nyou to make sure that you start your\nyour Y axis at zero. If you absolutely\nhave to start it not at zero, make sure\nyou put a big bold letter saying this is\nnot starting at zero and then there\nshould be a good reason. Um\nThere the Y axis label's missing. What\nis it? I don't even know what is it that\nI'm that I'm presenting here. So, you\nhave to provide this information.\nStudents tend to do that when they just\nkind of try to get you quick and dirty\nresults for next week's meeting and I\nurge them to be as professional and\nthorough as possible on this. There's\ntoo many labels here, just too many\nnumbers to see. I don't need that many\nnumbers. There's also wasted space here.\nUh the the legend can be moved where\nthis white space is. And if you do that,\nyou probably save a couple of lines of\ntext. How many of you have wished you\nhad more room to write in the paper?\nThis is one example. Don't waste white\nspaces in your figures. Um there's also\nno numbers on top of the bars, no\nmeasure of of of uh stability like error\nbars. Um so, lots of little things that\nare wrong here. Now, let's go fix all of\nthat. All right, so I fixed the the Y\naxis at zero. I added um a a label. I\nreduced the the number of labels. I\nmoved the legend over. I put uh numbers\non top of the bars and error bars.\nThere's still wrong several wrong things\nhere. All right? First thing is\num there's a typo. Have you noticed it?\nLittle typo. A single typo in a figure,\nyou know, indicates, you know, maybe\nthis person wasn't as careful in their\nbenchmarking. It's also more time\nconsuming to fix. You can't just go to\nthe Overleaf and fix it. You have to go\nto the source of your figure, fix it\nthere, regenerate the figure, regenerate\nthe embedded object, move it over to\nOverleaf, rebuild your paper. So, little\nthings like that uh do matter for how\ngood a presentation looks like. Um\nthere's also missing units. I don't know\nwhat the unit is, all right? Um it's\nstill too many zeros for my eye to see.\nPerceptually, you know, we don't want to\nsee that many numbers.\nUm too many digits of significance. A\nlot of people just do it average and\nthen they give you like six, seven,\neight digits of significance. You really\nhave that much statistical stability\nthat you need that many digits of\nsignificant? Probably not. Okay?\nUm and here's something that the\npresentation leads to. Presentation not\njust making things pretty, it leads to\nanalysis and analytics in evaluating\nbecause the first thing you should see\nhere is, \"Hmm, something is going on.\nWhy are these error bars kind of high?\nWhat does it mean about the stability of\nmy results? Maybe something is going on\nI should investigate.\" All right. So,\nlet's go and fix these, all right?\nSo, I fixed the typo in in the Y-axis\nlabel. I added proper units. I I put\ncommas around the zeros so I can I it's\neasier for me to read. I rounded up some\nof the numbers. Um but I I still think\nthat the Y-axis labels are a little hard\nharder to read.\nUm the scale is a little too small.\nBytes per second and we're talking about\nthousands of those. Maybe we can fix\nthat. So,\nlet's fix that, all right? So, I\nrescaled everything to kilobytes per\nsecond because it's so much easier to\nunderstand. It's smaller numbers are\neasier for us\nuh to understand. I rounded up the\nnumbers on top of the bars.\nUm so, now it looks a lot more\nuh a lot easier to understand\nperceptually. But, here's a good\nquestion. Do I really care about what\nare the absolute numbers on top of the\nbars? Or do I really care about the\ndifferences between them? Like how much\nbetter or worse my system is doing\ncompared to the baseline system?\nSo, now I'd like to to give you one of\nmy favorite quotes that attributed to\nIsaac Asimov. The most exciting phrase\nto hear in science, the one that heralds\nnew discoveries is not \"Eureka, I found\nit.\" but rather \"Hmm, that's funny.\nSomething's going on here.\" All right?\nSo, coming back to the figure, what I\nwhat I will do instead is\nchange it. So, instead of giving you the\nnumbers, I'm giving you the magnitude\ndifferences, which is probably what is\nmost important when you want to convey\nas much information in as little much\nspace and as quickly as possible. So,\nhere I'm simply showing you that my\nsystem does 37% better on benchmark A\nand 9 18% better on benchmark B. If I\nreally want the absolute numbers, I can\nkind of look at the Y axis. Um but you\ncan see that it's doing 90 19% worse on\non benchmark C. So, that's funny. Hmm,\nwhat is going on here? Why are the\ntrends reversed? I was doing well on two\nbenchmarks. What's going on? This is\nsomething that needs to be investigated.\nOkay? Now, do you see these two error\nbars and how they're large? In fact,\nthey're overlapping.\nOkay? From a statistical perspective,\nwhen you have two confidence intervals\nthat overlap themselves, it means that\nthe true mean can be anywhere in that\nconfidence interval within some\nprobability. That means that the actual\nmean of these two numbers for benchmark\nuh C can be anywhere in there. And in\nfact, maybe the trends are reversed.\nMaybe it's not 19% worse, but some\nnumber better. This is something that\nneeds to be investigated. You have to\nfigure out why am I getting this? Are\nthe my results not stable enough? Do I\nneed more run? Do I need to investigate\nwhat is going on? Okay?\npresentation skills. Suppose I have\nsomething like that where I have small\nnumbers and very large numbers. You see\nit all the time. Um and there's also a\nlot of white space and it's very hard to\nreally see the differences between\nbetween them. Something very simple that\nyou should always try to do is just use\na log scale.\nLog base two, log base 10, log what base\nwhatever. Now it's much easier to see\nthe numbers. But log scales are harder\nfor people to perceive because we don't\nthink in exponential terms. So if you\nuse log scales, make sure you say it's\nlog scale, put in the caption and\nhighlight it uh in the text of your\npaper so people would know that you're\nusing log scale. So it's very very\nclear. But this is an example where you\nshould always try log or not on linear\nand see what works better, what looks\nbetter.\neasier to compare. Right. Let's go to a\ncouple other uh examples. Here I have I\nwant to tell you about these kind of uh\ndirectionality trends and crossovers. I\nhave an experiment where I have like\nthree systems and you can you see that\nthe uh Y axis is in throughput, the X\naxis is logarithmic, it's workload size\nor some other parameter that grows\nexponentially and I have three systems\nwhere I measured the results. And when\nyou look at it, looks nice, but there's\na lot of things that need to be\ninvestigated. To start with, the the\nfirst system kind of grows linearly very\nslowly and yet the the X axis grows\nexponentially and this is kind of a a\ngood question. Why is it that if I'm\ngrowing this um metric of workload size\nexponentially, why is the throughput\nonly growing linearly? That there's some\nthere's something kind of like doesn't\nmake sense. It needs to be investigated.\nThis the second system, the trend goes\ndown. Why is this one getting worse um\num when the work size grows? This needs\nto be investigated. Why the trends\nreverse? The third system goes up and\nthen goes down. What happens at that\npeak that makes it sort of an optimal\npoint and what happens after that that\nit gets starts to get worse? This kind\nof behavior needs to be explained. Also,\nwhat is this dip here? What's going on\nthere? Is it an anomaly, a wrong data,\nsomething went wrong, a a true behavior?\nAll these things need to be\ninvestigated. The other things that need\nto be investigated is, in my opinion,\nevery time you see two trend lines cross\neach other.\nOkay, the crossover is an interesting\ninflection point where something\nhappened where one system overtakes the\nother for some reason or other over a\nmetric. Those all these things need to\nbe investigated.\nUm and so, simple figure, there's six\nthings you have to investigate. You can\nsee how long that could take to explain,\nanalyze, and then thoroughly\nuh document what is going on.\nNow, this is a throughput\nuh graph.\nVery often we put throughput next to\nlatency. I have seen it even this week.\nAll right? Throughput and latency\nusually go hand in hand. The problem is\nthat their directionality is opposite.\nFor throughput, higher is better. For\nlatency, lower is better. And when you\nsee it without actually paying too much\nattention, it takes extra mental\nuh um thinking to really see the\ndifference and I understand, \"Oh, okay,\nthat's what's really better. That's\nwhat's really worse.\" If it takes longer\nto understand a figure, it takes longer\nto understand a paper, it detracts from\nthe quality and the presentation of the\nmaterial. There's a very simple solution\nto this.\nSmile.\nJust put these smileys on or some other\nmetric that tells you what is better,\nhigher or lower. I've I've started this\n20 years ago, these little smileys, and\nI was hoping that more people will do\nthat. So, I hereby give everyone a\nroyalty-free license in perpetuity to\nuse these smileys anytime you want. You\ndon't have to credit me at all. Just\nplease do something like that.\nAll right.\nUm but there's another good question. Do\nwe even need bar graphs?\nBar graph is just a big rectangle of of\na fixed color. Maybe instead of using\nbar graphs, just use box plots. Box\nplots give you a lot of information in\nthe same space and they're usually more\nsuitable for storage benchmarks because\nwe have all these orders of magnitude\ndifferences in behavior. Um\nthey give you quartiles or or uh\nyou can design them to do like a 10% 10%\nor uh 1% uh uh regions, a median, means.\nThey even they even will show you um any\noutliers that you might have.\nUm and so that those are much use much\nmore useful than just defaulting to bar\nplots by default. They give you a lot\nmore information in the same space.\nUm outliers, you shouldn't really have\nany outliers in systems uh research. If\nyou do, you know, you have to figure out\nwhat's going on. Now, what would be a\ntrue outlier? Here's an example. Suppose\nI configured my server, I'm running my\nexperiment, I have like 10 experiments\nto run. Each one is going to take uh 1\nhour and I'm just repeating the same\nthing I and I'm launching it on my on my\nsystem.\nUm unbeknownst to you, another user\nlogged into the system and started to\ncompile things. So, obviously, they're\ngoing to mess up your your timing in the\nmiddle uh of this uh run, you know, the\nthe the memory, the IO, everything's\ngoing to go off. That's an outlier,\nokay? And and in theory, you're supposed\nto throw away those results because\nthey're not uh representative. But a\nmuch better uh\nuh way to handle it is to avoid these\noutliers in the first place. It is\ncontrol the environment. Make sure you\ndon't have any\njobs that can wake up in the middle like\ncron jobs or periodic things that just\nkick off and and do things that could\nscrew up the the experiments.\nThat's much better than having to\nreport outliers or even eliminate them.\nNext thing I want to tell you about is\nchoosing colors. Okay, this is something\nI've learned by collaborating with\nvisual analytics people.\nThe two URLs you see in the bottom right\nare from two popular websites that are\nused\nby visual analytics people whenever they\nhave to use more than three or four\ndifferent colors to present things. It's\nimportant that you use the right colors\nthat will look good and sufficiently\ndistinguished\nin whatever media. You can choose the\nnumber of colors. You can choose whether\nyou want to optimize for color, black\nand white, gray scale, the depth,\nwhether you want it for print or\ndisplay. You even can optimize for color\nblindness. One of the things that many\npeople don't know is that everyone\nperceives colors slightly different and\neveryone has some measure of color\nblindness. In fact, what I perceive as\ngreen and blue might be different than\nwhat you are perceiving as green and\nblue. And so choosing the right colors\nis important\nif you want if you want something to\nlook good.\nI've seen some some presentations this\nweek where there was a lot of shades of\nthe same color and I have to squint a\nlittle harder to see which one is your\nsystem and which one is other other\npeople's system. So these are good\ntools to use\nfor presenting materials.\nLet's go to analysis.\nAll right.\nGoing back to\nmy figure. Remember\nthe figure of my encrypting\nsystem and then I have all these\ncomponents that are interacting and I\nhave to\nanalyze things. Well, the first thing I\nprobably have to do is measure the\nbehavior of different components. I have\nto start by measuring what is my\nthroughput of my storage device. What's\nthe maximum that they can handle?\nBecause my file system won't be able to\ndo much better than what the underlying\nhardware can do. So, I have to measure\nthat to begin with.\nUm how's my network doing? Um it's very\neasy for modern processors to overwhelm\na 1 gig network and even 10 gig\nnetworks. Uh and so, are you bottle\nnecking on the network or there's\nsomething going on in your uh system\nthat you've developed? All these things\nneed to be measured.\nUm how how is your CPU doing? How well\ndoes it handle all these uh CPU bound\noperations? You need to measure those\nindividual ones. What about the memory?\nHow fast is your memory accessing data\nin and out of uh memory? Um what about\nthe user level components, context\nswitches, data copies? All these things\nyou have to know them because they\nbecome bottle necks in an understanding\nand analyzing your system. So, those are\nthe first kind of baseline numbers you\nyou need to get so you can\nit will help you to explain the results\neventually.\nAll right. But now, you want to analyze\nthe behavior of your own system. You\nhave some software system. You want to\nfind out where are the bottle necks in\nmy own code?\nUm you want to uh kind of dive deeper\nand maybe find bottle necks and optimize\nthem. So, the question is how do we\nisolate the impact of specific functions\nor components deep inside your code? Um\nthere's lots of techniques. Um we can\nuse eBPF, trace points, block trace, all\nkind of tracing technologies. And they\ngenerate tons and tons of data. That's\nwonderful. Uh the concern is that they\nmight First of all, there's going to be\na lot of data that they generate.\nThere's a lot of overhead. They might\nactually interfere with the behavior of\nthe system because they add too much\ninternal overhead. And depending on how\nthose systems are designed, they may\nactually lose events.\nUh systems like trace points use a ring\nbuffer, lockless ring buffer, and then\nyou have to pull the data out of it to\nutilize as quickly as possible. If not,\nyou actually lose events. And so, you\nmay not get all the events. But, the\nquestion is do you really need all those\nevents? Maybe all you need is\num just to capture averages, some some\nnumber inside your your particular\nfunction. So, you could add some code\nthat will measure and then average the\nnumber\nlet's say latency of your functions\ninside your code. But, maybe that\ndoesn't give you enough information. You\nwant more than an average, but you don't\nwant to have all the overhead of\ntracing. Is there something that you can\ndo to capture more information\nefficiently? And there is a technique\nthat we have developed uh more than 20\nyears ago. Um\nAnd the idea is this.\nUh step one, you you sample the the the\ntimestamp counter. Every CPU has some\nsort of a tick counter. You sample it.\nThen you run your function, whatever\nfunction it is you can wrap it.\nUh then you sample the uh step three,\nthe the timestamp counter again. You\nsubtract them.\nUh and then essentially you do shifting\nof this number to the right. Shifting to\nthe right is essentially dividing by by\ntwo, and then you calculate a bucket\nnumber, and then you stick it in some uh\nvector array or integer array you call\nthe histogram. Essentially, what create\nwith is a small array of integers that\nrepresents a uh uh a histogram of the\nlatency in powers of two um of your\nsystem. And you can sample this vector\neither at the end of your experiment or\nperiodically to get\nuh to get periodic results.\nso, this\nthis technique has negligible memory\noverhead, and the CPU overhead way back,\nyou know, 20 years ago was about 4% and\nit was mainly attributed to the the\nnumber of\nclock cycles that are needed to to\nsample this TSC register. Nowadays,\nthey're even faster.\nAll right. So, let me show you an\nexample of what you can get out of\nsomething like that.\nAll right.\nHere's an example where we instrumented\ninside the kernel and we measured we we\nessentially collected these histograms\nof different file system operations.\nThis happened to be an experiment we\nwere doing\na recursive grep\nover some source tree and and this\nhappens to be the read operation, but\nyou know, we did this for every possible\noperation. You can see that the Y axis\nis the is the count in log base 10. The\nX axis is the the bucket in terms of a\nlog base two of the of the clock ticks.\nAnd I've used something interesting\nhere. I've used an X2\naxis.\nBy calculating for that particular CPU,\nwhat would be the average latency of\nthat bucket. So, now you can I can give\nyou kind of both both ways of presenting\nthe information. This allowed us to see\nthe complexity\nof this particular workload. It's not a\nnice normal distribution. It's actually\nmultimodal here. So, with this we were\nable to analyze what was going on and\nthis is what we found out. This last\nmode, the slowest one, that's when the\ndisk had to move.\nDisk head delays. The next one is when\nyou hit the disk cache. You still have\nto do IO to the disk, but you grab\nsomething out of the cache. The next one\nis you might guess, that's when we hit\nthe the operating system cache in\nmemory. So, it's obviously faster moving\nto the left. And what's that that one\nall the way to the left? That's like a\nnanosecond. How how is IO operations\noperating at that speed? That's more CPU\nspeed. It turns out that was an\noptimization\nin Linux that if you try to read past\nthe EOF, it doesn't even go to the page\ncache, it just returns zero right away.\nSo, all these things were very important\nto understand. And the dirty little\nsecret here is that depending where your\nworkload falls into these buckets,\nyou're going to have orders of magnitude\ndifferent performance from very fast to\nvery slow depending on how your your\nbenchmark distributes the number of\noperations to different\nuh elements. But, this allows you to\nexplore and explain what is going on\ninside the your system.\nHere's the next example is when I sample\nthese histograms every second. So, in\nthis experiment um again, I'm doing a\nrandom read in a file. Um and this this\nran\nfor about 3 minutes. Um on the x-axis uh\nyou see again the buckets on the on the\ny of log base 2, and we normalize the\nz-axis to the percentage of reads. And\nwhat you can see here, and we also\ncolored things so that it's a little\neasier to see it because it's a 3D uh\nimage.\nUm what you can see is this. Um in the\nbeginning, we get very high latencies in\nin the starting. Why? Because every uh\nrequest to read data is a cache miss.\nYou have to go to the slow storage\ndevice and retrieve it. So, it's slow\noperations. You see it in the bottom as\na histogram as a a bucket to the right.\nOkay? But, what happened near the end of\nthis benchmark? Well, when almost\neverything is cached, now you get really\ngood hits. Your performance is really\nreally high, uh much much much faster,\nand you can see this bucket moved all\nthe way uh to the left. But, what\nhappens in the middle? This is what you\nget in the middle, a bimodal\ndistribution. Something Some operations\nare very slow because you have to do IO,\nsome operations are very fast because\nyou got a you You a cache hit.\nSo,\nyou see this bimodal distribution. The\ninteresting part here is there's a\nthousand time difference\nin between the the fast and the slow\noperations. It means that just a couple\nof more slow operations could completely\nskew your average. There's a good\nquestion here. Um\nis it okay to calculate averages?\nStatisticians will tell you, \"Yeah, you\ncan calculate average on everything.\"\nBut is it meaningful to talk about\nstandard deviations in something that's\nnot a normal distribution? Those are\ngood questions you have to kind of think\nto yourself. So, the dirty little secret\nhere is the pen is this. Depending on\nhow long you run your experiment, you're\ngoing to get terrible results, great\nresults, or highly unstable results.\nSo, what is the answer? Should you do\none or the other? The answer that we\nargued in this paper in HotDep '12 is\ndo all of it. Show me the progression of\nmy my benchmark over time so that, you\nknow, I can convey this information to\nto others to to know what what to expect\nat different points in time.\nhere's another example. Um different\nfile systems. This This goes also\napplies to different storage systems.\nBecause the code is different, the\nbehavior is different. What we have here\nessentially is a three different file\nsystems and we're we're we're\nbenchmarking uh the throughput over\ntime.\nUm and what we see in the beginning is,\nyou know, everyone has terrible\nthroughput. They're all They're all\nabout the same.\nand you know, a little later we can see\nthat all of a sudden, you know, two of\nthe file systems are much faster than\nthan EXT2, six or eight times better.\nBut as you wait a little longer, that\ndifference kind of slows down and uh\nthey're only two times faster than than\nEXT2. And at the end, there's negligible\ndifference. They're all the same\nessentially. So, what's going on here?\nWell, in the beginning we're IO bound,\nso it doesn't matter really\nwhat what you use. Everything is IO\nbound. You really are measuring the\nperformance of your IO devices, not not\nof your software. And at the end, you're\nCPU bound or or memory bound. So again,\nyou're not really measuring the\nperformance of your system. You're\nyou're measuring\nhow how how good is your memory or CPU.\nThe interesting part is what happens\nhere in the middle. There's a 10-minute\nregion\nwhere the difference between the\nhighest, the fastest, and the slowest is\n10 times. So, depending on where you're\ngoing to be in that region, you're going\nto get much better performance results,\nmuch worse performance results.\nit kind of all depends. So, that's kind\nof the\nthe dirty secret here is that depending\non how long you run your experiment and\nwhat kind of storage system you're\nlayering your software on top, you're\ngoing to get very different results.\nThis is not just for researchers. This\nis also for industry. Imagine that these\nthree file systems represent three\ndifferent products that you're comparing\nthat you're a customer is trying your\nproduct versus two other products. And\nthey're trying to compare the the\nbehavior. Well, depending on how long\nthey run the experiment, they might\nthink that your product is is terrible\nor wonderful or maybe doesn't make any\ndifference. And so they'll go with the\none that's the cheapest one.\nAll right.\nMoving on.\nAll right.\nLet me\nbegin to conclude. All right. I said\ndata is everywhere.\nAnd storage research really I I see it\nas intradisciplinary, not\ninterdisciplinary. They always talk\nabout you do you should do\ninterdisciplinary research. And I say,\nbefore you do interdisciplinary, you\nshould do intradisciplinary. Go to your\ncolleagues in the next office and figure\nout what they're doing. And then that\nwill be very that will\nresult in a lot of\nfruitful research. So, I'll tell you an\nexample.\nMy first week on the job, 2001,\nI just finished my PhD. I was writing a\nlot of kernel code. It was a pulling\nhair to get it all stable and running. A\ndifficult kind of coding. So,\nI looked at who are my colleagues and I\nfound out, \"Hmm, this is colleague who\ndoes formal methods and runtime\nverification. That sounds like a cool\nthing.\" So, I walked to his office, I\nknock and say, \"Hi Scott, my name is\nArieh, introduce myself. Say, I hear\nyou're in this field of formal methods\nruntime verification.\nI have this 5 million lines of code in\nLinux kernel. Could you just point me to\nthe tool I can use to verify the code,\nplease?\"\nAnd um\nof course, you know, I was very naive\nbecause, you know, verifying that much\ncode even today is very challenging.\nUm Scott, being the gentleman, sat me\ndown and said, \"All right, let's talk\nabout what you're interested\nin.\" And this was the beginning of a\n25-year-long\ncollaboration that led to multiple\npapers, multiple students, multiple\ngrants, uh papers including in systems\nconferences like in this one, but also\nin formal methods and runtime\nverification conferences. So, this is\nkind of an interesting field that you\nshould think about and and go into. Um\ncryptography and security. I always say\nI wish to see more of this in in FAST\nand in systems conferences. Um\ncurrently, I'm working on a project\nwhere looking at long-term archival\nstor- storage. Very challenging because\nthe problem we're trying to solve is how\ndo you secure data for hundreds of years\nwhere we don't really know what the\nstate of\ncryptography or systems are going to be\neven 10 years from now. And this is\nchallenging. It forces me to up my game.\nIt forces me outside of my comfort zone\nbecause now I have to learn really\nadvanced crypto techniques that I I\nthought I knew some, but apparently\nthere's more advanced things. It's\ninteresting, it's challenging, sometimes\na little um um terrifying if you will,\nbut it's what's makes things more\ninteresting and more exciting work. Um\nNLP. Um I I started to work with some\npeople in the NLP field because I I was\ninterested in taking all these\nwell-crafted RFCs\num of various protocols like storage\nprotocols and seeing um is there a way\nthat we can analyze them and see if\nthey're\ncorrect, if they're consistent, if\nthere's any issues. Can you Can use NLP\ntechniques to translate this into models\nthat can be verified and maybe even\ngenerate prototype code. We only\nscratched the surface in that project\nand found all kind of interesting\nthings. We started this project before\nLLMs were a thing and then LLM became a\nthing and then we we converted to using\nLLMs. But this is very interesting area\nthat I think more people should go into.\nAgain, data is everywhere and so storage\ncan really be applied on many different\nuh topics. Uh visual analytics, I I\ncollaborated with people in visual\nanalytics because um\nall the fancy graphs that I've shown\nyou, they can only show several\ndimensions at once. But what do you do\nwhen you've collected data that has\ndozens of dimensions and millions of\ndata points? You need completely\ndifferent techniques and the visual\nanalytics uh field has done this. They\nfigured out very advanced techniques how\nto process data and analyze it and\nvisualize it together with some\ninteractivity. Um so I'm I'm happy to\nhave collaborated with people like that.\nAgain,\num, it led to a lot of, you know,\ncollaborations and papers.\nIn fact, the the the dirty secret is if\nyou're a professor and you want to\nmaximize how much money and grants and\npapers you have, go and collaborate with\nas many people as possible because it's\neasier to get those intradisciplinary\ngrants.\nUm,\nmore data. We need more data. Data is\ncritical and we often want to analyze\ndata or to process data or to build a\nsystem based on some data. There's\nthere's a lack of enough data. Although\nI will say that I've seen more and more\ndata sets being released over the last\nuh, 5-10 years, you know, 20 years ago\nit was very hard to get anything and\nit's a lot of it thanks to SNIA for\ncollecting this uh, data set. So, Phil\nwas mentioning that we were doing uh,\ndedupe research together. Um, and um,\nwhen I started to do dedupe research, I\nwanted data sets to build kind of a\nbetter dedupe system. We found that it\nwas very hard to get any kind of\nsignificant data sets uh, that you can\nanalyze for deduplication. And so after\nsome time we said,\nyou know, why don't we just do it\nourselves? And so, we spent over six\nyears collecting uh, data in our own lab\nand then curated it and cleaned it up\nand released it. It's it's been released\nfor several years, uh, five over five\nterabytes of this dedupe data\num, that is is well larger than anything\nelse that exists. And now it became kind\nof a de facto data set for anyone who is\nwants to do kind of dedupe dedupe data\nsets. Um, it's been mentioned or cited\nover 250 times, the data set itself.\nSubsets of it have been downloaded tens\nof thousands of times. Now, the one\nmistake I made is I should have used\nZenodo to create a DOI for that data set\nbecause people do reference that data\nset, but they don't have something\ntangible to cite. So, I'm losing sort of\ntens of thousands of potential\ncitations, but it's a good service for\neveryone. All right?\nNext, let's talk about the elephant in\nthe room.\nAI.\nSo, AI is going to absolutely all our\njobs. There's nobody's going to need\nanything anymore, right? You can see uh\ndrops in enrollments. People are moving\naway from computer science.\nUm is it really? Well, my opinion is\nthis.\nAI is hungry for data. The more data,\nthe better. And you cannot fit all that\ndata inside those super expensive GPUs.\nYou you you fit what you can. And when\nit can't fit there, you have to move and\nstore some of it in the system RAM. And\nthen when it doesn't fit there, you have\nto move it to non-volatile storage\ndevices. Now you got yourself a storage\nproblem. In fact, a multi-tier storage\nproblem. So, scaling stor- AI systems is\nreally a storage problem. We should all\nconsider it as such and uh start to work\non it.\nAll right. I'm going to do something\nbold now, all right?\nI have come up with a way to\ncharacterize\nwhat is going on. Something that I felt\nin my heart for many years, but couldn't\nkind of articulate it until I was\nsitting down and actually doing doing uh\npreparing this talk. And um\nI came up with the following axiom.\nComputer systems,\nwhen scaled,\nbecome a storage problem.\nAll right? You can take any computer\nsystem, the data is paramount. The data\nis more important than the hardware than\nthe software. Even people come and go.\nSo, the data is really the intellectual\nproperty of every every company. It's\nthe most important thing you can have.\nAnd so,\nwhen the when you scale that system,\num the data becomes too big to fit in\nany one particular point. So, now you\nhave the data has to be diffused in many\ndifferent places and different kind of\nstorage or memory devices. And it\nbecomes a storage problem. And that's\nwhy I said in the beginning, life is\ngood because I think there's a lot of\npotential for us\nto do storage research for the\nforeseeable future because I don't see\nless data. If anything, more and more\ndata is being generated and used\nanytime. So, let's see if this\nsurvives the the test of time.\nNext.\nI have a shameless plug for journals. I\ncan't stand here up here as\neditor-in-chief and not\nsay something about it. When I took over\nas editor-in-chief, I was pleasantly\nsurprised to find that two of my papers\nwere in the top 10 most downloaded\npapers\nthat ACM\nTOS has had. And it turned out one of\nthem is a 2008\nstudy of file system benchmarking, and\nthe other one is a characterization of\nfuse performance and optimization. And\nthese were survey papers, and so they\nbecame kind of the de facto standard for\nanybody who's interested in one of these\ntopics, they go to those papers. There's\nno upper page limit. You can use it to\nexpand papers like here in FAST. There's\nalways more room for more data, more\nanalysis, more information.\nUm journals are excellent for survey\npapers.\nUm we have we have done a special issue\nin in um\nlast year, two parts, one released last\nFebruary and one in August,\ncalled past, present, and future of\nstorage systems. And we\nhad 11 papers, each one taking one topic\nand creating the authoritative paper on\nthat topic from DNA to silica to\nholographic and yes, even tape. I was so\nhappy to see a paper on on tape\ntechnologies\nuh yesterday. And the dirty little\nsecret is this, if you create an\nauthoritative paper on one particular\ntopic, everybody will cite your paper\nand none of the ones that came before\nit. So, that's how you siphon citations\nfrom others. All right? Um so, there's a\nlot of things you can think about. How\nabout somebody write a paper on CXL,\neverything there is to know about CXL,\nor uh KB caches in in LLMs, or LLM AI\nfor storage, storage for AI. There's a\nlot of these kind of topics that you can\ncreate the paper that people keep cite\nyear after year after year.\nOkay. Uh I I ask you, please, if you're\ngoing to be citing papers, also look for\nany journal versions of them and cite\nboth the conference and the journal\npaper, cuz usually journal paper is a\nsuperset, has more information in in it.\nSo,\nbefore I end, I want to tell you another\nstory.\n1988,\nI took my first OS course as an\nundergrad.\nUh I implemented symbolic links in the\nMINIX operating system. I was on top of\nthe world. It was so challenging, so\nexciting. It worked. It made me feel\nlike, you know, you you feel powerful.\nLike, I I control things in the bottom.\nI have a lot of power inside the\noperating system. And so, with the first\nopportunity, I jumped on an OS course OS\nproject. And the project was to take a\ndevice driver for a robotic arm of\nanother researcher and port it from an\nold BSD to a new BSD uh a version.\nAfter a week of struggling with it, I\nrealized I'm way over my head. This was\nway too complicated. Um I didn't realize\nhow complicated it is, but it was\nexciting cuz I really wanted to solve\nthis this problem. So,\nuh I went and asked uh for help. Um this\nresearch scientist named Chris.\nI asked him, \"Hey, can you help me take\na look?\" And we sat down and for 2 to 3\nweeks we're struggling with the code,\ntry to port it. Eventually, finally, we\nget it to work. We see the robotic arm\nmoving. It's not smacking anyone in the\nhead. Good.\nUm and so, we're so satisfied. We can\nslouch back in our chairs and kind of\nlike look at each other grinning. Yes,\nwe got it. It's working. And then Chris,\nwho has more experience uh at the time\nin kernel development, tells me the\nfollowing.\nKernel hacking is hard. Really hard.\nBut once it works, man,\nit's better than sex.\nAnd with that,\nI'll take your questions.",
+  "segments": [
+    {
+      "text": "Thank you for inviting me. Uh when I was thinking about what do I want to say today, I thought, \"Hm, I can tell you about one of my latest research projects and you'll be all excited at the moment, but you know, a couple of",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "years from now the field has moved on, it might seem a little stale.\" So, instead, I thought, \"Let me try and distill over 30 years of experience developing and optimizing characterizing storage systems into, well, 1 hour or",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "so, maybe.\" Necessarily, I'm going to be leaving a lot of stuff out, but I'm happy to talk to you. All right. So, let me start with this statement, okay? Storage is complex. Data is everywhere. Life is good. All right. So, let's see if this uh",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "holds up at the end. All right, let's start with some motivation, okay? We've all seen this storage hierarchy pyramid, right? Where at the bottom, we have bigger, slower, cheaper devices. At the top, we have smaller, faster, more",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "expensive devices. Um all kinds of devices have come through the years and they kind of move up and down, some overlaps. Uh but the interesting part is there's orders of magnitude performance difference between each of these layers",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "and across them. There's not that many fields you can think about where the slowest and fastest operations differ by six to eight orders of magnitude. That poses a challenge for us, a significant challenge. And I've been thinking about",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "this uh for a long time, trying to think, \"Why is it that this has kind of remained true over time?\" Yes, over over time everything gets cheaper, faster, bigger, but these differences remain still true. And I think it boils down to economics and physics.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "If you want to move some mechanical device faster, it's going to cost you more energy. More energy costs more money. If you want to move electrons from here to there faster, it costs more energy, therefore it costs more money.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "And fundamentally, that's a limited resource. And so, we can't afford to create storage systems that are going to put all of our data in some non-volatile super fast devices. It just would be prohibitively expensive. So, fundamentally, we're always going to",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "have these kind of tiers, and we're going to have to deal with them no matter what. Okay. Now, the storage stack is deep and it's getting deeper. And as I said, data is everywhere. So, I'm going to use this simple example here. I have some file",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "system X, I have some benchmark running in userland. Uh it goes to the block layer into some storage device. And I'm going to use this running example in my talk of um I took some file system, I wanted to add some features to it. Let's",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "say I added encryption to it. Why? Because you know, that's my favorite example, okay? So, I have now uh an uh vanilla file system and one that I modified to add some encryption to it. But there's a lot of things I might want uh to do in this",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "uh system. For example, uh there's a trend to move more and more stuff into userland. So, now I have to worry about the userland components in the system, um not just what's in the kernel. Um there's memory and caches at every layer, and they interact in very",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "complicated ways with every layer of the software. What about networking? Maybe my storage goes to a local area network like NFS or wide area far away network like cloud. I have to figure out that complexity on top of everything. There",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "may be multiple storage devices all the time. The different storage devices, different characteristics, they come up. Uh what about other layers of virtualization, like LVM, RAID, more virtualization? There's a lot of this kind of stuff that happens.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "Um, and so my simple file system that I want to characterize now looks a lot more complicated because there's a lot of components I have to worry about. Fundamentally, what we have to worry is how can we isolate the impact of different components on",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "uh our performance? And hopefully, I'll show you some of these examples. All right. Now, storage benchmarking is time-consuming. I want to give you an example um of what what I think uh we have to do. So, in my opinion, a typical process",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "of doing some research project, and by the way, this applies to industry as well, is we do a little bit of a literature review, a good amount of design, a good amount of uh um implementation, and and some testing, and some",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "benchmarking, and we're done. We call it a a done deal. In reality, the picture looks different and definitely should look different. The reality should look more like this. First of all, we should do more literature review um to find out everything uh",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "that's available in the state of art. The design implementation to be relatively small, we should spend a lot more time on testing and debugging, and a whole lot more time on benchmarking such a storage system. And there's reasons for that because benchmarking",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "often reveals problems. It reveals bugs and crashes. Your system crashes, you have to go and figure out what the bug is, fix it. Uh, it may reveal a performance bottleneck. Something didn't work the way you expected it to work.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "You got to have to go and figure out where's the problem, fix it. Maybe an implementation problem, maybe even the worst-case design problem. You have to go back to the drawing board, redo everything. All these things consume",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "more time in benchmarking as you go back to implementation, go back to even the design. Um, that's why it takes a lot of time. Moreover, if you change your code in any fundamental way, you have to throw away all the results that you did",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "before. You have to start them from scratch. and that's not even taking into account any kind of hardening of the code for any kind of release, any regressions you might want to run or or release, any code or data releases. All right. And",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "when you see this little Mr. Burns icon, that means I have a dirty little secret to tell you. In fact, I have two of them here. Uh the first thing is literature review is very critical. If you miss some important uh related work, that's",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "usually a good way to get a paper rejected. I tell my students that they better find out all the papers uh that are relevant and cite them, especially those of the program committee members, cuz you don't want to offend them",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "personally. All right. The other thing that I I want to tell you is how do I review papers? Before I review papers from beginning to end, I usually look at the abstract, a little bit the intro, and then I jump to the evaluation. I",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "want to look at the figures. I want to look how good they look, how well explained are they self-explanatory, do they look clean, uh are they impressive? If I see what looks like good evaluation, I'm already thinking very",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "positively about the paper, because you can have the greatest design, but if you have not evaluated properly, then it's hard to believe that what you have is really working very well. So, that's a good uh additional good reason why you want to",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "pay a lot of attention on evaluation. Okay. So, let's talk about what it takes to do uh benchmarking. All right. So, what tools should you should you use to benchmark? There are lots of tools, but there there's really more classes of",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "tools that I want to tell you about. Well, one example is microbenchmarks. Like FIO and DD. There's many more. I couldn't even list all of them, so I want to I don't want to tell you use this tool or use that tool, but rather",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "think about classes of tools. So, what are microbenchmarks good for? Uh usually, they're good for testing specific features or narrow features, isolating the worst-case performance of a particular feature. But the criticism is that they're not that realistic",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "because they are very specific to one a particular feature that you're testing. So, there's what's called macro benchmarks, bigger things that they try to test multiple operations. They're more considered more realistic, but still they're sort of",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "synthetically generated and many of us will say, \"Well, maybe that's not as realistic as possible.\" So, of course, now there's traces. I can use some traces and thankfully SNIA has lots and lots of these traces that have been",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "collected and and released. They're considered more realistic because usually they're captured under a real scenarios, but you know, traces can still, you know, be stale if they're very old and what system they were captured on.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "And there's a good question of how do you replay them? If you replay them in clock time, could take as long as the original trace was running. Or do you play it as fast as possible? Those are all kind of questions. So, the the",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "question is which one of these options you should choose and the right answer is D, all of the above. Should really pick as many of those and have a wide spread so there's no one could have a question like, \"Oh, I don't know how your system will operate on",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "this this mode or that mode.\" Okay? Now, let's see how many of these benchmark experiments you have. So, let's say I have I selected three kinds of benchmarks, one micro, one macro, and one trace. Let's say in terms of workloads, I",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "selected one sequential, one random, and one mix so I can have kind of coverage good coverage of all kinds of workloads. And now what about the workload size or the cache size or some other parameter? Well, I want maybe some some default and",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "then maybe something a little larger, something a little smaller because again, if you pick only one thing, it's very hard to know what impact that parameter will have on your overall performance. Number of threads or or something",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "similar to that, maybe I'll pick three different values. Remember this this was an an experiment where I have a an encrypting file system that I developed. So, of course I have to test the the CPU bound operations like hashing and",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "ciphers. So, maybe five more parameters. Um how many times should I run each experiment? At least five so I can get some good statistical uh stability. All this alone will get you over 4,000 experiments. At 1 minute per experiment,",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "that's over 2 days of clock time. Um if you go to 2 minutes, it's 5 plus days. If you go to 15 minutes, it's 42 days. And these um these are highly conservative values. Because a lot of experiments actually need to run much longer than that. We",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "run experiments that each run will take an hour or two. So, now you you can see how experiments could take months to conclude in order to get really good stable results. Um that's why benchmarking can be so time-consuming. All right. Now, let's talk about",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "presenting data. All right. I have not seen um any information uh about how to present information. And not just in talks like this or talks like many of you are giving, but presenting it in print uh media. The last time I've seen",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "something like this was when I was in grad school. So, I'm hoping that this will serve as sort of a resource for many of you to use. All right. So, let's take this particular fictitious example. I have a a two systems, the um",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "the baseline system and my system. And I'm I ran it under three different benchmarks. It could be the same benchmarks in diff- three different configurations. But, I have three different settings, and I calculated um some uh metric, and I pre- presented",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "it. Uh and I put it into these bar graphs. All right. So, the question for you now is how many wrong things do you see with this figure? All right, let's start. X and Y axis starts at zero. Many tools do that by default. It's very annoying,",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "frustrating because it magnifies the impact of what what you're doing. For example, on the leftmost graph, it seems like my system is three about three times better than the baseline, but in reality, it's not. So, I I would urge",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "you to make sure that you start your your Y axis at zero. If you absolutely have to start it not at zero, make sure you put a big bold letter saying this is not starting at zero and then there should be a good reason. Um There the Y axis label's missing. What",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "is it? I don't even know what is it that I'm that I'm presenting here. So, you have to provide this information. Students tend to do that when they just kind of try to get you quick and dirty results for next week's meeting and I",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "urge them to be as professional and thorough as possible on this. There's too many labels here, just too many numbers to see. I don't need that many numbers. There's also wasted space here. Uh the the legend can be moved where",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "this white space is. And if you do that, you probably save a couple of lines of text. How many of you have wished you had more room to write in the paper? This is one example. Don't waste white spaces in your figures. Um there's also",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "no numbers on top of the bars, no measure of of of uh stability like error bars. Um so, lots of little things that are wrong here. Now, let's go fix all of that. All right, so I fixed the the Y axis at zero. I added um a a label. I",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "reduced the the number of labels. I moved the legend over. I put uh numbers on top of the bars and error bars. There's still wrong several wrong things here. All right? First thing is um there's a typo. Have you noticed it?",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "Little typo. A single typo in a figure, you know, indicates, you know, maybe this person wasn't as careful in their benchmarking. It's also more time consuming to fix. You can't just go to the Overleaf and fix it. You have to go",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "to the source of your figure, fix it there, regenerate the figure, regenerate the embedded object, move it over to Overleaf, rebuild your paper. So, little things like that uh do matter for how good a presentation looks like. Um",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "there's also missing units. I don't know what the unit is, all right? Um it's still too many zeros for my eye to see. Perceptually, you know, we don't want to see that many numbers. Um too many digits of significance. A lot of people just do it average and",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "then they give you like six, seven, eight digits of significance. You really have that much statistical stability that you need that many digits of significant? Probably not. Okay? Um and here's something that the presentation leads to. Presentation not",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "just making things pretty, it leads to analysis and analytics in evaluating because the first thing you should see here is, \"Hmm, something is going on. Why are these error bars kind of high? What does it mean about the stability of",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "my results? Maybe something is going on I should investigate.\" All right. So, let's go and fix these, all right? So, I fixed the typo in in the Y-axis label. I added proper units. I I put commas around the zeros so I can I it's",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "easier for me to read. I rounded up some of the numbers. Um but I I still think that the Y-axis labels are a little hard harder to read. Um the scale is a little too small. Bytes per second and we're talking about thousands of those. Maybe we can fix that. So,",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "let's fix that, all right? So, I rescaled everything to kilobytes per second because it's so much easier to understand. It's smaller numbers are easier for us uh to understand. I rounded up the numbers on top of the bars. Um so, now it looks a lot more",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "uh a lot easier to understand perceptually. But, here's a good question. Do I really care about what are the absolute numbers on top of the bars? Or do I really care about the differences between them? Like how much better or worse my system is doing",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "compared to the baseline system? So, now I'd like to to give you one of my favorite quotes that attributed to Isaac Asimov. The most exciting phrase to hear in science, the one that heralds new discoveries is not \"Eureka, I found",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "it.\" but rather \"Hmm, that's funny. Something's going on here.\" All right? So, coming back to the figure, what I what I will do instead is change it. So, instead of giving you the numbers, I'm giving you the magnitude differences, which is probably what is",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "most important when you want to convey as much information in as little much space and as quickly as possible. So, here I'm simply showing you that my system does 37% better on benchmark A and 9 18% better on benchmark B. If I",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "really want the absolute numbers, I can kind of look at the Y axis. Um but you can see that it's doing 90 19% worse on on benchmark C. So, that's funny. Hmm, what is going on here? Why are the trends reversed? I was doing well on two",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "benchmarks. What's going on? This is something that needs to be investigated. Okay? Now, do you see these two error bars and how they're large? In fact, they're overlapping. Okay? From a statistical perspective, when you have two confidence intervals",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "that overlap themselves, it means that the true mean can be anywhere in that confidence interval within some probability. That means that the actual mean of these two numbers for benchmark uh C can be anywhere in there. And in",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "fact, maybe the trends are reversed. Maybe it's not 19% worse, but some number better. This is something that needs to be investigated. You have to figure out why am I getting this? Are the my results not stable enough? Do I",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "need more run? Do I need to investigate what is going on? Okay? presentation skills. Suppose I have something like that where I have small numbers and very large numbers. You see it all the time. Um and there's also a lot of white space and it's very hard to",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "really see the differences between between them. Something very simple that you should always try to do is just use a log scale. Log base two, log base 10, log what base whatever. Now it's much easier to see the numbers. But log scales are harder",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "for people to perceive because we don't think in exponential terms. So if you use log scales, make sure you say it's log scale, put in the caption and highlight it uh in the text of your paper so people would know that you're using log scale. So it's very very",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "clear. But this is an example where you should always try log or not on linear and see what works better, what looks better. easier to compare. Right. Let's go to a couple other uh examples. Here I have I want to tell you about these kind of uh",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "directionality trends and crossovers. I have an experiment where I have like three systems and you can you see that the uh Y axis is in throughput, the X axis is logarithmic, it's workload size or some other parameter that grows",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "exponentially and I have three systems where I measured the results. And when you look at it, looks nice, but there's a lot of things that need to be investigated. To start with, the the first system kind of grows linearly very",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "slowly and yet the the X axis grows exponentially and this is kind of a a good question. Why is it that if I'm growing this um metric of workload size exponentially, why is the throughput only growing linearly? That there's some",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "there's something kind of like doesn't make sense. It needs to be investigated. This the second system, the trend goes down. Why is this one getting worse um um when the work size grows? This needs to be investigated. Why the trends",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "reverse? The third system goes up and then goes down. What happens at that peak that makes it sort of an optimal point and what happens after that that it gets starts to get worse? This kind of behavior needs to be explained. Also,",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "what is this dip here? What's going on there? Is it an anomaly, a wrong data, something went wrong, a a true behavior? All these things need to be investigated. The other things that need to be investigated is, in my opinion,",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "every time you see two trend lines cross each other. Okay, the crossover is an interesting inflection point where something happened where one system overtakes the other for some reason or other over a metric. Those all these things need to be investigated.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "Um and so, simple figure, there's six things you have to investigate. You can see how long that could take to explain, analyze, and then thoroughly uh document what is going on. Now, this is a throughput uh graph. Very often we put throughput next to",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "latency. I have seen it even this week. All right? Throughput and latency usually go hand in hand. The problem is that their directionality is opposite. For throughput, higher is better. For latency, lower is better. And when you",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "see it without actually paying too much attention, it takes extra mental uh um thinking to really see the difference and I understand, \"Oh, okay, that's what's really better. That's what's really worse.\" If it takes longer",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "to understand a figure, it takes longer to understand a paper, it detracts from the quality and the presentation of the material. There's a very simple solution to this. Smile. Just put these smileys on or some other metric that tells you what is better,",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "higher or lower. I've I've started this 20 years ago, these little smileys, and I was hoping that more people will do that. So, I hereby give everyone a royalty-free license in perpetuity to use these smileys anytime you want. You",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "don't have to credit me at all. Just please do something like that. All right. Um but there's another good question. Do we even need bar graphs? Bar graph is just a big rectangle of of a fixed color. Maybe instead of using bar graphs, just use box plots. Box",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "plots give you a lot of information in the same space and they're usually more suitable for storage benchmarks because we have all these orders of magnitude differences in behavior. Um they give you quartiles or or uh you can design them to do like a 10% 10%",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "or uh 1% uh uh regions, a median, means. They even they even will show you um any outliers that you might have. Um and so that those are much use much more useful than just defaulting to bar plots by default. They give you a lot",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "more information in the same space. Um outliers, you shouldn't really have any outliers in systems uh research. If you do, you know, you have to figure out what's going on. Now, what would be a true outlier? Here's an example. Suppose",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "I configured my server, I'm running my experiment, I have like 10 experiments to run. Each one is going to take uh 1 hour and I'm just repeating the same thing I and I'm launching it on my on my system. Um unbeknownst to you, another user",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "logged into the system and started to compile things. So, obviously, they're going to mess up your your timing in the middle uh of this uh run, you know, the the the memory, the IO, everything's going to go off. That's an outlier,",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "okay? And and in theory, you're supposed to throw away those results because they're not uh representative. But a much better uh uh way to handle it is to avoid these outliers in the first place. It is control the environment. Make sure you don't have any",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "jobs that can wake up in the middle like cron jobs or periodic things that just kick off and and do things that could screw up the the experiments. That's much better than having to report outliers or even eliminate them. Next thing I want to tell you about is",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "choosing colors. Okay, this is something I've learned by collaborating with visual analytics people. The two URLs you see in the bottom right are from two popular websites that are used by visual analytics people whenever they",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "have to use more than three or four different colors to present things. It's important that you use the right colors that will look good and sufficiently distinguished in whatever media. You can choose the number of colors. You can choose whether",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "you want to optimize for color, black and white, gray scale, the depth, whether you want it for print or display. You even can optimize for color blindness. One of the things that many people don't know is that everyone perceives colors slightly different and",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "everyone has some measure of color blindness. In fact, what I perceive as green and blue might be different than what you are perceiving as green and blue. And so choosing the right colors is important if you want if you want something to look good.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "I've seen some some presentations this week where there was a lot of shades of the same color and I have to squint a little harder to see which one is your system and which one is other other people's system. So these are good tools to use",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "for presenting materials. Let's go to analysis. All right. Going back to my figure. Remember the figure of my encrypting system and then I have all these components that are interacting and I have to analyze things. Well, the first thing I",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "probably have to do is measure the behavior of different components. I have to start by measuring what is my throughput of my storage device. What's the maximum that they can handle? Because my file system won't be able to",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "do much better than what the underlying hardware can do. So, I have to measure that to begin with. Um how's my network doing? Um it's very easy for modern processors to overwhelm a 1 gig network and even 10 gig networks. Uh and so, are you bottle",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "necking on the network or there's something going on in your uh system that you've developed? All these things need to be measured. Um how how is your CPU doing? How well does it handle all these uh CPU bound operations? You need to measure those",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "individual ones. What about the memory? How fast is your memory accessing data in and out of uh memory? Um what about the user level components, context switches, data copies? All these things you have to know them because they",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "become bottle necks in an understanding and analyzing your system. So, those are the first kind of baseline numbers you you need to get so you can it will help you to explain the results eventually. All right. But now, you want to analyze",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "the behavior of your own system. You have some software system. You want to find out where are the bottle necks in my own code? Um you want to uh kind of dive deeper and maybe find bottle necks and optimize them. So, the question is how do we",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "isolate the impact of specific functions or components deep inside your code? Um there's lots of techniques. Um we can use eBPF, trace points, block trace, all kind of tracing technologies. And they generate tons and tons of data. That's",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "wonderful. Uh the concern is that they might First of all, there's going to be a lot of data that they generate. There's a lot of overhead. They might actually interfere with the behavior of the system because they add too much",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "internal overhead. And depending on how those systems are designed, they may actually lose events. Uh systems like trace points use a ring buffer, lockless ring buffer, and then you have to pull the data out of it to utilize as quickly as possible. If not,",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "you actually lose events. And so, you may not get all the events. But, the question is do you really need all those events? Maybe all you need is um just to capture averages, some some number inside your your particular function. So, you could add some code",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "that will measure and then average the number let's say latency of your functions inside your code. But, maybe that doesn't give you enough information. You want more than an average, but you don't want to have all the overhead of",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "tracing. Is there something that you can do to capture more information efficiently? And there is a technique that we have developed uh more than 20 years ago. Um And the idea is this. Uh step one, you you sample the the the",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "timestamp counter. Every CPU has some sort of a tick counter. You sample it. Then you run your function, whatever function it is you can wrap it. Uh then you sample the uh step three, the the timestamp counter again. You subtract them.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "Uh and then essentially you do shifting of this number to the right. Shifting to the right is essentially dividing by by two, and then you calculate a bucket number, and then you stick it in some uh vector array or integer array you call",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "the histogram. Essentially, what create with is a small array of integers that represents a uh uh a histogram of the latency in powers of two um of your system. And you can sample this vector either at the end of your experiment or periodically to get",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "uh to get periodic results. so, this this technique has negligible memory overhead, and the CPU overhead way back, you know, 20 years ago was about 4% and it was mainly attributed to the the number of clock cycles that are needed to to",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "sample this TSC register. Nowadays, they're even faster. All right. So, let me show you an example of what you can get out of something like that. All right. Here's an example where we instrumented inside the kernel and we measured we we",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "essentially collected these histograms of different file system operations. This happened to be an experiment we were doing a recursive grep over some source tree and and this happens to be the read operation, but you know, we did this for every possible",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "operation. You can see that the Y axis is the is the count in log base 10. The X axis is the the bucket in terms of a log base two of the of the clock ticks. And I've used something interesting here. I've used an X2 axis.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "By calculating for that particular CPU, what would be the average latency of that bucket. So, now you can I can give you kind of both both ways of presenting the information. This allowed us to see the complexity of this particular workload. It's not a",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "nice normal distribution. It's actually multimodal here. So, with this we were able to analyze what was going on and this is what we found out. This last mode, the slowest one, that's when the disk had to move. Disk head delays. The next one is when",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "you hit the disk cache. You still have to do IO to the disk, but you grab something out of the cache. The next one is you might guess, that's when we hit the the operating system cache in memory. So, it's obviously faster moving",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "to the left. And what's that that one all the way to the left? That's like a nanosecond. How how is IO operations operating at that speed? That's more CPU speed. It turns out that was an optimization in Linux that if you try to read past",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "the EOF, it doesn't even go to the page cache, it just returns zero right away. So, all these things were very important to understand. And the dirty little secret here is that depending where your workload falls into these buckets,",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "you're going to have orders of magnitude different performance from very fast to very slow depending on how your your benchmark distributes the number of operations to different uh elements. But, this allows you to explore and explain what is going on",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "inside the your system. Here's the next example is when I sample these histograms every second. So, in this experiment um again, I'm doing a random read in a file. Um and this this ran for about 3 minutes. Um on the x-axis uh",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "you see again the buckets on the on the y of log base 2, and we normalize the z-axis to the percentage of reads. And what you can see here, and we also colored things so that it's a little easier to see it because it's a 3D uh image.",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "Um what you can see is this. Um in the beginning, we get very high latencies in in the starting. Why? Because every uh request to read data is a cache miss. You have to go to the slow storage device and retrieve it. So, it's slow",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "operations. You see it in the bottom as a histogram as a a bucket to the right. Okay? But, what happened near the end of this benchmark? Well, when almost everything is cached, now you get really good hits. Your performance is really",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "really high, uh much much much faster, and you can see this bucket moved all the way uh to the left. But, what happens in the middle? This is what you get in the middle, a bimodal distribution. Something Some operations are very slow because you have to do IO,",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "some operations are very fast because you got a you You a cache hit. So, you see this bimodal distribution. The interesting part here is there's a thousand time difference in between the the fast and the slow operations. It means that just a couple",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "of more slow operations could completely skew your average. There's a good question here. Um is it okay to calculate averages? Statisticians will tell you, \"Yeah, you can calculate average on everything.\" But is it meaningful to talk about",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "standard deviations in something that's not a normal distribution? Those are good questions you have to kind of think to yourself. So, the dirty little secret here is the pen is this. Depending on how long you run your experiment, you're",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "going to get terrible results, great results, or highly unstable results. So, what is the answer? Should you do one or the other? The answer that we argued in this paper in HotDep '12 is do all of it. Show me the progression of",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "my my benchmark over time so that, you know, I can convey this information to to others to to know what what to expect at different points in time. here's another example. Um different file systems. This This goes also applies to different storage systems.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "Because the code is different, the behavior is different. What we have here essentially is a three different file systems and we're we're we're benchmarking uh the throughput over time. Um and what we see in the beginning is, you know, everyone has terrible",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "throughput. They're all They're all about the same. and you know, a little later we can see that all of a sudden, you know, two of the file systems are much faster than than EXT2, six or eight times better. But as you wait a little longer, that",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "difference kind of slows down and uh they're only two times faster than than EXT2. And at the end, there's negligible difference. They're all the same essentially. So, what's going on here? Well, in the beginning we're IO bound, so it doesn't matter really",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "what what you use. Everything is IO bound. You really are measuring the performance of your IO devices, not not of your software. And at the end, you're CPU bound or or memory bound. So again, you're not really measuring the performance of your system. You're",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "you're measuring how how how good is your memory or CPU. The interesting part is what happens here in the middle. There's a 10-minute region where the difference between the highest, the fastest, and the slowest is 10 times. So, depending on where you're",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "going to be in that region, you're going to get much better performance results, much worse performance results. it kind of all depends. So, that's kind of the the dirty secret here is that depending on how long you run your experiment and",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "what kind of storage system you're layering your software on top, you're going to get very different results. This is not just for researchers. This is also for industry. Imagine that these three file systems represent three",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "different products that you're comparing that you're a customer is trying your product versus two other products. And they're trying to compare the the behavior. Well, depending on how long they run the experiment, they might",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "think that your product is is terrible or wonderful or maybe doesn't make any difference. And so they'll go with the one that's the cheapest one. All right. Moving on. All right. Let me begin to conclude. All right. I said data is everywhere.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "And storage research really I I see it as intradisciplinary, not interdisciplinary. They always talk about you do you should do interdisciplinary research. And I say, before you do interdisciplinary, you should do intradisciplinary. Go to your",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "colleagues in the next office and figure out what they're doing. And then that will be very that will result in a lot of fruitful research. So, I'll tell you an example. My first week on the job, 2001, I just finished my PhD. I was writing a",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "lot of kernel code. It was a pulling hair to get it all stable and running. A difficult kind of coding. So, I looked at who are my colleagues and I found out, \"Hmm, this is colleague who does formal methods and runtime verification. That sounds like a cool",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "thing.\" So, I walked to his office, I knock and say, \"Hi Scott, my name is Arieh, introduce myself. Say, I hear you're in this field of formal methods runtime verification. I have this 5 million lines of code in Linux kernel. Could you just point me to",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "the tool I can use to verify the code, please?\" And um of course, you know, I was very naive because, you know, verifying that much code even today is very challenging. Um Scott, being the gentleman, sat me down and said, \"All right, let's talk",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "about what you're interested in.\" And this was the beginning of a 25-year-long collaboration that led to multiple papers, multiple students, multiple grants, uh papers including in systems conferences like in this one, but also in formal methods and runtime",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "verification conferences. So, this is kind of an interesting field that you should think about and and go into. Um cryptography and security. I always say I wish to see more of this in in FAST and in systems conferences. Um currently, I'm working on a project",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "where looking at long-term archival stor- storage. Very challenging because the problem we're trying to solve is how do you secure data for hundreds of years where we don't really know what the state of cryptography or systems are going to be",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "even 10 years from now. And this is challenging. It forces me to up my game. It forces me outside of my comfort zone because now I have to learn really advanced crypto techniques that I I thought I knew some, but apparently there's more advanced things. It's",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "interesting, it's challenging, sometimes a little um um terrifying if you will, but it's what's makes things more interesting and more exciting work. Um NLP. Um I I started to work with some people in the NLP field because I I was",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "interested in taking all these well-crafted RFCs um of various protocols like storage protocols and seeing um is there a way that we can analyze them and see if they're correct, if they're consistent, if there's any issues. Can you Can use NLP",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "techniques to translate this into models that can be verified and maybe even generate prototype code. We only scratched the surface in that project and found all kind of interesting things. We started this project before LLMs were a thing and then LLM became a",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "thing and then we we converted to using LLMs. But this is very interesting area that I think more people should go into. Again, data is everywhere and so storage can really be applied on many different uh topics. Uh visual analytics, I I",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "collaborated with people in visual analytics because um all the fancy graphs that I've shown you, they can only show several dimensions at once. But what do you do when you've collected data that has dozens of dimensions and millions of",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "data points? You need completely different techniques and the visual analytics uh field has done this. They figured out very advanced techniques how to process data and analyze it and visualize it together with some interactivity. Um so I'm I'm happy to",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "have collaborated with people like that. Again, um, it led to a lot of, you know, collaborations and papers. In fact, the the the dirty secret is if you're a professor and you want to maximize how much money and grants and",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "papers you have, go and collaborate with as many people as possible because it's easier to get those intradisciplinary grants. Um, more data. We need more data. Data is critical and we often want to analyze data or to process data or to build a",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "system based on some data. There's there's a lack of enough data. Although I will say that I've seen more and more data sets being released over the last uh, 5-10 years, you know, 20 years ago it was very hard to get anything and",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "it's a lot of it thanks to SNIA for collecting this uh, data set. So, Phil was mentioning that we were doing uh, dedupe research together. Um, and um, when I started to do dedupe research, I wanted data sets to build kind of a",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "better dedupe system. We found that it was very hard to get any kind of significant data sets uh, that you can analyze for deduplication. And so after some time we said, you know, why don't we just do it ourselves? And so, we spent over six",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "years collecting uh, data in our own lab and then curated it and cleaned it up and released it. It's it's been released for several years, uh, five over five terabytes of this dedupe data um, that is is well larger than anything",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "else that exists. And now it became kind of a de facto data set for anyone who is wants to do kind of dedupe dedupe data sets. Um, it's been mentioned or cited over 250 times, the data set itself. Subsets of it have been downloaded tens",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "of thousands of times. Now, the one mistake I made is I should have used Zenodo to create a DOI for that data set because people do reference that data set, but they don't have something tangible to cite. So, I'm losing sort of tens of thousands of potential",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "citations, but it's a good service for everyone. All right? Next, let's talk about the elephant in the room. AI. So, AI is going to absolutely all our jobs. There's nobody's going to need anything anymore, right? You can see uh",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "drops in enrollments. People are moving away from computer science. Um is it really? Well, my opinion is this. AI is hungry for data. The more data, the better. And you cannot fit all that data inside those super expensive GPUs.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "You you you fit what you can. And when it can't fit there, you have to move and store some of it in the system RAM. And then when it doesn't fit there, you have to move it to non-volatile storage devices. Now you got yourself a storage",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "problem. In fact, a multi-tier storage problem. So, scaling stor- AI systems is really a storage problem. We should all consider it as such and uh start to work on it. All right. I'm going to do something bold now, all right? I have come up with a way to",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "characterize what is going on. Something that I felt in my heart for many years, but couldn't kind of articulate it until I was sitting down and actually doing doing uh preparing this talk. And um I came up with the following axiom. Computer systems,",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "when scaled, become a storage problem. All right? You can take any computer system, the data is paramount. The data is more important than the hardware than the software. Even people come and go. So, the data is really the intellectual",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "property of every every company. It's the most important thing you can have. And so, when the when you scale that system, um the data becomes too big to fit in any one particular point. So, now you have the data has to be diffused in many",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "different places and different kind of storage or memory devices. And it becomes a storage problem. And that's why I said in the beginning, life is good because I think there's a lot of potential for us to do storage research for the",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "foreseeable future because I don't see less data. If anything, more and more data is being generated and used anytime. So, let's see if this survives the the test of time. Next. I have a shameless plug for journals. I can't stand here up here as",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "editor-in-chief and not say something about it. When I took over as editor-in-chief, I was pleasantly surprised to find that two of my papers were in the top 10 most downloaded papers that ACM TOS has had. And it turned out one of them is a 2008",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "study of file system benchmarking, and the other one is a characterization of fuse performance and optimization. And these were survey papers, and so they became kind of the de facto standard for anybody who's interested in one of these",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "topics, they go to those papers. There's no upper page limit. You can use it to expand papers like here in FAST. There's always more room for more data, more analysis, more information. Um journals are excellent for survey papers.",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "Um we have we have done a special issue in in um last year, two parts, one released last February and one in August, called past, present, and future of storage systems. And we had 11 papers, each one taking one topic and creating the authoritative paper on",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "that topic from DNA to silica to holographic and yes, even tape. I was so happy to see a paper on on tape technologies uh yesterday. And the dirty little secret is this, if you create an authoritative paper on one particular",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "topic, everybody will cite your paper and none of the ones that came before it. So, that's how you siphon citations from others. All right? Um so, there's a lot of things you can think about. How about somebody write a paper on CXL,",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "everything there is to know about CXL, or uh KB caches in in LLMs, or LLM AI for storage, storage for AI. There's a lot of these kind of topics that you can create the paper that people keep cite year after year after year.",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "Okay. Uh I I ask you, please, if you're going to be citing papers, also look for any journal versions of them and cite both the conference and the journal paper, cuz usually journal paper is a superset, has more information in in it. So,",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "before I end, I want to tell you another story. 1988, I took my first OS course as an undergrad. Uh I implemented symbolic links in the MINIX operating system. I was on top of the world. It was so challenging, so exciting. It worked. It made me feel",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "like, you know, you you feel powerful. Like, I I control things in the bottom. I have a lot of power inside the operating system. And so, with the first opportunity, I jumped on an OS course OS project. And the project was to take a",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "device driver for a robotic arm of another researcher and port it from an old BSD to a new BSD uh a version. After a week of struggling with it, I realized I'm way over my head. This was way too complicated. Um I didn't realize",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "how complicated it is, but it was exciting cuz I really wanted to solve this this problem. So, uh I went and asked uh for help. Um this research scientist named Chris. I asked him, \"Hey, can you help me take a look?\" And we sat down and for 2 to 3",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "weeks we're struggling with the code, try to port it. Eventually, finally, we get it to work. We see the robotic arm moving. It's not smacking anyone in the head. Good. Um and so, we're so satisfied. We can slouch back in our chairs and kind of",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "like look at each other grinning. Yes, we got it. It's working. And then Chris, who has more experience uh at the time in kernel development, tells me the following. Kernel hacking is hard. Really hard. But once it works, man, it's better than sex.",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "And with that, I'll take your questions.",
+      "start": 1146,
+      "duration": 6
+    }
+  ]
+}

@@ -17,6 +17,8 @@ import email.utils
 import hashlib
 import html
 import json
+import math
+import mimetypes
 import os
 import re
 import shlex
@@ -66,6 +68,35 @@ DEFAULT_MLX_WHISPER_SITE_PACKAGES = Path.home() / ".local/pipx/venvs/mlx-whisper
 TRANSCRIPT_LAYOUT_VERSION = "weekly-v1"
 _TRANSCRIPT_LAYOUT_MIGRATED: set[str] = set()
 _GITHUB_TOKEN_CACHE: dict[str, str] = {}
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+ALLOWED_ADD_COLUMN_DDL = {
+    "TEXT",
+    "TEXT NOT NULL DEFAULT ''",
+    "TEXT NOT NULL DEFAULT '{}'",
+    "TEXT NOT NULL DEFAULT 'rss'",
+    "TEXT NOT NULL DEFAULT 'emerging'",
+    "INTEGER NOT NULL DEFAULT 0",
+    "REAL NOT NULL DEFAULT 0.0",
+}
+
+
+def _quote_sql_identifier(value: str) -> str:
+    if not SQL_IDENTIFIER_RE.match(value):
+        raise ValueError(f"invalid SQL identifier: {value}")
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _alter_table_add_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    if ddl not in ALLOWED_ADD_COLUMN_DDL:
+        raise ValueError(f"unsupported column ddl for {table}.{column}: {ddl}")
+    conn.execute(
+        "ALTER TABLE "
+        + _quote_sql_identifier(table)
+        + " ADD COLUMN "
+        + _quote_sql_identifier(column)
+        + " "
+        + ddl
+    )
 
 
 class GitHubRateLimitError(RuntimeError):
@@ -79,6 +110,18 @@ class GitHubRateLimitError(RuntimeError):
 
 class GitHubApiError(RuntimeError):
     """GitHub API request failed with a non-rate-limit HTTP error."""
+
+
+def _expand_runtime_path(p: str | Path | None) -> Path:
+    if not p:
+        return Path.cwd()
+    s = str(p)
+    if "${" in s or "$" in s:
+        os.environ.setdefault("SOLAR_KNOWLEDGE_DIR", str(Path.home() / "Knowledge"))
+        os.environ.setdefault("SOLAR_HOME", str(Path.home() / ".solar"))
+        os.environ.setdefault("HARNESS_DIR", str(Path.home() / ".solar" / "harness"))
+        s = os.path.expandvars(s)
+    return Path(s).expanduser()
 
 
 def thunderomlx_ingest_paused() -> dict[str, Any] | None:
@@ -619,6 +662,39 @@ CREATE TABLE IF NOT EXISTS hf_daily_paper_snapshots (
     UNIQUE(paper_date, paper_id, snapshot_at)
 );
 CREATE INDEX IF NOT EXISTS idx_hfdps_date ON hf_daily_paper_snapshots(paper_date, snapshot_at);
+
+CREATE TABLE IF NOT EXISTS arxiv_daily_papers (
+    paper_date        TEXT NOT NULL,
+    arxiv_id          TEXT NOT NULL,
+    title             TEXT NOT NULL,
+    arxiv_url         TEXT NOT NULL DEFAULT '',
+    pdf_url           TEXT NOT NULL DEFAULT '',
+    summary           TEXT NOT NULL DEFAULT '',
+    authors           TEXT NOT NULL DEFAULT '',
+    categories        TEXT NOT NULL DEFAULT '',
+    rank              INTEGER NOT NULL DEFAULT 0,
+    topic_tags        TEXT NOT NULL DEFAULT '',
+    first_seen_at     TEXT NOT NULL,
+    last_seen_at      TEXT NOT NULL,
+    fetched_at        TEXT NOT NULL,
+    raw_json          TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY(paper_date, arxiv_id)
+);
+CREATE INDEX IF NOT EXISTS idx_adp_date_rank ON arxiv_daily_papers(paper_date, rank);
+CREATE INDEX IF NOT EXISTS idx_adp_arxiv_id ON arxiv_daily_papers(arxiv_id);
+CREATE INDEX IF NOT EXISTS idx_adp_categories ON arxiv_daily_papers(categories);
+
+CREATE TABLE IF NOT EXISTS arxiv_daily_paper_snapshots (
+    snapshot_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_date        TEXT NOT NULL,
+    arxiv_id          TEXT NOT NULL,
+    snapshot_at       TEXT NOT NULL,
+    rank              INTEGER NOT NULL DEFAULT 0,
+    title             TEXT NOT NULL DEFAULT '',
+    categories        TEXT NOT NULL DEFAULT '',
+    UNIQUE(paper_date, arxiv_id, snapshot_at)
+);
+CREATE INDEX IF NOT EXISTS idx_adps_date ON arxiv_daily_paper_snapshots(paper_date, snapshot_at);
 
 CREATE TABLE IF NOT EXISTS model_call_ledger (
     ledger_id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1946,7 +2022,7 @@ def materialize_youtube_semantic_outputs(conn: sqlite3.Connection, video_id: str
         premium_reason="youtube transcript semantic brief ready for later cross-source synthesis",
     )
 
-    raw_root = Path((config.get("output") or {}).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")).expanduser()
+    raw_root = _expand_runtime_path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     date_str = (str(video[4] or iso_z()).split("T", 1)[0] or iso_z().split("T", 1)[0])
     out_dir = raw_root / "youtube-semantic" / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -3056,7 +3132,7 @@ def count_youtube_transcript_retries(conn: sqlite3.Connection, *, due_only: bool
     if due_only and not force:
         where += " AND next_retry_at <= ?"
         params.append(iso_z())
-    row = conn.execute(f"SELECT COUNT(*) FROM retry_queue WHERE {where}", params).fetchone()
+    row = conn.execute("SELECT COUNT(*) FROM retry_queue WHERE " + where, params).fetchone()
     return int(row[0] if row else 0)
 
 
@@ -3911,9 +3987,9 @@ def resolve_config(args: argparse.Namespace) -> Path:
 
 
 def tech_hotspot_state_dir(config: dict[str, Any]) -> Path:
-    return Path((config.get("output") or {}).get(
+    return _expand_runtime_path((config.get("output") or {}).get(
         "state_dir", str(Path.home() / ".solar/harness/state/tech-hotspot-radar")
-    )).expanduser()
+    ))
 
 
 def social_browser_backend_x_artifact_root(config: dict[str, Any]) -> Path:
@@ -3964,7 +4040,7 @@ def ensure_reasoning_packet_policy_columns(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in conn.execute("PRAGMA table_info(reasoning_packets)").fetchall()}
     for column in ("model_policy_json", "premium_escalation_json", "embedding_policy_json"):
         if column not in existing:
-            conn.execute(f"ALTER TABLE reasoning_packets ADD COLUMN {column} TEXT NOT NULL DEFAULT '{{}}'")
+            _alter_table_add_column(conn, "reasoning_packets", column, "TEXT NOT NULL DEFAULT '{}'")
     conn.commit()
 
 
@@ -3983,7 +4059,7 @@ def ensure_social_columns(conn: sqlite3.Connection) -> None:
         }
         for column, ddl in columns.items():
             if column not in existing:
-                conn.execute(f"ALTER TABLE social_accounts ADD COLUMN {column} {ddl}")
+                _alter_table_add_column(conn, "social_accounts", column, ddl)
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='social_post_snapshots'").fetchone():
         existing = {row[1] for row in conn.execute("PRAGMA table_info(social_post_snapshots)").fetchall()}
         columns = {
@@ -3994,7 +4070,7 @@ def ensure_social_columns(conn: sqlite3.Connection) -> None:
         }
         for column, ddl in columns.items():
             if column not in existing:
-                conn.execute(f"ALTER TABLE social_post_snapshots ADD COLUMN {column} {ddl}")
+                _alter_table_add_column(conn, "social_post_snapshots", column, ddl)
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='social_clusters'").fetchone():
         existing = {row[1] for row in conn.execute("PRAGMA table_info(social_clusters)").fetchall()}
         columns = {
@@ -4005,7 +4081,7 @@ def ensure_social_columns(conn: sqlite3.Connection) -> None:
         }
         for column, ddl in columns.items():
             if column not in existing:
-                conn.execute(f"ALTER TABLE social_clusters ADD COLUMN {column} {ddl}")
+                _alter_table_add_column(conn, "social_clusters", column, ddl)
     conn.commit()
 
 
@@ -4121,7 +4197,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     tables = get_tables(conn)
     print(f"[status] tables: {len(tables)}")
     for t in tables:
-        count = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM " + _quote_sql_identifier(t)).fetchone()[0]
         print(f"  {t}: {count} rows")
     recent_runs = conn.execute(
         "SELECT source, command, status, items_fetched, items_new, started_at, finished_at "
@@ -4246,7 +4322,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print("[doctor] extension tables: not initialized yet (ok for baseline DB)")
     print("[doctor] row counts:")
     for t in sorted(existing - {"_meta"}):
-        count = conn.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM " + _quote_sql_identifier(t)).fetchone()[0]
         print(f"  {t}: {count}")
     failed = conn.execute(
         "SELECT source, command, error_message, started_at FROM pipeline_runs "
@@ -6153,7 +6229,7 @@ def call_codex_social_trend_report(pack: dict[str, Any], config: dict[str, Any],
     cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     codex_bin = str(cfg.get("codex_bin") or os.environ.get("CODEX_BIN") or shutil.which("codex") or "codex")
     model = str(requested_model or cfg.get("model") or os.environ.get("TECH_HOTSPOT_PHASE_REPORT_MODEL") or "gpt-5.5")
-    timeout = int(cfg.get("timeout_seconds") or 1200)
+    timeout = int(cfg.get("timeout_seconds") or 3600)
     prompt = build_social_trend_prompt(pack, model)
     started = time.time()
     with tempfile.TemporaryDirectory(prefix="tech-hotspot-social-report-") as td:
@@ -6189,7 +6265,10 @@ def cmd_social_trend_report(args: argparse.Namespace) -> int:
     conn.row_factory = sqlite3.Row
     date_str = getattr(args, "date", None) or iso_z().split("T", 1)[0]
     limit_posts = int(getattr(args, "limit_posts", 40) or 40)
-    raw_base = Path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(
+        getattr(args, "output_base", None)
+        or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
+    )
     out_dir = raw_base / "social-trend-report" / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     run_id = begin_run(conn, "social", "social-trend-report")
@@ -6233,7 +6312,7 @@ def cmd_social_trend_report(args: argparse.Namespace) -> int:
         files["report_html"].write_text(html_report, encoding="utf-8")
         files["wiki_dispatch"].write_text(report_wiki_dispatch(str(out_dir), date_str), encoding="utf-8")
         social_raw_files = write_social_raw_exports(
-            Path("/Users/lisihao/Knowledge/_raw"),
+            _expand_runtime_path("${SOLAR_KNOWLEDGE_DIR}/_raw"),
             date_str,
             pack,
             result["markdown"],
@@ -6520,6 +6599,27 @@ def github_compute_hot_score(
         + 0.15 * semantic_relevance
         + 0.10 * social_cross
         + 0.10 * maintainer_quality,
+        4,
+    )
+
+
+def github_compute_momentum_score(
+    star_delta_1d: float = 0.0,
+    star_delta_7d: float = 0.0,
+    total_stars: int = 0,
+    social_cross: float = 0.0,
+    recent_activity: float = 0.0,
+) -> float:
+    """PRD FR4: momentum breakout score for GitHub repos."""
+    base_stars = max(10, total_stars - star_delta_7d)
+    relative_growth_7d = min(5.0, star_delta_7d / base_stars) * 100
+    base_1d = max(10, total_stars - star_delta_1d)
+    relative_growth_1d = min(5.0, star_delta_1d / base_1d) * 100
+    return round(
+        0.40 * relative_growth_1d
+        + 0.30 * relative_growth_7d
+        + 0.20 * social_cross
+        + 0.10 * recent_activity,
         4,
     )
 
@@ -6901,9 +7001,17 @@ def github_materialize_project_intelligence(conn: sqlite3.Connection, full_name:
         {"name": "foundation_infra_candidate", "matched": bucket in {"agent_runtime", "agent_skill", "context_engineering", "inference_compute", "infra_os"} and technical_depth >= 0.55},
         {"name": "external_trendshift_signal", "matched": bool(external_rank_rows), "best_rank": best_external_rank},
     ]
+    momentum_score = github_compute_momentum_score(
+        star_delta_1d=max(0, float(deltas.get("delta_1d") or 0)),
+        star_delta_7d=float(star_delta_7d),
+        total_stars=int(stars or 0),
+        social_cross=max(social_cross, external_rank_signal * 0.8),
+        recent_activity=0.8 if pushed_at else 0.2,
+    )
     scores = {
         "heat_score": heat_score,
         "potential_score": potential_score,
+        "momentum_score": momentum_score,
         "technical_depth_score": round(technical_depth, 4),
         "novelty_score": round(novelty, 4),
         "social_cross_signal": social_cross,
@@ -7693,7 +7801,7 @@ def baseline_render_md(analysis: dict[str, Any]) -> str:
 
 
 def baseline_write_report(config: dict[str, Any], analysis: dict[str, Any]) -> dict[str, str]:
-    raw_dir = Path((config.get("output") or {}).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")).expanduser()
+    raw_dir = _expand_runtime_path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     date_str = iso_z().split("T", 1)[0]
     run_dir = raw_dir / "baseline" / date_str
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -8147,36 +8255,346 @@ def write_hf_papers_raw(config: dict[str, Any], papers_by_period: dict[str, list
 
 def write_hf_daily_baseline_raw(config: dict[str, Any], papers_by_date: dict[str, list[dict[str, Any]]], *, fetched_at: str) -> dict[str, str]:
     raw_root = Path((config.get("output") or {}).get("knowledge_raw_root", str(Path.home() / "Knowledge" / "_raw"))).expanduser()
-    run_date = fetched_at.split("T", 1)[0]
-    out_dir = raw_root / "huggingface-papers-daily-baseline" / run_date
-    out_dir.mkdir(parents=True, exist_ok=True)
-    jsonl_path = out_dir / "daily-papers-baseline.jsonl"
-    md_path = out_dir / "daily-papers-baseline.md"
-    total = 0
-    with jsonl_path.open("w", encoding="utf-8") as fh:
-        for paper_date, papers in sorted(papers_by_date.items()):
+    written: dict[str, dict[str, str]] = {}
+    for paper_date, papers in sorted(papers_by_date.items()):
+        out_dir = raw_root / "huggingface-papers-daily-baseline" / paper_date
+        out_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = out_dir / "daily-papers-baseline.jsonl"
+        md_path = out_dir / "daily-papers-baseline.md"
+        with jsonl_path.open("w", encoding="utf-8") as fh:
             for paper in papers:
-                total += 1
                 fh.write(json.dumps(paper, ensure_ascii=False, sort_keys=True) + "\n")
-    lines = [
-        "---",
-        "source: huggingface_papers_daily_baseline",
-        f"fetched_at: {fetched_at}",
-        f"date_count: {len(papers_by_date)}",
-        f"paper_count: {total}",
-        "module: tech_hotspot_radar",
-        "---",
-        "",
-        f"# Hugging Face Daily Papers Baseline — {run_date}",
-        "",
-        "| Date | Papers | Top 5 |",
-        "|---|---:|---|",
+        lines = [
+            "---",
+            "source: huggingface_papers_daily_baseline",
+            f"fetched_at: {fetched_at}",
+            f"paper_date: {paper_date}",
+            f"paper_count: {len(papers)}",
+            "module: tech_hotspot_radar",
+            "---",
+            "",
+            f"# Hugging Face Daily Papers Baseline — {paper_date}",
+            "",
+            "| Rank | Paper | URL |",
+            "|---:|---|---|",
+        ]
+        for paper in papers:
+            rank = int(paper.get("rank") or 0)
+            title = str(paper.get("title") or "")[:120].replace("|", "\\|")
+            url = str(paper.get("hf_url") or "")
+            lines.append(f"| {rank} | {title} | {url} |")
+        md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        written[paper_date] = {"jsonl": str(jsonl_path), "markdown": str(md_path)}
+    if not written:
+        run_date = fetched_at.split("T", 1)[0]
+        out_dir = raw_root / "huggingface-papers-daily-baseline" / run_date
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "jsonl": str(out_dir / "daily-papers-baseline.jsonl"),
+            "markdown": str(out_dir / "daily-papers-baseline.md"),
+            "by_date": {},
+        }
+    latest_date = sorted(written)[-1]
+    return {
+        "jsonl": written[latest_date]["jsonl"],
+        "markdown": written[latest_date]["markdown"],
+        "by_date": written,
+    }
+
+
+def arxiv_categories_from_config(config: dict[str, Any]) -> list[str]:
+    cfg = config.get("arxiv_papers") or {}
+    configured = cfg.get("categories")
+    default = [
+        "cs.AI",
+        "cs.CL",
+        "cs.CV",
+        "cs.LG",
+        "cs.NE",
+        "cs.RO",
+        "cs.SE",
+        "cs.DC",
+        "cs.AR",
+        "cs.PF",
+        "stat.ML",
+        "eess.SP",
     ]
-    for paper_date, papers in sorted(papers_by_date.items(), reverse=True):
-        top = "; ".join((p.get("title") or "")[:80] for p in papers[:5])
-        lines.append(f"| {paper_date} | {len(papers)} | {top} |")
-    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return {"jsonl": str(jsonl_path), "markdown": str(md_path)}
+    raw = configured if isinstance(configured, list) else default
+    categories = [str(item).strip() for item in raw if str(item).strip()]
+    return categories or default
+
+
+def arxiv_topic_tags(title: str, summary: str = "", categories: list[str] | None = None) -> list[str]:
+    tags = set(hf_paper_tags(title, summary))
+    for category in categories or []:
+        if category in {"cs.AI", "cs.LG", "cs.NE", "stat.ML"}:
+            tags.add("paper_research")
+        if category in {"cs.CL", "cs.CV"}:
+            tags.add("multimodal")
+        if category in {"cs.RO"}:
+            tags.add("robotics_physical_ai")
+        if category in {"cs.SE"}:
+            tags.add("coding_agent")
+        if category in {"cs.DC", "cs.AR", "cs.PF"}:
+            tags.add("inference_compute")
+        if category.startswith("eess."):
+            tags.add("inference_compute")
+    return sorted(tags) or ["paper_research"]
+
+
+def parse_arxiv_atom_entries(xml_data: bytes, *, paper_date: str, limit: int = 80) -> list[dict[str, Any]]:
+    ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+    root = ET.fromstring(xml_data)
+    papers: list[dict[str, Any]] = []
+    for entry in root.findall("atom:entry", ns):
+        entry_id = (entry.findtext("atom:id", default="", namespaces=ns) or "").strip()
+        arxiv_match = re.search(r"arxiv\.org/abs/([^v?#]+)", entry_id)
+        arxiv_id = arxiv_match.group(1) if arxiv_match else entry_id.rsplit("/", 1)[-1]
+        arxiv_id = re.sub(r"v\d+$", "", arxiv_id.strip())
+        title = re.sub(r"\s+", " ", entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+        summary = re.sub(r"\s+", " ", entry.findtext("atom:summary", default="", namespaces=ns) or "").strip()
+        if not arxiv_id or not title:
+            continue
+        authors = []
+        for author_el in entry.findall("atom:author", ns):
+            name = (author_el.findtext("atom:name", default="", namespaces=ns) or "").strip()
+            if name:
+                authors.append(name)
+        categories = [x.get("term", "") for x in entry.findall("atom:category", ns) if x.get("term")]
+        pdf_url = ""
+        abs_url = f"https://arxiv.org/abs/{arxiv_id}"
+        for link in entry.findall("atom:link", ns):
+            href = str(link.get("href") or "")
+            if str(link.get("title") or "").lower() == "pdf" or href.endswith(".pdf"):
+                pdf_url = href
+            elif str(link.get("rel") or "") == "alternate" and href:
+                abs_url = href
+        paper = {
+            "paper_date": paper_date,
+            "arxiv_id": arxiv_id,
+            "title": title,
+            "arxiv_url": abs_url,
+            "pdf_url": pdf_url or f"https://arxiv.org/pdf/{arxiv_id}",
+            "summary": summary,
+            "authors": ", ".join(authors),
+            "categories": categories,
+            "rank": len(papers) + 1,
+            "topic_tags": arxiv_topic_tags(title, summary, categories),
+            "published": (entry.findtext("atom:published", default="", namespaces=ns) or "").strip(),
+            "updated": (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip(),
+        }
+        papers.append(paper)
+        if limit and len(papers) >= limit:
+            break
+    return papers
+
+
+def collect_arxiv_daily_papers(config: dict[str, Any], *, paper_date: str, limit: int = 80) -> list[dict[str, Any]]:
+    cfg = config.get("arxiv_papers") or {}
+    categories = arxiv_categories_from_config(config)
+    timeout = int(cfg.get("timeout_seconds") or 30)
+    max_results = int(limit or cfg.get("limit_per_day") or 80)
+    day_key = paper_date.replace("-", "")
+    submitted_range = f"submittedDate:[{day_key}0000 TO {day_key}2359]"
+    category_query = " OR ".join(f"cat:{category}" for category in categories)
+    search_query = f"({category_query}) AND {submitted_range}"
+    params = {
+        "search_query": search_query,
+        "start": "0",
+        "max_results": str(max_results),
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+    }
+    base_url = str(cfg.get("api_url") or "https://export.arxiv.org/api/query")
+    url = base_url + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": str(cfg.get("user_agent") or "Solar-Tech-Hotspot-Radar/1.0"),
+            "Accept": "application/atom+xml,application/xml",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        xml_data = resp.read()
+    papers = parse_arxiv_atom_entries(xml_data, paper_date=paper_date, limit=max_results)
+    for paper in papers:
+        paper["daily_url"] = url
+    return papers
+
+
+def write_arxiv_daily_baseline_raw(config: dict[str, Any], papers_by_date: dict[str, list[dict[str, Any]]], *, fetched_at: str) -> dict[str, Any]:
+    raw_root = Path((config.get("output") or {}).get("knowledge_raw_root", str(Path.home() / "Knowledge" / "_raw"))).expanduser()
+    written: dict[str, dict[str, str]] = {}
+    for paper_date, papers in sorted(papers_by_date.items()):
+        out_dir = raw_root / "arxiv-papers-daily-baseline" / paper_date
+        out_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_path = out_dir / "daily-arxiv-papers-baseline.jsonl"
+        md_path = out_dir / "daily-arxiv-papers-baseline.md"
+        with jsonl_path.open("w", encoding="utf-8") as fh:
+            for paper in papers:
+                fh.write(json.dumps(paper, ensure_ascii=False, sort_keys=True) + "\n")
+        lines = [
+            "---",
+            "source: arxiv_papers_daily_baseline",
+            f"fetched_at: {fetched_at}",
+            f"paper_date: {paper_date}",
+            f"paper_count: {len(papers)}",
+            "module: tech_hotspot_radar",
+            "---",
+            "",
+            f"# arXiv Daily Papers Baseline — {paper_date}",
+            "",
+            "| Rank | Paper | Categories | URL |",
+            "|---:|---|---|---|",
+        ]
+        for paper in papers:
+            rank = int(paper.get("rank") or 0)
+            title = str(paper.get("title") or "")[:120].replace("|", "\\|")
+            categories = ", ".join(paper.get("categories") or [])
+            url = str(paper.get("arxiv_url") or "")
+            lines.append(f"| {rank} | {title} | {categories} | {url} |")
+        md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        written[paper_date] = {"jsonl": str(jsonl_path), "markdown": str(md_path)}
+    if not written:
+        run_date = fetched_at.split("T", 1)[0]
+        out_dir = raw_root / "arxiv-papers-daily-baseline" / run_date
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "jsonl": str(out_dir / "daily-arxiv-papers-baseline.jsonl"),
+            "markdown": str(out_dir / "daily-arxiv-papers-baseline.md"),
+            "by_date": {},
+        }
+    latest_date = sorted(written)[-1]
+    return {
+        "jsonl": written[latest_date]["jsonl"],
+        "markdown": written[latest_date]["markdown"],
+        "by_date": written,
+    }
+
+
+def cmd_backfill_arxiv_papers_baseline(args: argparse.Namespace) -> int:
+    config = load_config(resolve_config(args))
+    db_path = resolve_db(args, config)
+    conn = ensure_db(db_path)
+    conn.executescript(SCHEMA_SQL)
+    conn.row_factory = sqlite3.Row
+    run_id = begin_run(conn, "arxiv", "backfill-arxiv-papers-baseline")
+    days = int(getattr(args, "days", 30) or 30)
+    limit = int(getattr(args, "limit_per_day", 80) or 80)
+    sleep_seconds = float(getattr(args, "sleep_seconds", 3.0) or 0)
+    max_consecutive_failures = int(getattr(args, "max_consecutive_failures", 5) or 5)
+    end_date_raw = getattr(args, "end_date", None) or iso_z().split("T", 1)[0]
+    start_date_raw = getattr(args, "start_date", None)
+    end_date = dt.date.fromisoformat(end_date_raw)
+    if start_date_raw:
+        start_date = dt.date.fromisoformat(start_date_raw)
+    else:
+        start_date = end_date - dt.timedelta(days=max(days - 1, 0))
+    fetched_at = iso_z()
+    changed = 0
+    fetched_items = 0
+    failures: list[str] = []
+    consecutive_failures = 0
+    papers_by_date: dict[str, list[dict[str, Any]]] = {}
+    try:
+        current = start_date
+        while current <= end_date:
+            paper_date = current.isoformat()
+            try:
+                papers = collect_arxiv_daily_papers(config, paper_date=paper_date, limit=limit)
+                papers_by_date[paper_date] = papers
+                consecutive_failures = 0
+                fetched_items += len(papers)
+                for paper in papers:
+                    before = conn.total_changes
+                    conn.execute(
+                        "INSERT INTO arxiv_daily_papers "
+                        "(paper_date, arxiv_id, title, arxiv_url, pdf_url, summary, authors, categories, rank, topic_tags, "
+                        "first_seen_at, last_seen_at, fetched_at, raw_json) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                        "ON CONFLICT(paper_date, arxiv_id) DO UPDATE SET "
+                        "title=excluded.title, arxiv_url=excluded.arxiv_url, pdf_url=excluded.pdf_url, "
+                        "summary=excluded.summary, authors=excluded.authors, categories=excluded.categories, "
+                        "rank=excluded.rank, topic_tags=excluded.topic_tags, last_seen_at=excluded.last_seen_at, "
+                        "fetched_at=excluded.fetched_at, raw_json=excluded.raw_json",
+                        (
+                            paper_date,
+                            paper["arxiv_id"],
+                            paper["title"],
+                            paper.get("arxiv_url", ""),
+                            paper.get("pdf_url", ""),
+                            paper.get("summary", ""),
+                            paper.get("authors", ""),
+                            ",".join(paper.get("categories") or []),
+                            int(paper.get("rank") or 0),
+                            ",".join(paper.get("topic_tags") or []),
+                            fetched_at,
+                            fetched_at,
+                            fetched_at,
+                            json.dumps(paper, ensure_ascii=False, sort_keys=True),
+                        ),
+                    )
+                    conn.execute(
+                        "INSERT OR IGNORE INTO arxiv_daily_paper_snapshots "
+                        "(paper_date, arxiv_id, snapshot_at, rank, title, categories) VALUES (?,?,?,?,?,?)",
+                        (
+                            paper_date,
+                            paper["arxiv_id"],
+                            fetched_at,
+                            int(paper.get("rank") or 0),
+                            paper["title"],
+                            ",".join(paper.get("categories") or []),
+                        ),
+                    )
+                    if conn.total_changes > before:
+                        changed += 1
+                    baseline_insert_signal(
+                        conn,
+                        source_kind="web",
+                        item_key=f"arxiv-daily-paper:{paper_date}:{paper['arxiv_id']}",
+                        title=paper["title"],
+                        url=paper.get("arxiv_url", ""),
+                        category=",".join(paper.get("topic_tags") or ["paper_research"]),
+                        metric_name="arxiv_daily_rank",
+                        metric_value=float(paper.get("rank") or 0),
+                        signal_time=f"{paper_date}T00:00:00Z",
+                        raw_json={
+                            "source": "arxiv_papers_daily",
+                            "paper_date": paper_date,
+                            "categories": paper.get("categories") or [],
+                        },
+                    )
+                conn.commit()
+            except Exception as exc:
+                failures.append(f"{paper_date}:{type(exc).__name__}:{str(exc)[:160]}")
+                consecutive_failures += 1
+                if consecutive_failures >= max_consecutive_failures:
+                    failures.append(f"stopped:circuit_breaker:consecutive_failures={consecutive_failures}")
+                    break
+            if sleep_seconds:
+                time.sleep(sleep_seconds)
+            current += dt.timedelta(days=1)
+        files = write_arxiv_daily_baseline_raw(config, papers_by_date, fetched_at=fetched_at)
+        status = "partial" if failures else "ok"
+        error = json.dumps({"files": files, "failures": failures[:20]}, ensure_ascii=False)[:900]
+        finish_run(conn, run_id, status, fetched_items, changed, error)
+        conn.commit()
+        print(json.dumps({
+            "ok": not failures,
+            "status": status,
+            "dates": len(papers_by_date),
+            "papers": fetched_items,
+            "changed": changed,
+            "failures": failures[:20],
+            "files": files,
+        }, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if not failures else 1
+    except Exception as exc:
+        finish_run(conn, run_id, "failed", fetched_items, changed, f"{type(exc).__name__}: {exc}"[:900])
+        print(f"[backfill-arxiv-papers-baseline] ERROR {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
 
 
 def cmd_collect_hf_papers(args: argparse.Namespace) -> int:
@@ -8374,7 +8792,7 @@ def cmd_backfill_hf_papers_baseline(args: argparse.Namespace) -> int:
 
 def hf_paper_insight_db_path(config: dict[str, Any]) -> Path:
     output = config.get("output") or {}
-    state_dir = Path(output.get("state_dir") or "/Users/lisihao/.solar/harness/state/tech-hotspot-radar").expanduser()
+    state_dir = _expand_runtime_path(output.get("state_dir") or "${HARNESS_DIR}/state/tech-hotspot-radar")
     return state_dir / "hf-paper-insight.sqlite"
 
 
@@ -9052,6 +9470,239 @@ def hf_report_collection_summary(
     return summary
 
 
+def _hf_report_db_conn(config: dict[str, Any] | None) -> sqlite3.Connection | None:
+    db_path = hf_radar_db_path(config)
+    if not db_path.exists():
+        return None
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _hf_fetchall_dicts(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+    return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+
+def hf_report_heat_overview(
+    config: dict[str, Any] | None,
+    *,
+    report_context: dict[str, Any],
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Compile reader-facing daily/weekly/monthly heat data for HF reports."""
+    start = str(report_context.get("window_start") or report_context.get("date") or "")
+    end = str(report_context.get("window_end") or report_context.get("date") or start)
+    if not start or not end:
+        return {"ok": False, "reason": "missing_report_window"}
+    try:
+        end_date = dt.date.fromisoformat(end)
+    except ValueError:
+        end_date = dt.date.today()
+    reporting = (((config or {}).get("hf_paper_insight") or {}).get("reporting") or {})
+    baseline_days = int(reporting.get("heat_baseline_days") or 90)
+    baseline_days = max(30, min(180, baseline_days))
+    baseline_start = (end_date - dt.timedelta(days=baseline_days - 1)).isoformat()
+    month_start = end_date.replace(day=1).isoformat()
+    conn = _hf_report_db_conn(config)
+    if conn is None:
+        return {"ok": False, "reason": "database_missing", "window_start": start, "window_end": end}
+    try:
+        daily_rows = _hf_fetchall_dicts(
+            conn,
+            """
+            SELECT d.paper_date,
+                   COUNT(DISTINCT d.paper_id) AS paper_count,
+                   MIN(d.rank) AS best_rank,
+                   (
+                     SELECT title FROM hf_daily_papers x
+                     WHERE x.paper_date=d.paper_date
+                     ORDER BY x.rank ASC, x.title ASC
+                     LIMIT 1
+                   ) AS top_title,
+                   (
+                     SELECT hf_url FROM hf_daily_papers x
+                     WHERE x.paper_date=d.paper_date
+                     ORDER BY x.rank ASC, x.title ASC
+                     LIMIT 1
+                   ) AS top_url
+            FROM hf_daily_papers d
+            WHERE d.paper_date BETWEEN ? AND ?
+            GROUP BY d.paper_date
+            ORDER BY d.paper_date ASC
+            """,
+            (start, end),
+        )
+        daily_top_papers = _hf_fetchall_dicts(
+            conn,
+            """
+            SELECT paper_date,
+                   paper_id,
+                   title,
+                   hf_url,
+                   rank,
+                   topic_tags
+            FROM hf_daily_papers
+            WHERE paper_date BETWEEN ? AND ?
+              AND rank BETWEEN 1 AND 5
+            ORDER BY paper_date ASC, rank ASC, title ASC
+            """,
+            (start, end),
+        )
+        weekly_hotspots = _hf_fetchall_dicts(
+            conn,
+            """
+            SELECT paper_id,
+                   MAX(title) AS title,
+                   MAX(hf_url) AS hf_url,
+                   COUNT(DISTINCT paper_date) AS days_seen,
+                   MIN(rank) AS best_daily_rank,
+                   ROUND(AVG(rank), 2) AS avg_daily_rank,
+                   MIN(paper_date) AS first_seen,
+                   MAX(paper_date) AS last_seen
+            FROM hf_daily_papers
+            WHERE paper_date BETWEEN ? AND ?
+            GROUP BY paper_id
+            ORDER BY days_seen DESC, best_daily_rank ASC, avg_daily_rank ASC, title ASC
+            LIMIT ?
+            """,
+            (start, end, max(1, int(limit))),
+        )
+        breakout_hotspots = _hf_fetchall_dicts(
+            conn,
+            """
+            SELECT paper_id,
+                   MAX(title) AS title,
+                   MAX(hf_url) AS hf_url,
+                   COUNT(DISTINCT paper_date) AS days_seen,
+                   MIN(rank) AS best_daily_rank,
+                   MIN(paper_date) AS first_seen,
+                   MAX(paper_date) AS last_seen
+            FROM hf_daily_papers
+            WHERE paper_date BETWEEN ? AND ?
+            GROUP BY paper_id
+            HAVING days_seen <= 2 AND best_daily_rank <= 5
+            ORDER BY best_daily_rank ASC, last_seen DESC, title ASC
+            LIMIT ?
+            """,
+            (start, end, max(1, int(limit))),
+        )
+        monthly_hotspots = _hf_fetchall_dicts(
+            conn,
+            """
+            SELECT paper_id,
+                   MAX(title) AS title,
+                   COUNT(DISTINCT substr(snapshot_at, 1, 10)) AS days_seen,
+                   MIN(rank) AS best_monthly_rank,
+                   ROUND(AVG(rank), 2) AS avg_monthly_rank,
+                   MIN(substr(snapshot_at, 1, 10)) AS first_seen,
+                   MAX(substr(snapshot_at, 1, 10)) AS last_seen
+            FROM hf_paper_period_snapshots
+            WHERE period='monthly'
+              AND substr(snapshot_at, 1, 10) BETWEEN ? AND ?
+            GROUP BY paper_id
+            ORDER BY days_seen DESC, best_monthly_rank ASC, avg_monthly_rank ASC, title ASC
+            LIMIT ?
+            """,
+            (month_start, end, max(1, int(limit))),
+        )
+        baseline_hotspots = _hf_fetchall_dicts(
+            conn,
+            """
+            SELECT paper_id,
+                   MAX(title) AS title,
+                   MAX(hf_url) AS hf_url,
+                   COUNT(DISTINCT paper_date) AS days_seen,
+                   MIN(rank) AS best_daily_rank,
+                   ROUND(AVG(rank), 2) AS avg_daily_rank,
+                   MIN(paper_date) AS first_seen,
+                   MAX(paper_date) AS last_seen
+            FROM hf_daily_papers
+            WHERE paper_date BETWEEN ? AND ?
+            GROUP BY paper_id
+            ORDER BY days_seen DESC, best_daily_rank ASC, avg_daily_rank ASC, title ASC
+            LIMIT ?
+            """,
+            (baseline_start, end, max(1, int(limit))),
+        )
+        period_overview = _hf_fetchall_dicts(
+            conn,
+            """
+            SELECT period,
+                   COUNT(*) AS observations,
+                   COUNT(DISTINCT paper_id) AS unique_papers,
+                   MIN(rank) AS best_rank,
+                   MAX(substr(snapshot_at, 1, 10)) AS latest_snapshot_day
+            FROM hf_paper_period_snapshots
+            WHERE period IN ('daily', 'weekly', 'monthly')
+              AND substr(snapshot_at, 1, 10) BETWEEN ? AND ?
+            GROUP BY period
+            ORDER BY CASE period WHEN 'daily' THEN 1 WHEN 'weekly' THEN 2 ELSE 3 END
+            """,
+            (start, end),
+        )
+    except sqlite3.Error as exc:
+        return {"ok": False, "reason": f"sqlite_error:{type(exc).__name__}", "window_start": start, "window_end": end}
+    finally:
+        conn.close()
+    top_by_date: dict[str, list[dict[str, Any]]] = {}
+    for item in daily_top_papers:
+        day = str(item.get("paper_date") or "")
+        if not day:
+            continue
+        top_by_date.setdefault(day, []).append({
+            "paper_id": item.get("paper_id"),
+            "title": item.get("title"),
+            "hf_url": item.get("hf_url"),
+            "rank": item.get("rank"),
+            "topic_tags": [tag.strip() for tag in str(item.get("topic_tags") or "").split(",") if tag.strip()],
+        })
+    for row in daily_rows:
+        day = str(row.get("paper_date") or "")
+        row["top_papers"] = top_by_date.get(day, [])[:5]
+    notes: list[str] = []
+    if daily_rows:
+        total_daily = sum(int(row.get("paper_count") or 0) for row in daily_rows)
+        notes.append(f"本周日榜基线覆盖 {len(daily_rows)} 天、累计 {total_daily} 条日榜记录。")
+    if weekly_hotspots:
+        top = weekly_hotspots[0]
+        top_days_seen = int(top.get("days_seen") or 0)
+        if top_days_seen >= 2:
+            notes.append(
+                f"周内持续热度最高的是《{_hf_text(top.get('title'))}》，出现 {top_days_seen} 天，最佳日榜第 {int(top.get('best_daily_rank') or 0)}。"
+            )
+        else:
+            notes.append(
+                "本周日榜暂未形成多日持续霸榜论文，当前更像多点新晋热点轮动，需要继续观察后半周是否出现连续上榜。"
+            )
+    if breakout_hotspots:
+        notes.append(f"新晋爆发候选 {len(breakout_hotspots)} 篇，均在 1-2 天内冲入日榜 Top 5。")
+    if monthly_hotspots:
+        top_month = monthly_hotspots[0]
+        notes.append(
+            f"本月持续热点以《{_hf_text(top_month.get('title'))}》为代表，月榜观测 {int(top_month.get('days_seen') or 0)} 天。"
+        )
+    if baseline_hotspots:
+        top_base = baseline_hotspots[0]
+        notes.append(
+            f"近 {baseline_days} 天基线热点以《{_hf_text(top_base.get('title'))}》为代表，日榜出现 {int(top_base.get('days_seen') or 0)} 天。"
+        )
+    return {
+        "ok": True,
+        "window_start": start,
+        "window_end": end,
+        "month_start": month_start,
+        "baseline_days": baseline_days,
+        "baseline_start": baseline_start,
+        "daily_heat": daily_rows,
+        "period_heat": period_overview,
+        "weekly_hotspots": weekly_hotspots,
+        "monthly_hotspots": monthly_hotspots,
+        "baseline_hotspots": baseline_hotspots,
+        "breakout_hotspots": breakout_hotspots,
+        "trend_notes": notes,
+    }
+
+
 def hf_candidate_reasoning_plan(
     *,
     report_context: dict[str, Any],
@@ -9090,9 +9741,18 @@ def hf_default_report_headline(report_context: dict[str, Any], *, premium: bool 
     return f"AI Influence HF Paper {label} — {report_context.get('window_label') or report_context.get('date') or ''}".strip()
 
 
+def hf_report_display_period(report_context: dict[str, Any] | None, date_str: str = "") -> str:
+    context = report_context or {}
+    if str(context.get("cadence") or "").strip().lower() == "weekly":
+        week_id = str(context.get("week_id") or "").strip()
+        if week_id:
+            return week_id
+    return str(context.get("window_label") or context.get("date") or date_str or "").strip()
+
+
 def hf_radar_db_path(config: dict[str, Any] | None) -> Path:
     output = (config or {}).get("output") or {}
-    return Path(output.get("database") or "/Users/lisihao/.solar/harness/state/tech-hotspot-radar/tech-hotspot-radar.sqlite").expanduser()
+    return Path(output.get("database") or "${HARNESS_DIR}/state/tech-hotspot-radar/tech-hotspot-radar.sqlite").expanduser()
 
 
 def _hf_rank_signal(rank: Any, *, max_rank: int = 30) -> float:
@@ -9470,6 +10130,318 @@ def _hf_markdown_link(label: str, url: str) -> str:
     return f"[{clean_label}]({escaped_url})"
 
 
+def _hf_short_title(value: Any, *, limit: int = 64) -> str:
+    text = _hf_text(value)
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)].rstrip() + "…"
+
+
+def _hf_heat_title_link(row: dict[str, Any], *, title_key: str = "title", url_key: str = "hf_url") -> str:
+    title = _hf_short_title(row.get(title_key) or row.get("top_title") or row.get("paper_id"))
+    url = str(row.get(url_key) or row.get("top_url") or "").strip()
+    return _hf_markdown_link(title, url) if url else title
+
+
+def _hf_daily_top_papers_markdown(row: dict[str, Any]) -> str:
+    top_papers = row.get("top_papers") if isinstance(row.get("top_papers"), list) else []
+    items = []
+    for item in top_papers[:5]:
+        if not isinstance(item, dict):
+            continue
+        rank = int(item.get("rank") or 0)
+        prefix = f"{rank}. " if rank else ""
+        items.append(prefix + _hf_heat_title_link(item))
+    if items:
+        return "<br>".join(items)
+    return _hf_heat_title_link(row, title_key="top_title", url_key="top_url")
+
+
+def _hf_daily_top_tags_markdown(row: dict[str, Any]) -> str:
+    top_papers = row.get("top_papers") if isinstance(row.get("top_papers"), list) else []
+    items = []
+    for item in top_papers[:5]:
+        if not isinstance(item, dict):
+            continue
+        rank = int(item.get("rank") or 0)
+        prefix = f"{rank}. " if rank else ""
+        tags = _hf_list(item.get("topic_tags"))[:4]
+        items.append(prefix + (", ".join(tags) if tags else "paper_research"))
+    return "<br>".join(items) if items else "paper_research"
+
+
+def _hf_daily_top_papers_html(row: dict[str, Any]) -> str:
+    top_papers = row.get("top_papers") if isinstance(row.get("top_papers"), list) else []
+    items = []
+    for item in top_papers[:5]:
+        if not isinstance(item, dict):
+            continue
+        title = html.escape(_hf_short_title(item.get("title") or item.get("paper_id")))
+        url = str(item.get("hf_url") or "").strip()
+        label = (
+            f'<a href="{html.escape(url)}" target="_blank" rel="noreferrer noopener">{title}</a>'
+            if url
+            else title
+        )
+        items.append(f"<li>{label}</li>")
+    if items:
+        return f'<ol class="hf-top-list">{"".join(items)}</ol>'
+    top_url = str(row.get("top_url") or "").strip()
+    top_title = html.escape(_hf_short_title(row.get("top_title")))
+    return (
+        f'<a href="{html.escape(top_url)}" target="_blank" rel="noreferrer noopener">{top_title}</a>'
+        if top_url
+        else top_title
+    )
+
+
+def _hf_daily_top_tags_html(row: dict[str, Any]) -> str:
+    top_papers = row.get("top_papers") if isinstance(row.get("top_papers"), list) else []
+    items = []
+    for item in top_papers[:5]:
+        if not isinstance(item, dict):
+            continue
+        tags = _hf_list(item.get("topic_tags"))[:4] or ["paper_research"]
+        badges = "".join(f'<span class="hf-tag">{html.escape(tag)}</span>' for tag in tags)
+        items.append(f"<li>{badges}</li>")
+    return f'<ol class="hf-tag-list">{"".join(items)}</ol>' if items else '<span class="hf-tag">paper_research</span>'
+
+
+def _hf_render_heat_overview_markdown(heat_overview: dict[str, Any] | None) -> list[str]:
+    overview = heat_overview or {}
+    if not overview.get("ok"):
+        return [
+            "## 日 / 周 / 月热度总览",
+            "",
+            f"- 数据状态：{_hf_text(overview.get('reason'), default='暂无可用热度数据')}",
+            "",
+        ]
+    lines = [
+        "## 日 / 周 / 月热度总览",
+        "",
+    ]
+    notes = _hf_list(overview.get("trend_notes"))
+    lines.extend(_hf_section_list_lines(notes, empty_text="暂无趋势备注"))
+    lines.extend([
+        "",
+        "### 每日热度基线",
+        "",
+        "| 日期 | 日榜论文数 | 当日 Top 5 | 标签 |",
+        "| --- | ---: | --- | --- |",
+    ])
+    for row in overview.get("daily_heat") or []:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"| {_hf_text(row.get('paper_date'))} | {int(row.get('paper_count') or 0)} | {_hf_daily_top_papers_markdown(row)} | {_hf_daily_top_tags_markdown(row)} |"
+        )
+    if not (overview.get("daily_heat") or []):
+        lines.append("| N/A | 0 | N/A | N/A |")
+    baseline_days = int(overview.get("baseline_days") or 90)
+    lines.extend([
+        "",
+        f"### 近 {baseline_days} 天基线热点",
+        "",
+        "| 论文 | 日榜出现天数 | 最佳日榜 | 平均日榜 | 最近出现 |",
+        "| --- | ---: | ---: | ---: | --- |",
+    ])
+    for row in (overview.get("baseline_hotspots") or [])[:8]:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"| {_hf_heat_title_link(row)} | {int(row.get('days_seen') or 0)} | {int(row.get('best_daily_rank') or 0)} | {_hf_score_text(row.get('avg_daily_rank'))} | {_hf_text(row.get('last_seen'))} |"
+        )
+    if not (overview.get("baseline_hotspots") or []):
+        lines.append("| N/A | 0 | 0 | N/A | N/A |")
+    lines.extend([
+        "",
+        "### 周榜 / 月榜观测覆盖",
+        "",
+        "| 榜单窗口 | 观测条数 | 独立论文 | 最新观测日 |",
+        "| --- | ---: | ---: | --- |",
+    ])
+    period_label = {"daily": "日热榜快照", "weekly": "周热榜快照", "monthly": "月热榜快照"}
+    for row in overview.get("period_heat") or []:
+        if not isinstance(row, dict):
+            continue
+        period = str(row.get("period") or "")
+        lines.append(
+            f"| {period_label.get(period, period or 'N/A')} | {int(row.get('observations') or 0)} | {int(row.get('unique_papers') or 0)} | {_hf_text(row.get('latest_snapshot_day'))} |"
+        )
+    if not (overview.get("period_heat") or []):
+        lines.append("| N/A | 0 | 0 | N/A |")
+    lines.extend([
+        "",
+        "### 本周持续热点",
+        "",
+        "| 论文 | 出现天数 | 最佳日榜 | 平均日榜 | 最近出现 |",
+        "| --- | ---: | ---: | ---: | --- |",
+    ])
+    for row in (overview.get("weekly_hotspots") or [])[:8]:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"| {_hf_heat_title_link(row)} | {int(row.get('days_seen') or 0)} | {int(row.get('best_daily_rank') or 0)} | {_hf_score_text(row.get('avg_daily_rank'))} | {_hf_text(row.get('last_seen'))} |"
+        )
+    if not (overview.get("weekly_hotspots") or []):
+        lines.append("| N/A | 0 | 0 | N/A | N/A |")
+    lines.extend([
+        "",
+        "### 本月持续热点",
+        "",
+        "| 论文 | 月榜观测天数 | 最佳月榜 | 平均月榜 | 最近出现 |",
+        "| --- | ---: | ---: | ---: | --- |",
+    ])
+    for row in (overview.get("monthly_hotspots") or [])[:8]:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"| {_hf_heat_title_link(row)} | {int(row.get('days_seen') or 0)} | {int(row.get('best_monthly_rank') or 0)} | {_hf_score_text(row.get('avg_monthly_rank'))} | {_hf_text(row.get('last_seen'))} |"
+        )
+    if not (overview.get("monthly_hotspots") or []):
+        lines.append("| N/A | 0 | 0 | N/A | N/A |")
+    lines.extend([
+        "",
+        "### 新晋爆发候选",
+        "",
+        "| 论文 | 出现天数 | 最佳日榜 | 首次出现 | 最近出现 |",
+        "| --- | ---: | ---: | --- | --- |",
+    ])
+    for row in (overview.get("breakout_hotspots") or [])[:8]:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"| {_hf_heat_title_link(row)} | {int(row.get('days_seen') or 0)} | {int(row.get('best_daily_rank') or 0)} | {_hf_text(row.get('first_seen'))} | {_hf_text(row.get('last_seen'))} |"
+        )
+    if not (overview.get("breakout_hotspots") or []):
+        lines.append("| N/A | 0 | 0 | N/A | N/A |")
+    lines.append("")
+    return lines
+
+
+def _hf_html_rows(rows: Any, cells_fn) -> str:
+    rendered: list[str] = []
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict):
+                rendered.append("<tr>" + "".join(f"<td>{cell}</td>" for cell in cells_fn(row)) + "</tr>")
+    return "".join(rendered)
+
+
+def _hf_render_heat_overview_html(heat_overview: dict[str, Any] | None) -> str:
+    overview = heat_overview or {}
+    if not overview.get("ok"):
+        return f"""
+        <section class="hf-panel hf-heat">
+          <h2>日 / 周 / 月热度总览</h2>
+          <p>{html.escape(_hf_text(overview.get('reason'), default='暂无可用热度数据'))}</p>
+        </section>
+        """
+    notes = "".join(f"<li>{html.escape(item)}</li>" for item in _hf_list(overview.get("trend_notes"))) or "<li>暂无趋势备注</li>"
+    daily_rows = _hf_html_rows(
+        overview.get("daily_heat"),
+        lambda row: [
+            html.escape(_hf_text(row.get("paper_date"))),
+            str(int(row.get("paper_count") or 0)),
+            _hf_daily_top_papers_html(row),
+            _hf_daily_top_tags_html(row),
+        ],
+    ) or "<tr><td>N/A</td><td>0</td><td>N/A</td><td>N/A</td></tr>"
+    week_rows = _hf_html_rows(
+        (overview.get("weekly_hotspots") or [])[:8],
+        lambda row: [
+            (
+                f'<a href="{html.escape(str(row.get("hf_url") or ""))}" target="_blank" rel="noreferrer noopener">{html.escape(_hf_short_title(row.get("title")))}</a>'
+                if str(row.get("hf_url") or "").strip()
+                else html.escape(_hf_short_title(row.get("title")))
+            ),
+            str(int(row.get("days_seen") or 0)),
+            str(int(row.get("best_daily_rank") or 0)),
+            html.escape(_hf_score_text(row.get("avg_daily_rank"))),
+            html.escape(_hf_text(row.get("last_seen"))),
+        ],
+    ) or "<tr><td>N/A</td><td>0</td><td>0</td><td>N/A</td><td>N/A</td></tr>"
+    month_rows = _hf_html_rows(
+        (overview.get("monthly_hotspots") or [])[:8],
+        lambda row: [
+            html.escape(_hf_short_title(row.get("title"))),
+            str(int(row.get("days_seen") or 0)),
+            str(int(row.get("best_monthly_rank") or 0)),
+            html.escape(_hf_score_text(row.get("avg_monthly_rank"))),
+            html.escape(_hf_text(row.get("last_seen"))),
+        ],
+    ) or "<tr><td>N/A</td><td>0</td><td>0</td><td>N/A</td><td>N/A</td></tr>"
+    baseline_rows = _hf_html_rows(
+        (overview.get("baseline_hotspots") or [])[:8],
+        lambda row: [
+            (
+                f'<a href="{html.escape(str(row.get("hf_url") or ""))}" target="_blank" rel="noreferrer noopener">{html.escape(_hf_short_title(row.get("title")))}</a>'
+                if str(row.get("hf_url") or "").strip()
+                else html.escape(_hf_short_title(row.get("title")))
+            ),
+            str(int(row.get("days_seen") or 0)),
+            str(int(row.get("best_daily_rank") or 0)),
+            html.escape(_hf_score_text(row.get("avg_daily_rank"))),
+            html.escape(_hf_text(row.get("last_seen"))),
+        ],
+    ) or "<tr><td>N/A</td><td>0</td><td>0</td><td>N/A</td><td>N/A</td></tr>"
+    breakout_rows = _hf_html_rows(
+        (overview.get("breakout_hotspots") or [])[:8],
+        lambda row: [
+            (
+                f'<a href="{html.escape(str(row.get("hf_url") or ""))}" target="_blank" rel="noreferrer noopener">{html.escape(_hf_short_title(row.get("title")))}</a>'
+                if str(row.get("hf_url") or "").strip()
+                else html.escape(_hf_short_title(row.get("title")))
+            ),
+            str(int(row.get("days_seen") or 0)),
+            str(int(row.get("best_daily_rank") or 0)),
+            html.escape(_hf_text(row.get("first_seen"))),
+            html.escape(_hf_text(row.get("last_seen"))),
+        ],
+    ) or "<tr><td>N/A</td><td>0</td><td>0</td><td>N/A</td><td>N/A</td></tr>"
+    return f"""
+    <section class="hf-panel hf-heat">
+      <h2>日 / 周 / 月热度总览</h2>
+      <ul>{notes}</ul>
+      <div class="hf-heat-daily">
+        <div class="hf-heat-block">
+          <h3>每日热度基线</h3>
+          <table class="hf-daily-table">
+            <colgroup>
+              <col class="hf-date-col">
+              <col class="hf-count-col">
+              <col class="hf-top5-col">
+              <col class="hf-tags-col">
+            </colgroup>
+            <thead><tr><th>日期</th><th>论文数</th><th>当日 Top 5</th><th>标签</th></tr></thead>
+            <tbody>{daily_rows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="hf-heat-baseline">
+        <div class="hf-heat-block">
+          <h3>近 {int(overview.get("baseline_days") or 90)} 天基线热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody>{baseline_rows}</tbody></table>
+        </div>
+      </div>
+      <div class="hf-heat-secondary">
+        <div class="hf-heat-block">
+          <h3>本周持续热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody>{week_rows}</tbody></table>
+        </div>
+        <div class="hf-heat-block">
+          <h3>本月持续热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody>{month_rows}</tbody></table>
+        </div>
+        <div class="hf-heat-block">
+          <h3>新晋爆发候选</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>首次</th><th>最近</th></tr></thead><tbody>{breakout_rows}</tbody></table>
+        </div>
+      </div>
+    </section>
+    """
+
+
 def _hf_missing_value(value: Any) -> bool:
     if value is None:
         return True
@@ -9674,9 +10646,11 @@ def hf_build_report_planner_prompt(
     date_str: str,
     model_name: str,
     report_context: dict[str, Any] | None = None,
+    heat_overview: dict[str, Any] | None = None,
 ) -> str:
     planner_input = _hf_report_planner_input(public_records)
     context = report_context or hf_report_context(date_str, {})
+    heat_input = heat_overview or {}
     return f"""你是 AI Influence 的 HF Paper 专题主编。
 
 你将收到一批 HuggingFace 热门论文的摘要、基础标签和已有单篇判断。你的任务不是逐篇写作，而是先做“版面规划”：
@@ -9684,6 +10658,7 @@ def hf_build_report_planner_prompt(
 2. 每个部分应放哪些论文；
 3. 每个部分的核心判断是什么；
 4. 最终{context.get('period_label') or '日报'}应如何排序。
+5. 必须参考日 / 周 / 月 / 近 90 天基线热度数据，说明哪些是周内持续热点、哪些是新晋爆发、哪些是月榜延续、哪些是长期基线热点。
 
 硬规则：
 - 只能基于输入材料做分组，不要引入外部事实。
@@ -9691,6 +10666,7 @@ def hf_build_report_planner_prompt(
 - 所有 paper_ids 必须来自输入，不能编造。
 - 每篇论文必须被分到某个 section，不能遗漏。
 - section 数量控制在 2-5 个之间。
+- 如果热度数据与单篇评分冲突，优先把它写成“热度强但证据待验证”或“质量强但热度弱”的区分，不要混成一个结论。
 - 输出必须是合法 JSON object，不要 Markdown，不要代码块，不要解释。
 
 输出 JSON schema：
@@ -9714,6 +10690,18 @@ def hf_build_report_planner_prompt(
 报告周期：{context.get('window_label') or date_str}
 报告日期：{date_str}
 模型：{model_name}
+
+日 / 周 / 月热度数据：
+{json.dumps({
+    "daily_heat": heat_input.get("daily_heat") or [],
+    "weekly_hotspots": heat_input.get("weekly_hotspots") or [],
+    "monthly_hotspots": heat_input.get("monthly_hotspots") or [],
+    "baseline_days": heat_input.get("baseline_days") or 90,
+    "baseline_start": heat_input.get("baseline_start") or "",
+    "baseline_hotspots": heat_input.get("baseline_hotspots") or [],
+    "breakout_hotspots": heat_input.get("breakout_hotspots") or [],
+    "trend_notes": heat_input.get("trend_notes") or [],
+}, ensure_ascii=False, indent=2)}
 
 论文材料：
 {json.dumps(planner_input, ensure_ascii=False, indent=2)}
@@ -9862,9 +10850,9 @@ def hf_build_section_writer_prompt(
 
 
 def hf_load_cached_report_json(config: dict[str, Any], *, purpose: str, required_keys: list[str]) -> dict[str, Any] | None:
-    state_dir = Path((config.get("output") or {}).get(
+    state_dir = _expand_runtime_path((config.get("output") or {}).get(
         "state_dir", str(Path.home() / ".solar/harness/state/tech-hotspot-radar")
-    )).expanduser()
+    ))
     request_root = state_dir / "browser-agent-requests"
     if not request_root.exists():
         return None
@@ -9894,6 +10882,29 @@ def hf_load_cached_report_json(config: dict[str, Any], *, purpose: str, required
     return None
 
 
+def hf_report_browser_agent_sleep_seconds(config: dict[str, Any]) -> float:
+    high_cfg, _mode = hf_paper_high_reasoning_config(config, "browser_agent")
+    raw = (
+        os.environ.get("HF_PAPER_BROWSER_AGENT_SLEEP_SECONDS")
+        or high_cfg.get("report_sleep_between_calls_seconds")
+        or high_cfg.get("sleep_between_calls_seconds")
+        or 0
+    )
+    try:
+        seconds = float(raw or 0)
+    except (TypeError, ValueError):
+        seconds = 0.0
+    return max(0.0, min(seconds, 1800.0))
+
+
+def hf_sleep_before_next_report_browser_call(config: dict[str, Any], *, reason: str) -> None:
+    seconds = hf_report_browser_agent_sleep_seconds(config)
+    if seconds <= 0:
+        return
+    print(f"[hf-paper-report] sleep {int(seconds)}s before next browser-agent call: {reason}", file=sys.stderr)
+    time.sleep(seconds)
+
+
 def hf_call_report_json_with_repair(prompt: str, config: dict[str, Any], *, purpose: str, model_name: str, chapter_id: str, required_keys: list[str], max_attempts: int = 2) -> dict[str, Any]:
     high_cfg, _mode = hf_paper_high_reasoning_config(config, "browser_agent")
     timeout_seconds = int(
@@ -9902,13 +10913,22 @@ def hf_call_report_json_with_repair(prompt: str, config: dict[str, Any], *, purp
         or high_cfg.get("timeout_seconds")
         or 420
     )
-    timeout_seconds = max(60, min(timeout_seconds, 600))
+    timeout_seconds = max(60, min(timeout_seconds, 10800))
+    max_attempts = int(
+        os.environ.get("HF_PAPER_BROWSER_AGENT_MAX_ATTEMPTS")
+        or high_cfg.get("report_max_attempts")
+        or max_attempts
+        or 2
+    )
+    max_attempts = max(1, min(max_attempts, 6))
     errors: list[str] = []
     for attempt in range(1, max_attempts + 1):
         if attempt == 1 and not _env_override_bool("HF_PAPER_DISABLE_BROWSER_AGENT_CACHE"):
             cached = hf_load_cached_report_json(config, purpose=purpose, required_keys=required_keys)
             if cached:
                 return cached
+        if attempt > 1:
+            hf_sleep_before_next_report_browser_call(config, reason=f"repair attempt {attempt} for {chapter_id}")
         attempt_prompt = prompt
         if attempt > 1:
             attempt_prompt = "\n\n".join([
@@ -9967,6 +10987,7 @@ def hf_call_grouped_report_flow(
     *,
     date_str: str,
     report_context: dict[str, Any] | None = None,
+    heat_overview: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not public_records:
         raise ValueError("hf_grouped_report_no_records")
@@ -9976,7 +10997,13 @@ def hf_call_grouped_report_flow(
         raise ValueError(f"hf_grouped_report_requires_browser_agent:{mode}")
     model_name = str(high_cfg.get("model") or "chatgpt-5.5")
     raw_plan = hf_call_report_json_with_repair(
-        hf_build_report_planner_prompt(public_records, date_str=date_str, model_name=model_name, report_context=context),
+        hf_build_report_planner_prompt(
+            public_records,
+            date_str=date_str,
+            model_name=model_name,
+            report_context=context,
+            heat_overview=heat_overview,
+        ),
         config,
         purpose=f"hf-paper-report-plan-{date_str}",
         model_name=model_name,
@@ -9990,6 +11017,7 @@ def hf_call_grouped_report_flow(
         section_records = [record_map[pid] for pid in section.get("paper_ids") or [] if pid in record_map]
         if not section_records:
             continue
+        hf_sleep_before_next_report_browser_call(config, reason=f"section {idx} after report plan")
         try:
             section_payload = hf_call_report_json_with_repair(
                 hf_build_section_writer_prompt(section, section_records, date_str=date_str, model_name=model_name, report_context=context),
@@ -10022,15 +11050,17 @@ def _hf_render_grouped_report_markdown(
     public_records: list[dict[str, Any]],
     grouped_report: dict[str, Any],
     report_context: dict[str, Any] | None = None,
+    heat_overview: dict[str, Any] | None = None,
 ) -> str:
     context = report_context or hf_report_context(date_str, {})
     plan = grouped_report.get("plan") or {}
     sections = grouped_report.get("sections") or []
     public_variant = hf_public_report_variant_label(report_variant)
+    display_period = hf_report_display_period(context, date_str)
     lines = [
         f"# {hf_public_headline(plan.get('headline'), context, premium=True)}",
         "",
-        f"> 报告周期：`{context.get('window_label') or date_str}` ｜ 报告类型：`{public_variant}` ｜ 论文数：`{len(public_records)}` ｜ 分组章节：`{len(sections)}`",
+        f"> 报告周期：`{display_period}` ｜ 报告类型：`{public_variant}` ｜ 论文数：`{len(public_records)}` ｜ 分组章节：`{len(sections)}`",
         "",
     ]
     if report_variant != "premium_insight_report":
@@ -10050,9 +11080,10 @@ def _hf_render_grouped_report_markdown(
         f"| 报告类型 | `{public_variant}` |",
         f"| 论文数量 | {len(public_records)} |",
         f"| 分组章节 | {len(sections)} |",
-        f"| 周期 | {context.get('window_label') or date_str} |",
+        f"| 周期 | {display_period} |",
         "",
     ])
+    lines.extend(_hf_render_heat_overview_markdown(heat_overview))
     for idx, section in enumerate(sections, 1):
         recommendations = _hf_list(section.get("planning_recommendations"))
         commentary = section.get("paper_commentary") if isinstance(section.get("paper_commentary"), list) else []
@@ -10110,16 +11141,18 @@ def _hf_render_grouped_report_html(
     public_records: list[dict[str, Any]],
     grouped_report: dict[str, Any],
     report_context: dict[str, Any] | None = None,
+    heat_overview: dict[str, Any] | None = None,
 ) -> str:
     context = report_context or hf_report_context(date_str, {})
     plan = grouped_report.get("plan") or {}
     sections = grouped_report.get("sections") or []
     public_variant = hf_public_report_variant_label(report_variant)
+    display_period = hf_report_display_period(context, date_str)
     metric_cards = [
         ("报告类型", public_variant),
         ("论文数量", str(len(public_records))),
         ("分组章节", str(len(sections))),
-        ("报告周期", str(context.get("window_label") or date_str)),
+        ("报告周期", display_period),
     ]
     metric_html = "\n".join(
         f'<div class="hf-metric"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
@@ -10183,9 +11216,9 @@ def _hf_render_grouped_report_html(
     }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: radial-gradient(circle at top left, rgba(196,147,96,.18), transparent 28%), linear-gradient(180deg, #f9f4ec 0%, #f3ede3 100%); color: var(--ink); font: 16px/1.65 "Iowan Old Style", Georgia, serif; }}
-    .hf-shell {{ max-width: 1080px; margin: 0 auto; padding: 40px 20px 64px; }}
+    .hf-shell {{ max-width: 1240px; margin: 0 auto; padding: 40px 20px 64px; }}
     .hf-hero, .hf-card, .hf-panel, .hf-metric {{ background: var(--paper); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }}
-    .hf-hero {{ padding: 28px; }}
+    .hf-hero {{ padding: 32px 34px; }}
     .hf-kicker {{ display: inline-flex; padding: 6px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 600 12px/1.2 "Avenir Next", sans-serif; letter-spacing: .08em; text-transform: uppercase; }}
     .hf-metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px; margin-top: 22px; }}
     .hf-metric {{ padding: 16px 18px; }}
@@ -10196,9 +11229,38 @@ def _hf_render_grouped_report_html(
     .hf-rank {{ width: 64px; height: 64px; display: grid; place-items: center; border-radius: 18px; background: linear-gradient(135deg, #8a4b22, #c98950); color: white; font: 700 22px/1 "Avenir Next", sans-serif; }}
     .hf-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 14px; margin: 18px 0; padding: 16px; background: #fbf6ef; border-radius: 18px; border: 1px solid var(--line); }}
     .hf-panel {{ padding: 22px; margin-top: 24px; }}
+    .hf-heat h2 {{ font-size: 28px; }}
+    .hf-heat-daily {{ margin-top: 18px; overflow-x: auto; }}
+    .hf-heat-baseline {{ margin-top: 18px; overflow-x: auto; }}
+    .hf-heat-secondary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 18px; }}
+    .hf-heat-block {{ width: 100%; min-width: 0; }}
+    .hf-heat-daily table {{ width: 100%; min-width: 0; table-layout: fixed; }}
+    .hf-daily-table .hf-date-col {{ width: 124px; }}
+    .hf-daily-table .hf-count-col {{ width: 88px; }}
+    .hf-daily-table .hf-top5-col {{ width: auto; }}
+    .hf-daily-table .hf-tags-col {{ width: 240px; }}
+    .hf-daily-table th:nth-child(3), .hf-daily-table td:nth-child(3), .hf-daily-table th:nth-child(4), .hf-daily-table td:nth-child(4) {{ padding-left: 18px; }}
+    .hf-heat-baseline table, .hf-heat-secondary table {{ table-layout: fixed; }}
     h1, h2, h3 {{ margin: 0 0 12px; line-height: 1.15; }}
-    h1 {{ font-size: clamp(32px, 4vw, 52px); max-width: 16ch; margin-top: 18px; }}
+    h1 {{ font-size: clamp(34px, 4vw, 56px); max-width: 100%; margin-top: 18px; }}
+    table {{ width: 100%; border-collapse: collapse; font: 14px/1.45 "Avenir Next", sans-serif; }}
+    th, td {{ padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }}
+    th {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }}
+    a {{ color: var(--accent); text-decoration: none; }}
+    .hf-top-list {{ margin: 0; padding-left: 18px; }}
+    .hf-top-list li + li {{ margin-top: 6px; }}
+    .hf-tag-list {{ margin: 0; padding-left: 18px; }}
+    .hf-tag-list li + li {{ margin-top: 8px; }}
+    .hf-tag {{ display: inline-block; margin: 0 6px 5px 0; padding: 3px 8px; border-radius: 999px; background: #f0e3d3; color: #6f3e1f; font-size: 12px; font-weight: 700; white-space: nowrap; }}
     ul {{ padding-left: 20px; }}
+    @media (max-width: 980px) {{
+      .hf-heat-daily table {{ min-width: 860px; }}
+      .hf-daily-table .hf-tags-col {{ width: 220px; }}
+    }}
+    @media (max-width: 720px) {{
+      .hf-hero {{ padding: 24px 22px; }}
+      .hf-heat-daily table {{ min-width: 760px; }}
+    }}
   </style>
 </head>
 <body>
@@ -10207,9 +11269,10 @@ def _hf_render_grouped_report_html(
       <span class="hf-kicker">{html.escape(public_variant)}</span>
       <h1>{html.escape(title)}</h1>
       <p>{html.escape(hf_clean_public_text(subtitle))}</p>
-      <p>{html.escape('报告周期：' + str(context.get('window_label') or date_str))}</p>
+	      <p>{html.escape('报告周期：' + display_period)}</p>
       <div class="hf-metrics">{metric_html}</div>
     </section>
+    {_hf_render_heat_overview_html(heat_overview)}
     {''.join(section_html)}
     <section class="hf-panel">
       <h3>后续观察点</h3>
@@ -10228,13 +11291,15 @@ def _hf_render_public_report_markdown(
     fallback_count: int,
     public_records: list[dict[str, Any]],
     report_context: dict[str, Any] | None = None,
+    heat_overview: dict[str, Any] | None = None,
 ) -> str:
     context = report_context or hf_report_context(date_str, {})
     public_variant = hf_public_report_variant_label(report_variant)
+    display_period = hf_report_display_period(context, date_str)
     lines = [
         f"# {hf_public_headline(None, context, premium=(report_variant == 'premium_insight_report'))}",
         "",
-        f"> 报告周期：`{context.get('window_label') or date_str}` ｜ 报告类型：`{public_variant}` ｜ 论文数：`{len(public_records)}`",
+        f"> 报告周期：`{display_period}` ｜ 报告类型：`{public_variant}` ｜ 论文数：`{len(public_records)}`",
         "",
     ]
     if report_variant != "premium_insight_report":
@@ -10253,11 +11318,13 @@ def _hf_render_public_report_markdown(
         "| --- | --- |",
         f"| 报告类型 | `{public_variant}` |",
         f"| 论文数量 | {len(public_records)} |",
-        f"| 报告周期 | {context.get('window_label') or date_str} |",
+        f"| 报告周期 | {display_period} |",
         "",
         "## Top 论文洞察",
         "",
     ])
+    heat_lines = _hf_render_heat_overview_markdown(heat_overview)
+    lines[lines.index("## Top 论文洞察"):lines.index("## Top 论文洞察")] = heat_lines
     if not public_records:
         lines.append("- N/A")
         return "\n".join(lines)
@@ -10376,15 +11443,17 @@ def _hf_render_public_report_html(
     fallback_count: int,
     public_records: list[dict[str, Any]],
     report_context: dict[str, Any] | None = None,
+    heat_overview: dict[str, Any] | None = None,
 ) -> str:
     context = report_context or hf_report_context(date_str, {})
     title = hf_public_headline(None, context, premium=(report_variant == "premium_insight_report"))
     hero_badge = hf_public_report_variant_label(report_variant)
     hero_note = hf_report_core_judgment(public_records, report_variant=report_variant)
+    display_period = hf_report_display_period(context, date_str)
     metric_cards = [
         ("报告类型", hero_badge),
         ("论文数量", str(len(public_records))),
-        ("报告周期", str(context.get("window_label") or date_str)),
+        ("报告周期", display_period),
     ]
     metric_html = "\n".join(
         f'<div class="hf-metric"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
@@ -10489,12 +11558,12 @@ def _hf_render_public_report_html(
       color: var(--ink);
       font: 16px/1.65 "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
     }}
-    .hf-shell {{ max-width: 1080px; margin: 0 auto; padding: 40px 20px 64px; }}
+    .hf-shell {{ max-width: 1240px; margin: 0 auto; padding: 40px 20px 64px; }}
     .hf-hero {{
       background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(247,240,229,0.96));
       border: 1px solid var(--line);
       border-radius: 28px;
-      padding: 28px;
+      padding: 32px 34px;
       box-shadow: var(--shadow);
     }}
     .hf-kicker {{
@@ -10510,7 +11579,7 @@ def _hf_render_public_report_html(
       text-transform: uppercase;
     }}
     h1, h2, h3 {{ margin: 0 0 12px; line-height: 1.15; }}
-    h1 {{ font-size: clamp(32px, 4vw, 52px); max-width: 14ch; margin-top: 18px; }}
+    h1 {{ font-size: clamp(34px, 4vw, 56px); max-width: 100%; margin-top: 18px; }}
     .hf-subtitle {{ color: var(--muted); max-width: 72ch; margin: 0; }}
     .hf-metrics {{
       display: grid;
@@ -10571,8 +11640,31 @@ def _hf_render_public_report_html(
       margin-top: 24px;
     }}
     .hf-panel {{ padding: 22px; }}
+    .hf-heat h2 {{ font-size: 28px; }}
+    .hf-heat-daily {{
+      margin-top: 18px;
+      overflow-x: auto;
+    }}
+    .hf-heat-baseline {{
+      margin-top: 18px;
+      overflow-x: auto;
+    }}
+    .hf-heat-secondary {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px;
+      margin-top: 18px;
+    }}
+    .hf-heat-block {{ width: 100%; min-width: 0; }}
+    .hf-heat-daily table {{ width: 100%; min-width: 0; table-layout: fixed; }}
+    .hf-daily-table .hf-date-col {{ width: 124px; }}
+    .hf-daily-table .hf-count-col {{ width: 88px; }}
+    .hf-daily-table .hf-top5-col {{ width: auto; }}
+    .hf-daily-table .hf-tags-col {{ width: 240px; }}
+    .hf-daily-table th:nth-child(3), .hf-daily-table td:nth-child(3), .hf-daily-table th:nth-child(4), .hf-daily-table td:nth-child(4) {{ padding-left: 18px; }}
+    .hf-heat-baseline table, .hf-heat-secondary table {{ table-layout: fixed; }}
     table {{ width: 100%; border-collapse: collapse; }}
-    th, td {{ padding: 12px 0; text-align: left; border-bottom: 1px solid var(--line); }}
+    th, td {{ padding: 12px 0; text-align: left; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; word-break: break-word; }}
     th {{
       color: var(--muted);
       font: 600 12px/1.2 "Avenir Next", "Segoe UI", sans-serif;
@@ -10580,9 +11672,22 @@ def _hf_render_public_report_html(
       text-transform: uppercase;
     }}
     a {{ color: var(--accent); text-decoration: none; }}
+    .hf-top-list {{ margin: 0; padding-left: 18px; }}
+    .hf-top-list li + li {{ margin-top: 6px; }}
+    .hf-tag-list {{ margin: 0; padding-left: 18px; }}
+    .hf-tag-list li + li {{ margin-top: 8px; }}
+    .hf-tag {{ display: inline-block; margin: 0 6px 5px 0; padding: 3px 8px; border-radius: 999px; background: #f0e3d3; color: #6f3e1f; font-size: 12px; font-weight: 700; white-space: nowrap; }}
+    @media (max-width: 980px) {{
+      .hf-heat-daily table {{ min-width: 860px; }}
+      .hf-daily-table .hf-tags-col {{ width: 220px; }}
+    }}
     @media (max-width: 820px) {{
       .hf-panels {{ grid-template-columns: 1fr; }}
       .hf-card-head {{ grid-template-columns: 1fr; }}
+    }}
+    @media (max-width: 720px) {{
+      .hf-hero {{ padding: 24px 22px; }}
+      .hf-heat-daily table {{ min-width: 760px; }}
     }}
   </style>
 </head>
@@ -10592,9 +11697,11 @@ def _hf_render_public_report_html(
       <span class="hf-kicker">{html.escape(hero_badge)}</span>
       <h1>{html.escape(title)}</h1>
       <p class="hf-subtitle">{html.escape(hf_clean_public_text(hero_note))}</p>
-      <p class="hf-subtitle">报告周期：{html.escape(str(context.get('window_label') or date_str))}</p>
+      <p class="hf-subtitle">报告周期：{html.escape(display_period)}</p>
       <div class="hf-metrics">{metric_html}</div>
     </section>
+
+    {_hf_render_heat_overview_html(heat_overview)}
 
     <h2 class="hf-section-title">Top 论文洞察</h2>
     {''.join(article_blocks) or '<div class="hf-card"><p>N/A</p></div>'}
@@ -10636,16 +11743,32 @@ def hf_write_public_report(
     premium_count = sum(1 for r in public_records if bool(((r.get("reasoning") or {}).get("premium_insight_available"))))
     fallback_count = max(0, len(public_records) - premium_count)
     collection_summary = hf_report_collection_summary(config, report_context=report_context, public_records=public_records)
+    heat_overview = hf_report_heat_overview(config, report_context=report_context, limit=max(8, min(20, limit)))
     base_report_variant = "premium_insight_report" if public_records and premium_count == len(public_records) else "fallback_report"
     grouped_report: dict[str, Any] | None = None
     grouped_report_error_kind = ""
     if public_records:
         try:
-            grouped_report = hf_call_grouped_report_flow(public_records, config, date_str=date_str, report_context=report_context)
+            grouped_report = hf_call_grouped_report_flow(
+                public_records,
+                config,
+                date_str=date_str,
+                report_context=report_context,
+                heat_overview=heat_overview,
+            )
         except Exception as exc:
             grouped_report_error_kind = type(exc).__name__
+    _high_cfg, high_reasoning_mode = hf_paper_high_reasoning_config(config, "browser_agent")
+    if public_records and high_reasoning_mode == "browser_agent" and not grouped_report:
+        raise RuntimeError(
+            "hf_grouped_report_required_but_unavailable:"
+            f"{grouped_report_error_kind or 'unknown'}"
+        )
     report_variant = "premium_insight_report" if grouped_report else base_report_variant
-    raw_base = Path(output_base or (config.get("output") or {}).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(
+        output_base
+        or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
+    )
     out_dir = raw_base / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     assets_dir = out_dir / "hf-paper-insight-assets"
@@ -10677,6 +11800,7 @@ def hf_write_public_report(
         fallback_count=fallback_count,
         public_records=public_records,
         report_context=report_context,
+        heat_overview=heat_overview,
     )
     if grouped_report:
         render_kwargs["grouped_report"] = grouped_report
@@ -10685,11 +11809,14 @@ def hf_write_public_report(
             **render_kwargs,
         )
     )
-    report_md = "\n".join(lines)
-    report_html = render_html(**render_kwargs)
+    report_md = hf_sanitize_public_report_text("\n".join(lines))
+    report_html = hf_sanitize_public_report_text(render_html(**render_kwargs))
     leaked = hf_internal_report_tokens(report_md)
     if leaked:
         raise ValueError(f"public HF paper report contains internal tokens: {leaked}")
+    public_leaks = hf_public_report_leak_tokens(report_md, report_html)
+    if public_leaks:
+        raise ValueError(f"public HF paper report leaked reader-facing tokens: {public_leaks}")
 
     report_path = out_dir / "hf-paper-report.md"
     report_html_path = out_dir / "hf-paper-report.html"
@@ -10713,6 +11840,7 @@ def hf_write_public_report(
         "premium_insight_count": premium_count,
         "fallback_count": fallback_count,
         "collection_summary": collection_summary,
+        "heat_overview": heat_overview,
         "grouped_report_ok": bool(grouped_report),
         "grouped_report_model": (grouped_report or {}).get("model") or "",
         "grouped_report_error": grouped_report_error_kind,
@@ -11372,8 +12500,8 @@ def github_minimal_trendshift_card(conn: sqlite3.Connection, row: dict[str, Any]
     }
 
 
-def github_report_cards_trendshift_first(conn: sqlite3.Connection, trendshift_rows: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
-    internal_cards = github_project_cards(conn, limit=max(limit * 3, 30))
+def github_report_cards_trendshift_first(conn: sqlite3.Connection, trendshift_rows: list[dict[str, Any]], *, limit: int, order_by: str = "momentum") -> list[dict[str, Any]]:
+    internal_cards = github_project_cards(conn, limit=max(limit * 3, 30), order_by=order_by)
     by_repo = {str(card.get("repo") or ""): card for card in internal_cards}
     selected: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -11404,9 +12532,178 @@ def github_report_cards_trendshift_first(conn: sqlite3.Connection, trendshift_ro
     return selected[:limit]
 
 
+GITHUB_BREAKOUT_V2_KNOWN_PROJECT_PATTERNS = [
+    ("kubernetes", "Kubernetes/k8s 已是成熟基础设施，不进入新晋爆发雷达"),
+    ("k8s", "Kubernetes/k8s 已是成熟基础设施，不进入新晋爆发雷达"),
+    ("llama", "Llama/LLaMA 生态已广泛认知，不进入新晋爆发雷达"),
+    ("hermes", "Hermes 生态/模型名已广泛认知，不进入新晋爆发雷达"),
+    ("react", "React 生态已广泛认知，不进入新晋爆发雷达"),
+    ("vue", "Vue 生态已广泛认知，不进入新晋爆发雷达"),
+    ("tensorflow", "TensorFlow 生态已广泛认知，不进入新晋爆发雷达"),
+    ("pytorch", "PyTorch 生态已广泛认知，不进入新晋爆发雷达"),
+    ("transformers", "Transformers 生态已广泛认知，不进入新晋爆发雷达"),
+    ("langchain", "LangChain 生态已广泛认知，不进入新晋爆发雷达"),
+    ("llamaindex", "LlamaIndex 生态已广泛认知，不进入新晋爆发雷达"),
+]
+
+
+def github_breakout_v2_known_project_reason(card: dict[str, Any]) -> str:
+    repo = str(card.get("repo") or "").strip().lower()
+    description = str(card.get("description") or card.get("what_it_does") or "").strip().lower()
+    topics = " ".join(str(t).lower() for t in (card.get("topics") or [])) if isinstance(card.get("topics"), list) else ""
+    blob = f"{repo} {description} {topics}"
+    stars = int(card.get("stars") or 0)
+    for pattern, reason in GITHUB_BREAKOUT_V2_KNOWN_PROJECT_PATTERNS:
+        if pattern in blob:
+            return reason
+    if stars >= 50000:
+        return "star 体量已超过 5 万，更适合作为成熟生态观察，不进入新晋爆发雷达"
+    return ""
+
+
+def _github_breakout_v2_norm(value: Any, scale: float) -> float:
+    try:
+        number = max(0.0, float(value or 0.0))
+    except (TypeError, ValueError):
+        number = 0.0
+    if scale <= 0:
+        return 0.0
+    return round(min(1.0, math.log1p(number) / math.log1p(scale)), 4)
+
+
+def github_breakout_v2_score(card: dict[str, Any]) -> tuple[float, dict[str, float]]:
+    scores = card.get("scores") if isinstance(card.get("scores"), dict) else {}
+    external_rank = float(scores.get("external_rank_signal") or 0.0)
+    acceleration = _github_breakout_v2_norm(scores.get("acceleration"), 20.0)
+    momentum = _github_breakout_v2_norm(scores.get("momentum_score"), 60.0)
+    stars_delta = _github_breakout_v2_norm(scores.get("stars_delta_7d"), 5000.0)
+    potential = max(0.0, min(1.0, float(scores.get("potential_score") or 0.0)))
+    technical_depth = max(0.0, min(1.0, float(scores.get("technical_depth_score") or 0.0)))
+    social_cross = max(0.0, min(1.0, float(scores.get("social_cross_signal") or 0.0)))
+    evidence_count = min(1.0, len(card.get("evidence_ids") or []) / 4.0)
+    confidence = max(0.0, min(1.0, float(card.get("confidence") or 0.0)))
+    risk = str(card.get("risk_classification") or "none").strip().lower()
+    risk_penalty = 0.25 if risk in {"hype", "star_manipulation", "unverified"} else (0.12 if risk not in {"", "none"} else 0.0)
+    quality = 0.45 * technical_depth + 0.30 * evidence_count + 0.25 * confidence
+    breakout_score = (
+        0.24 * external_rank
+        + 0.20 * acceleration
+        + 0.18 * momentum
+        + 0.12 * stars_delta
+        + 0.12 * potential
+        + 0.09 * quality
+        + 0.05 * social_cross
+        - risk_penalty
+    )
+    factors = {
+        "external_rank_signal": round(external_rank, 4),
+        "acceleration_norm": acceleration,
+        "momentum_norm": momentum,
+        "stars_delta_norm": stars_delta,
+        "potential_score": round(potential, 4),
+        "quality_score": round(quality, 4),
+        "social_cross_signal": round(social_cross, 4),
+        "risk_penalty": round(risk_penalty, 4),
+    }
+    return round(max(0.0, min(1.0, breakout_score)), 4), factors
+
+
+def github_breakout_v2_candidates(
+    conn: sqlite3.Connection,
+    trendshift_rows: list[dict[str, Any]],
+    *,
+    limit: int = 5,
+    source_limit: int = 80,
+) -> dict[str, Any]:
+    """Select lesser-known short-momentum GitHub projects for a dedicated report module."""
+    pool: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_cards(cards: list[dict[str, Any]]) -> None:
+        for raw_card in cards:
+            repo = str(raw_card.get("repo") or "").strip()
+            if not repo or repo in seen:
+                continue
+            seen.add(repo)
+            pool.append(dict(raw_card))
+
+    add_cards(github_report_cards_trendshift_first(conn, trendshift_rows, limit=source_limit, order_by="momentum"))
+    add_cards(github_project_cards(conn, limit=source_limit, order_by="momentum"))
+
+    excluded: list[dict[str, Any]] = []
+    scored: list[dict[str, Any]] = []
+    for card in pool:
+        repo = str(card.get("repo") or "").strip()
+        reason = github_breakout_v2_known_project_reason(card)
+        if reason:
+            excluded.append({"repo": repo, "reason": reason})
+            continue
+        score, factors = github_breakout_v2_score(card)
+        scores = card.get("scores") if isinstance(card.get("scores"), dict) else {}
+        trendshift_rank = scores.get("trendshift_best_rank") or card.get("trendshift_rank")
+        trendshift_period = scores.get("trendshift_period") or card.get("trendshift_period")
+        scored.append({
+            "repo": repo,
+            "html_url": card.get("html_url") or f"https://github.com/{repo}",
+            "description": card.get("description") or card.get("what_it_does") or "",
+            "language": card.get("language") or "N/A",
+            "stars": int(card.get("stars") or 0),
+            "forks": int(card.get("forks") or 0),
+            "tier": card.get("tier") or "N/A",
+            "risk_classification": card.get("risk_classification") or "none",
+            "breakout_score_v2": score,
+            "score_factors": factors,
+            "trendshift_period": trendshift_period,
+            "trendshift_rank": trendshift_rank,
+            "why_now": [
+                f"外部趋势信号={factors['external_rank_signal']}",
+                f"短期动量={factors['momentum_norm']}",
+                f"增长加速度={factors['acceleration_norm']}",
+                f"质量校验={factors['quality_score']}",
+            ],
+            "what_to_verify_next": [
+                "检查 README/release 是否支撑真实使用场景",
+                "观察 24h/7d star 增速是否持续",
+                "检查 issue/PR 活跃度和社区贡献者是否跟上热度",
+            ],
+        })
+    scored.sort(
+        key=lambda item: (
+            -float(item.get("breakout_score_v2") or 0.0),
+            int(item.get("trendshift_rank") or 999),
+            -int(item.get("stars") or 0),
+            str(item.get("repo") or ""),
+        )
+    )
+    return {
+        "version": "github_breakout_score_v2",
+        "selection_policy": (
+            "面向报告新增模块的新晋爆发雷达：优先短期外部榜信号、增长加速度、momentum、"
+            "质量校验和交叉信号；过滤 k8s/Llama/Hermes 等成熟或人尽皆知项目，以及 5 万星以上成熟生态。"
+        ),
+        "items": scored[:max(1, limit)],
+        "excluded_known_projects": excluded[:40],
+    }
+
+
 def build_github_trend_pack(conn: sqlite3.Connection, *, limit: int = 10, date_str: str | None = None) -> dict[str, Any]:
     trendshift_rows = github_trendshift_rows_for_report(conn, limit=max(60, limit * 4))
-    cards = github_report_cards_trendshift_first(conn, trendshift_rows, limit=limit)
+    
+    half_limit = max(3, limit // 2)
+    # Breakout track (Trendshift + Momentum)
+    cards_breakout = github_report_cards_trendshift_first(conn, trendshift_rows, limit=half_limit, order_by="momentum")
+    seen_repos = {str(c.get("repo")) for c in cards_breakout}
+    
+    # Traditional track (Heat + Potential)
+    cards_traditional = []
+    internal_traditional = github_project_cards(conn, limit=max(limit * 3, 30), order_by="heat")
+    for c in internal_traditional:
+        repo = str(c.get("repo"))
+        if repo and repo not in seen_repos:
+            cards_traditional.append(c)
+            seen_repos.add(repo)
+        if len(cards_traditional) >= half_limit:
+            break
     hf_papers = [
         {
             "paper_id": row["paper_id"],
@@ -11431,12 +12728,20 @@ def build_github_trend_pack(conn: sqlite3.Connection, *, limit: int = 10, date_s
     card_stats = conn.execute(
         "SELECT tier, COUNT(*) FROM repo_analysis_cards GROUP BY tier ORDER BY tier"
     ).fetchall()
+    breakout_candidates_v2 = github_breakout_v2_candidates(
+        conn,
+        trendshift_rows,
+        limit=max(3, min(6, limit // 2)),
+        source_limit=max(60, limit * 5),
+    )
     return {
         "date": date_str or iso_z().split("T", 1)[0],
         "source": "tech-hotspot-radar/github-project-intelligence",
         "repo_count": int(source_stats[0] or 0),
         "card_tiers": {tier: count for tier, count in card_stats},
-        "cards": cards,
+        "cards_traditional": cards_traditional,
+        "cards_breakout": cards_breakout,
+        "breakout_candidates_v2": breakout_candidates_v2,
         "hf_trending_papers": hf_papers,
         "external_rank_signals": {
             "trendshift": trendshift_rows,
@@ -11487,19 +12792,23 @@ def build_github_trend_prompt(pack: dict[str, Any], model_name: str) -> str:
 16. “火的可能原因”必须写 160-260 个中文字，结合当前业界趋势做因果解释，例如 Agent runtime、MCP/浏览器工具层、GUI Agent、长期记忆、推理服务、world model、Physical AI、金融研究自动化等，不要只写“因为需求大”。
 17. “核心技术/产品启示”必须写 160-260 个中文字，提炼可复用架构思想、产品化机会、工程瓶颈和边界条件；不要写成口号。
 18. 每个重点项目的“建议”必须写成 180-300 个中文字的综合建议，包含洞察判断、是否值得继续跟踪、适合写什么、是否值得做开源动作、第一步验证动作。
-19. 每篇报告最多写 6 个重点项目；必须优先选择 cards 中 Trendshift rank 最靠前的项目。宁可减少项目数量，也不能出现空字段或缺字段。
+19. 每篇报告总计写 8-10 个重点项目，分为两大阵营：一部分从 `cards_traditional` 挑选，一部分从 `cards_breakout` 挑选。宁可减少项目数量，也不能出现空字段或缺字段。
 20. 每个项目必须严格使用这 5 个字段，且字段名和正文必须在同一行：它是什么：...、为什么值得看：...、火的可能原因：...、核心技术/产品启示：...、建议：...。不要把字段名单独作为一行。
-21. 突然爆火 / 高热项目、早期潜力项目雷达、基础设施候选三节必须围绕本次 pack.cards 和 external_rank_signals.trendshift 的实际项目写；不要强行覆盖历史旧项目。如果某个 Trendshift 高排名项目只有外部趋势信号、缺少完整 repo 分析卡，也要写成“Trendshift-only，需要继续验证”的候选，不得省略。
+21. 重点项目解析必须严格分为两节：「盘踞榜首的热门项目（基于传统综合热度与体量，来自 cards_traditional）」与「异军突起的爆发星探（基于短期动量与高增速，来自 cards_breakout）」。如果某个 Trendshift 高排名项目缺少完整 repo 分析卡，也要写成“需要继续验证”的候选，不得省略。
 22. 不要输出 Unicode 方框表、ASCII 表或 monospace box table。需要表格时必须使用标准 Markdown pipe table：| 列1 | 列2 |。
 23. 这是对外可读报告，不要写内部字段名或内部工作流语言。禁止出现：pack、social_mentions、social_cross_signal、heat_score、potential_score、technical_depth_score、stars_delta_7d、人工复核、复核优先级、未明确判定、增量缺失、内部证据、evidence、final_reasoner。
 24. 内部字段要改成自然语言：social_mentions 为 0 写成“公开社交扩散证据暂不足”；license 为 NOASSERTION 写成“许可证信息还需要进一步确认”；短期增量缺失写成“公开短期增长数据不足”；open issues 写成“未关闭 issue”。
 25. 风险和不确定性可以写，但必须像外部研究报告：用“需要进一步确认”“公开资料暂不足”“还不能直接下采用结论”，不要写“人工复核”“内部 pack 显示”。
+26. 必须在「今日核心判断」后面新增一节「新晋爆发项目雷达」。这一节只能使用 `breakout_candidates_v2.items`，不要使用 `breakout_candidates_v2.excluded_known_projects`。如果候选为空，写“本期未发现足够新颖且可验证的新晋爆发项目”。
+27. 「新晋爆发项目雷达」要过滤人尽皆知或成熟生态项目，例如 k8s/Kubernetes、Llama、Hermes、React、Vue、TensorFlow、PyTorch、Transformers、LangChain、LlamaIndex，以及 5 万星以上成熟生态。不要把这些项目放进本节，即使它们热度高。
+28. 「新晋爆发项目雷达」每个项目写 80-140 个中文字，必须说明：为什么现在冒出来、不是成熟生态的原因、下一步验证动作。不要暴露 breakout_score_v2、score_factors 等字段名。
 
 报告结构：
 # AI Influence GitHub 开源趋势分析 — {pack.get("date")}
 ## 今日核心判断
-## 突然爆火 / 高热项目解析
-## 早期潜力项目雷达
+## 新晋爆发项目雷达
+## 盘踞榜首的热门项目
+## 异军突起的爆发星探
 ## 基础设施候选
 ## Hugging Face 论文热点侧信号
 ## 可能炒作 / 风险
@@ -11512,13 +12821,56 @@ def build_github_trend_prompt(pack: dict[str, Any], model_name: str) -> str:
 数据来源说明只写公开口径：
 - 数据来源：Tech Hotspot Radar GitHub 项目卡片与 Hugging Face 论文热榜侧信号
 - 外部交叉信号：Trendshift GitHub 趋势榜 daily/weekly/monthly 与 topic 页面排名
-- 项目样本：{len(pack.get("cards") or [])} 个重点项目
+- 项目样本：共 {len(pack.get("cards_traditional") or []) + len(pack.get("cards_breakout") or [])} 个重点项目，来自老本传统池与动量新星池
+- 新晋爆发雷达：来自 breakout_candidates_v2，已过滤成熟生态和人尽皆知项目
 - 观察池规模：{pack.get("repo_count")} 个项目
 - 说明：本文基于公开仓库元数据、release、stars、forks、未关闭 issue、短期增长线索和论文热榜侧信号形成判断
 
 pack:
 {json.dumps(pack, ensure_ascii=False)}
 """
+
+
+def render_github_breakout_v2_markdown(pack: dict[str, Any]) -> str:
+    breakout = pack.get("breakout_candidates_v2") if isinstance(pack.get("breakout_candidates_v2"), dict) else {}
+    items = breakout.get("items") if isinstance(breakout.get("items"), list) else []
+    lines = ["## 新晋爆发项目雷达", ""]
+    lines.append("这一节只看短期动量和可验证新鲜度，已排除 k8s、Llama、Hermes 等成熟或人尽皆知生态项目。")
+    lines.append("")
+    if not items:
+        lines.append("本期未发现足够新颖且可验证的新晋爆发项目；高热度项目更多属于成熟生态延续，暂不放入新晋雷达。")
+        return "\n".join(lines).strip()
+    for idx, item in enumerate(items[:6], 1):
+        repo = str(item.get("repo") or "N/A")
+        url = str(item.get("html_url") or f"https://github.com/{repo}")
+        description = str(item.get("description") or "").strip()[:180] or "公开仓库说明暂不足"
+        language = str(item.get("language") or "N/A")
+        stars = int(item.get("stars") or 0)
+        trendshift = ""
+        if item.get("trendshift_period") and item.get("trendshift_rank"):
+            trendshift = f"；外部趋势榜 {item.get('trendshift_period')} 第 {int(item.get('trendshift_rank') or 0)} 位"
+        verify_next = "、".join(str(x) for x in (item.get("what_to_verify_next") or [])[:2]) or "继续验证 README、release 和社区活跃度"
+        lines.append(
+            f"{idx}. [{repo}]({url})：{description}。当前信号来自短期外部趋势和增长动量，"
+            f"项目体量约 {stars} stars，语言为 {language}{trendshift}。它还不属于成熟大生态，"
+            f"因此更适合作为早期爆发候选观察；下一步需要{verify_next}。"
+        )
+    return "\n".join(lines).strip()
+
+
+def ensure_github_breakout_v2_section(markdown: str, pack: dict[str, Any]) -> str:
+    text = str(markdown or "").strip()
+    if re.search(r"(?m)^##\s+新晋爆发项目雷达\s*$", text):
+        return text
+    section = render_github_breakout_v2_markdown(pack)
+    match = re.search(r"(?m)^##\s+今日核心判断\s*$", text)
+    if not match:
+        return f"{section}\n\n{text}".strip()
+    next_heading = re.search(r"(?m)^##\s+", text[match.end():])
+    if not next_heading:
+        return f"{text}\n\n{section}".strip()
+    insert_at = match.end() + next_heading.start()
+    return f"{text[:insert_at].rstrip()}\n\n{section}\n\n{text[insert_at:].lstrip()}".strip()
 
 
 def normalize_github_trend_markdown(markdown: str) -> str:
@@ -11683,7 +13035,8 @@ def record_github_trend_model_ledger(
     success: bool = True,
     error_message: str = "",
 ) -> None:
-    evidence_count = sum(len(card.get("evidence_ids") or []) for card in (pack.get("cards") or []))
+    all_cards = (pack.get("cards_traditional") or []) + (pack.get("cards_breakout") or [])
+    evidence_count = sum(len(card.get("evidence_ids") or []) for card in all_cards)
     record_model_ledgers(
         conn,
         target_id=f"__github_trend_report__:{date_str}",
@@ -11700,7 +13053,9 @@ def record_github_trend_model_ledger(
 
 def render_github_trend_report_html(date_str: str, pack: dict[str, Any], result: dict[str, Any], top_tiers: str) -> str:
     """Render the GitHub trend report as a publication-grade HTML artifact."""
-    cards = pack.get("cards") or []
+    cards = (pack.get("cards_traditional") or []) + (pack.get("cards_breakout") or [])
+    breakout_v2 = pack.get("breakout_candidates_v2") if isinstance(pack.get("breakout_candidates_v2"), dict) else {}
+    breakout_v2_count = len(breakout_v2.get("items") or []) if isinstance(breakout_v2.get("items"), list) else 0
     trendshift_count = sum(
         1 for card in cards
         if ((card.get("scores") or {}).get("trendshift_best_rank") is not None)
@@ -11813,7 +13168,7 @@ def render_github_trend_report_html(date_str: str, pack: dict[str, Any], result:
         <div class="metric"><b>{html_escape(len(cards))}</b><span>重点项目样本</span></div>
         <div class="metric"><b>{html_escape(pack.get("repo_count"))}</b><span>GitHub 观察池</span></div>
         <div class="metric"><b>{html_escape(trendshift_count)}</b><span>含 Trendshift 信号</span></div>
-        <div class="metric"><b>{html_escape(top_tiers)}</b><span>Tier mix · {html_escape(model)}</span></div>
+        <div class="metric"><b>{html_escape(breakout_v2_count)}</b><span>新晋爆发雷达 · {html_escape(model)}</span></div>
       </div>
     </section>
     <section class="article">
@@ -11834,6 +13189,11 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
     cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     model = str(requested_model or os.environ.get("TECH_HOTSPOT_GITHUB_REPORT_MODEL") or cfg.get("model") or "chatgpt-5.5")
     prompt = build_github_trend_prompt(pack, model)
+    max_prompt_chars = int(
+        os.environ.get("GITHUB_TREND_REPORT_MAX_PROMPT_CHARS")
+        or cfg.get("max_prompt_chars")
+        or 60000
+    )
     started = time.time()
     result = call_browser_agent_chatgpt_markdown(
         prompt,
@@ -11841,9 +13201,15 @@ def call_github_trend_report_chapter_writer(pack: dict[str, Any], config: dict[s
         purpose=f"github-trend-report-{pack.get('date') or iso_z().split('T', 1)[0]}",
         requested_model=model,
         operator_kind="chapter_writer",
+        profile_directory=os.environ.get("GITHUB_TREND_REPORT_PROFILE_DIRECTORY", "Default"),
+        target_account_email=os.environ.get("GITHUB_TREND_REPORT_ACCOUNT_EMAIL", "haogege1977@gmail.com"),
+        open_project_first=False,
+        require_project=False,
+        requested_max_prompt_chars=max_prompt_chars,
     )
     markdown = str(result.get("markdown") or "").strip()
     markdown = normalize_github_trend_markdown(markdown)
+    markdown = ensure_github_breakout_v2_section(markdown, pack)
     if len(markdown) < 1500:
         raise ValueError(f"ChatGPT Report Chapter Writer output too short: {len(markdown)} chars")
     return {
@@ -11869,13 +13235,13 @@ def cmd_github_trend_report(args: argparse.Namespace) -> int:
     conn.row_factory = sqlite3.Row
     date_str = getattr(args, "date", None) or iso_z().split("T", 1)[0]
     limit = int(getattr(args, "limit", 10) or 10)
-    raw_base = Path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     out_dir = raw_base / "github-trend-report" / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     run_id = begin_run(conn, "github", "github-trend-report")
     try:
         pack = build_github_trend_pack(conn, limit=limit, date_str=date_str)
-        if not pack.get("cards"):
+        if not pack.get("cards_traditional") and not pack.get("cards_breakout"):
             raise ValueError("no repo analysis cards available")
         result = call_github_trend_report_chapter_writer(pack, config, requested_model=getattr(args, "model", None))
         record_github_trend_model_ledger(conn, date_str=date_str, pack=pack, result=result, success=True)
@@ -11889,7 +13255,7 @@ def cmd_github_trend_report(args: argparse.Namespace) -> int:
         files["pack"].write_text(json.dumps(pack, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         files["report_json"].write_text(json.dumps({k: v for k, v in result.items() if k != "markdown"}, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         files["report_md"].write_text(result["markdown"].strip() + "\n", encoding="utf-8")
-        cards = pack.get("cards") or []
+        cards = (pack.get("cards_traditional") or []) + (pack.get("cards_breakout") or [])
         tier_counts: dict[str, int] = {}
         for card in cards:
             tier = str(card.get("tier") or "N/A")
@@ -11898,8 +13264,8 @@ def cmd_github_trend_report(args: argparse.Namespace) -> int:
         html = render_github_trend_report_html(date_str, pack, result, top_tiers)
         files["report_html"].write_text(html, encoding="utf-8")
         files["wiki_dispatch"].write_text(report_wiki_dispatch(str(out_dir), date_str), encoding="utf-8")
-        finish_run(conn, run_id, "ok", len(pack.get("cards") or []), len(pack.get("cards") or []), json.dumps({"model": result["model"], "out_dir": str(out_dir)}, ensure_ascii=False)[:900])
-        print(f"[github-trend-report] date={date_str} repos={len(pack.get('cards') or [])} model={result['model']} out={out_dir}")
+        finish_run(conn, run_id, "ok", len(pack.get("cards_traditional") or []) + len(pack.get("cards_breakout") or []), len(pack.get("cards_traditional") or []) + len(pack.get("cards_breakout") or []), json.dumps({"model": result["model"], "out_dir": str(out_dir)}, ensure_ascii=False)[:900])
+        print(f"[github-trend-report] date={date_str} repos={len(cards)} model={result['model']} out={out_dir}")
         for key in sorted(files):
             print(f"  {key}: {files[key]}")
         return 0
@@ -12568,7 +13934,7 @@ def sanitize_public_report_markdown(markdown: str) -> str:
 
 
 def latest_github_trend_markdown(date_str: str, output_base: str | None = None) -> str:
-    base = Path(output_base or "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar").expanduser()
+    base = _expand_runtime_path(output_base or "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
     candidates = [
         base / "github-trend-report" / date_str / "github-trend-report.md",
     ]
@@ -12596,7 +13962,7 @@ def render_latest_github_trend_html(date_str: str, output_base: str | None = Non
 
 
 def latest_social_trend_markdown(date_str: str, output_base: str | None = None) -> str:
-    base = Path(output_base or "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar").expanduser()
+    base = _expand_runtime_path(output_base or "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
     candidates = [base / "social-trend-report" / date_str / "social-trend-report.md"]
     root = base / "social-trend-report"
     if root.exists():
@@ -12629,7 +13995,7 @@ def report_top_events(conn: sqlite3.Connection, source: str, limit: int = 8) -> 
     ).fetchall()
 
 
-def github_project_cards(conn: sqlite3.Connection, limit: int = 10) -> list[dict[str, Any]]:
+def github_project_cards(conn: sqlite3.Connection, limit: int = 10, order_by: str = "heat") -> list[dict[str, Any]]:
     """Return ranked GitHub project intelligence cards for reports."""
     rows = conn.execute(
         """
@@ -12656,12 +14022,15 @@ def github_project_cards(conn: sqlite3.Connection, limit: int = 10) -> list[dict
           LIMIT 1
         )
         ORDER BY
-          CASE c.tier WHEN 'S' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,
-          CAST(json_extract(c.scores_json, '$.potential_score') AS REAL) DESC,
-          CAST(json_extract(c.scores_json, '$.heat_score') AS REAL) DESC,
-          c.repo_full_name ASC
+        {}
         LIMIT ?
-        """,
+        """.format(
+            "CAST(json_extract(c.scores_json, '$.momentum_score') AS REAL) DESC"
+            if order_by == "momentum" else
+            "CASE c.tier WHEN 'S' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,\n"
+            "CAST(json_extract(c.scores_json, '$.potential_score') AS REAL) DESC,\n"
+            "CAST(json_extract(c.scores_json, '$.heat_score') AS REAL) DESC"
+        ),
         (limit,),
     ).fetchall()
     cards: list[dict[str, Any]] = []
@@ -12744,7 +14113,7 @@ def render_github_project_cards_html(conn: sqlite3.Connection, limit: int = 12) 
 def youtube_semantic_brief(conn: sqlite3.Connection, video_id: str) -> dict[str, Any] | None:
     """Return the ThunderOMLX semantic brief for a YouTube video when available."""
     semantic_md_path = ""
-    semantic_root = Path("/Users/lisihao/Knowledge/_raw/tech-hotspot-radar/youtube-semantic")
+    semantic_root = Path("${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar/youtube-semantic")
     try:
         semantic_md_path = str(next(semantic_root.glob(f"*/{video_id}.semantic.md")))
     except StopIteration:
@@ -14086,7 +15455,8 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
                                                  model_name: str,
                                                  chapter_id: str,
                                                  min_chars: int = 120,
-                                                 max_attempts: int = 3) -> dict[str, Any]:
+                                                 max_attempts: int = 3,
+                                                 scratch_profile_id: str | None = None) -> dict[str, Any]:
     """Run ChatGPT Report Chapter Writer with a bounded repair loop.
 
     The old flow failed the whole report when one chapter came back as a short
@@ -14114,6 +15484,7 @@ def call_ai_influence_chapter_writer_with_repair(chapter_prompt: str,
                 purpose=purpose if attempt == 1 else f"{purpose}-repair-{attempt}",
                 requested_model=model_name,
                 operator_kind="chapter_writer",
+                scratch_profile_id=scratch_profile_id,
             )
             markdown = str(result.get("markdown") or "").strip()
             if len(markdown) >= min_chars:
@@ -14246,13 +15617,107 @@ evidence_pack:
 
 
 def _browser_agent_request_dir(config: dict[str, Any], purpose: str) -> Path:
-    state_dir = Path((config.get("output") or {}).get(
+    state_dir = _expand_runtime_path((config.get("output") or {}).get(
         "state_dir", str(Path.home() / ".solar/harness/state/tech-hotspot-radar")
-    )).expanduser()
+    ))
     stamp = dt.datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out = state_dir / "browser-agent-requests" / f"{stamp}-{slugify(purpose)[:60]}"
     out.mkdir(parents=True, exist_ok=True)
     return out
+
+
+def _browser_agent_state_dir(config: dict[str, Any]) -> Path:
+    return _expand_runtime_path(
+        (config.get("output") or {}).get(
+            "state_dir",
+            str(Path.home() / ".solar/harness/state/tech-hotspot-radar"),
+        )
+    )
+
+
+def _browser_agent_scratch_session_path(config: dict[str, Any], scratch_profile_id: str) -> Path:
+    normalized = Path(str(scratch_profile_id).strip())
+    return _browser_agent_state_dir(config) / "browser-agent-scratch-pool" / normalized / "session.json"
+
+
+def _load_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_id: str) -> dict[str, Any]:
+    path = _browser_agent_scratch_session_path(config, scratch_profile_id)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_browser_agent_scratch_session(config: dict[str, Any], scratch_profile_id: str, payload: dict[str, Any]) -> None:
+    path = _browser_agent_scratch_session_path(config, scratch_profile_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _conversation_state_from_request_dir(request_dir: Path) -> dict[str, Any]:
+    candidates = [
+        request_dir / "page.json",
+        request_dir / "conversation.json",
+        request_dir / "submitted-run.json",
+        request_dir / "post-submit-state.json",
+    ]
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def _persist_browser_agent_scratch_session_from_request_dir(
+    config: dict[str, Any],
+    *,
+    scratch_profile_id: str | None,
+    purpose: str,
+    request_dir: Path,
+) -> bool:
+    if not scratch_profile_id:
+        return False
+    conversation_state = _conversation_state_from_request_dir(request_dir)
+    conversation_url = str(
+        conversation_state.get("url")
+        or conversation_state.get("conversation_url")
+        or ""
+    ).strip()
+    conversation_id = str(conversation_state.get("conversation_id") or "").strip()
+    has_conversation_path = "/c/" in conversation_url
+    if not conversation_url or (not conversation_id and not has_conversation_path):
+        return False
+    _write_browser_agent_scratch_session(
+        config,
+        scratch_profile_id,
+        {
+            "scratch_profile_id": scratch_profile_id,
+            "purpose": purpose,
+            "conversation_url": conversation_url,
+            "conversation_id": conversation_id,
+            "updated_at": iso_z(),
+            "request_dir": str(request_dir),
+        },
+    )
+    return True
+
+
+def ai_influence_scratch_profile_id(*, task_type: str, report_id: str | None = None, chapter_id: str | None = None) -> str:
+    clean_task = slugify(str(task_type or "").strip())[:40] or "default"
+    if clean_task == "chapter_writer":
+        clean_report = slugify(str(report_id or "").strip())[:80] or "shared"
+        clean_chapter = slugify(str(chapter_id or "").strip())[:80] or "shared"
+        return f"chatgpt/ai-influence-planned/chapter/{clean_report}/{clean_chapter}"
+    return f"chatgpt/ai-influence-planned/{clean_task}"
+
 
 
 def browser_agent_chatgpt_cmd(config: dict[str, Any]) -> list[str]:
@@ -14337,6 +15802,42 @@ def _env_override_bool(*names: str) -> bool | None:
     return None
 
 
+def _env_truthy(name: str) -> bool:
+    return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _browser_agent_queue_command_if_needed(cmd: list[str], *, req_dir: Path, purpose: str, env: dict[str, str]) -> list[str]:
+    """Route direct Browser Agent subprocess calls through the shared FIFO.
+
+    Script-level LaunchAgents already enter the FIFO before reaching this
+    process. Manual/Antigravity/Claude Code entrypoints may call this module
+    directly, so this guard prevents explicit wrapper commands from bypassing
+    the single browser-agent worker.
+    """
+    if _env_truthy("BROWSER_AGENT_QUEUE_BYPASS") or _env_truthy("BROWSER_AGENT_QUEUE_DISABLED"):
+        return cmd
+    queue_script = Path(env.get("BROWSER_AGENT_QUEUE_SCRIPT") or HARNESS_SCRIPT_DIR / "browser_agent_queue.py").expanduser()
+    if not queue_script.exists():
+        return cmd
+    env["BROWSER_AGENT_QUEUE_STDIN_FILE"] = str(req_dir / "queue-stdin.txt")
+    return [
+        sys.executable,
+        str(queue_script),
+        "enqueue",
+        "--name",
+        f"tech-hotspot-{slugify(purpose)[:80] or 'browser-agent'}",
+        "--cwd",
+        str(HARNESS_SCRIPT_DIR.parent),
+        "--wait",
+        "--timeout-seconds",
+        str(int(env.get("BROWSER_AGENT_QUEUE_WAIT_TIMEOUT_SECONDS") or 6 * 60 * 60)),
+        "--replay-logs",
+        "--quiet-result",
+        "--",
+        *cmd,
+    ]
+
+
 def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                                     purpose: str,
                                     expected: str = "markdown",
@@ -14353,14 +15854,15 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
                                     open_project_first: bool | None = None,
                                     require_project: bool | None = None,
                                     force_new_chat: bool | None = None,
-                                    require_isolated_conversation: bool | None = None) -> dict[str, Any]:
+                                    require_isolated_conversation: bool | None = None,
+                                    scratch_profile_id: str | None = None) -> dict[str, Any]:
     reasoner_cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     flow_cfg = ((config.get("youtube") or {}).get("ai_influence_report_flow") or {})
     writer_cfg = (flow_cfg.get("report_writer") or {})
     browser_agent_cfg = (flow_cfg.get("browser_agent") or {})
     model = str(requested_model or writer_cfg.get("model") or reasoner_cfg.get("model") or "chatgpt-5.5")
     reasoning_effort = str(requested_reasoning_effort or writer_cfg.get("reasoning_effort") or reasoner_cfg.get("reasoning_effort") or "high")
-    timeout = int(requested_timeout_seconds or writer_cfg.get("timeout_seconds") or reasoner_cfg.get("timeout_seconds") or 1800)
+    timeout = int(requested_timeout_seconds or writer_cfg.get("timeout_seconds") or reasoner_cfg.get("timeout_seconds") or 10800)
     max_chars = int(requested_max_prompt_chars or writer_cfg.get("max_prompt_chars") or reasoner_cfg.get("max_prompt_chars") or 180000)
     if len(prompt) > max_chars:
         prompt = prompt[:max_chars] + "\n\n[TRUNCATED: prompt exceeded configured max_prompt_chars]\n"
@@ -14395,8 +15897,23 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         "BROWSER_AGENT_REQUEST_DIR": str(req_dir),
         "BROWSER_AGENT_PURPOSE": purpose,
         "BROWSER_AGENT_CHATGPT_MODEL_MODE": "thinking",
-        "BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE": "true",
+        "BROWSER_AGENT_CHATGPT_REQUIRE_UI_MODE": "false",
     })
+    min_answer_chars_raw = (
+        writer_cfg.get("min_answer_chars")
+        or writer_cfg.get("min_output_chars")
+        or reasoner_cfg.get("min_answer_chars")
+        or reasoner_cfg.get("min_output_chars")
+    )
+    if min_answer_chars_raw is None and purpose.startswith("github-trend-report"):
+        min_answer_chars_raw = 1500
+    if min_answer_chars_raw is not None:
+        try:
+            min_answer_chars = max(0, int(min_answer_chars_raw))
+        except Exception:
+            min_answer_chars = 0
+        if min_answer_chars > 0:
+            env["BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS"] = str(min_answer_chars)
     if operator_kind:
         env["CHATGPT_REPORT_OPERATOR_KIND"] = operator_kind
     if target_url:
@@ -14500,22 +16017,54 @@ def call_browser_agent_chatgpt_text(prompt: str, config: dict[str, Any], *,
         writer_cfg.get("chatgpt_project")
         or reasoner_cfg.get("chatgpt_project")
         or (flow_cfg.get("browser_agent") or {}).get("chatgpt_project")
-        or "杂项"
+        or ""
     ).strip()
-    if project_name:
+    if purpose.startswith("github-trend-report") and (
+        bool(resolved_open_project_first) or bool(resolved_require_project)
+    ):
+        raise RuntimeError(
+            "github_trend_report_requires_no_project_mode:"
+            f"open_project_first={bool(resolved_open_project_first)}:"
+            f"require_project={bool(resolved_require_project)}"
+        )
+    if project_name and (bool(resolved_open_project_first) or bool(resolved_require_project)):
         env["BROWSER_AGENT_CHATGPT_PROJECT_NAME"] = project_name
+    if scratch_profile_id:
+        env["BROWSER_AGENT_PROFILE_ID"] = str(scratch_profile_id)
+        prior_session = _load_browser_agent_scratch_session(config, str(scratch_profile_id))
+        prior_url = str(prior_session.get("conversation_url") or "").strip()
+        if prior_url and "BROWSER_AGENT_CHATGPT_URL" not in env:
+            env["BROWSER_AGENT_CHATGPT_URL"] = prior_url
+    cmd = _browser_agent_queue_command_if_needed(cmd, req_dir=req_dir, purpose=purpose, env=env)
+    if env.get("BROWSER_AGENT_QUEUE_STDIN_FILE"):
+        Path(env["BROWSER_AGENT_QUEUE_STDIN_FILE"]).write_text(prompt, encoding="utf-8")
     started = time.time()
-    run = subprocess.run(
-        cmd,
-        input=prompt,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=timeout,
-        env=env,
-    )
+    try:
+        run = subprocess.run(
+            cmd,
+            input=prompt,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        _persist_browser_agent_scratch_session_from_request_dir(
+            config,
+            scratch_profile_id=scratch_profile_id,
+            purpose=purpose,
+            request_dir=req_dir,
+        )
+        raise
     output = _strip_browser_agent_noise(run.stdout or "")
     (req_dir / "stdout.txt").write_text(output + ("\n" if output else ""), encoding="utf-8")
+    _persist_browser_agent_scratch_session_from_request_dir(
+        config,
+        scratch_profile_id=scratch_profile_id,
+        purpose=purpose,
+        request_dir=req_dir,
+    )
     if run.returncode != 0:
         raise RuntimeError(f"browser_agent_chatgpt failed rc={run.returncode}: {output[-2000:]}")
     if len(output) < (500 if expected == "json" else 1000):
@@ -14564,6 +16113,9 @@ def call_browser_agent_notebooklm_json(request_payload: dict[str, Any], config: 
         "BROWSER_AGENT_REQUEST_DIR": str(req_dir),
         "BROWSER_AGENT_NOTEBOOKLM_TIMEOUT": str(timeout),
     })
+    cmd = _browser_agent_queue_command_if_needed(cmd, req_dir=req_dir, purpose=purpose, env=env)
+    if env.get("BROWSER_AGENT_QUEUE_STDIN_FILE"):
+        Path(env["BROWSER_AGENT_QUEUE_STDIN_FILE"]).write_text(json.dumps(request_payload, ensure_ascii=False), encoding="utf-8")
     run = subprocess.run(
         cmd,
         input=json.dumps(request_payload, ensure_ascii=False),
@@ -14601,7 +16153,8 @@ def extract_json_payload_lenient(text: str) -> dict[str, Any]:
 def call_browser_agent_chatgpt_markdown(prompt: str, config: dict[str, Any], *,
                                         purpose: str,
                                         requested_model: str | None = None,
-                                        operator_kind: str | None = None) -> dict[str, Any]:
+                                        operator_kind: str | None = None,
+                                        **kwargs) -> dict[str, Any]:
     result = call_browser_agent_chatgpt_text(
         prompt,
         config,
@@ -14609,6 +16162,7 @@ def call_browser_agent_chatgpt_markdown(prompt: str, config: dict[str, Any], *,
         expected="markdown",
         requested_model=requested_model,
         operator_kind=operator_kind,
+        **kwargs,
     )
     markdown = str(result.pop("text") or "").strip()
     result["markdown"] = markdown
@@ -14634,6 +16188,27 @@ def normalize_ai_influence_markdown_report(markdown: str, *, model_name: str, in
         "需要继续跟踪": "## Open Questions",
         "反向证据或不确定性": "## Open Questions",
         "Provenance": "## Provenance",
+    }
+    editorial_subheading_map = {
+        "核心判断": "#### 核心判断",
+        "为什么重要": "#### 为什么重要",
+        "不确定性与后续观察": "#### 不确定性与后续观察",
+        "后续观察": "#### 后续观察",
+        "demo 和生产证据之间的差距": "#### demo 和生产证据之间的差距",
+        "评测工具开始变成生产准入机制": "#### 评测工具开始变成生产准入机制",
+        "benchmark 的角色：从记录进展到定义进展": "#### benchmark 的角色：从记录进展到定义进展",
+        "meta-evaluation 的作用：评测 benchmark 本身是否合格": "#### meta-evaluation 的作用：评测 benchmark 本身是否合格",
+        "真实任务为什么重要：因为生产风险不是数字问题": "#### 真实任务为什么重要：因为生产风险不是数字问题",
+        "评测体系的工程结构": "#### 评测体系的工程结构",
+        "为什么证据边界重要": "#### 为什么证据边界重要",
+        "当前可以写成报告判断的部分": "#### 当前可以写成报告判断的部分",
+        "两条素材共同支撑的结论：当前不足": "#### 两条素材共同支撑的结论：当前不足",
+        "只能作为观察点的部分": "#### 只能作为观察点的部分",
+        "当前能写出的判断": "#### 当前能写出的判断",
+        "当前不能写出的内容": "#### 当前不能写出的内容",
+        "为什么仍然值得保留为观察点": "#### 为什么仍然值得保留为观察点",
+        "后续需要验证哪些材料": "#### 后续需要验证哪些材料",
+        "本章结论边界": "#### 本章结论边界",
     }
     lines = text.splitlines()
     normalized: list[str] = []
@@ -14661,13 +16236,24 @@ def normalize_ai_influence_markdown_report(markdown: str, *, model_name: str, in
         if replacement and not stripped.startswith("#"):
             normalized.append(replacement)
             continue
+        editorial_subheading = editorial_subheading_map.get(stripped)
+        if editorial_subheading and not stripped.startswith("#"):
+            normalized.append(editorial_subheading)
+            continue
         normalized.append(line)
     text = "\n".join(normalized).strip()
+    text = re.sub(r"(?is)```synthesis_manifest\s+.*?```", "", text)
     text = re.sub(r"(?im)^##\s*Executive Summary\s*\n(?:.*?\n)*?(?=^##\s+|\Z)", "", text)
     text = re.sub(r"(?im)^##\s*Provenance\s*\n(?:.*?\n)*?(?=^##\s+|\Z)", "", text)
     text = re.sub(r"(?im)^[-*]\s*(final_reasoner|local_preprocess|input_videos|backend|model)\s*:.*$", "", text)
     if "## 一页结论" not in text and "## 摘要" not in text:
         text = re.sub(r"(?m)^(# .+?)\n+", r"\1\n\n## 摘要\n\n", text, count=1)
+    text = re.sub(
+        r"(?ms)^##\s*摘要\s*\n\s*(?=##\s+)",
+        "## 摘要\n\n本报告基于本期公开视频材料整理判断，先给出关键视频证据，再按章节展开分析、证据边界与后续观察。\n\n",
+        text,
+        count=1,
+    )
     text = re.sub(
         r"(?m)^本报告按\s*\d+\s*个章节逐章生成并合成。每章只使用对应证据包，证据不足的部分保留为观察项。\s*$",
         "",
@@ -14684,18 +16270,32 @@ def normalize_ai_influence_markdown_report(markdown: str, *, model_name: str, in
     ]
     if not any(marker in text for marker in analysis_markers):
         protected = "一页结论|摘要|关键视频证据|素材地图|访谈原意摘要与观点归纳|观点原意摘要与观点归纳|Open Questions"
-        text = re.sub(
-            rf"(?m)^##\s+(?!{protected}\s*$)(.+?)\s*$",
-            r"## 趋势分析：\1",
-            text,
-            count=1,
-        )
+        first_h2 = re.search(rf"(?m)^##\s+(?!{protected}\s*$)(.+?)\s*$", text)
+        if first_h2:
+            first_heading = str(first_h2.group(1) or "").strip()
+            if not re.match(r"^第[0-9一二三四五六七八九十]+章[：:].*$", first_heading):
+                text = re.sub(
+                    rf"(?m)^##\s+(?!{protected}\s*$)(.+?)\s*$",
+                    r"## 趋势分析：\1",
+                    text,
+                    count=1,
+                )
     return text.strip()
 
 
 def sanitize_ai_influence_raw_video_ids(markdown: str, evidence_pack: dict[str, Any]) -> str:
     """Replace raw/internal video identifiers with reader-facing channel/title links."""
     text = str(markdown or "")
+    if not text:
+        return text
+
+    protected_links: list[str] = []
+
+    def _protect_link(match: re.Match[str]) -> str:
+        protected_links.append(match.group(0))
+        return f"__AI_LINK_{len(protected_links) - 1}__"
+
+    text = re.sub(r"\[[^\]]+\]\([^)]+\)", _protect_link, text)
     videos = [v for v in (evidence_pack or {}).get("videos") or [] if isinstance(v, dict)]
     for video in videos:
         channel = str(video.get("channel") or "YouTube").strip() or "YouTube"
@@ -14721,8 +16321,300 @@ def sanitize_ai_influence_raw_video_ids(markdown: str, evidence_pack: dict[str, 
         raw_video_id = str(video.get("video_id") or "").strip()
         if not raw_video_id:
             continue
-        text = text.replace(raw_video_id, public_link)
+        text = re.sub(rf"\b{re.escape(raw_video_id)}\b", public_link, text)
+
+    for idx, link in enumerate(protected_links):
+        text = text.replace(f"__AI_LINK_{idx}__", link)
+
+    return _collapse_nested_ai_influence_youtube_links(text)
+
+
+def _collapse_nested_ai_influence_youtube_links(text: str) -> str:
+    cleaned = str(text or "")
+    if not cleaned:
+        return cleaned
+
+    html_pattern = re.compile(
+        r"\[([^\]]+)\]\(https://www\.youtube\.com/watch\?v=<a [^>]*href=\"(https://www\.youtube\.com/watch\?v=[^\"]+)\"[^>]*>.*?</a>\)",
+        re.S,
+    )
+    cleaned = html_pattern.sub(lambda m: f"[{m.group(1)}]({html.unescape(m.group(2))})", cleaned)
+
+    prefix = "](https://www.youtube.com/watch?v=["
+    for _ in range(8):
+        idx = cleaned.find(prefix)
+        if idx < 0:
+            break
+        outer_start = cleaned.rfind("[", 0, idx)
+        if outer_start < 0:
+            break
+        outer_label = cleaned[outer_start + 1:idx]
+        inner_start = idx + len(prefix) - 1
+        inner_close = cleaned.find("](", inner_start + 1)
+        if inner_close < 0:
+            break
+        url_end = cleaned.find(")", inner_close + 2)
+        if url_end < 0 or url_end + 1 >= len(cleaned) or cleaned[url_end + 1] != ")":
+            break
+        inner_url = cleaned[inner_close + 2:url_end]
+        replacement = f"[{outer_label}]({html.unescape(inner_url)})"
+        cleaned = cleaned[:outer_start] + replacement + cleaned[url_end + 2:]
+    return cleaned
+
+
+def _collapse_nested_ai_influence_youtube_links(text: str) -> str:
+    cleaned = str(text or "")
+    if not cleaned:
+        return cleaned
+
+    html_pattern = re.compile(
+        r"\[([^\]]+)\]\(https://www\.youtube\.com/watch\?v=<a [^>]*href=\"(https://www\.youtube\.com/watch\?v=[^\"]+)\"[^>]*>.*?</a>\)",
+        re.S,
+    )
+    cleaned = html_pattern.sub(lambda m: f"[{m.group(1)}]({html.unescape(m.group(2))})", cleaned)
+
+    prefix = "](https://www.youtube.com/watch?v=["
+    for _ in range(8):
+        idx = cleaned.find(prefix)
+        if idx < 0:
+            break
+        outer_start = cleaned.rfind("[", 0, idx)
+        if outer_start < 0:
+            break
+        outer_label = cleaned[outer_start + 1:idx]
+        inner_start = idx + len(prefix) - 1
+        inner_close = cleaned.find("](", inner_start + 1)
+        if inner_close < 0:
+            break
+        url_end = cleaned.find(")", inner_close + 2)
+        if url_end < 0 or url_end + 1 >= len(cleaned) or cleaned[url_end + 1] != ")":
+            break
+        inner_url = cleaned[inner_close + 2:url_end]
+        replacement = f"[{outer_label}]({html.unescape(inner_url)})"
+        cleaned = cleaned[:outer_start] + replacement + cleaned[url_end + 2:]
+    return cleaned
+
+
+def _section_material_refs_for_title(evidence_pack: dict[str, Any], section_title: str) -> list[str]:
+    report_spec = (evidence_pack or {}).get("report_spec") or {}
+    title_key = re.sub(r"\s+", " ", str(section_title or "").strip())
+    for idx, chapter in enumerate(_iter_report_plan_chapters(report_spec), start=1):
+        if not isinstance(chapter, dict):
+            continue
+        chapter_title = _reader_facing_chapter_title(chapter.get("title"), fallback=f"章节 {idx}")
+        if re.sub(r"\s+", " ", chapter_title.strip()) == title_key:
+            return [str(ref).strip() for ref in _plan_material_refs(chapter) if str(ref).strip()]
+    return []
+
+
+def _reader_facing_video_link_markdown(video: dict[str, Any]) -> str:
+    channel = str(video.get("channel") or "YouTube").strip() or "YouTube"
+    title = _compact_text(str(video.get("title") or "公开视频").strip() or "公开视频", max_len=50)
+    label = f"{channel} / {title}"
+    video_url = str(video.get("url") or video.get("video_url") or "").strip()
+    return f"[{label}]({video_url})" if video_url else label
+
+
+def _shorten_ai_influence_material_intro(line: str) -> str:
+    text = _collapse_nested_ai_influence_youtube_links(str(line or "").strip())
+    if not text.startswith("本节素材："):
+        return text
+    links = re.findall(r"\[[^\]]+\]\([^)]+\)", text)
+    if links:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in links:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return "本节素材：" + "；".join(deduped[:4]) + "。"
+    text = re.sub(r"本节素材：\s*", "本节素材：", text)
+    text = re.sub(r"AI Engineer《[^》]+》", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    text = re.sub(r"[；,，]\s*[。]?$", "。", text)
     return text
+
+
+def _compress_ai_influence_section_body(title: str, body: str, evidence_pack: dict[str, Any]) -> str:
+    raw_lines = _collapse_nested_ai_influence_youtube_links(str(body or "")).splitlines()
+    lines: list[str] = []
+    skip_heading: str | None = None
+    skip_headings = {
+        "#### 当前不能写出的内容",
+        "#### 后续需要验证哪些材料",
+        "#### 本章结论边界",
+    }
+    for raw in raw_lines:
+        line = raw.rstrip()
+        stripped = line.strip()
+        if skip_heading:
+            if stripped.startswith("#### "):
+                skip_heading = None
+            elif not stripped:
+                continue
+            else:
+                continue
+        if stripped in skip_headings:
+            skip_heading = stripped
+            continue
+        if stripped.startswith("本节素材："):
+            lines.append(_shorten_ai_influence_material_intro(stripped))
+            continue
+        lines.append(line)
+    body_text = "\n".join(lines).strip()
+
+    refs = _section_material_refs_for_title(evidence_pack, title)
+    videos = [v for v in (evidence_pack.get("videos") or []) if isinstance(v, dict)]
+    if len(refs) == 1:
+        video = next((v for v in videos if str(v.get("video_ref") or "").strip() == refs[0]), None)
+        if isinstance(video, dict):
+            link_md = _reader_facing_video_link_markdown(video)
+            occurrences = list(re.finditer(re.escape(link_md), body_text))
+            if len(occurrences) > 2:
+                rebuilt: list[str] = []
+                last = 0
+                for idx, match in enumerate(occurrences):
+                    rebuilt.append(body_text[last:match.start()])
+                    rebuilt.append(link_md if idx < 2 else "该视频")
+                    last = match.end()
+                rebuilt.append(body_text[last:])
+                body_text = "".join(rebuilt)
+                body_text = re.sub(r"该视频\s+([^\s])", r"该视频\1", body_text)
+
+    ref_link_markdown: dict[str, str] = {}
+    for ref in refs:
+        video = next((v for v in videos if str(v.get("video_ref") or "").strip() == ref), None)
+        if isinstance(video, dict):
+            ref_link_markdown[ref] = _reader_facing_video_link_markdown(video)
+    primary_link_md = ref_link_markdown.get(refs[0], "") if refs else ""
+    multi_material = len(refs) > 1
+    repeated_ref_label = "该补充视频" if multi_material else "该视频"
+    link_seen: dict[str, int] = {}
+
+    def _soften_repeated_link(match: re.Match[str]) -> str:
+        link = match.group(0)
+        link_seen[link] = link_seen.get(link, 0) + 1
+        return link if link_seen[link] <= 2 else repeated_ref_label
+
+    body_text = re.sub(r"\[[^\]]+\]\([^)]+\)", _soften_repeated_link, body_text)
+    body_text = re.sub(r"(?m)^关于\s+\[[^\]]+\]\([^)]+\)\s+与\s+(.+?)$", "#### 补充素材的证据限制", body_text)
+    body_text = re.sub(r"(?m)^关于\s+该(?:补充视频|素材)\s+与\s+(.+?)$", "#### 补充素材的证据限制", body_text)
+    if multi_material:
+        if primary_link_md:
+            primary_link_rewrites = {
+                f"{primary_link_md} 明确提出": "主素材明确提出",
+                f"{primary_link_md} 提到": "主素材提到",
+                f"{primary_link_md} 把": "主素材把",
+                f"{primary_link_md} 的观点": "主素材的观点",
+                f"{primary_link_md} 中，": "主素材中，",
+                f"{primary_link_md} 支撑报告主线": "主素材支撑报告主线",
+                f"本章证据主要来自 {primary_link_md}，{repeated_ref_label} 支撑后续观察。": "本章证据主要来自主素材，补充素材支撑后续观察。",
+            }
+            for source, target in primary_link_rewrites.items():
+                body_text = body_text.replace(source, target)
+        targeted_multi_rewrites = {
+            "当前可用材料中，该素材没有提供": "当前可用材料中，该补充视频没有提供",
+            "该素材可以作为本章问题范围内的相关材料": "该补充视频可以作为本章问题范围内的相关材料",
+            "该素材暂时只能作为": "该补充视频暂时只能作为",
+            "该素材当前缺少": "该补充视频当前缺少",
+            "补齐该素材的内容": "补齐该补充视频的内容",
+            "补齐该素材的可引用内容": "补齐该补充视频的可引用内容",
+            "该素材对 SWE-rebench": "该补充视频对 SWE-rebench",
+            "该素材后半段": "主素材后半段",
+            "该素材AI Engineer": "该补充视频 AI Engineer",
+            "把该素材的材料和该素材的选题放在一起": "把主素材的论证与补充素材的选题放在一起",
+            "该素材和该素材共同证明": "主素材与补充素材共同证明",
+            "由该素材和该素材两条素材共同证明": "由主素材与补充素材两条材料共同证明",
+            "该素材支撑报告主线，该素材支撑后续观察": "主素材支撑报告主线，补充素材支撑后续观察",
+            "本章证据主要来自该补充视频，该补充视频支撑后续观察。": "本章证据主要来自主素材，补充素材支撑后续观察。",
+            "不能展开说明该补充视频具体如何批评 vibe check": "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "本章不能展开说明该补充视频具体如何批评 vibe check": "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "不能用主素材的标题去补写 SWE-rebench 的方法和结论": "不能用该补充视频的标题去补写 SWE-rebench 的方法和结论",
+        }
+        for source, target in targeted_multi_rewrites.items():
+            body_text = body_text.replace(source, target)
+        body_text = re.sub(
+            r"\[[^\]]+\]\([^)]+\)\s+可以作为本章问题范围内的相关材料",
+            "该补充视频可以作为本章问题范围内的相关材料",
+            body_text,
+        )
+        body_text = re.sub(
+            r"不能展开说明\s+\[[^\]]+\]\([^)]+\)\s+具体如何批评 vibe check",
+            "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(
+            r"本章不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(
+            r"因此本章不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(r"(?m)^该素材，", "主素材当前", body_text)
+        generic_material_label = "主素材"
+    else:
+        body_text = re.sub(r"(?m)^该素材，", "该视频当前", body_text)
+        generic_material_label = "该视频"
+    spacing_fixes = {
+        "根据 该素材": f"根据{generic_material_label}",
+        "由 该素材": f"由{generic_material_label}",
+        "把 该素材": f"把{generic_material_label}",
+        "来自 该素材": f"来自{generic_material_label}",
+        "依据 该素材": f"依据{generic_material_label}",
+        "关于 该素材": f"关于{generic_material_label}",
+        "当前可用材料中， 该素材": f"当前可用材料中，{generic_material_label}",
+        "本章证据主要来自 该素材": f"本章证据主要来自{generic_material_label}",
+        "该素材 中": f"{generic_material_label}中",
+        "该素材 的": f"{generic_material_label}的",
+        "该素材 与": f"{generic_material_label}与",
+    }
+    for source, target in spacing_fixes.items():
+        body_text = body_text.replace(source, target)
+    body_text = re.sub(r"该素材", generic_material_label, body_text)
+    body_text = re.sub(rf"{re.escape(generic_material_label)}[ \t]+([A-Za-z\u4e00-\u9fff])", rf"{generic_material_label}\1", body_text)
+    body_text = re.sub(rf"([A-Za-z\u4e00-\u9fff])[ \t]+{re.escape(generic_material_label)}", rf"\1{generic_material_label}", body_text)
+    body_text = re.sub(rf"{re.escape(repeated_ref_label)}[ \t]+([A-Za-z\u4e00-\u9fff])", rf"{repeated_ref_label}\1", body_text)
+    body_text = re.sub(rf"([A-Za-z\u4e00-\u9fff])[ \t]+{re.escape(repeated_ref_label)}", rf"\1{repeated_ref_label}", body_text)
+    body_text = body_text.replace("正文转写", "正文内容")
+    body_text = body_text.replace("可引用的正文内容，因此本章不能展开说明该补充视频具体如何批评 vibe check。", "可引用的正文内容，本章当前还不能判断该补充视频是否批评 vibe check、如何批评。")
+    body_text = re.sub(
+        rf"(?m)^(#### [^\n]{{2,80}}?)({re.escape(generic_material_label)}(?:中|把|提到|明确|当前|暂时|可以|AI Engineer))",
+        r"\1\n\2",
+        body_text,
+    )
+    if multi_material:
+        body_text = body_text.replace("主素材和主素材", "主素材与补充素材")
+        body_text = body_text.replace("本章证据主要来自该补充视频，该补充视频支撑后续观察。", "本章证据主要来自主素材，补充素材支撑后续观察。")
+    return re.sub(r"\n{3,}", "\n\n", body_text).strip()
+
+
+def refine_ai_influence_public_report(markdown: str, evidence_pack: dict[str, Any]) -> str:
+    text = str(markdown or "").strip()
+    if not text:
+        return text
+    text = re.sub(
+        r"(?ms)^##\s*摘要\s*$\n(?:\s*\n)*(?=^##\s+)",
+        "## 摘要\n\n本报告基于本期公开视频材料整理判断，先还原关键素材原意，再按章节展开分析、证据边界与后续观察。\n\n",
+        text,
+        count=1,
+    )
+    sections = _split_ai_influence_sections(text)
+    if not sections:
+        return text
+    rebuilt: list[str] = []
+    for title, body in sections:
+        compact_body = _compress_ai_influence_section_body(title, body, evidence_pack)
+        if title == "摘要" and not compact_body.strip():
+            compact_body = "本报告基于本期公开视频材料整理判断，先还原关键素材原意，再按章节展开分析、证据边界与后续观察。"
+        compact_body = _collapse_nested_ai_influence_youtube_links(compact_body)
+        rebuilt.append(f"## {title}\n\n{compact_body}".strip())
+    heading = text.splitlines()[0].strip() if text.startswith("# ") else ""
+    prefix = heading + "\n\n" if heading else ""
+    return _collapse_nested_ai_influence_youtube_links((prefix + "\n\n".join(rebuilt).strip()).strip())
 
 
 def ensure_ai_influence_public_evidence_section(markdown: str, evidence_pack: dict[str, Any]) -> str:
@@ -14733,8 +16625,6 @@ def ensure_ai_influence_public_evidence_section(markdown: str, evidence_pack: di
     evidence_markers = [
         "## 关键视频证据",
         "## 素材地图",
-        "## 观点原意摘要与观点归纳",
-        "## 访谈原意摘要与观点归纳",
         "## TAP 工作流",
         "## Sustainability 工作流",
     ]
@@ -14771,6 +16661,320 @@ def ensure_ai_influence_public_evidence_section(markdown: str, evidence_pack: di
     return text + "\n\n" + section
 
 
+def ensure_ai_influence_contract_sections(markdown: str, evidence_pack: dict[str, Any]) -> str:
+    """Add missing reader-facing contract sections without inventing new facts."""
+    text = str(markdown or "").strip()
+    if not text:
+        return text
+
+    videos = [v for v in (evidence_pack or {}).get("videos") or [] if isinstance(v, dict)]
+    usable_count = 0
+    weak_count = 0
+    for video in videos:
+        quality = video.get("transcript_quality") if isinstance(video.get("transcript_quality"), dict) else {}
+        tier = str(video.get("transcript_quality_tier") or quality.get("tier") or "").strip()
+        if tier in {"T0", "T1", "T2"}:
+            usable_count += 1
+        else:
+            weak_count += 1
+
+    if "## 核心趋势" not in text and "## 趋势分析" not in text:
+        chapter_titles: list[str] = []
+        for match in re.finditer(r"(?m)^##\s+(.+?)\s*$", text):
+            title = match.group(1).strip()
+            if title in {"摘要", "关键视频证据", "本期素材", "影响与落点", "Open Questions"}:
+                continue
+            if title.startswith("附录") or title.startswith("Execution"):
+                continue
+            chapter_titles.append(title)
+        if not chapter_titles:
+            chapter_titles = ["本期材料呈现的主要趋势与判断边界"]
+        lines = ["## 核心趋势", ""]
+        for title in chapter_titles[:6]:
+            lines.append(f"- {title}")
+        if len(chapter_titles) > 6:
+            lines.append(f"- 其余 {len(chapter_titles) - 6} 个章节作为补充观察。")
+        section = "\n".join(lines)
+        summary_match = re.search(r"(?m)^##\s+摘要\s*$", text)
+        if summary_match:
+            next_heading = re.search(r"(?m)^##\s+", text[summary_match.end():])
+            if next_heading:
+                insert_at = summary_match.end() + next_heading.start()
+                text = text[:insert_at].rstrip() + "\n\n" + section + "\n\n" + text[insert_at:].lstrip()
+            else:
+                text = text.rstrip() + "\n\n" + section
+        else:
+            first_h2 = re.search(r"(?m)^##\s+", text)
+            if first_h2:
+                text = text[:first_h2.start()].rstrip() + "\n\n" + section + "\n\n" + text[first_h2.start():].lstrip()
+            else:
+                text = text.rstrip() + "\n\n" + section
+
+    append_sections: list[str] = []
+    if "## 产品 / 研究 / 工程启示" not in text and "## 影响与落点" not in text:
+        append_sections.append(
+            "\n".join([
+                "## 影响与落点",
+                "",
+                "本期材料的直接价值在于把可验证的公开视频内容转化为后续观察方向。"
+                "对产品和工程团队来说，优先关注已经有可用转写支撑的具体问题，"
+                "不要把只有标题或元数据支撑的材料拔高为确定结论。",
+                "",
+                "更稳妥的使用方式是：把报告中的判断拆成后续跟踪项，继续观察同一频道、"
+                "同一议题和相关项目是否出现连续材料。如果后续材料补齐，相关判断可以升级；"
+                "如果只停留在单次表达或弱材料层面，则应保留为观察项。",
+            ])
+        )
+
+    if "## Open Questions" not in text:
+        question_lines = [
+            "## Open Questions",
+            "",
+            "- 当前判断中哪些部分只由单个视频或单次表达支撑，需要等待后续材料复核？",
+            "- 哪些主题已经有较完整转写，哪些主题仍需要补充更清晰的原始材料？",
+            "- 后续一到两周是否出现来自同一频道、相关技术社区或产品团队的连续讨论？",
+        ]
+        if weak_count:
+            question_lines.append(
+                f"- 本期共有 {weak_count} 条材料只能作为弱观察依据，后续应优先补齐原始表达或降级为背景材料。"
+            )
+        if usable_count:
+            question_lines.append(
+                f"- 本期已有 {usable_count} 条材料可用于正文判断，后续应继续检查这些判断是否得到跨来源印证。"
+            )
+        append_sections.append("\n".join(question_lines))
+
+    if append_sections:
+        text = text.rstrip() + "\n\n" + "\n\n".join(append_sections).strip()
+    return text.strip()
+
+
+def _section_material_refs_for_title(evidence_pack: dict[str, Any], section_title: str) -> list[str]:
+    report_spec = (evidence_pack or {}).get("report_spec") or {}
+    title_key = re.sub(r"\s+", " ", str(section_title or "").strip())
+    for idx, chapter in enumerate(_iter_report_plan_chapters(report_spec), start=1):
+        if not isinstance(chapter, dict):
+            continue
+        chapter_title = _reader_facing_chapter_title(chapter.get("title"), fallback=f"章节 {idx}")
+        if re.sub(r"\s+", " ", chapter_title.strip()) == title_key:
+            return [str(ref).strip() for ref in _plan_material_refs(chapter) if str(ref).strip()]
+    return []
+
+
+def _reader_facing_video_link_markdown(video: dict[str, Any]) -> str:
+    channel = str(video.get("channel") or "YouTube").strip() or "YouTube"
+    title = _compact_text(str(video.get("title") or "公开视频").strip() or "公开视频", max_len=50)
+    label = f"{channel} / {title}"
+    video_url = str(video.get("url") or video.get("video_url") or "").strip()
+    return f"[{label}]({video_url})" if video_url else label
+
+
+def _shorten_ai_influence_material_intro(line: str) -> str:
+    text = _collapse_nested_ai_influence_youtube_links(str(line or "").strip())
+    if not text.startswith("本节素材："):
+        return text
+    links = re.findall(r"\[[^\]]+\]\([^)]+\)", text)
+    if links:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in links:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return "本节素材：" + "；".join(deduped[:4]) + "。"
+    text = re.sub(r"本节素材：\s*", "本节素材：", text)
+    text = re.sub(r"AI Engineer《[^》]+》", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    text = re.sub(r"[；,，]\s*[。]?$", "。", text)
+    return text
+
+
+def _compress_ai_influence_section_body(title: str, body: str, evidence_pack: dict[str, Any]) -> str:
+    raw_lines = _collapse_nested_ai_influence_youtube_links(str(body or "")).splitlines()
+    lines: list[str] = []
+    skip_heading: str | None = None
+    skip_headings = {
+        "#### 当前不能写出的内容",
+        "#### 后续需要验证哪些材料",
+        "#### 本章结论边界",
+    }
+    for raw in raw_lines:
+        line = raw.rstrip()
+        stripped = line.strip()
+        if skip_heading:
+            if stripped.startswith("#### "):
+                skip_heading = None
+            elif not stripped:
+                continue
+            else:
+                continue
+        if stripped in skip_headings:
+            skip_heading = stripped
+            continue
+        if stripped.startswith("本节素材："):
+            lines.append(_shorten_ai_influence_material_intro(stripped))
+            continue
+        lines.append(line)
+    body_text = "\n".join(lines).strip()
+
+    refs = _section_material_refs_for_title(evidence_pack, title)
+    if len(refs) == 1:
+        videos = [v for v in (evidence_pack.get("videos") or []) if isinstance(v, dict)]
+        video = next((v for v in videos if str(v.get("video_ref") or "").strip() == refs[0]), None)
+        if isinstance(video, dict):
+            link_md = _reader_facing_video_link_markdown(video)
+            occurrences = list(re.finditer(re.escape(link_md), body_text))
+            if len(occurrences) > 2:
+                rebuilt: list[str] = []
+                last = 0
+                for idx, match in enumerate(occurrences):
+                    rebuilt.append(body_text[last:match.start()])
+                    rebuilt.append(link_md if idx < 2 else "该视频")
+                    last = match.end()
+                rebuilt.append(body_text[last:])
+                body_text = "".join(rebuilt)
+                body_text = re.sub(r"该视频\s+([^\s])", r"该视频\1", body_text)
+
+    videos = [v for v in (evidence_pack.get("videos") or []) if isinstance(v, dict)]
+    ref_link_markdown: dict[str, str] = {}
+    for ref in refs:
+        video = next((v for v in videos if str(v.get("video_ref") or "").strip() == ref), None)
+        if isinstance(video, dict):
+            ref_link_markdown[ref] = _reader_facing_video_link_markdown(video)
+    primary_link_md = ref_link_markdown.get(refs[0], "") if refs else ""
+    multi_material = len(refs) > 1
+    repeated_ref_label = "该补充视频" if multi_material else "该视频"
+    link_seen: dict[str, int] = {}
+
+    def _soften_repeated_link(match: re.Match[str]) -> str:
+        link = match.group(0)
+        link_seen[link] = link_seen.get(link, 0) + 1
+        return link if link_seen[link] <= 2 else repeated_ref_label
+
+    body_text = re.sub(r"\[[^\]]+\]\([^)]+\)", _soften_repeated_link, body_text)
+    body_text = re.sub(r"(?m)^关于\s+\[[^\]]+\]\([^)]+\)\s+与\s+(.+?)$", "#### 补充素材的证据限制", body_text)
+    body_text = re.sub(r"(?m)^关于\s+该(?:补充视频|素材)\s+与\s+(.+?)$", r"#### 补充素材的证据限制", body_text)
+    if multi_material:
+        if primary_link_md:
+            primary_link_rewrites = {
+                f"{primary_link_md} 明确提出": "主素材明确提出",
+                f"{primary_link_md} 提到": "主素材提到",
+                f"{primary_link_md} 把": "主素材把",
+                f"{primary_link_md} 的观点": "主素材的观点",
+                f"{primary_link_md} 中，": "主素材中，",
+                f"{primary_link_md} 支撑报告主线": "主素材支撑报告主线",
+                f"本章证据主要来自 {primary_link_md}，{repeated_ref_label} 支撑后续观察。": "本章证据主要来自主素材，补充素材支撑后续观察。",
+            }
+            for source, target in primary_link_rewrites.items():
+                body_text = body_text.replace(source, target)
+        targeted_multi_rewrites = {
+            "当前可用材料中，该素材没有提供": "当前可用材料中，该补充视频没有提供",
+            "该素材可以作为本章问题范围内的相关材料": "该补充视频可以作为本章问题范围内的相关材料",
+            "该素材暂时只能作为": "该补充视频暂时只能作为",
+            "该素材当前缺少": "该补充视频当前缺少",
+            "补齐该素材的内容": "补齐该补充视频的内容",
+            "补齐该素材的可引用内容": "补齐该补充视频的可引用内容",
+            "该素材对 SWE-rebench": "该补充视频对 SWE-rebench",
+            "该素材后半段": "主素材后半段",
+            "该素材AI Engineer": "该补充视频 AI Engineer",
+            "把该素材的材料和该素材的选题放在一起": "把主素材的论证与补充素材的选题放在一起",
+            "该素材和该素材共同证明": "主素材与补充素材共同证明",
+            "由该素材和该素材两条素材共同证明": "由主素材与补充素材两条材料共同证明",
+            "该素材支撑报告主线，该素材支撑后续观察": "主素材支撑报告主线，补充素材支撑后续观察",
+            "本章证据主要来自该补充视频，该补充视频支撑后续观察。": "本章证据主要来自主素材，补充素材支撑后续观察。",
+            "主素材缺少可用正文材料": "该补充视频缺少可用正文材料",
+            "主素材当前缺少可用正文摘录": "该补充视频当前缺少可用正文摘录",
+            "主素材的标题显示它与 coding agent evaluation 和 SWE-rebench 有关": "该补充视频的标题显示它与 coding agent evaluation 和 SWE-rebench 有关",
+            "主素材的题名也指向 evaluating coding agents": "该补充视频的题名也指向 evaluating coding agents",
+            "来自主素材标题中的": "来自该补充视频标题中的",
+            "不能展开说明主素材具体如何批评 vibe check": "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "不能展开说明该补充视频具体如何批评 vibe check": "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "本章不能展开说明该补充视频具体如何批评 vibe check": "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            "不能用主素材的标题去补写 SWE-rebench 的方法和结论": "不能用该补充视频的标题去补写 SWE-rebench 的方法和结论",
+            "主素材可能补足 coding agent 真实任务评测这一分支": "补充素材可能补足 coding agent 真实任务评测这一分支",
+            "正文会议内容": "正文内容",
+        }
+        for source, target in targeted_multi_rewrites.items():
+            body_text = body_text.replace(source, target)
+        body_text = re.sub(
+            r"不能展开说明\s+\[[^\]]+\]\([^)]+\)\s+具体如何批评 vibe check",
+            "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(
+            r"本章不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(
+            r"不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = re.sub(r"(?m)^该素材，", "主素材当前", body_text)
+        generic_material_label = "主素材"
+    else:
+        body_text = re.sub(r"(?m)^该素材，", "该视频当前", body_text)
+        generic_material_label = "该视频"
+    spacing_fixes = {
+        "根据 该素材": f"根据{generic_material_label}",
+        "由 该素材": f"由{generic_material_label}",
+        "把 该素材": f"把{generic_material_label}",
+        "来自 该素材": f"来自{generic_material_label}",
+        "依据 该素材": f"依据{generic_material_label}",
+        "关于 该素材": f"关于{generic_material_label}",
+        "当前可用材料中， 该素材": f"当前可用材料中，{generic_material_label}",
+        "本章证据主要来自 该素材": f"本章证据主要来自{generic_material_label}",
+        "该素材 中": f"{generic_material_label}中",
+        "该素材 的": f"{generic_material_label}的",
+        "该素材 与": f"{generic_material_label}与",
+    }
+    for source, target in spacing_fixes.items():
+        body_text = body_text.replace(source, target)
+    body_text = re.sub(r"该素材", generic_material_label, body_text)
+    body_text = re.sub(rf"{re.escape(generic_material_label)}[ \t]+([A-Za-z\u4e00-\u9fff])", rf"{generic_material_label}\1", body_text)
+    body_text = re.sub(rf"([A-Za-z\u4e00-\u9fff])[ \t]+{re.escape(generic_material_label)}", rf"\1{generic_material_label}", body_text)
+    body_text = re.sub(rf"{re.escape(repeated_ref_label)}[ \t]+([A-Za-z\u4e00-\u9fff])", rf"{repeated_ref_label}\1", body_text)
+    body_text = re.sub(rf"([A-Za-z\u4e00-\u9fff])[ \t]+{re.escape(repeated_ref_label)}", rf"\1{repeated_ref_label}", body_text)
+    body_text = re.sub(
+        rf"(?m)^(#### [^\n]{{2,80}}?)({re.escape(generic_material_label)}(?:中|把|提到|明确|当前|暂时|可以|AI Engineer))",
+        r"\1\n\2",
+        body_text,
+    )
+    if multi_material:
+        body_text = body_text.replace("主素材和主素材", "主素材与补充素材")
+        body_text = body_text.replace("本章证据主要来自该补充视频，该补充视频支撑后续观察。", "本章证据主要来自主素材，补充素材支撑后续观察。")
+
+    body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+    return body_text
+
+
+def refine_ai_influence_public_report(markdown: str, evidence_pack: dict[str, Any]) -> str:
+    text = str(markdown or "").strip()
+    if not text:
+        return text
+    text = re.sub(
+        r"(?ms)^##\s*摘要\s*$\n(?:\s*\n)*(?=^##\s+)",
+        "## 摘要\n\n本报告基于本期公开视频材料整理判断，先还原关键素材原意，再按章节展开分析、证据边界与后续观察。\n\n",
+        text,
+        count=1,
+    )
+    sections = _split_ai_influence_sections(text)
+    if not sections:
+        return text
+    rebuilt: list[str] = []
+    for title, body in sections:
+        compact_body = _compress_ai_influence_section_body(title, body, evidence_pack)
+        if title == "摘要" and not compact_body.strip():
+            compact_body = "本报告基于本期公开视频材料整理判断，先还原关键素材原意，再按章节展开分析、证据边界与后续观察。"
+        compact_body = _collapse_nested_ai_influence_youtube_links(compact_body)
+        rebuilt.append(f"## {title}\n\n{compact_body}".strip())
+    heading = text.splitlines()[0].strip() if text.startswith("# ") else ""
+    prefix = heading + "\n\n" if heading else ""
+    return _collapse_nested_ai_influence_youtube_links((prefix + "\n\n".join(rebuilt).strip()).strip())
+
+
 def validate_ai_influence_markdown_report(markdown: str) -> None:
     """Fail closed when Browser Agent captures a partial ChatGPT response."""
     text = str(markdown or "").strip()
@@ -14805,7 +17009,7 @@ def ai_influence_chatgpt_project_name(config: dict[str, Any]) -> str:
         writer_cfg.get("chatgpt_project")
         or reasoner_cfg.get("chatgpt_project")
         or (flow_cfg.get("browser_agent") or {}).get("chatgpt_project")
-        or "杂项"
+        or ""
     ).strip()
 
 
@@ -14932,36 +17136,13 @@ def validate_ai_influence_planned_report_dir(
             if "│ 6. 企业治理层" in html_text or "┌────────────────" in html_text:
                 errors.append("ascii_architecture_diagram_leaked:agentic_developer_stack")
 
-    request_dir_value = str(result.get("request_dir") or result.get("_request_dir") or "").strip()
-    if request_dir_value:
-        project_result_path = Path(request_dir_value) / "project-archive-result.json"
-        if project_result_path.exists():
-            try:
-                project_result = json.loads(project_result_path.read_text(encoding="utf-8"))
-                actual_project = str(project_result.get("project_name") or project_result.get("project") or "").strip()
-                if expected_chatgpt_project and actual_project != expected_chatgpt_project:
-                    errors.append(
-                        "chatgpt_project_mismatch:"
-                        f"expected={expected_chatgpt_project}:actual={actual_project or 'N/A'}"
-                    )
-                if not (project_result.get("ok") is True or project_result.get("status") == "ok"):
-                    errors.append(f"chatgpt_project_archive_not_ok:{project_result.get('status') or project_result.get('ok')}")
-            except Exception as exc:
-                errors.append(f"chatgpt_project_archive_json:{type(exc).__name__}:{exc}")
-        elif require_project_archive:
-            errors.append(f"missing_chatgpt_project_archive:{project_result_path}")
-        else:
-            warnings.append(f"missing_chatgpt_project_archive:{project_result_path}")
-    elif require_project_archive:
-        errors.append("missing_browser_agent_request_dir")
-
     return {
         "report_dir": str(report_dir),
         "status": "ok" if not errors else "error",
         "errors": errors,
         "warnings": warnings,
         "video_count": len(videos),
-        "expected_chatgpt_project": expected_chatgpt_project or "N/A",
+        "chatgpt_project_archive_policy": "disabled",
     }
 
 
@@ -14980,7 +17161,8 @@ def call_browser_agent_chatgpt_json(prompt: str, config: dict[str, Any], *,
                                     open_project_first: bool | None = None,
                                     require_project: bool | None = None,
                                     force_new_chat: bool | None = None,
-                                    require_isolated_conversation: bool | None = None) -> dict[str, Any]:
+                                    require_isolated_conversation: bool | None = None,
+                                    scratch_profile_id: str | None = None) -> dict[str, Any]:
     result = call_browser_agent_chatgpt_text(
         prompt,
         config,
@@ -15000,6 +17182,7 @@ def call_browser_agent_chatgpt_json(prompt: str, config: dict[str, Any], *,
         require_project=require_project,
         force_new_chat=force_new_chat,
         require_isolated_conversation=require_isolated_conversation,
+        scratch_profile_id=scratch_profile_id,
     )
     payload = extract_json_payload_lenient(str(result.pop("text") or ""))
     payload["_backend"] = result["backend"]
@@ -15211,11 +17394,11 @@ def _render_ai_influence_sources_html(videos: list[dict[str, Any]]) -> str:
         duration = video.get("duration_min")
         duration_text = "N/A"
         try:
-            if duration is not None:
+            if duration is not None and float(duration) > 0:
                 duration_text = f"{float(duration):.1f} 分钟"
         except Exception:
             duration_text = str(duration)
-        summary = html.escape(_ai_influence_material_summary(video, max_len=180))
+        summary = html.escape(_ai_influence_material_summary(video, max_len=180).replace("\\n", " ").replace("\n", " ").strip())
         time_info = f"{published}<br><span class=\"ha-muted\">{html.escape(duration_text)}</span>"
         title_html = (
             f'<a href="{html.escape(video_url)}" target="_blank" rel="noreferrer noopener">{title}</a>'
@@ -15225,7 +17408,7 @@ def _render_ai_influence_sources_html(videos: list[dict[str, Any]]) -> str:
         rows.append(
             f"""
 <tr>
-  <td><span class="ai-material-ref" title="{video_ref}">{material_label}</span></td>
+  <td><span class="ai-material-ref" data-video-ref="{html.escape(video_ref)}">{material_label}</span></td>
   <td>{channel}</td>
   <td>{title_html}</td>
   <td>{time_info}</td>
@@ -15280,13 +17463,15 @@ def _render_ai_influence_material_map_html(evidence_pack: dict[str, Any]) -> str
         if isinstance(video, dict)
     }
     rows: list[str] = []
+    seen_titles: set[str] = set()
     for idx, chapter in enumerate(_iter_report_plan_chapters(report_spec), start=1):
         if not isinstance(chapter, dict):
             continue
-        trend_title = str(chapter.get("_trend_title") or "").strip()
         chapter_text = _reader_facing_chapter_title(chapter.get("title"), fallback=f"章节 {idx}")
-        if trend_title:
-            chapter_text = f"{_reader_facing_chapter_title(trend_title, fallback='趋势')} / {chapter_text}"
+        title_key = re.sub(r"\s+", " ", chapter_text).strip()
+        if not title_key or title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
         chapter_title = html.escape(chapter_text)
         refs = [str(ref) for ref in _plan_material_refs(chapter) if str(ref) in by_ref]
         if not refs:
@@ -15305,12 +17490,12 @@ def _render_ai_influence_material_map_html(evidence_pack: dict[str, Any]) -> str
                 else title
             )
             material_bits.append(
-                f'<div class="ai-material-chip"><span title="{html.escape(ref)}">{material_label}</span><b>{title_html}</b><em>{channel} / {published}</em></div>'
+                f'<div class="ai-material-chip"><span data-video-ref="{html.escape(ref)}">{material_label}</span><b>{title_html}</b><em>{channel} / {published}</em></div>'
             )
         rows.append(
             f"""
 <tr>
-  <td><strong>{idx}. {chapter_title}</strong></td>
+  <td><strong>{chapter_title}</strong></td>
   <td>{''.join(material_bits)}</td>
 </tr>
 """.strip()
@@ -15642,6 +17827,7 @@ def _render_ai_influence_sections_html(markdown: str, render_markdown_body: Any,
                     _render_notebooklm_figure_html(item) for item in figures
                 ) + "</div>\n"
         section_body = figure_html + (svg_html + "\n" if svg_html else "") + render_markdown_body(body_md)
+        section_body = _sanitize_ai_influence_section_body_html(section_body)
         blocks.append(
             f"""
 <section class="ai-report-section" id="{anchor}">
@@ -15653,6 +17839,44 @@ def _render_ai_influence_sections_html(markdown: str, render_markdown_body: Any,
 """.strip()
         )
     return "\n".join(blocks), toc_html
+
+
+def _sanitize_ai_influence_section_body_html(content: str) -> str:
+    text = str(content or "")
+    if not text:
+        return text
+    text = re.sub(
+        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+        lambda match: (
+            f'<a href="{html.escape(match.group(2))}" target="_blank" rel="noreferrer noopener">'
+            f"{html.escape(html.unescape(match.group(1)))}</a>"
+        ),
+        text,
+    )
+    text = re.sub(r"</ul>\s*<ul>", "", text)
+    text = re.sub(r"</ol>\s*<ol>", "", text)
+    label_pattern = (
+        "核心判断|为什么重要|不确定性与后续观察|后续观察|"
+        "demo 和生产证据之间的差距|评测工具开始变成生产准入机制|"
+        "benchmark 的角色：从记录进展到定义进展|"
+        "meta-evaluation 的作用：评测 benchmark 本身是否合格|"
+        "真实任务为什么重要：因为生产风险不是数字问题|评测体系的工程结构|"
+        "为什么证据边界重要|当前可以写成报告判断的部分|"
+        "两条素材共同支撑的结论：当前不足|只能作为观察点的部分|"
+        "当前能写出的判断|当前不能写出的内容|为什么仍然值得保留为观察点|"
+        "后续需要验证哪些材料|本章结论边界"
+    )
+    text = re.sub(
+        rf"<p>\s*({label_pattern})\s*</p>",
+        r'<h4 class="ai-report-argument-label">\1</h4>',
+        text,
+    )
+    text = re.sub(
+        r"<p>\s*(本节素材：.+?)\s*</p>",
+        r'<p class="ha-muted ai-section-material-intro">\1</p>',
+        text,
+    )
+    return text
 
 
 def _ai_influence_report_extra_css() -> str:
@@ -15897,6 +18121,11 @@ def _ai_influence_report_extra_css() -> str:
   line-height: 1.9;
   max-width: none;
 }
+.ai-section-material-intro {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.65;
+}
 .ai-report-prose ul,
 .ai-report-prose ol {
   margin-left: 22px;
@@ -15962,7 +18191,7 @@ def call_codex_phase_report(evidence_pack: dict[str, Any], config: dict[str, Any
     cfg = ((config.get("youtube") or {}).get("phase_report_reasoner") or {})
     codex_bin = str(cfg.get("codex_bin") or os.environ.get("CODEX_BIN") or shutil.which("codex") or "codex")
     model = str(requested_model or cfg.get("model") or os.environ.get("TECH_HOTSPOT_PHASE_REPORT_MODEL") or "gpt-5.5")
-    timeout = int(cfg.get("timeout_seconds") or 1200)
+    timeout = int(cfg.get("timeout_seconds") or 3600)
     max_chars = int(cfg.get("max_prompt_chars") or 180000)
     prompt = build_phase_report_markdown_prompt(evidence_pack, model)
     if len(prompt) > max_chars:
@@ -16445,7 +18674,7 @@ def cmd_phase_report(args: argparse.Namespace) -> int:
         return 1
     evidence_pack = build_phase_evidence_pack(rows, phase=phase, date_str=date_str, days=days)
     run_id = begin_run(conn, "youtube", f"phase-report-{phase}")
-    raw_base = Path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path(getattr(args, "output_base", None) or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     out_dir = raw_base / f"phase-{phase}" / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "phase-evidence-pack.json").write_text(json.dumps(evidence_pack, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -16490,7 +18719,7 @@ def cmd_phase_report(args: argparse.Namespace) -> int:
         files["transcripts_clean_txt"].write_text(phase_transcript_attachment_clean(evidence_pack), encoding="utf-8")
         files["wiki_dispatch"].write_text(report_wiki_dispatch(str(out_dir), date_str), encoding="utf-8")
         mail_result: dict[str, Any] = {"status": "skipped"}
-        if bool(getattr(args, "send", False)):
+        if ai_influence_auto_send_enabled(args, "AI_INFLUENCE_PHASE_REPORT_SEND_MAIL"):
             mail_result = send_html_email(
                 files["report_html"].read_text(encoding="utf-8"),
                 f"AI Influence 专辑报告 Phase {phase} — {date_str}",
@@ -16514,15 +18743,15 @@ def cmd_phase_report(args: argparse.Namespace) -> int:
 
 
 def _ai_influence_planned_base(config: dict[str, Any], args: argparse.Namespace, date_str: str) -> Path:
-    raw_base = Path(
+    raw_base = _expand_runtime_path(
         getattr(args, "output_base", None)
-        or (config.get("output") or {}).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")
-    ).expanduser()
+        or (config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
+    )
     return raw_base / "ai-influence-planned" / date_str
 
 
 def _ai_influence_canonical_planned_base(config: dict[str, Any], date_str: str) -> Path:
-    raw_base = Path((config.get("output") or {}).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")).expanduser()
+    raw_base = _expand_runtime_path((config.get("output") or {}).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar"))
     return raw_base / "ai-influence-planned" / date_str
 
 
@@ -16862,6 +19091,12 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
     flow_cfg = ((config.get("youtube") or {}).get("ai_influence_report_flow") or {})
     writer_cfg = flow_cfg.get("report_writer") or {}
     model_name = str(getattr(args, "model", None) or writer_cfg.get("model") or "chatgpt-5.5")
+    transcript_char_limit = int(
+        getattr(args, "transcript_char_limit", 0)
+        or writer_cfg.get("transcript_char_limit")
+        or 24000
+    )
+    chapter_repair_attempts = int(getattr(args, "chapter_repair_attempts", 0) or 3)
     selected_id = str(getattr(args, "report_id", None) or "").strip()
     reports = [r for r in (plan.get("reports") or []) if isinstance(r, dict)]
     if selected_id:
@@ -16885,7 +19120,7 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 spec,
                 date_str=date_str,
                 days=days,
-                transcript_char_limit=int(writer_cfg.get("transcript_char_limit") or 24000),
+                transcript_char_limit=transcript_char_limit,
             )
             evidence_pack = backfill_planned_report_evidence_from_existing(report_dir, evidence_pack)
             skipped_refs = [str(ref) for ref in evidence_pack.get("skipped_material_refs") or [] if str(ref).strip()]
@@ -16926,6 +19161,12 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                     purpose=f"ai-influence-report-chapter-{date_str}-{report_id}-{chapter_id}",
                     model_name=writer_model,
                     chapter_id=chapter_id,
+                    scratch_profile_id=ai_influence_scratch_profile_id(
+                        task_type="chapter_writer",
+                        report_id=report_id,
+                        chapter_id=chapter_id,
+                    ),
+                    max_attempts=chapter_repair_attempts,
                 )
 
             for job in jobs:
@@ -16962,6 +19203,9 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
             )
             markdown = ensure_ai_influence_public_evidence_section(markdown, evidence_pack)
             markdown = sanitize_ai_influence_raw_video_ids(markdown, evidence_pack)
+            markdown = ensure_ai_influence_contract_sections(markdown, evidence_pack)
+            markdown = refine_ai_influence_public_report(markdown, evidence_pack)
+            validate_ai_influence_markdown_report(markdown)
             report = {
                 "headline": spec.get("title") or report_id,
                 "subheadline": "基于本期公开视频材料的日度观察",
@@ -17072,6 +19316,12 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
     writer_cfg = flow_cfg.get("report_writer") or {}
     notebook_cfg = flow_cfg.get("notebooklm") or {}
     model_name = str(getattr(args, "model", None) or writer_cfg.get("model") or "chatgpt-5.5")
+    transcript_char_limit = int(
+        getattr(args, "transcript_char_limit", 0)
+        or writer_cfg.get("transcript_char_limit")
+        or 24000
+    )
+    chapter_repair_attempts = int(getattr(args, "chapter_repair_attempts", 0) or 3)
     notebook_enabled = not bool(getattr(args, "skip_notebooklm", False))
     notebook_name = str(
         getattr(args, "notebook_name", None)
@@ -17099,7 +19349,7 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                 spec,
                 date_str=date_str,
                 days=days,
-                transcript_char_limit=int(writer_cfg.get("transcript_char_limit") or 24000),
+                transcript_char_limit=transcript_char_limit,
             )
             evidence_pack = backfill_planned_report_evidence_from_existing(report_dir, evidence_pack)
             skipped_refs = [str(ref) for ref in evidence_pack.get("skipped_material_refs") or [] if str(ref).strip()]
@@ -17174,6 +19424,12 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                     purpose=f"ai-influence-report-chapter-{date_str}-{report_id}-{chapter_id}",
                     model_name=model_name,
                     chapter_id=chapter_id,
+                    scratch_profile_id=ai_influence_scratch_profile_id(
+                        task_type="chapter_writer",
+                        report_id=report_id,
+                        chapter_id=chapter_id,
+                    ),
+                    max_attempts=chapter_repair_attempts,
                 )
                 chapter_markdown = str(chapter_result.get("markdown") or "").strip()
                 if len(chapter_markdown) < 120:
@@ -17208,6 +19464,10 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
                 model_name=model_name,
                 input_videos=len(evidence_pack.get("videos") or []),
             )
+            markdown = ensure_ai_influence_public_evidence_section(markdown, evidence_pack)
+            markdown = sanitize_ai_influence_raw_video_ids(markdown, evidence_pack)
+            markdown = ensure_ai_influence_contract_sections(markdown, evidence_pack)
+            markdown = refine_ai_influence_public_report(markdown, evidence_pack)
             validate_ai_influence_markdown_report(markdown)
             report = {
                 "headline": spec.get("title") or report_id,
@@ -17251,8 +19511,8 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
             (report_dir / "transcripts-cleaned.txt").write_text(phase_transcript_attachment_clean(evidence_pack), encoding="utf-8")
             validation = validate_ai_influence_planned_report_dir(
                 report_dir,
-                expected_chatgpt_project=ai_influence_chatgpt_project_name(config),
-                require_project_archive=True,
+                expected_chatgpt_project=None,
+                require_project_archive=False,
             )
             (report_dir / "validation-result.json").write_text(json.dumps(validation, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             if validation["status"] != "ok":
@@ -17266,9 +19526,9 @@ def _cmd_run_ai_influence_planned_reports_legacy(args: argparse.Namespace) -> in
             mail_result: dict[str, Any] = {
                 "status": "skipped",
                 "recommended_by_plan": bool(spec.get("send_as_email")),
-                "sent_only_when_flagged": True,
+                "auto_send_default": True,
             }
-            if bool(getattr(args, "send", False)):
+            if ai_influence_auto_send_enabled(args, "AI_INFLUENCE_PLANNED_REPORT_SEND_MAIL"):
                 mail_result = send_html_email(
                     (report_dir / "report.html").read_text(encoding="utf-8"),
                     f"AI Influence 专题：{spec.get('title') or report_id} — {date_str}",
@@ -17333,8 +19593,6 @@ def cmd_validate_ai_influence_planned_reports(args: argparse.Namespace) -> int:
     out_dir = _ai_influence_planned_base(config, args, date_str)
     reports_root = out_dir / "reports"
     selected_id = str(getattr(args, "report_id", None) or "").strip()
-    expected_project = ai_influence_chatgpt_project_name(config)
-    require_project_archive = bool(getattr(args, "require_project_archive", False))
     if selected_id:
         report_dirs = [reports_root / selected_id]
     else:
@@ -17346,8 +19604,8 @@ def cmd_validate_ai_influence_planned_reports(args: argparse.Namespace) -> int:
     for report_dir in report_dirs:
         result = validate_ai_influence_planned_report_dir(
             report_dir,
-            expected_chatgpt_project=expected_project,
-            require_project_archive=require_project_archive,
+            expected_chatgpt_project=None,
+            require_project_archive=False,
         )
         (report_dir / "validation-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         results.append(result)
@@ -17357,7 +19615,7 @@ def cmd_validate_ai_influence_planned_reports(args: argparse.Namespace) -> int:
         "reports_root": str(reports_root),
         "ok": ok_count,
         "total": len(results),
-        "expected_chatgpt_project": expected_project,
+        "chatgpt_project_archive_policy": "disabled",
         "results": results,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -17412,7 +19670,7 @@ def report_html(conn: sqlite3.Connection, date_str: str, output_base: str | None
     {render_alerts(conn)}
     <h3 style="font-size:17px;color:#1e4b41;margin:14px 0 6px">模型调用账本</h3>
     {render_model_ledger_summary(conn)}
-    <p style="font-size:12px;color:#66736d">Generated by solar-harness Tech Hotspot Radar. raw path: /Users/lisihao/Knowledge/_raw/tech-hotspot-radar/{html_escape(date_str)}</p>
+    <p style="font-size:12px;color:#66736d">Generated by solar-harness Tech Hotspot Radar. raw path: ${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar/{html_escape(date_str)}</p>
   </section>
 </div></body></html>"""
 
@@ -17431,13 +19689,52 @@ def keychain_password(service: str, account: str) -> str:
         return ""
 
 
+def _ai_influence_mail_config() -> dict[str, Any]:
+    path = Path(
+        os.environ.get("AI_INFLUENCE_MAIL_CONFIG")
+        or str(Path.home() / ".solar" / "harness" / "state" / "ai-influence-mail-config.json")
+    ).expanduser()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = str(os.environ.get(name) or "").strip().lower()
+    if not value:
+        return default
+    return value not in {"0", "false", "no", "off"}
+
+
+def ai_influence_auto_send_enabled(args: argparse.Namespace, env_name: str) -> bool:
+    explicit = getattr(args, "send", None)
+    if explicit is not None:
+        return bool(explicit)
+    return _env_bool(env_name, _env_bool("AI_INFLUENCE_REPORT_SEND_MAIL", True))
+
+
 def send_html_email(html_content: str, subject: str, attachments: list[Path]) -> dict[str, Any]:
     import smtplib
 
-    gmail_user = os.environ.get("GMAIL_USER") or os.environ.get("AI_INFLUENCE_GMAIL_USER") or ""
+    mail_config = _ai_influence_mail_config()
+    gmail_user = (
+        os.environ.get("GMAIL_USER")
+        or os.environ.get("AI_INFLUENCE_GMAIL_USER")
+        or str(mail_config.get("from") or "")
+    )
     if not gmail_user:
         return {"status": "warn", "backend": "gmail_smtp", "reason": "missing gmail user"}
-    gmail_to = os.environ.get("GMAIL_TO") or os.environ.get("MAIL_TO") or os.environ.get("AI_INFLUENCE_MAIL_TO") or gmail_user
+    gmail_to = (
+        os.environ.get("GMAIL_TO")
+        or os.environ.get("MAIL_TO")
+        or os.environ.get("AI_INFLUENCE_MAIL_TO")
+        or str(mail_config.get("to") or "")
+        or gmail_user
+    )
     recipients = [addr.strip() for addr in re.split(r"[,;]", gmail_to) if addr.strip()]
     if not recipients:
         return {"status": "warn", "backend": "gmail_smtp", "reason": "missing recipients"}
@@ -17460,9 +19757,14 @@ def send_html_email(html_content: str, subject: str, attachments: list[Path]) ->
     for path in attachments:
         if not path.exists():
             continue
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(path.read_bytes())
-        encoders.encode_base64(part)
+        content_type, _encoding = mimetypes.guess_type(str(path))
+        maintype, subtype = (content_type or "application/octet-stream").split("/", 1)
+        if maintype == "text":
+            part = MIMEText(path.read_text(encoding="utf-8", errors="ignore"), subtype, "utf-8")
+        else:
+            part = MIMEBase(maintype, subtype)
+            part.set_payload(path.read_bytes())
+            encoders.encode_base64(part)
         part.add_header("Content-Disposition", "attachment", filename=path.name)
         msg.attach(part)
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
@@ -17472,6 +19774,7 @@ def send_html_email(html_content: str, subject: str, attachments: list[Path]) ->
     return {
         "status": "sent",
         "backend": "gmail_smtp",
+        "sent_at": iso_z(),
         "from": gmail_user,
         "to": recipients,
         "message_id": msg["Message-ID"],
@@ -17488,7 +19791,7 @@ def report_wiki_dispatch(output_dir: str, date_str: str) -> str:
         "action: ingest\n"
         "skill: wiki-ingest\n"
         f"generated_at: '{date_str}T00:00:00Z'\n"
-        "vault_path: /Users/lisihao/Knowledge\n"
+        "vault_path: ${SOLAR_KNOWLEDGE_DIR}\n"
         "status: pending\n"
         f"source: {output_dir}\n"
         "project: tech-hotspot-radar\n"
@@ -17500,7 +19803,7 @@ def report_wiki_dispatch(output_dir: str, date_str: str) -> str:
 def report_write_artifacts(conn: sqlite3.Connection, date_str: str,
                            output_base: str) -> dict:
     """Write all artifacts to Knowledge/_raw/tech-hotspot-radar/YYYY-MM-DD/."""
-    out_dir = Path(output_base) / date_str
+    out_dir = _expand_runtime_path(output_base) / date_str
     out_dir.mkdir(parents=True, exist_ok=True)
     files = {}
 
@@ -17690,7 +19993,7 @@ def cmd_write_report(args: argparse.Namespace) -> int:
     conn = ensure_db(db_path)
     output_base = getattr(args, "output_base", None) or config.get(
         "output", {}
-    ).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")
+    ).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
     date_str = getattr(args, "date", None) or iso_z().split("T", 1)[0]
     files = report_write_artifacts(conn, date_str, output_base)
     conn.close()
@@ -17710,7 +20013,7 @@ def cmd_send_report(args: argparse.Namespace) -> int:
     date_str = getattr(args, "date", None) or iso_z().split("T", 1)[0]
     output_base = getattr(args, "output_base", None) or config.get(
         "output", {}
-    ).get("raw_dir", "/Users/lisihao/Knowledge/_raw/tech-hotspot-radar")
+    ).get("raw_dir", "${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar")
     run_id = begin_run(conn, "report", "send-report")
     try:
         files = report_write_artifacts(conn, date_str, output_base)
@@ -18109,7 +20412,8 @@ def build_parser() -> argparse.ArgumentParser:
     phase_report.add_argument("--limit", type=int, default=80, help="Max completed videos in evidence pack")
     phase_report.add_argument("--date", default=None, help="Report date YYYY-MM-DD (default: UTC today)")
     phase_report.add_argument("--output-base", default=None, help="Override report output directory")
-    phase_report.add_argument("--send", action="store_true", help="Send HTML email with transcript attachment")
+    phase_report.add_argument("--send", dest="send", action="store_true", default=None, help="Send HTML email with transcript attachment")
+    phase_report.add_argument("--no-send", dest="send", action="store_false", help="Do not send email after generating the report")
     phase_report.add_argument("--reasoner", default=None, choices=["browser_agent", "browser_agent_chatgpt", "chatgpt"], help="Final report reasoner (default: browser_agent_chatgpt). Codex/direct GPT/local Qwen are disabled for AI Influence final judgment.")
     phase_report.add_argument("--model", default=None, help="Final report model override (default: chatgpt-5.5)")
     plan_reports = sub.add_parser("plan-ai-influence-reports", help="Plan AI Influence report series from video catalog using Browser Agent / ChatGPT 5.5 Thinking high")
@@ -18125,7 +20429,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_planned.add_argument("--report-id", default=None, help="Generate only one report_id from the plan")
     run_planned.add_argument("--output-base", default=None, help="Override output base directory")
     run_planned.add_argument("--model", default=None, help="Writer model override (default: chatgpt-5.5)")
-    run_planned.add_argument("--send", action="store_true", help="Send each generated report by email")
+    run_planned.add_argument("--chapter-batch-size", type=int, default=0, help="Compatibility flag for official wrapper; current runtime remains sequential when >0")
+    run_planned.add_argument("--chapter-repair-attempts", type=int, default=0, help="Override bounded chapter repair attempts")
+    run_planned.add_argument("--transcript-char-limit", type=int, default=0, help="Override transcript character budget per planned report evidence pack")
+    run_planned.add_argument("--send", dest="send", action="store_true", default=None, help="Send each generated report by email")
+    run_planned.add_argument("--no-send", dest="send", action="store_false", help="Do not send generated reports by email")
     run_planned.add_argument("--legacy", action="store_true", help="Use the previous whole-command implementation instead of the Report IR chapter runtime")
     run_planned.add_argument("--skip-notebooklm", action="store_true", help="Skip NotebookLM transcript+mindmap+infographic enrichment")
     run_planned.add_argument("--notebook-name", default=None, help="Override NotebookLM notebook name (default: AI Influence YYYY-MM)")
@@ -18165,6 +20473,14 @@ def build_parser() -> argparse.ArgumentParser:
     hf_baseline.add_argument("--sleep-seconds", type=float, default=0.5)
     hf_baseline.add_argument("--max-consecutive-failures", type=int, default=5)
     hf_baseline.add_argument("--force", action="store_true")
+    arxiv_baseline = sub.add_parser("backfill-arxiv-papers-baseline", help="Backfill independent arXiv daily papers as historical baseline")
+    arxiv_baseline.add_argument("--days", type=int, default=30)
+    arxiv_baseline.add_argument("--start-date", default=None)
+    arxiv_baseline.add_argument("--end-date", default=None)
+    arxiv_baseline.add_argument("--limit-per-day", type=int, default=80)
+    arxiv_baseline.add_argument("--sleep-seconds", type=float, default=3.0)
+    arxiv_baseline.add_argument("--max-consecutive-failures", type=int, default=5)
+    arxiv_baseline.add_argument("--force", action="store_true")
     hf_insight = sub.add_parser("materialize-hf-paper-insights", help="Materialize HF paper canonical/signal/packet store without high-model reasoning")
     hf_insight.add_argument("--limit", type=int, default=80)
     hf_insight.add_argument("--no-live-enrichment", action="store_true", help="Use only local HF snapshots; skip HF/arXiv/GitHub live enrichment")
@@ -18277,6 +20593,7 @@ def main() -> int:
         "collect-github-trendshift": cmd_collect_github_trendshift,
         "collect-hf-papers": cmd_collect_hf_papers,
         "backfill-hf-papers-baseline": cmd_backfill_hf_papers_baseline,
+        "backfill-arxiv-papers-baseline": cmd_backfill_arxiv_papers_baseline,
         "materialize-hf-paper-insights": cmd_materialize_hf_paper_insights,
         "compile-hf-paper-report": cmd_compile_hf_paper_report,
         "analyze-github-projects": cmd_analyze_github_projects,

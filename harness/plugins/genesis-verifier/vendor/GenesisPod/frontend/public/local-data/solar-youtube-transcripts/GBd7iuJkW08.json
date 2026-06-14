@@ -1,0 +1,1169 @@
+{
+  "videoId": "GBd7iuJkW08",
+  "title": "Stanford CS25: Transformers United V6 I From Representation Learning to World Modeling",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 59867,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "All right.\nGreat.\nSo hi, everybody.\nWelcome to the second\nlecture of CS25 this quarter.\nAnd so today we're very lucky to\nhave two speakers here with us.\nSo Hazel or Heejeong Nam\nis here in person today.\nShe's a master's student\nat Brown University,\nworking on representation\nlearning, causality,\nand self-supervised learning.\nAnd we also have Lucas\nMaes over Zoom, who\nwill be speaking afterwards.\nAnd he's a PhD student at Mila\nand the University of Montreal,\nworking on JEPA and planning.\nSo I'm sure they're going to\ngive us very insightful talk\ntoday.\nAnd so without further ado,\nI'll hand it off to Hazel.\nYeah.\nThank you for introducing.\nHazel, first year master's\nstudent in Brown University,\nworking with Professor\nRandall Balestriero.\nOur lab is working on JEPA,\nself-supervised learning,\nand some theory as well.\nI'm a bit nervous.\nThis is my first time\ngiving a talk in English,\nbut at the same time,\nI'm really, really\nexcited to talk about JEPA\nworld model and my recent work,\ncausal world model.\nI'm pretty sure Lucas\nis also very excited\nto share his very recent\nwork, LeWorldModel.\nOK.\nSo the first part\nof this talk will\nbe about the concepts\nof JEPA and world model.\nAnd after a brief introduction\nof those two concepts,\nwe will talk about the\nCausal-JEPA paper first,\nwhich gives a question about\nhow to make a model understand\nthe object interaction.\nAnd then I will\nhand over to Lucas,\nand he will talk\nabout LeWorldModel.\nAnd LeWorldModel is about\nthe end-to-end JEPA training\nwithout collapse.\nSo first of all, I\nthink most of you guys\nmay have heard of world\nmodel, and some of you guys\nmay be really familiar with\nwhat is the world model.\nTo talk about the world model--\nwe should have this first.\nSo this is autoregressive model.\nYou get the previous state,\nand you predict the next step.\nHowever, this is sometimes not\nenough to describe the world.\nWhy?\nBecause our world\nhas uncertainty.\nAt that time that\nyou're observing,\nsomeone might do\nsomething at that time.\nSomeone can throw something.\nThere's inherent uncertainty.\nTo handle this,\nyou need an action.\nAnd this now is a world model.\nSo the world model\nbasically is a function\nthat gets the previous\nstate and the action\nto predict the next state.\nAnd in this sense, I perceive\nthe world model terminology\nas a simulator.\nSo as an AI researcher,\nwhat would you\ndo to make this\nworld model better?\nIn my opinion, I think\nthree points of designing.\nThe first one is having a\ngood state representation.\nThis is about-- so\nyou probably are not\ngoing to give the raw pixel\nimages or raw pixel values\nto the predictor.\nYou somehow have to have\na good representation that\nreflects the world faithfully.\nAnd the second component will\nbe a good transition model.\nFor example, there should\nbe a grounding rule\nunderlying the environment.\nFor example, there's\na gravity that exists.\nWe have to understand these\nrules to predict the world\nand to simulate the world.\nAnd the last component is\nthe good dynamics model.\nNow you're going\nto do some action.\nAnd your model should\nreact to your action\nin the appropriate way.\nKeep these three things\nin mind because I'll\nrevisit this, end of\nthe Causal-JEPA part,\nto discuss how I address\nthese three questions.\nToday, we will not cover\ngenerative world models.\nThere's so many industries now\nare doing the world modeling\nstuff.\nFor example, GAIA is an\nautonomous driving model\nthat gets the action\nin the previous state\nto predict the next\ndriving scenario.\nAnd the Genie, they want to\nscaling up the world model,\nso they learned something\ncalled latent action, which\nis a proxy of the\naction, because usually\nonline data doesn't have the\nper frame action annotation.\nAnd Sora is a technically\nvideo generation model.\nBut their fidelity of their\ngenerated scene is very good,\nso they got a lot of notice.\nAnd Marble from Professor\nFei-Fei Li and Stanford.\nThey are doing the 3D\ninteractive environment so that\nwe can interact or explore.\nBut today, we will talk about\nJoint-Embedding Predictive\nArchitecture, which is somewhat\ndifferent from the generative\nworld model.\nSo on the left side,\nthe thing you see\nis generative world model,\nbecause as you can see,\nthe x is the current state.\nAnd let's say the y is the\nthing that we have to predict,\nwhich is like a future state.\nYou put the encoded current\nset to the predictor,\nand you directly\ncompare to y, which\nmeans that your model should\ngive the same, the pixel space,\nas your target is.\nHowever, in the right side,\nthat is a Joint Predictive\nArchitecture.\nYou see both x and y are\ngoing to the encoder.\nSo now we are comparing our\nprediction and the true target\nin the latent space.\nSo why does it matter?\nWe don't have decoder in\nthe JEPA architecture.\nBut it is not merely\nabout having no decoder.\nIt is about uncertainty\nin the world.\nSo when human is thinking about\nwhat is going to happen next,\nare you predicting something\nin a very pixel level,\nthere's some kind of uncertainty\nthat you cannot predict.\nAnd there's obviously\nlike your interest in--\nyour area of interest.\nSo JEPA tries to deal with only\nhaving predictive information\nin your latent space so that\nyour prediction is getting more\nmeaningful and human-like way.\nAnd also, the framework can be\ninterpreted in a different way.\nFirst of all, the\ngenerative world modeling\nis about a likelihood.\nThey learn the\nnormalized likelihood\nover the future frames.\nBut JEPA can be understood\nas an energy-based model.\nSo in the very original paper\nthat Yann LeCun suggested,\nhe framed the JEPA as\nan energy-based model.\nAnd energy-based model learns\nthe energy score function\nthat gives the high value if two\nvalues x and y are incompatible.\nAnd they give low score\nif those are compatible.\nAnd compatibility in the world\nmodel makes the point of the y\nis a plausible future of x\nSo the energy-based model\ncan collapse, unfortunately.\nAnd there's two ways to\nprevent this collapse.\nThe first way is\ncontrastive learning.\nAnd the second way is\nregularization-based method.\nI'm not going to talk\nabout this too deeply,\nbut the\nregularization-based method\nare making very rich and\nwell-defined energy landscape.\nSo that is what JEPA is doing.\nFor example, V-JEPA,\nwhich is Video-JEPA,\nthey took on an input as\nthe consecutive frames\nwith the spatiotemporal masking.\nAnd they put this encoder, and\nthey get the representation.\nAnd they try to predict what is\nhappening in the unseen area.\nSo the target has\nevery information.\nAnd here, there's some\nregularization tool\nto prevent collapse.\nFor example, they\nuse EMA encoder.\nEMA here means Exponential\nMoving Average.\nThis prevents like\nreally trivial collapses.\nAnd also, you do stop gradient\nfor the target encoder,\nand you put the mask to give\na model more challenging task.\nV-JEPA 2 is basically the\nsame architecture as V-JEPA 1,\nbut they wanted to scale up.\nAnd they also did some\ninteresting post-training.\nAnd one of them is\naction-conditioned control.\nSo now this became\nmore like word model\nbecause now it's getting-- as\nyou can see in the predictor,\nit gets the robot\naction and poses.\nSo this is one of the\npost-training in the V-JEPA 2.\nAnd this is actually\ncalled DINO World Model\nand have a very\nsame architecture\nas the action-conditioned\npost-training that you just saw.\nSo what the DINO\nWorld Model is doing\nis they use the\nfrozen DINOv2 encoder.\nWhat they claim is,\noh, do we actually\nhave to train the\nJEPA encoder to get\nthe meaningful\nabstraction for planning?\nThey said, no, a\npretrained DINO encoder\ncan do that role as well.\nSo they generate\npatch representation.\nAnd with the auxiliary\nvariable, for example, action\nand proprioceptive signals,\nthey predict the future state\nrepresentation,\nand they compare.\nAnd this predictor is just\na simple Causal Transformer,\nwhich predicts the\nfuture autoregressively.\nBut here I want\nyou to think about,\nis the past representation\nis what really humans do?\nAre we patchifying the image\nto predict the next step?\nProbably not.\nSo today, we're going to\ntalk about Causal-JEPA,\nLearning World Models\nthrough Object-Centric Latent\nInterventions.\nBefore starting\nthis talk, I would\nlike to thank you for my\ncollaborators, Quentin, Lucas,\nand Yann LeCun, and\nRandall Balestriero.\nSo the goal of\nthe Causal-JEPA is\nunderstanding the object\ninteraction and object dynamics.\nThese are three data sets\nthat I picked to show today.\nThe first one is Push-T,\na pretty famous example\nin the control experiments.\nThe goal is you do\naction on the blue ball,\nand you want to move the\ngray T block to perfectly\noverlap on the green T.\nAnd the second data\nset is CLEVRER.\nThis is actually the\nvideo paired with question\nanswering the data set.\nThe question is like--\nit can be predictory.\nFor example, what would\nhappen in the next frame?\nAnd it can be counterfactual.\nFor example, what would\nhappen if the blue color\ncylinder doesn't exist?\nAnd it can be explanatory.\nSo it's basically VQA benchmark.\nAnd the third one is PHYRE.\nAs you can see, many objects\nare interacting each other\nwith the grounding rule.\nFor example, there's a gravity.\nThe mass matters\nhere and et cetera.\nSo to understand\nthis object dynamics,\nwhat the current models\nare doing is like this.\nThey patchify the\nimage, and they\ntry to predict what will\nhappen in each patches.\nBut what are you going\nto do to understand\nthis mechanism is you want to\nunderstand the things like this.\nYou have each\nobject and you want\nto know how one object\ninfluences each other.\nSo what if in the DINO World\nModel, what if you just\nchange the representation in the\nobject-centric representation?\nThen it's more close to\nhuman-like thinking, right?\nBut then we have to learn the\nobject-centric representation.\nI'm not going to do\nvery deeply about\nthe object-centric learning,\nbut let me go through briefly.\nIf you're doing\ncomputer vision, you\nmight have heard about the\nobject-centric learning.\nThere's a very foundational\nway called slot attention\nfrom Locatello.\nThis is basically\nencoder-decoder framework.\nAnd between this\nencoder and decoder,\nyou might have the\nfeature space, right?\nAnd you bring like a\nbucket, like a basket,\nto put each features.\nAnd this basket is\nfor each object.\nSo there's a mechanism\ncalled slot attention that\nputs each feature to each slot.\nSo there's a binding\nproblem of feature to slot.\nAnd they decode\nwith this basket so\nthat the model can have\nwell-aligned information\nwith the slots.\nYou don't have to read this\nall, but I brought this\nbecause this is United\nTransformers class.\nAnd slot attention is\nabout self-attention.\nSo what I want to show is--\nhow to bind the\nfeatures to the slot\nis you do self-attention, where\nkey is the input features.\nFor example, in the DINOv2,\nthere's a patch embeddings.\nYou allocate each patch\nembedding to slots.\nYou're basically assigning them.\nAnd the value is also\nthe input features.\nAnd you update the\nslot by using GRU.\nSo you iteratively\nupdate the slots.\nAnd now the slot will have the\nobject-aligned representation.\nSo this is how usually\nthe models are getting\nobject-centric representation.\nThis is very, very\nnaive approaches.\nThere's so many advanced ways.\nFor example, this is for\nimage, and there's a video slot\nattention models as well.\nSo yeah, you can give it a try.\nAnd why does the model\nbehave if it perfectly\nunderstands the dynamics?\nLet's say the model learned\nthe monkey eating banana.\nIf model is truly understanding\nthis eating mechanism,\nthe model might be able to infer\nwhat is happening to banana\nwhen we cover the\ninvisible cloth on banana.\nSo even though you're\nnot seeing the banana,\nif you see a monkey moving\ntheir mouth constantly,\nyou can imagine, oh, a\nbanana might get shorter.\nAnd vice versa, if you make\nthe monkey invisible and banana\nis disappearing, you\ncan infer that a monkey\nis eating something.\nThis is very core\nmotivation and very core\nexplanation of Causal-JEPA.\nThis is really relevant of\nwhat I'm doing right now.\nAnd if you think of\nthe previous example,\nit doesn't have to be--\nthe predictor doesn't\nhave to be Causal Transformer.\nAs far as we are seeing\nthe only history,\nwe're OK to use multiple\ntime-step history.\nSo we're using a bidirectional\ntransformer here.\nI would like to mention that.\nAnd let's see how\nthe model actually\nimplements this, the monkey\nand banana mechanism,\nin the transformer.\nLet's say we have\na nicely aligned\nrepresentation for each object.\nAnd we include these object\nstates to the representation.\nFor example, let's say our\nlookback history is four frames.\nSo you see four frames.\nAnd next frame\nprediction will happen.\nBut because this is not a causal\nautoregressive transformer,\nthis is a bidirectional\nViT-style transformer,\nwe need a placeholder for\nthis future tokens as well.\nSo we use this as\na masked token.\nAnd now so our goal is predict\nthis masked token correctly.\nAnd for example, each row means\nthe evolution of each object.\nNow, as I told you before,\nI want to mask something.\nHere, blue dots are\nobservable slots,\nand the yellow one\nis masked slot.\nAnd let's imagine that we\nhave this masked slot here.\nWhat should model do?\nWhat is the easiest\nway for model\nto have a reasonably low\nloss and just predict\nthe masked token?\nMaybe just average the\nprevious and the next token,\njust like doing interpolation.\nBut that is what we want.\nWhat we want is like a learn\nthe object interaction.\nSo like the previous example of\nmonkey, I just mask everything.\nThis is a bit aggressive\nway of masking.\nBut now the model\ndoesn't have shortcut.\nIt needs to infer the other\nslots to correctly infer\nthe current state\nor the masked state.\nBut what if we want to mask\ntwo objects at the same time?\nThis can happen, because\nin slot attention,\nyou have to fix the\nmaximum number of slots.\nThe number of slots doesn't\nvary during training,\nso you give plenty amount of\nslot to give a model freedom OK,\nwhat information should\ndefine as a slot?\nAnd sometimes in the scene--\nfor example, we\ndefine eight slots,\nbut we only have three\nobjects in the scene.\nThen just masking\nonly one object,\nonly one slot might\nnot be enough.\nAnd then now we want to\nput this into transformer.\nAnd we have deflection, so we\nhave to do positional encoding\nbefore then.\nOK, there's no problem by\ntemporal positional encoding.\nBut when we are trying to do\npositional encoding in the slot\naxis, there's a problem, because\nwhat object-centric models are\ndoing is they do not define\nthe order of the objects,\nbut rather the object-centric\nmodels are permutationally\nequivalent depends with\nrespect to the object orders.\nSo this is basically not\nlist but set of objects.\nAnd then if you are\nmasking multiple objects,\nthe model might not\nknow what to predict,\nbecause these slots are\nnot having object identity.\nSo the video slot attentions can\nkeep the temporal consistency\ninside the video itself.\nFor example, Video A\nhave the consistency\nwith the object order.\nBut we cannot guarantee that\nVideo A and Video B are having\nthe same order of objects.\nSo now what we do is we do not\nmask the very first time step.\nIn this case, time\nstep t minus 3.\nAnd we use this information\nas a slot identity.\nAnd what we are\ndoing is we define\neach masked token with the\nidentity token plus learnable\nmasked token with the\npositional encoding.\nAnd this is less\naggressive because you\nhave an initial\ncondition of each object.\nSo it makes more sense when\nyou predict the masked tokens.\nAnd the other part\nI want to talk about\nis action conditioning.\nThe world model should condition\non the action properly.\nAnd what the DINO\nWorld Model is doing\nis they concatenate the action\nembedding behind the patch\nembedding.\nFor example, DINOv2-Small has\n384 dimension of the features.\nAnd let's say we have 10\ndimensional action embedding.\nAnd what DINO World Model\ndo is they duplicate\nit to make the number\nof the patches,\nand they just put\nthe action embedding\nafter the patch representation.\nSo now it's like 894\nper patch because we\nadded this action embedding\nafter the patch representation.\nBut this is not really\noptimal way, I think,\nbecause what we want to\nlearn is something like this.\nWhy don't we consider action\nas another node of the graph?\nThe Causal-JEPA does not\nrecover any true causal graph,\nbut its motivation is\ngrounded in the causal graph.\nSo for example, because\nwe define each object\nrepresentation, those are\nplaying a role of the nodes.\nAnd we also try to use this\naction as one of the node.\nSo in this current\nsituation, the action\nis added like\nsomething like this,\nnot as a part of the\nfeature representation.\nSo this is the architecture\nof the Causal-JEPA.\nSo to sum up, you have\nthe history frames.\nAnd you put this into the\nobject-centric encoder\nto get the object\nrepresentation.\nAnd then you select some\namount of objects to mask,\nand you mask it.\nAnd you put this\ninto predictor, which\nis bidirectional\ntransformer with the action.\nAnd then you're predicting\nevery masked tokens.\nAnd now we will\nsee some results.\nI did three experiments\nbased on our goal.\nOur goal is understanding\nthe object dynamics.\nAnd the first thing is reasoning\non the counterfactual questions.\nAnd the second thing is\nplanning and control.\nAnd third is physical\nimplausibility.\nSo in the CLEVRER,\nwe did an experiment\nwith the other existing\nmodels as well.\nBut what I want to highlight\nis the model without masking.\nWhat I want to say\nhere is the performance\nis not because we use the\nobject-centric representation,\nbut the core is masking,\nlike in the banana example.\nSo if you see the C-JEPA result,\nnot only average accuracy\nis better.\nYou can see there's\na clearly clear gain\nin the counterfactual question.\nThis counterfactual\nquestion is very well\nresonated with our\noriginal motivation\nbecause the counterfactual\nis asking something like,\noh, what if this\nobject doesn't exist?\nWhat if this object exists?\nSomething like this.\nSo you have to understand how\nthe object interact each other.\nAnd the next example\nis Push-T planning.\nThe agent tried to control the\nobject to reach the goal state.\nAnd here I want to\nemphasize the efficiency.\nIf you can see the DINO\nWorld Model baseline,\nyou have 196 patches, if you\nimagine you are having 2 to 4\nby 2 to 4 images.\nAnd each patch should have a\n384 dimension of the features.\nAnd if you're using\nobject-centric representation,\nthe number of tokens are\nsignificantly less than that.\nAnd because now we have the\nclear semantic from each token,\nthe feature doesn't\nhave to be super large.\nIf you think of--\nthere's nothing much\nto include in the object.\nFor example, texture. color,\nshape, rotational state,\nand location.\nThat's not that much.\nWe don't need like a really\nhuge representation space.\nSo after we only put in\nobject-centric representation\ninstead of the\npatch representation\nin the DINO World\nModel, its performance\nactually drops a lot.\nAnd this can be true\nbecause DINO World Model\nused the causal transformer.\nAnd we use bidirectional\ntransformer, right?\nAnd the object-centered\nrepresentation if you think\nof doesn't necessarily have\nto include the velocity\nor acceleration stuff, because\nyou cannot define those\nproperties by only looking\nat the single static image.\nSo this drops the\nperformance a lot.\nAnd after we changed the\naction-conditioning method,\ntreating them as\na separated node,\nand we change the transformer to\nthe bidirectional transformer,\nthe performance\ngain is significant.\nIt gains this 15% of\nabsolute percentages.\nAnd after masking, compared\nto the OC, Object-Centric DINO\nWorld Model, you gain 28%,\nwhich is pretty large.\nAnd compared to the\nOC-JEPA, the only difference\nis object masking.\nAnd this object masking\nactually helps the model\nto understand these dynamics.\nAnd this is the effect of\nthe action conditioning.\nAs I told you before, the latent\nconcatenation in the red line\ndenotes the\naction-conditioning method\nbased on the DINO World Model.\nBut after we treating this\naction as a separated node,\nit clearly shows the margin.\nAnd there's an additional\nexperiment on PHYRE.\nPHYRE is-- among three\ndata sets we have,\nit's like most\ncomplicated dynamics.\nAnd there's a lot of\nformulation configuration.\nAnd you need to\nlearn precisely what\nis happening in the scenario.\nAnd when I compare the\nOC-JEPA and C-JEPA,\nOC-JEPA often generates some\nphysically implausible scene.\nYou see like the bar is\nfloating below the fixed\nbar, which doesn't make sense.\nAnd this can be done by\njust learning correlation.\nWhen two bars are closed,\nthey just stay there.\nBut that's not true.\nThat's not how physics works.\nSo by the training\nmethod of object masking,\nyou keep asking the question\nto the model, what would\nhappen if this doesn't exist?\nWhat should you consider to\npredict the masked token?\nIt can learn the true dynamics.\nAnd this is the\nattention probing\nfor this previous example.\nYou can see the\nfailure is actually\ncoming from attending to\nthe wrong irrelevant object.\nSo for example, OC-JEPA\nrelies on the cup, which\ncontains the blue ball,\nand the C-JEPA conditioned\non the right bar to\npredict its future state.\nAnd here, the Causal-JEPA,\nthe terminology causal can--\nit can sense for many things.\nBut here, we use the causal\nas a temporally directed\npredictive dependencies,\nwhich means\nthat because we're predicting\nthe future from the history,\nthe edge is directed.\nAnd to predict the\nmasked token, you\nneed to attend to\nthe relevant object.\nSo we call it\ntemporally directed\npredictive dependencies.\nThis is not the very\nconventional and traditional way\nof defining causal, but recent\nmodern causal machine learning\nis this kind of\ndefinition as well.\nAnd here, to go back to the\nrole of the object masking,\nwe say this predictor finds\ninfluence neighborhood.\nInfluence neighborhood--\nwe just define its name.\nBut it's just a\npredictably sufficient set.\nSo it's like a\nminimal set that it\nneeds to predict the\nmasked token correctly.\nAnd this can be true.\nMore formally, this can\nbe true for assumptions.\nThe first thing is we\ndo not assume there's\nan instantaneous relationship.\nAnd the second assumption is\nthat every training instances\nshould share the same mechanism.\nFor example, the gravity\nshould not change along videos.\nThere's a governing rule\napplied in the whole data set.\nAnd the third assumption is\nobject-aligned representation.\nThis is the most tricky\nin the practical sense,\nbecause this assumes that our\nobject-centric representation is\nconstant throughout the video.\nIt should not getting swapped.\nThe object should not be split\ninto the different slots.\nAnd our representation should\nreflect the scenario faithfully.\nAnd the fourth is\nhistory sufficiency.\nThis is because we\nuse finite history.\nFor example, we see\nfour previous frames\nand predict the next frame.\nAnd this four history\nframe should be\nenough to predict the future.\nAnd to make this causal\nmachine learning to practical,\nwe do not assume\nfirst-order Markov process.\nAs I told before, the\nobject-centric representation\nusually does not follow the\nfirst-order Markov process.\nAnd we allow confounder.\nThe confounder makes things\nreally tricky because we cannot\nrecover the true\ncausal graph usually\nbecause of the confounder.\nBut in the object-centric\nrepresentation\nin the real world,\nthis is inevitable.\nSo I would like to answer\nthis questions really quickly.\nWhat happens if object-centric\nrepresentation is not faithful?\nA little bit is fine because\nstill, masking object slots\nis still some kind\nof inductive bias,\neven though our\nmasking is not perfect.\nSo a little minor--\nlike the wrong model can be\nOK, but if it's really bad,\nit doesn't work.\nIs there any way to recover\nthe true causal graph?\nNo in our method.\nThere's confounders, so we\ncannot recover the true causal\ngraph.\nAnd also, sometimes\nit's really hard\nto define what is the true\ncausal graph in many scenarios.\nHow to select the number\nof objects to mask?\nThis is a good question, because\nwe have a fixed number of slots,\nand the number of actual objects\nare varying depend on which\nframe are we looking at.\nThe ideal amount is just\nonly one foreground object\nwithout the background slots.\nBut we sometimes cannot\ncontrol this really well,\nso I would say decide the number\nof masks based on the data\nstatistics.\nJust guess your perfect\nnumber of the mask.\nAnd you should sweep a bit\nto find the perfect number.\nAnd the limitation--\nthe largest limitation\nis coming from the\nobject-centric encoder.\nThe object-centric\nrepresentation\ndoes not work really well\non the occlusion situation.\nAnd, in the middle of\nthe video, some objects\ncan appear and disappear.\nBut this slot attention cannot\nhandle this scenario really\nwell.\nSo this is some pain\npoint of this model.\nAnd finally, we got back to this\nthree components of world model\nagain.\nIn the beginning\nof the talk, I said\nthere's a three component\nthat we should consider\nto make a good world model.\nAnd for the good\nstate representation,\nwe use this object\nrepresentation.\nAnd for a good\ntransition model, we\ndid object masking to\nlet the model learn\nthe predictive sufficiency.\nAnd about the dynamics\nmodel, we tweak the method\nto condition the action.\nSo we treat this action\nvariables as a separated node.\nI think this is all of\nthe Causal-JEPA part.\nAnd let me quickly put to Lucas.\nSo hi, everyone.\nMy name is Lucas.\nI'm a third year\nPhD student at Mila,\nadvised by Damien Scieur,\nwho is researcher in Samsung.\nBut I work closely with\nRandall Balestriero,\nwho is prof at Brown.\nAnd the work I'm going\nto talk about today\nis the work I done in\ncollaboration with Quentin Le\nLidec, who is postdoc at NYU;\nwith Yann LeCun, Damien; Yann\nLeCun and Randall.\nSo today, what I'm going\nto talk about briefly\nis how to make this whole\nworld model stuff and JEPA\nstuff pretty simple to train.\nAnd I'm not going to tell you\nagain what is the world model.\nI think Hazel did\nit pretty well.\nSo I'm going to go\ndirectly to what we did.\nSo just before\nthat, I would like\nto talk about a big problem.\nSo as Hazel say, JEPA aim\nto learn representation\nin abstract space.\nAnd so it's directly\nin opposition\nto generative modeling,\nwherein generative modeling,\nwhat we try to do is you try\nto model your input space.\nBasically, you try to learn a\nrepresentation of your input\nspace and try to do stuff in\nyour input pace-- input space,\nsorry.\nAnd so JEPA say that this\nis for most of your tasks,\nnot desirable.\nFor instance, if you do\nself-driving car application,\nyou most likely\ndon't care to model\nthe movement of the leaf\nof the tree in the road.\nYou don't care to model that.\nIf you do generative\nmodeling, by definition,\nyou will have to model that\nbecause you want to model\nall the detail of your input.\nSo your loss is going\nto give signal for that.\nSo what JEPA propose is to\nfirst encode all your input\ninto an abstract\nspace, typically\nwith an encoder or\nneural net, and then\ntry to model the dynamic--\nthe dynamics-- sorry-- of your\nspace in that latent space.\nSo it's pretty nice\nwhen you say like that.\nBut if you look on the\nright the image I put,\nif you just do that, you suffer\nfrom what people call collapse.\nAnd so what is collapse?\nIt's a failure mode where you\ncan see that if I do nothing,\nI don't put constraint on the\ndistribution of my embeddings,\nyour model on the\nright can simply\nlearn to disregard the input and\njust produce a constant vector.\nAnd so you can minimize the\nprediction loss in the latent\nspace just by saying, OK, I\nam going to encode everything\nas a constant vector like 0.\nAnd then it's trivially\neasy to predict\nwhat is going to be the next--\nstate is going to\njust be 0 again.\nAnd so the whole\nresearch on JEPA--\na big part of the\nresearch on JEPA\nis how do you avoid\nthat collapse.\nSo as Hazel said\nbefore, I should\nadd a Causal-JEPA in that\nprevious JEPA recipe as well.\nYou have V-JEPA that try to do--\nthat try to avoid that collapse\nwith exponential moving average.\nYou have DINO World Model\nthat uses a pretrained encoder\nbasically to avoid the\ncollapse, because if you\nuse a pretrained encoder\nand you froze it,\nyou can produce\nnontrivial embedding,\nand you can learn the dynamics\ndirectly in the embedding.\nSo it's essentially supervised\nlearning in our model.\nAnd then you have PLDM that\ntry everything end to end.\nSo they train the encoder or\nthe predictor and everything end\nto end and their\naction-conditioned model\nas well.\nBut they use something\ncalled VICReg.\nAnd what is VICReg?\nIt's just an anti-collapse\nregularization term\nthat try to make the covariance\nmatrix of your features,\nof your latent\nfeature's identity.\nSo basically, you\nwant each dimension\nto be decorrelated from the\nother of your feature space,\nexcept for the\ncovariance matrix.\nThe diagonal line\nis one typically.\nSo you have a\npositive correlation.\nThe problem with\nPLDM is as you--\nas you can see on the\nslide, you need to apply.\nSo one term for the variance.\nOne term for the\ncovariance minimization.\nYou need to do that\nspatially and temporally.\nSo you have four terms.\nThey add an additional\ninverse dynamics\nloss to try to gain more\ninformation about the action,\nwhatever.\nIt's 5.\nPlus, you have the\nprediction in the future.\nThe L2 minimization\nyou see on the right.\nSo your predictor try to predict\nthe future in the latent space.\nAnd you compare that with\nwhat your encoder say\nabout the future should be.\nAnd so it gives you\na six-term loss,\nso it's pretty difficult to\ntune that because you have\nsix hyperparameters to tune.\nAnd that's why we\npropose LeWorldModel.\nSo what is LeWorldModel?\nIt's just a simple JEPA\nthat doesn't use any tricks.\nSo there is no Exponential\nMoving Average, no masking,\nno stop gradient, no\npretrained encoder,\nand also no unstable loss.\nWhy?\nBecause we have a\nsingle hyperparameter.\nAnd we make the model such that\nit's only 16 million parameter.\nSo it means you can train\nthat on a single GPU.\nIt's fully end to\nend from raw pixels,\nso there is no\nauxiliary information\nsuch as proprioception\ninformation or whatever.\nAnd we observe that\nit's 50 times faster\nthan the LeWorldModel\nfor doing planning.\nSo basically, what\nis LeWorldModel?\nIt's basically JEPA\nin its pure essence.\nSo what you do is you\ntake an observation ot,\nan observation ot plus 1,\nso the next observation.\nYou process-- [COUGHS]\nsorry.\nYou process both of them\nthrough a shared encoder.\nAnd you get a representation\nzt and zt plus 1.\nWhat you're going\nto do in the task\nis you will use zt and\nthe action at step t\nand try to learn a predictor\nto model the dynamics.\nSo you're going to try\nto predict the future.\nSo you have an estimation of\nthe future called zt plus 1.\nAnd you compare that\nto what your encoder\npredict for the next state.\nYou use Mean Squared\nError, and you\nuse what we call SIGReg\nto avoid collapse.\nWhat is nice is\nthat basically what\nI told you about before with\nJEPA is literally what you see.\nAnd the code is exactly\nwhat I just described.\nSo if you look at the\npseudocode on the right,\nit's actually not\nthat much pseudocode.\nIt's literally the true code.\nYou encode.\nYou predict.\nYou compute your prediction,\nyour future prediction error.\nAnd you use SIGReg\nto avoid collapse.\nSo you can see that at the\nbottom line at the return,\nI have a single\nhyperparameter lambda.\nSo this is the only\nstuff you need to tune.\nAnd because you have a\nsingle hyperparameter,\nyou can do a bisection.\nSo it's log n to find\nthe optimal lambda.\nSo it's pretty nice\nbecause we can really\neasily tune the model.\nAnd so what is SIGReg now?\nSo this is the stuff that avoids\nyour representation collapse\nand make sure that your zt or--\ninformative about what is\ninside your observation.\nSo basically, you\ncan see zt as learned\nabstraction of the world\nor a learned state.\nYou have an observation of the\nworld, which is the image ot.\nAnd you try to learn-- you\ntry to estimate the state,\nthe ground-truth state.\nAnd so how do you\nprevent collapse?\nBasically, we use a\nsimple regularization\ncalled SIGReg or Sketched\nIsotropic Gaussian Regularizer\nthat Randall and Yann LeCun\nintroduced last November,\nI think, if I'm correct.\nAnd the idea is very simple.\nThe math are a bit tricky, but\nI invite you to read the paper.\nIt's a very nice paper.\nBut the idea is very simple.\nYou take the distribution\nof your embedding.\nSo you take your batch.\nYou look at how your\nembedding zt distributed.\nAnd you will try to\noptimize that distribution\nto be isotropic Gaussian.\nSo how do you do that?\nYou could use\ngenerative modeling\nto do that with the KL\ndivergence and everything,\nsuch as Variational Autoencoder.\nWe don't want that here.\nWe don't want to use\ngenerative models.\nSo what you do is\nyou're going to try\nto use a statistical test.\nSo in statistics,\nyou have tests that\ntells you given an empirical\ndistribution, how close it--\nhow close is it to\nGaussian distribution?\nThe problem is that\nour embedding space\nis very high-dimensional.\nAnd so there is no test that--\nbasically, the\nstatistical test, they\nsuffer from the curse\nof dimensionality,\nso it's very difficult\nto directly use\na test to optimize in\nhigh-dimensional distribution.\nAnd so what Randall had--\nour idea is to\nbasically project.\nYou sample a lot of random\ndirection in your latent space,\nand you're going to\nproject all your embedding\ninto one dimension.\nSo as you can see,\nfor instance, if you\nlook at the red arrow on this\nimage and you look on the right,\nyou can see that once you\nproject your embedding\ninto that direction, you get a\nunimodal-- sorry, a univariate\nempirical distribution.\nAnd now you can optimize because\nit's just a 1D distribution.\nYou can optimize to\nmake that Gaussian.\nAnd if you do that--\nin a lot of directions,\nthere is a theorem called\nCramér--Wold theorem that says\nthat if you optimize the\nmarginals to be Gaussian,\nthen the joint is\ngoing to be Gaussian.\nSo basically, if you do that\nfor a lot of random direction,\nyou can prove that your latent\nembedding distribution is\ngoing to be Gaussian as well.\nSo it makes us sure that we\nwill have informative embedding.\nSo that's pretty nice.\nOK, so now how can\nyou-- let's imagine\nyou train your world model,\nblah, blah, blah, blah, blah.\nHow can you make sure that\nyou learn a good world model?\nSo there is two ways.\nI mean, I know two ways.\nIf you more than, that's nice.\nWe can talk about that.\nBut the first way\nis online control.\nSo can you use your LeWorldModel\nthat is action-conditioned?\nAnd can you in an online\nway optimize this action\nto perform control?\nSo this is the first thing.\nAnd the second thing we are\ngoing to talk about after is\ntry to assess if your\nworld model understand\nintuitive physics.\nBut let's focus on\ncontrol for now.\nSo how we perform control is\nbasically we are going to--\nwith your model,\nthe LeWorldModel,\nyou're going to sample random\ntrajectories of action.\nAnd you're going to optimize\nby rolling out the future.\nYou will optimize that\nsequence of action\nto match a target goal.\nSo for instance, let's say\nyou have a goal frame Og.\nYou start from the\ncurrent frame O1.\nYou both encode them\nthrough your encoder.\nYou got the initial\nstate, latent state Z1.\nYou have your target\nstate, which is zg.\nAnd then you sample an\ninitial sequence of action.\nAnd you use the first\none with your first state\ninside the predictor.\nIt gives you z2.\nThen you use the second one, et\ncetera, blah, blah, blah, blah,\nblah.\nAnd after each state--\neach step, sorry,\nyou compare how far\nare you in your latent space to\nthe representation of the goal.\nIt can be MSE.\nFor instance, you\nuse the MSE loss\nto estimate how far\nyou are from your goal.\nAnd because your predictor\nis differentiable,\nyou can for instance\nbackpropagate\nuntil the action try to--\nsequence of action to minimize\nthe distance with your goal.\nSo I can show you some results.\nYou can see that we\nconsider four tasks.\nSo the first one on the\nleft is called TwoRoom.\nIt's a simple 2D navigation task\nwhere you need to move from one\nside of a room into the other\nby passing through a door.\nThen you have Reacher.\nIt comes from DeepMind Control\nSuite, where you need to--\nyou can see on the right\nyou have a 2D like--\nsorry, a two-joint arm.\nAnd you need to match a target\nlocation from a given goal.\nThen you have Push-T.\nSo Push-T is already present.\nBut the goal of Push-T is\nto push basically the T\nto the green area.\nThat's as simple as that.\nAnd you can only push.\nYou cannot pull.\nAnd OG-Bench Cube, it's a 3D\nenvironment where the objective\nof that environment\nis to make the cube--\nyour cube, it's a 3D\nmanipulation robotic arm where\nyou need to make the cube\nmatching a target location\nas well.\nAnd so I think the most\ninteresting result is--\nthe first one is\nPush-T, because you\ncan see that DINO\nWorld Model has been\ntrained with proprioception.\nAnd you can see\nthat LeWorldModel\nwithout proprioception beat DINO\nWorld Model with proprioception\nwith half the parameter.\nBut what is most\ninteresting is if you remove\nthe proprioception\nof DINO World Model,\nyou see that the\nperformance drop.\nAnd LeWorldModel, because it\ndoesn't have proprioception,\nit beats by a lot\nthe LeWorldModel\nwithout proprioception.\nAnd PLDM, which is\nthe only other one\nthat doesn't use proprioception\nand that is fully trained end\nto end, also have very bad\nperformance on Push-T. So\nit was very nice\nto see this result.\nSo for Reacher, we beat PLDM\nand DINO World Model as well.\nBut what is really interesting\nis that for OG-Bench Cube,\nfor instance, we beat PLDM, but\nwe don't beat DINO World Model.\nAnd the most likely\nexplanation for that\nis that we only\ntrain on trajectories\ncoming from the data sets.\nBut DINO World Model has\nbeen pretrained because it's\na pretrained encoder.\nIt has been pretrained on\n124 million natural images.\nAnd consequently, it has a\nbetter understanding about\nobjects and 3D than we have\nbecause it has been trained\non a lot, lot, lot more data.\nAnd also very funnily, you\ncan see that for TwoRoom,\neven if it's the simplest\ntask, almost all the baseline\ndestroy the task.\nBut for us, we don't.\nAnd this is actually\na limitation of SIGReg\nthat exists for now is f if you\nhave intrinsic dimensionality.\nSo what I mean by that is the\ntrue dimensionality that you\nneed to solve the problem.\nFor instance, so\nTwoRoom is just 2,\nbecause you just need to\nthe x and y of the agent.\nAs soon as you know that and\nI give you a target location,\nyou can solve the environment.\nIf that is very much smaller\nthan the embedding you use,\nthere is no way that you can\nproduce Gaussian embeddings.\nAt least your SIGReg\nwhen you optimize\nis going to need to create fake\nstuff to be able to be Gaussian,\nfake, like to use some\ninformation to make your latent\nspace Gaussian.\nSo it doesn't help\nyou, basically.\nThere is research going\non to try to fix that.\nAnd actually, we know\nthat if you carefully\ntune the hyperparameter, you can\nsomewhat overcome this issue.\nBut for the sake of\nfairness, we didn't hypertune\nall the hyperparameters, and\nwe keep the same hyperparameter\nacross all the environment.\nBut the most interesting\npart why it's very nice\nis when you look at\nthe planning time.\nSo for DINO World\nModel-- and we heavily\noptimized DINO World Model to\ntry to be as fast as possible.\nThe fastest we could go\nfor doing the full planning\nis 47 seconds.\nAnd the reason for that\nis because you need to--\nyour predictor takes\nall the patches.\nAnd you need to predict\nall the patches,\nso it's quite slow because\nof the quadratic cost\nof the attention to\npredict the future.\nAs for us, with LeWorldModel,\nwe have a single embedding\nfor representing\nthe latent state\nbecause we just use the\nCLS token of the encoder.\nAnd it allows us\nsome other tricks.\nWe didn't optimize\na lot for that.\nWe could go a lot\nless than this.\nBut we can go to a\nfull playing time\nunder the second,\nwhich is very nice.\nIt's almost 50 times faster.\nAnother thing interesting is\nthat if you fix the FLOP--\nso if you fix the FLOP that\nyou used for planning--\nand we fix the FLOP at\nthose of LeWorldModel.\nSo if you reduce\nthe planning time\nby tweaking the hyperparameter\nfor the planning\nuntil DINO World Model\nplan under a second,\nyou can see that the success\nrate drop by a lot for Push-T\nand for OG-Bench Cube,\nwhich is expected.\nBut it showed that\nat similar budget,\nwe outperform even on OG-Bench\nCube DINO World Model.\nSo that's for the control.\nFor intuitive physics\nunderstanding,\nwe did something pretty\nsimilar-- pretty easy, sorry.\nThe first thing is we\nprobe the latent space.\nSo we just took the encoder from\nLeWorldModel, and we froze it.\nAnd we train a linear or\nNLP probe, non-linear probe,\nto try to predict the\ncoefficients of the simulation\nfor that state.\nSo I will not go that\nmuch into the detail.\nYou can have a look\nat the paper for that.\nBut what is pretty interesting\nis that for instance,\nfor OG-Bench Cube, you can\nsee that the linear probe with\nLeWorldModel, we almost all the\ntime have a lower mean squared\nerror, which means that--\nif you compare with the\nNLP probe on the right,\nit's almost DINO World\nModel all the time\nthat have the lowest\nmean squared error.\nAnd so what it suggests\nis that our latent space\nis less entangled than\none on DINO World Model.\nSo it's more easy to recover\nthe coefficient directly\nfrom the latent space rather\nthan DINO World Model.\nAnd it doesn't make\nsense, I think,\nbecause as we used SIGReg,\nit pushed like the latent\nspace in such a way\nwhere each dimension are\nsomewhat meaningless.\nSo it's not fully\ndisentangled, but it's\nsomewhat more than Dino World\nModel, which is pretty nice.\nAnother thing that you could\ndo, which is pretty cool,\nis to try to see what happens\nwhen you violate the world\nmodel.\nSo if a sudden change\nin the dynamics happen,\ndoes your world model predict\nthat this is a violation?\nAnd so what we did\nfor that is, as you\ncan see on the left-- sorry,\nthe cube color and cube\nteleportation are inverted.\nBut if you look on\nthe left, you can\nsee that we have a\nnormal trajectory where\nyour robotic arm pick up the\ncube and move it to the right,\nfor instance, OK?\nNothing happened.\nAnd then we consider\ntwo perturbation.\nFor instance, we change\nthe color of the cube.\nSo this is the one on the\nright, not in the middle.\nSuddenly, at a given frame, OK?\nAnd another transformation we\ndid is randomly, like suddenly--\nthis is the one in the\nmiddle-- the cube teleport.\nAnd so if you look\non the right, you\ncan see that the x-axis\nare the time steps, OK?\nAnd the y-axis is\nthe prediction error.\nSo this is the\ndifference between what\nyour predictor predict\nis going to happen\nand what the actual embedding of\nthe next states look like, OK?\nAnd so what you can\nsee is that if you\ndon't have any perturbation--\nso this is the gray line--\nit's fine.\nIf you change the cube\ncolor, it's a bit higher,\nbut it's very negligible.\nSo it means that basically your\nworld model don't care much\nabout the color\nof the cube, which\nis pretty cool because you don't\nneed that for the dynamics.\nYou don't care about\nthe color of the cube.\nBut if suddenly\nthe cube teleports,\nthen the prediction\nerror shoot a lot,\nmeaning that your world\nmodel didn't predict that.\nSome people say to\nme often that yeah,\nbut it's just\nout-of-distribution.\nAnd I would say it's\ntrue, but I think\nit's not very meaningful to\nsay that because as human, when\nyou violate your model, it's\nalso very out-of-distribution.\nThat's why, for\ninstance, when someone\ndo to you a magic trick where\nthey make a coin disappear\nin front of you, you're\nsuddenly very surprised,\nand it frustrates you a bit.\nIt's the same here.\nIt's because the prediction\nerror is very high.\nSo we did two other small\nexperiments as well.\nThe first one is we try to\nembed the location of the agent\nand the T. And we try to make\nthe agent location and the T\nlocation move.\nSo you can see that the middle\nplot shows you what happened,\nthe different location.\nAnd we try to project\nwith a t-SNE plot\nthe embedding space to try\nto see if we can recover\nthis exact relative\ndistance between all\nthe different locations\nof the original space.\nAnd what you can see is\nthat up to a permutation\nof the axis and reflection,\nthis is exactly what happened.\nSo we recover basically\nthe relative distance\nin the original space,\nwhich is pretty nice.\nThe last thing we did is\nwe froze the world model,\nand we train a decoder to try to\ninterpret what is happening when\nyou make future prediction.\nAnd so for that, you can\nsee that we give a context\nto our world model.\nSo this is the first three\nframe of the top row you see,\nor the bottom, the\nsecond row, OK?\nSo we give that to our model.\nThe first row is really\nwhat happened in the future,\non the right, where you\nhave open-loop prediction.\nSo this is actually what\nhappened in the trajectory.\nAnd then on the second row,\nyou have what your world model\nimagine when you give the\nsame sequence of action that\nhas been taken for\nthe original sequence.\nAnd you can see that\nthe world model predicts\nsomewhat the reality when you\ngive the sequence of action.\nBut what is very\ninteresting is that if you\nlook at the second\nrollout with the cube--\nso you can see that we\npredict very well what is\ngoing to happen with the cube.\nBut if you are very careful, you\ncan see that at frame 15 and 20,\nthe angle of the\ngripper is opposite.\nAnd so basically, you can see\nthat the world model didn't\nlearn the rotation\nof the gripper, which\nwas pretty interesting, because\nit still was able to solve\nsomewhat the environment.\nSo there is many\nlimitations for our model,\nor as I like to call them,\nresearch opportunities.\nSo for now, you are doomed to\nshort-term planning horizon.\nSo if you can unlock that,\nthat would be very nice.\nAnother problem is that you have\nthem at a single temporal level.\nSo we need\nhierarchies, basically.\nFor instance, when\nyou think about oh, I\nneed to go to the airport, you\nthink at a different hierarchy.\nThe airport is your goal.\nYou think, OK, I\nneed to go to my car,\nthen I need to go to airport\nand blah, blah, blah.\nAnd then only at the end, it\ntranslates into muscle movement.\nSo you don't all the time think\nin terms of muscle movement.\nSo we need that as well to\nbe able to predict further\nin the future.\nA very important\nstuff as well is\nto move from this\ntoy environment.\nI fully agree with\nthis kind of criticism,\nthat it's very\ntoy-ish experiments.\nAnd so can we move to\nreal-world robotics\nor very stochastic and\npartially observable\nenvironment like Minecraft.\nThat would be very nice.\nAnd also, a big\nproblem I think is,\nhow do you specify your goal?\nSo for now, you can see,\nas I explained before,\nyou need to provide a visual\ngoal, but you don't all the time\nhave access to that.\nAnd it doesn't tell\nyou anything about how\nyou should solve the task.\nSo for instance, if you have\na plane that needs to land,\nyou don't want to just show\na picture of the plane landed\nto do the planning.\nYou want to specify\nhow smooth should\nbe the landing and everything.\nSo we don't how to do that for\nnow with this kind of approach.\nI would like also to\ntake just two minutes\nto do a bit of advertisement for\nsomething we have been pushing\nwith a lot of Randall's\nstudents and a lot of people\nfor the past few months, which\nis called stable-worldmodel.\nAnd if you're interested\nabout world model\nresearch and this kind of\nstuff, you should definitely\nhave a look for that.\nSo it's a GitHub library,\nfully open-source,\nthat allows you to train\nvery easily world models.\nSo you have all the baseline\nI discussed about and Hazel\ndiscuss about that are\nimplemented there and heavily\ntested.\nYou have all solver\nto do planning.\nYou have many environments.\nWe recently added DeepMind\nControl and Minecraft.\nAnd we are in discussion to add\nsupport for real robot data also\nvery soon.\nAnd everything is\nvery heavily tested,\nand there is documentation.\nSo yeah, feel free to give a try\nand give feedback or contribute\nto library.\nThat would be very cool.\nThank you.\nOK, great.\nThank you so much.\nLet's give a round of applause\nto our speakers today.\n[APPLAUSE]\nSo now we'll be\nsoliciting some questions.\nWe have some online on\nSlido, but I'll also\nbe looking for in-person\nquestions in case anybody\nhere wants to ask\nanything as well.\nSo we'll balance between both.\nAnd I'll let you guys figure out\nwho should answer each question.\nOr if you both have insights\nfor anything, that's also great.\nYeah, does anybody here\nhave any questions?\nWell, I'm just curious\nhow does the world model\ntransfer to physical AI space?\nHow can we see them moving\nforward in robotic space?\nI would give it to\nLucas, probably.\nLucas, can you hear us?\nYes, yes.\nCan you repeat the\nquestion, please?\nOh.\nSo how can we expect the world\nmodels in the physical AI space?\nBecause we already have a\ndiffusion-based foundation\nmodels like GR00T or maybe\npi, and also Psi-Zero.\nUsing world models, can we\nexpect some more applications\nin the robotics space?\nOK, OK, OK.\nSo first of all, I\nwill be very skeptical\nthat the current VLA models\nhave a good understanding\nof the world.\nThere is no reason for that.\nThey are not trained to predict\nthe consequence of their action,\nOK?\nAnd I will be very\nskeptical to see something\nthat doesn't know what is\nthe outcome of his action,\nbe very reliable\nto the physical AI.\nSo as human, why you are\nvery good at what you do\nis because you can\npredict what is\nthe consequence of your\naction in the real world.\nAnd that's what world\nmodel try to do.\nVLA don't do that.\nSo if you want to\nhave physical AI,\nbasically, you need world model.\nYou cannot bypass that.\nI think, as Yann say, often\nlike VLA and everything,\nthey can be very\nhelpful for simple stuff\nwhere you don't\nneed to predict what\nis going to be the outcome of\nyour action in the real world.\nFor instance, if you want\nto make robots that--\nI don't know-- do some dance\nor whatever, they only need\nto their internal dynamics, OK?\nThey don't need how to\ninteract with the real world.\nTo interact with\nthe real world, you\nneed to predict the\noutcome of your action,\nso you need world models.\nI hope that answers\nyour question.\nIf not, happy to clarify.\nSure, sure.\nThank you.\nI would like to answer\none more sentence.\nI think Professor\nSherry Yang in NYU,\nshe has an opinion\nthat world model can\nbe an evaluator for policies.\nSo I think this can\nbe also your answer.\nYeah.\nWe have someone at Slido.\nLet me see.\nSomeone's asking, masking is\nshown to improve predictions,\nbut is it really necessary\nto learn the world model?\nDoes it mean that prediction\nloss alone is insufficient?\nThe prediction loss--\nOK, let me assume\nthat you're talking\nabout-- you're\nstill talking about the\nobject-centric representation.\nIf you only do the\nprediction loss\nwith no object-centric\nrepresentation, the shortcut\nor what model we learn is\nit can be the self-dynamics.\nWe cannot guarantee\nthat the model learns\nthe interaction-based dynamics.\nSo I won't say that\nit's insufficient,\nbut with the masking, I think\nyou can reinforce the model\nto learn the object dynamics.\nYeah, that makes sense.\nSomeone's asking, do\nyou have any insights\non how C-JEPA\nlearns to plan ahead\nbeyond just the next frame?\nSo for the-- is it\nall of the question?\nYeah.\nOK.\nWe strictly follow\nthe evaluation method.\nI mean, the planning of\nthe DINO World Model.\nSo with the predicted\nfuture frame,\nwe do with autoregressively to\nreach the long-horizon planning.\nAnd we use the same, the\nparameters for planning as well.\nAny in-person questions?\nOK, I'll continue\nwith the online ones\nbecause we have quite a lot.\nLet me see.\nSomeone's asking, what would a\nJEPA native agent architecture\nlook like compared to\ncurrent LLM-based agents?\nLucas, do you want to answer?\nOf course.\nCan you just repeat\nthe question?\nIt's pretty difficult to hear.\nSomeone asked, what would a\nJEPA native agent architecture\nlook like compared to\ncurrent LLM-based agents?\nOK.\nBasically, the way it\ndiffers is that you\nlearn action-conditioned\nmodel, right?\nSo LLM agent, you don't learn\naction-conditioned model,\nas far as I know.\nI'm not expert in LLM as well.\nBut you learn to use tooling\nand to make tool calls.\nThis is not what you do\nwhen you do world models.\nWhat you do is you learn,\nOK, I have an action.\nI am a current state.\nWhat is going to happen in the\nfuture if I take that action?\nThis is not how you train LLMs.\nSo this is one\nstep that differs.\nAnd the second thing is that\nby construction, you can just\nlearn to model the\nfuture with world models\nand then use planning by using\nold concept of control theory,\nsuch as model predictive\ncontrol or whatever,\nto directly convert\nthat into an agent.\nYou don't need\npost-training or whatever.\nYou can do that zero-shot.\nSo that's pretty neat.\nFor LLM, I'm not sure, so\nI cannot reply for that.\nI think that makes sense.\nYeah.\nI guess this is--\nlet me see.\nYeah, do you think JEPA models\nare less prone to hallucination\nthan transformer-based\nmodels, since they hopefully\nlearn a more accurate\nrepresentation of the world?\nI'm not sure if you guys\nmight have any insights.\nI can answer first.\nAnd, Lucas, you can just\nadd your opinion on it.\nI'm not sure what kind of\nhallucination the person asked,\nbut in the predictive sense,\nbecause JEPA model is--\nas I mentioned earlier\npart of the talk,\nthe JEPA is energy-based model.\nSo rather than just predicting\nthe full pixel space, what\nit evaluate is oh, is our\npredicted future make sense?\nIs it a possible situation,\nor is it impossible?\nSo I think in that sense, in\nthe sense of the representation,\nthe representation will be\nmore suitable for world model,\nI think.\nYeah.\nYeah, so I can complete on that.\nSo I think the\noriginal question was\nto compare JEPA and\ntransformer-based model.\nSo I would like\njust to emphasize\nthat JEPA is not\nan architecture,\na new architecture.\nFor instance, for\nLeWorldModel, [INAUDIBLE]\nencoder and predictor\nare two transformers.\nSo JEPA is really a framework\nto try to learn world model.\nIt's not a new architecture.\nAnd second, I think you can\nhave definitely a hallucination\nif you don't learn a good model.\nBut this is not at all\nthe same hallucination\nas you have with LLM, because\nLLM, they have multiple sources\nfrom hallucination.\nOne of them is that they are not\ngrounded in the real world, OK?\nWith world model, you\ncan easily fix that.\nAdditionally, also, you can\nsay that with world model,\nyou can have another\nsource of hallucination\nas well is that when\nyou optimize the action\nsequence that you want\nto do for doing planning,\nyou could have\nactions that are not\nmeaningful for the real world.\nFor instance, let's say\nthat your action is minus.\nIt's between minus 1 and 1,\nand that your optimizer say,\nOK, you should use\nminus 2 as an action.\nSo you can have this\nkind of hallucination.\nOtherwise, it's just about the\nquality of your learned model.\nAnd this is just a matter\nof data and capacity.\nHopefully, that makes sense.\nYeah, no, great.\nI think that makes\na lot of sense.\nThanks.\nWe have someone asking,\nare world models\nbetter than the diffusion-based\nmodels for robot control?\nI think we would have similar\nanswer as the previous one.\nThe world model can still\nuse the diffusion model.\nYeah, of course, of course.\nYou could use diffusion\nmodel to train JEPA.\nActually, some people\ntry to do that.\nDiffusion model have some\nadvantage and some limitation\nas well.\nSo yeah.\nAny in-person questions?\nAll right.\nWe got one at the back.\nA longer horizon question.\nBut you mentioned that you\nmight consider planning\nthrough this whole family of\ndifferent algorithms developed\nfor control, like model\npredictive control, et cetera.\nAnd you mentioned\nthat it might be\npossible to use these\nthings as a grounding signal\nto train policies.\nDo you think that it's\ncombining those approaches,\nif maybe that's what you already\nmeant by training policies,\nthough, of turning\nup a lot of compute\non something like an alternative\ncontroller for a relatively\nlong horizon, and\nthen distilling those\nback down into policies might\nbe an efficient way of getting\nsome longer horizon behavior\nfor one of those problems\nand/or research\ndirections you mentioned?\nYou want to go for\nit, Hazel, or--\nYou can go for it.\nOK.\nYeah, you can definitely\ntrain a policy\non that, because as soon as you\nhave world model, basically,\nyou can do either two things.\nYou can use that directly and\noptimize your action sequence\nto have a zero-shot policy.\nOr you can do the same\nas Dreamer, for instance,\nand use your pretrained world\nmodel and train reinforcement\nlearning policy on\nthat, and periodically\ngo in your environment,\nand collect better data\nand fine-tune your model,\nimprove your policy,\nand blah, blah, blah.\nYou can do that as well.\nSo in the future,\nI think you will\nhave something similar to System\n1, System 2, same as human does,\nwhere you will have basically\nan action-reaction policy, where\nyou will learn to\ndirectly predict\nwhat is the action I should\ntake to have that goal given\nthis state.\nAnd then for difficult\ntasks that you are not\nvery confident about\nplanning and model predictive\ncontrol to have more\ncareful plan and situation.\nFor instance, when you want\nto learn to drive a car, maybe\nat the first 20 hours, you will\nuse model predictive control\nto make sure you\ndon't kill someone.\nAnd then after 20 hours,\nyou think you are an expert.\nSo you can basically\ndistill your prediction\nof model predictive\ncontrol and planning\nto a direct policy that\noutputs directly the action.\nAll right.\nGreat.\nUnfortunately, that's\nall the time we have.\nHazel will be staying after in\ncase anybody has any questions\nor wants to talk to her.\nSo thanks again to our speakers\nfor the very insightful talk.\nThank you.",
+  "segments": [
+    {
+      "text": "All right. Great. So hi, everybody. Welcome to the second lecture of CS25 this quarter. And so today we're very lucky to have two speakers here with us. So Hazel or Heejeong Nam is here in person today. She's a master's student at Brown University,",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "working on representation learning, causality, and self-supervised learning. And we also have Lucas Maes over Zoom, who will be speaking afterwards. And he's a PhD student at Mila and the University of Montreal, working on JEPA and planning.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "So I'm sure they're going to give us very insightful talk today. And so without further ado, I'll hand it off to Hazel. Yeah. Thank you for introducing. Hazel, first year master's student in Brown University, working with Professor Randall Balestriero.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "Our lab is working on JEPA, self-supervised learning, and some theory as well. I'm a bit nervous. This is my first time giving a talk in English, but at the same time, I'm really, really excited to talk about JEPA world model and my recent work,",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "causal world model. I'm pretty sure Lucas is also very excited to share his very recent work, LeWorldModel. OK. So the first part of this talk will be about the concepts of JEPA and world model. And after a brief introduction of those two concepts,",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "we will talk about the Causal-JEPA paper first, which gives a question about how to make a model understand the object interaction. And then I will hand over to Lucas, and he will talk about LeWorldModel. And LeWorldModel is about the end-to-end JEPA training",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "without collapse. So first of all, I think most of you guys may have heard of world model, and some of you guys may be really familiar with what is the world model. To talk about the world model-- we should have this first. So this is autoregressive model.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "You get the previous state, and you predict the next step. However, this is sometimes not enough to describe the world. Why? Because our world has uncertainty. At that time that you're observing, someone might do something at that time.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "Someone can throw something. There's inherent uncertainty. To handle this, you need an action. And this now is a world model. So the world model basically is a function that gets the previous state and the action to predict the next state.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "And in this sense, I perceive the world model terminology as a simulator. So as an AI researcher, what would you do to make this world model better? In my opinion, I think three points of designing. The first one is having a good state representation.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "This is about-- so you probably are not going to give the raw pixel images or raw pixel values to the predictor. You somehow have to have a good representation that reflects the world faithfully. And the second component will be a good transition model.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "For example, there should be a grounding rule underlying the environment. For example, there's a gravity that exists. We have to understand these rules to predict the world and to simulate the world. And the last component is the good dynamics model.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "Now you're going to do some action. And your model should react to your action in the appropriate way. Keep these three things in mind because I'll revisit this, end of the Causal-JEPA part, to discuss how I address these three questions.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "Today, we will not cover generative world models. There's so many industries now are doing the world modeling stuff. For example, GAIA is an autonomous driving model that gets the action in the previous state to predict the next driving scenario.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "And the Genie, they want to scaling up the world model, so they learned something called latent action, which is a proxy of the action, because usually online data doesn't have the per frame action annotation. And Sora is a technically video generation model.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "But their fidelity of their generated scene is very good, so they got a lot of notice. And Marble from Professor Fei-Fei Li and Stanford. They are doing the 3D interactive environment so that we can interact or explore. But today, we will talk about",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "Joint-Embedding Predictive Architecture, which is somewhat different from the generative world model. So on the left side, the thing you see is generative world model, because as you can see, the x is the current state. And let's say the y is the",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "thing that we have to predict, which is like a future state. You put the encoded current set to the predictor, and you directly compare to y, which means that your model should give the same, the pixel space, as your target is. However, in the right side,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "that is a Joint Predictive Architecture. You see both x and y are going to the encoder. So now we are comparing our prediction and the true target in the latent space. So why does it matter? We don't have decoder in the JEPA architecture. But it is not merely",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "about having no decoder. It is about uncertainty in the world. So when human is thinking about what is going to happen next, are you predicting something in a very pixel level, there's some kind of uncertainty that you cannot predict. And there's obviously",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "like your interest in-- your area of interest. So JEPA tries to deal with only having predictive information in your latent space so that your prediction is getting more meaningful and human-like way. And also, the framework can be",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "interpreted in a different way. First of all, the generative world modeling is about a likelihood. They learn the normalized likelihood over the future frames. But JEPA can be understood as an energy-based model. So in the very original paper",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "that Yann LeCun suggested, he framed the JEPA as an energy-based model. And energy-based model learns the energy score function that gives the high value if two values x and y are incompatible. And they give low score if those are compatible.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "And compatibility in the world model makes the point of the y is a plausible future of x So the energy-based model can collapse, unfortunately. And there's two ways to prevent this collapse. The first way is contrastive learning. And the second way is",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "regularization-based method. I'm not going to talk about this too deeply, but the regularization-based method are making very rich and well-defined energy landscape. So that is what JEPA is doing. For example, V-JEPA, which is Video-JEPA,",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "they took on an input as the consecutive frames with the spatiotemporal masking. And they put this encoder, and they get the representation. And they try to predict what is happening in the unseen area. So the target has every information.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "And here, there's some regularization tool to prevent collapse. For example, they use EMA encoder. EMA here means Exponential Moving Average. This prevents like really trivial collapses. And also, you do stop gradient for the target encoder,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "and you put the mask to give a model more challenging task. V-JEPA 2 is basically the same architecture as V-JEPA 1, but they wanted to scale up. And they also did some interesting post-training. And one of them is action-conditioned control.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "So now this became more like word model because now it's getting-- as you can see in the predictor, it gets the robot action and poses. So this is one of the post-training in the V-JEPA 2. And this is actually called DINO World Model and have a very",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "same architecture as the action-conditioned post-training that you just saw. So what the DINO World Model is doing is they use the frozen DINOv2 encoder. What they claim is, oh, do we actually have to train the JEPA encoder to get the meaningful",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "abstraction for planning? They said, no, a pretrained DINO encoder can do that role as well. So they generate patch representation. And with the auxiliary variable, for example, action and proprioceptive signals, they predict the future state representation,",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "and they compare. And this predictor is just a simple Causal Transformer, which predicts the future autoregressively. But here I want you to think about, is the past representation is what really humans do? Are we patchifying the image",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "to predict the next step? Probably not. So today, we're going to talk about Causal-JEPA, Learning World Models through Object-Centric Latent Interventions. Before starting this talk, I would like to thank you for my collaborators, Quentin, Lucas,",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "and Yann LeCun, and Randall Balestriero. So the goal of the Causal-JEPA is understanding the object interaction and object dynamics. These are three data sets that I picked to show today. The first one is Push-T, a pretty famous example",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "in the control experiments. The goal is you do action on the blue ball, and you want to move the gray T block to perfectly overlap on the green T. And the second data set is CLEVRER. This is actually the video paired with question answering the data set.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "The question is like-- it can be predictory. For example, what would happen in the next frame? And it can be counterfactual. For example, what would happen if the blue color cylinder doesn't exist? And it can be explanatory. So it's basically VQA benchmark.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "And the third one is PHYRE. As you can see, many objects are interacting each other with the grounding rule. For example, there's a gravity. The mass matters here and et cetera. So to understand this object dynamics, what the current models",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "are doing is like this. They patchify the image, and they try to predict what will happen in each patches. But what are you going to do to understand this mechanism is you want to understand the things like this. You have each object and you want",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "to know how one object influences each other. So what if in the DINO World Model, what if you just change the representation in the object-centric representation? Then it's more close to human-like thinking, right? But then we have to learn the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "object-centric representation. I'm not going to do very deeply about the object-centric learning, but let me go through briefly. If you're doing computer vision, you might have heard about the object-centric learning. There's a very foundational",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "way called slot attention from Locatello. This is basically encoder-decoder framework. And between this encoder and decoder, you might have the feature space, right? And you bring like a bucket, like a basket, to put each features. And this basket is",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "for each object. So there's a mechanism called slot attention that puts each feature to each slot. So there's a binding problem of feature to slot. And they decode with this basket so that the model can have well-aligned information with the slots.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "You don't have to read this all, but I brought this because this is United Transformers class. And slot attention is about self-attention. So what I want to show is-- how to bind the features to the slot is you do self-attention, where",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "key is the input features. For example, in the DINOv2, there's a patch embeddings. You allocate each patch embedding to slots. You're basically assigning them. And the value is also the input features. And you update the slot by using GRU. So you iteratively",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "update the slots. And now the slot will have the object-aligned representation. So this is how usually the models are getting object-centric representation. This is very, very naive approaches. There's so many advanced ways. For example, this is for",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "image, and there's a video slot attention models as well. So yeah, you can give it a try. And why does the model behave if it perfectly understands the dynamics? Let's say the model learned the monkey eating banana. If model is truly understanding",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "this eating mechanism, the model might be able to infer what is happening to banana when we cover the invisible cloth on banana. So even though you're not seeing the banana, if you see a monkey moving their mouth constantly, you can imagine, oh, a",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "banana might get shorter. And vice versa, if you make the monkey invisible and banana is disappearing, you can infer that a monkey is eating something. This is very core motivation and very core explanation of Causal-JEPA. This is really relevant of",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "what I'm doing right now. And if you think of the previous example, it doesn't have to be-- the predictor doesn't have to be Causal Transformer. As far as we are seeing the only history, we're OK to use multiple time-step history.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "So we're using a bidirectional transformer here. I would like to mention that. And let's see how the model actually implements this, the monkey and banana mechanism, in the transformer. Let's say we have a nicely aligned representation for each object.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "And we include these object states to the representation. For example, let's say our lookback history is four frames. So you see four frames. And next frame prediction will happen. But because this is not a causal autoregressive transformer,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "this is a bidirectional ViT-style transformer, we need a placeholder for this future tokens as well. So we use this as a masked token. And now so our goal is predict this masked token correctly. And for example, each row means the evolution of each object.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "Now, as I told you before, I want to mask something. Here, blue dots are observable slots, and the yellow one is masked slot. And let's imagine that we have this masked slot here. What should model do? What is the easiest way for model to have a reasonably low",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "loss and just predict the masked token? Maybe just average the previous and the next token, just like doing interpolation. But that is what we want. What we want is like a learn the object interaction. So like the previous example of",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "monkey, I just mask everything. This is a bit aggressive way of masking. But now the model doesn't have shortcut. It needs to infer the other slots to correctly infer the current state or the masked state. But what if we want to mask",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "two objects at the same time? This can happen, because in slot attention, you have to fix the maximum number of slots. The number of slots doesn't vary during training, so you give plenty amount of slot to give a model freedom OK, what information should",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "define as a slot? And sometimes in the scene-- for example, we define eight slots, but we only have three objects in the scene. Then just masking only one object, only one slot might not be enough. And then now we want to put this into transformer.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "And we have deflection, so we have to do positional encoding before then. OK, there's no problem by temporal positional encoding. But when we are trying to do positional encoding in the slot axis, there's a problem, because what object-centric models are",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "doing is they do not define the order of the objects, but rather the object-centric models are permutationally equivalent depends with respect to the object orders. So this is basically not list but set of objects. And then if you are masking multiple objects,",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "the model might not know what to predict, because these slots are not having object identity. So the video slot attentions can keep the temporal consistency inside the video itself. For example, Video A have the consistency with the object order.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "But we cannot guarantee that Video A and Video B are having the same order of objects. So now what we do is we do not mask the very first time step. In this case, time step t minus 3. And we use this information as a slot identity. And what we are",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "doing is we define each masked token with the identity token plus learnable masked token with the positional encoding. And this is less aggressive because you have an initial condition of each object. So it makes more sense when you predict the masked tokens.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "And the other part I want to talk about is action conditioning. The world model should condition on the action properly. And what the DINO World Model is doing is they concatenate the action embedding behind the patch embedding. For example, DINOv2-Small has",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "384 dimension of the features. And let's say we have 10 dimensional action embedding. And what DINO World Model do is they duplicate it to make the number of the patches, and they just put the action embedding after the patch representation.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "So now it's like 894 per patch because we added this action embedding after the patch representation. But this is not really optimal way, I think, because what we want to learn is something like this. Why don't we consider action as another node of the graph?",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "The Causal-JEPA does not recover any true causal graph, but its motivation is grounded in the causal graph. So for example, because we define each object representation, those are playing a role of the nodes. And we also try to use this",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "action as one of the node. So in this current situation, the action is added like something like this, not as a part of the feature representation. So this is the architecture of the Causal-JEPA. So to sum up, you have the history frames.",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "And you put this into the object-centric encoder to get the object representation. And then you select some amount of objects to mask, and you mask it. And you put this into predictor, which is bidirectional transformer with the action.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "And then you're predicting every masked tokens. And now we will see some results. I did three experiments based on our goal. Our goal is understanding the object dynamics. And the first thing is reasoning on the counterfactual questions.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "And the second thing is planning and control. And third is physical implausibility. So in the CLEVRER, we did an experiment with the other existing models as well. But what I want to highlight is the model without masking. What I want to say",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "here is the performance is not because we use the object-centric representation, but the core is masking, like in the banana example. So if you see the C-JEPA result, not only average accuracy is better. You can see there's a clearly clear gain",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "in the counterfactual question. This counterfactual question is very well resonated with our original motivation because the counterfactual is asking something like, oh, what if this object doesn't exist? What if this object exists? Something like this.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "So you have to understand how the object interact each other. And the next example is Push-T planning. The agent tried to control the object to reach the goal state. And here I want to emphasize the efficiency. If you can see the DINO World Model baseline,",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "you have 196 patches, if you imagine you are having 2 to 4 by 2 to 4 images. And each patch should have a 384 dimension of the features. And if you're using object-centric representation, the number of tokens are significantly less than that.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "And because now we have the clear semantic from each token, the feature doesn't have to be super large. If you think of-- there's nothing much to include in the object. For example, texture. color, shape, rotational state, and location. That's not that much.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "We don't need like a really huge representation space. So after we only put in object-centric representation instead of the patch representation in the DINO World Model, its performance actually drops a lot. And this can be true because DINO World Model",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "used the causal transformer. And we use bidirectional transformer, right? And the object-centered representation if you think of doesn't necessarily have to include the velocity or acceleration stuff, because you cannot define those properties by only looking",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "at the single static image. So this drops the performance a lot. And after we changed the action-conditioning method, treating them as a separated node, and we change the transformer to the bidirectional transformer, the performance gain is significant.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "It gains this 15% of absolute percentages. And after masking, compared to the OC, Object-Centric DINO World Model, you gain 28%, which is pretty large. And compared to the OC-JEPA, the only difference is object masking. And this object masking",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "actually helps the model to understand these dynamics. And this is the effect of the action conditioning. As I told you before, the latent concatenation in the red line denotes the action-conditioning method based on the DINO World Model.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "But after we treating this action as a separated node, it clearly shows the margin. And there's an additional experiment on PHYRE. PHYRE is-- among three data sets we have, it's like most complicated dynamics. And there's a lot of formulation configuration.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "And you need to learn precisely what is happening in the scenario. And when I compare the OC-JEPA and C-JEPA, OC-JEPA often generates some physically implausible scene. You see like the bar is floating below the fixed bar, which doesn't make sense.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "And this can be done by just learning correlation. When two bars are closed, they just stay there. But that's not true. That's not how physics works. So by the training method of object masking, you keep asking the question to the model, what would",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "happen if this doesn't exist? What should you consider to predict the masked token? It can learn the true dynamics. And this is the attention probing for this previous example. You can see the failure is actually coming from attending to",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "the wrong irrelevant object. So for example, OC-JEPA relies on the cup, which contains the blue ball, and the C-JEPA conditioned on the right bar to predict its future state. And here, the Causal-JEPA, the terminology causal can-- it can sense for many things.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "But here, we use the causal as a temporally directed predictive dependencies, which means that because we're predicting the future from the history, the edge is directed. And to predict the masked token, you need to attend to the relevant object. So we call it",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "temporally directed predictive dependencies. This is not the very conventional and traditional way of defining causal, but recent modern causal machine learning is this kind of definition as well. And here, to go back to the role of the object masking,",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "we say this predictor finds influence neighborhood. Influence neighborhood-- we just define its name. But it's just a predictably sufficient set. So it's like a minimal set that it needs to predict the masked token correctly. And this can be true.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "More formally, this can be true for assumptions. The first thing is we do not assume there's an instantaneous relationship. And the second assumption is that every training instances should share the same mechanism. For example, the gravity",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "should not change along videos. There's a governing rule applied in the whole data set. And the third assumption is object-aligned representation. This is the most tricky in the practical sense, because this assumes that our object-centric representation is",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "constant throughout the video. It should not getting swapped. The object should not be split into the different slots. And our representation should reflect the scenario faithfully. And the fourth is history sufficiency. This is because we use finite history.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "For example, we see four previous frames and predict the next frame. And this four history frame should be enough to predict the future. And to make this causal machine learning to practical, we do not assume first-order Markov process. As I told before, the",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "object-centric representation usually does not follow the first-order Markov process. And we allow confounder. The confounder makes things really tricky because we cannot recover the true causal graph usually because of the confounder.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "But in the object-centric representation in the real world, this is inevitable. So I would like to answer this questions really quickly. What happens if object-centric representation is not faithful? A little bit is fine because still, masking object slots",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "is still some kind of inductive bias, even though our masking is not perfect. So a little minor-- like the wrong model can be OK, but if it's really bad, it doesn't work. Is there any way to recover the true causal graph? No in our method.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "There's confounders, so we cannot recover the true causal graph. And also, sometimes it's really hard to define what is the true causal graph in many scenarios. How to select the number of objects to mask? This is a good question, because",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "we have a fixed number of slots, and the number of actual objects are varying depend on which frame are we looking at. The ideal amount is just only one foreground object without the background slots. But we sometimes cannot control this really well,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "so I would say decide the number of masks based on the data statistics. Just guess your perfect number of the mask. And you should sweep a bit to find the perfect number. And the limitation-- the largest limitation is coming from the object-centric encoder.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "The object-centric representation does not work really well on the occlusion situation. And, in the middle of the video, some objects can appear and disappear. But this slot attention cannot handle this scenario really well. So this is some pain",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "point of this model. And finally, we got back to this three components of world model again. In the beginning of the talk, I said there's a three component that we should consider to make a good world model. And for the good state representation,",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "we use this object representation. And for a good transition model, we did object masking to let the model learn the predictive sufficiency. And about the dynamics model, we tweak the method to condition the action. So we treat this action",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "variables as a separated node. I think this is all of the Causal-JEPA part. And let me quickly put to Lucas. So hi, everyone. My name is Lucas. I'm a third year PhD student at Mila, advised by Damien Scieur, who is researcher in Samsung.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "But I work closely with Randall Balestriero, who is prof at Brown. And the work I'm going to talk about today is the work I done in collaboration with Quentin Le Lidec, who is postdoc at NYU; with Yann LeCun, Damien; Yann LeCun and Randall.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "So today, what I'm going to talk about briefly is how to make this whole world model stuff and JEPA stuff pretty simple to train. And I'm not going to tell you again what is the world model. I think Hazel did it pretty well. So I'm going to go",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "directly to what we did. So just before that, I would like to talk about a big problem. So as Hazel say, JEPA aim to learn representation in abstract space. And so it's directly in opposition to generative modeling, wherein generative modeling,",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "what we try to do is you try to model your input space. Basically, you try to learn a representation of your input space and try to do stuff in your input pace-- input space, sorry. And so JEPA say that this is for most of your tasks, not desirable.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "For instance, if you do self-driving car application, you most likely don't care to model the movement of the leaf of the tree in the road. You don't care to model that. If you do generative modeling, by definition, you will have to model that",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "because you want to model all the detail of your input. So your loss is going to give signal for that. So what JEPA propose is to first encode all your input into an abstract space, typically with an encoder or neural net, and then try to model the dynamic--",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "the dynamics-- sorry-- of your space in that latent space. So it's pretty nice when you say like that. But if you look on the right the image I put, if you just do that, you suffer from what people call collapse. And so what is collapse?",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "It's a failure mode where you can see that if I do nothing, I don't put constraint on the distribution of my embeddings, your model on the right can simply learn to disregard the input and just produce a constant vector. And so you can minimize the",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "prediction loss in the latent space just by saying, OK, I am going to encode everything as a constant vector like 0. And then it's trivially easy to predict what is going to be the next-- state is going to just be 0 again. And so the whole research on JEPA--",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "a big part of the research on JEPA is how do you avoid that collapse. So as Hazel said before, I should add a Causal-JEPA in that previous JEPA recipe as well. You have V-JEPA that try to do-- that try to avoid that collapse with exponential moving average.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "You have DINO World Model that uses a pretrained encoder basically to avoid the collapse, because if you use a pretrained encoder and you froze it, you can produce nontrivial embedding, and you can learn the dynamics directly in the embedding.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "So it's essentially supervised learning in our model. And then you have PLDM that try everything end to end. So they train the encoder or the predictor and everything end to end and their action-conditioned model as well. But they use something called VICReg.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "And what is VICReg? It's just an anti-collapse regularization term that try to make the covariance matrix of your features, of your latent feature's identity. So basically, you want each dimension to be decorrelated from the other of your feature space,",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "except for the covariance matrix. The diagonal line is one typically. So you have a positive correlation. The problem with PLDM is as you-- as you can see on the slide, you need to apply. So one term for the variance. One term for the covariance minimization.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "You need to do that spatially and temporally. So you have four terms. They add an additional inverse dynamics loss to try to gain more information about the action, whatever. It's 5. Plus, you have the prediction in the future. The L2 minimization",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "you see on the right. So your predictor try to predict the future in the latent space. And you compare that with what your encoder say about the future should be. And so it gives you a six-term loss, so it's pretty difficult to tune that because you have",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "six hyperparameters to tune. And that's why we propose LeWorldModel. So what is LeWorldModel? It's just a simple JEPA that doesn't use any tricks. So there is no Exponential Moving Average, no masking, no stop gradient, no pretrained encoder,",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "and also no unstable loss. Why? Because we have a single hyperparameter. And we make the model such that it's only 16 million parameter. So it means you can train that on a single GPU. It's fully end to end from raw pixels, so there is no auxiliary information",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "such as proprioception information or whatever. And we observe that it's 50 times faster than the LeWorldModel for doing planning. So basically, what is LeWorldModel? It's basically JEPA in its pure essence. So what you do is you take an observation ot,",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "an observation ot plus 1, so the next observation. You process-- [COUGHS] sorry. You process both of them through a shared encoder. And you get a representation zt and zt plus 1. What you're going to do in the task is you will use zt and the action at step t",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "and try to learn a predictor to model the dynamics. So you're going to try to predict the future. So you have an estimation of the future called zt plus 1. And you compare that to what your encoder predict for the next state. You use Mean Squared",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "Error, and you use what we call SIGReg to avoid collapse. What is nice is that basically what I told you about before with JEPA is literally what you see. And the code is exactly what I just described. So if you look at the pseudocode on the right,",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "it's actually not that much pseudocode. It's literally the true code. You encode. You predict. You compute your prediction, your future prediction error. And you use SIGReg to avoid collapse. So you can see that at the bottom line at the return,",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "I have a single hyperparameter lambda. So this is the only stuff you need to tune. And because you have a single hyperparameter, you can do a bisection. So it's log n to find the optimal lambda. So it's pretty nice because we can really easily tune the model.",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "And so what is SIGReg now? So this is the stuff that avoids your representation collapse and make sure that your zt or-- informative about what is inside your observation. So basically, you can see zt as learned abstraction of the world or a learned state.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "You have an observation of the world, which is the image ot. And you try to learn-- you try to estimate the state, the ground-truth state. And so how do you prevent collapse? Basically, we use a simple regularization called SIGReg or Sketched",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "Isotropic Gaussian Regularizer that Randall and Yann LeCun introduced last November, I think, if I'm correct. And the idea is very simple. The math are a bit tricky, but I invite you to read the paper. It's a very nice paper. But the idea is very simple.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "You take the distribution of your embedding. So you take your batch. You look at how your embedding zt distributed. And you will try to optimize that distribution to be isotropic Gaussian. So how do you do that? You could use generative modeling",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "to do that with the KL divergence and everything, such as Variational Autoencoder. We don't want that here. We don't want to use generative models. So what you do is you're going to try to use a statistical test. So in statistics, you have tests that",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "tells you given an empirical distribution, how close it-- how close is it to Gaussian distribution? The problem is that our embedding space is very high-dimensional. And so there is no test that-- basically, the statistical test, they suffer from the curse",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "of dimensionality, so it's very difficult to directly use a test to optimize in high-dimensional distribution. And so what Randall had-- our idea is to basically project. You sample a lot of random direction in your latent space, and you're going to",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "project all your embedding into one dimension. So as you can see, for instance, if you look at the red arrow on this image and you look on the right, you can see that once you project your embedding into that direction, you get a unimodal-- sorry, a univariate",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "empirical distribution. And now you can optimize because it's just a 1D distribution. You can optimize to make that Gaussian. And if you do that-- in a lot of directions, there is a theorem called Cramér--Wold theorem that says that if you optimize the",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "marginals to be Gaussian, then the joint is going to be Gaussian. So basically, if you do that for a lot of random direction, you can prove that your latent embedding distribution is going to be Gaussian as well. So it makes us sure that we",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "will have informative embedding. So that's pretty nice. OK, so now how can you-- let's imagine you train your world model, blah, blah, blah, blah, blah. How can you make sure that you learn a good world model? So there is two ways. I mean, I know two ways.",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "If you more than, that's nice. We can talk about that. But the first way is online control. So can you use your LeWorldModel that is action-conditioned? And can you in an online way optimize this action to perform control? So this is the first thing.",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "And the second thing we are going to talk about after is try to assess if your world model understand intuitive physics. But let's focus on control for now. So how we perform control is basically we are going to-- with your model, the LeWorldModel,",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "you're going to sample random trajectories of action. And you're going to optimize by rolling out the future. You will optimize that sequence of action to match a target goal. So for instance, let's say you have a goal frame Og. You start from the",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "current frame O1. You both encode them through your encoder. You got the initial state, latent state Z1. You have your target state, which is zg. And then you sample an initial sequence of action. And you use the first one with your first state",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "inside the predictor. It gives you z2. Then you use the second one, et cetera, blah, blah, blah, blah, blah. And after each state-- each step, sorry, you compare how far are you in your latent space to the representation of the goal. It can be MSE.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "For instance, you use the MSE loss to estimate how far you are from your goal. And because your predictor is differentiable, you can for instance backpropagate until the action try to-- sequence of action to minimize the distance with your goal.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "So I can show you some results. You can see that we consider four tasks. So the first one on the left is called TwoRoom. It's a simple 2D navigation task where you need to move from one side of a room into the other by passing through a door.",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "Then you have Reacher. It comes from DeepMind Control Suite, where you need to-- you can see on the right you have a 2D like-- sorry, a two-joint arm. And you need to match a target location from a given goal. Then you have Push-T.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "So Push-T is already present. But the goal of Push-T is to push basically the T to the green area. That's as simple as that. And you can only push. You cannot pull. And OG-Bench Cube, it's a 3D environment where the objective of that environment",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "is to make the cube-- your cube, it's a 3D manipulation robotic arm where you need to make the cube matching a target location as well. And so I think the most interesting result is-- the first one is Push-T, because you can see that DINO World Model has been",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "trained with proprioception. And you can see that LeWorldModel without proprioception beat DINO World Model with proprioception with half the parameter. But what is most interesting is if you remove the proprioception of DINO World Model, you see that the",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "performance drop. And LeWorldModel, because it doesn't have proprioception, it beats by a lot the LeWorldModel without proprioception. And PLDM, which is the only other one that doesn't use proprioception and that is fully trained end",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "to end, also have very bad performance on Push-T. So it was very nice to see this result. So for Reacher, we beat PLDM and DINO World Model as well. But what is really interesting is that for OG-Bench Cube, for instance, we beat PLDM, but",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "we don't beat DINO World Model. And the most likely explanation for that is that we only train on trajectories coming from the data sets. But DINO World Model has been pretrained because it's a pretrained encoder. It has been pretrained on",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "124 million natural images. And consequently, it has a better understanding about objects and 3D than we have because it has been trained on a lot, lot, lot more data. And also very funnily, you can see that for TwoRoom, even if it's the simplest",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "task, almost all the baseline destroy the task. But for us, we don't. And this is actually a limitation of SIGReg that exists for now is f if you have intrinsic dimensionality. So what I mean by that is the true dimensionality that you",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "need to solve the problem. For instance, so TwoRoom is just 2, because you just need to the x and y of the agent. As soon as you know that and I give you a target location, you can solve the environment. If that is very much smaller than the embedding you use,",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "there is no way that you can produce Gaussian embeddings. At least your SIGReg when you optimize is going to need to create fake stuff to be able to be Gaussian, fake, like to use some information to make your latent space Gaussian. So it doesn't help",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "you, basically. There is research going on to try to fix that. And actually, we know that if you carefully tune the hyperparameter, you can somewhat overcome this issue. But for the sake of fairness, we didn't hypertune all the hyperparameters, and",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "we keep the same hyperparameter across all the environment. But the most interesting part why it's very nice is when you look at the planning time. So for DINO World Model-- and we heavily optimized DINO World Model to try to be as fast as possible.",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "The fastest we could go for doing the full planning is 47 seconds. And the reason for that is because you need to-- your predictor takes all the patches. And you need to predict all the patches, so it's quite slow because of the quadratic cost",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "of the attention to predict the future. As for us, with LeWorldModel, we have a single embedding for representing the latent state because we just use the CLS token of the encoder. And it allows us some other tricks. We didn't optimize a lot for that.",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "We could go a lot less than this. But we can go to a full playing time under the second, which is very nice. It's almost 50 times faster. Another thing interesting is that if you fix the FLOP-- so if you fix the FLOP that you used for planning--",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "and we fix the FLOP at those of LeWorldModel. So if you reduce the planning time by tweaking the hyperparameter for the planning until DINO World Model plan under a second, you can see that the success rate drop by a lot for Push-T and for OG-Bench Cube,",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "which is expected. But it showed that at similar budget, we outperform even on OG-Bench Cube DINO World Model. So that's for the control. For intuitive physics understanding, we did something pretty similar-- pretty easy, sorry. The first thing is we",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "probe the latent space. So we just took the encoder from LeWorldModel, and we froze it. And we train a linear or NLP probe, non-linear probe, to try to predict the coefficients of the simulation for that state. So I will not go that much into the detail.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "You can have a look at the paper for that. But what is pretty interesting is that for instance, for OG-Bench Cube, you can see that the linear probe with LeWorldModel, we almost all the time have a lower mean squared error, which means that--",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "if you compare with the NLP probe on the right, it's almost DINO World Model all the time that have the lowest mean squared error. And so what it suggests is that our latent space is less entangled than one on DINO World Model. So it's more easy to recover",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "the coefficient directly from the latent space rather than DINO World Model. And it doesn't make sense, I think, because as we used SIGReg, it pushed like the latent space in such a way where each dimension are somewhat meaningless. So it's not fully",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "disentangled, but it's somewhat more than Dino World Model, which is pretty nice. Another thing that you could do, which is pretty cool, is to try to see what happens when you violate the world model. So if a sudden change in the dynamics happen,",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "does your world model predict that this is a violation? And so what we did for that is, as you can see on the left-- sorry, the cube color and cube teleportation are inverted. But if you look on the left, you can see that we have a normal trajectory where",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "your robotic arm pick up the cube and move it to the right, for instance, OK? Nothing happened. And then we consider two perturbation. For instance, we change the color of the cube. So this is the one on the right, not in the middle.",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "Suddenly, at a given frame, OK? And another transformation we did is randomly, like suddenly-- this is the one in the middle-- the cube teleport. And so if you look on the right, you can see that the x-axis are the time steps, OK? And the y-axis is",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "the prediction error. So this is the difference between what your predictor predict is going to happen and what the actual embedding of the next states look like, OK? And so what you can see is that if you don't have any perturbation--",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "so this is the gray line-- it's fine. If you change the cube color, it's a bit higher, but it's very negligible. So it means that basically your world model don't care much about the color of the cube, which is pretty cool because you don't",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "need that for the dynamics. You don't care about the color of the cube. But if suddenly the cube teleports, then the prediction error shoot a lot, meaning that your world model didn't predict that. Some people say to me often that yeah, but it's just",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "out-of-distribution. And I would say it's true, but I think it's not very meaningful to say that because as human, when you violate your model, it's also very out-of-distribution. That's why, for instance, when someone do to you a magic trick where",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "they make a coin disappear in front of you, you're suddenly very surprised, and it frustrates you a bit. It's the same here. It's because the prediction error is very high. So we did two other small experiments as well. The first one is we try to",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "embed the location of the agent and the T. And we try to make the agent location and the T location move. So you can see that the middle plot shows you what happened, the different location. And we try to project with a t-SNE plot the embedding space to try",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "to see if we can recover this exact relative distance between all the different locations of the original space. And what you can see is that up to a permutation of the axis and reflection, this is exactly what happened. So we recover basically",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "the relative distance in the original space, which is pretty nice. The last thing we did is we froze the world model, and we train a decoder to try to interpret what is happening when you make future prediction. And so for that, you can",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "see that we give a context to our world model. So this is the first three frame of the top row you see, or the bottom, the second row, OK? So we give that to our model. The first row is really what happened in the future, on the right, where you",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "have open-loop prediction. So this is actually what happened in the trajectory. And then on the second row, you have what your world model imagine when you give the same sequence of action that has been taken for the original sequence. And you can see that",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "the world model predicts somewhat the reality when you give the sequence of action. But what is very interesting is that if you look at the second rollout with the cube-- so you can see that we predict very well what is going to happen with the cube.",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "But if you are very careful, you can see that at frame 15 and 20, the angle of the gripper is opposite. And so basically, you can see that the world model didn't learn the rotation of the gripper, which was pretty interesting, because",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "it still was able to solve somewhat the environment. So there is many limitations for our model, or as I like to call them, research opportunities. So for now, you are doomed to short-term planning horizon. So if you can unlock that, that would be very nice.",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "Another problem is that you have them at a single temporal level. So we need hierarchies, basically. For instance, when you think about oh, I need to go to the airport, you think at a different hierarchy. The airport is your goal. You think, OK, I",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "need to go to my car, then I need to go to airport and blah, blah, blah. And then only at the end, it translates into muscle movement. So you don't all the time think in terms of muscle movement. So we need that as well to be able to predict further",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "in the future. A very important stuff as well is to move from this toy environment. I fully agree with this kind of criticism, that it's very toy-ish experiments. And so can we move to real-world robotics or very stochastic and partially observable",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "environment like Minecraft. That would be very nice. And also, a big problem I think is, how do you specify your goal? So for now, you can see, as I explained before, you need to provide a visual goal, but you don't all the time have access to that.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "And it doesn't tell you anything about how you should solve the task. So for instance, if you have a plane that needs to land, you don't want to just show a picture of the plane landed to do the planning. You want to specify how smooth should",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "be the landing and everything. So we don't how to do that for now with this kind of approach. I would like also to take just two minutes to do a bit of advertisement for something we have been pushing with a lot of Randall's students and a lot of people",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "for the past few months, which is called stable-worldmodel. And if you're interested about world model research and this kind of stuff, you should definitely have a look for that. So it's a GitHub library, fully open-source, that allows you to train",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "very easily world models. So you have all the baseline I discussed about and Hazel discuss about that are implemented there and heavily tested. You have all solver to do planning. You have many environments. We recently added DeepMind Control and Minecraft.",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "And we are in discussion to add support for real robot data also very soon. And everything is very heavily tested, and there is documentation. So yeah, feel free to give a try and give feedback or contribute to library. That would be very cool. Thank you.",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "OK, great. Thank you so much. Let's give a round of applause to our speakers today. [APPLAUSE] So now we'll be soliciting some questions. We have some online on Slido, but I'll also be looking for in-person questions in case anybody here wants to ask",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "anything as well. So we'll balance between both. And I'll let you guys figure out who should answer each question. Or if you both have insights for anything, that's also great. Yeah, does anybody here have any questions? Well, I'm just curious",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "how does the world model transfer to physical AI space? How can we see them moving forward in robotic space? I would give it to Lucas, probably. Lucas, can you hear us? Yes, yes. Can you repeat the question, please? Oh. So how can we expect the world",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "models in the physical AI space? Because we already have a diffusion-based foundation models like GR00T or maybe pi, and also Psi-Zero. Using world models, can we expect some more applications in the robotics space? OK, OK, OK. So first of all, I",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "will be very skeptical that the current VLA models have a good understanding of the world. There is no reason for that. They are not trained to predict the consequence of their action, OK? And I will be very skeptical to see something that doesn't know what is",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "the outcome of his action, be very reliable to the physical AI. So as human, why you are very good at what you do is because you can predict what is the consequence of your action in the real world. And that's what world model try to do. VLA don't do that.",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "So if you want to have physical AI, basically, you need world model. You cannot bypass that. I think, as Yann say, often like VLA and everything, they can be very helpful for simple stuff where you don't need to predict what is going to be the outcome of",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "your action in the real world. For instance, if you want to make robots that-- I don't know-- do some dance or whatever, they only need to their internal dynamics, OK? They don't need how to interact with the real world. To interact with the real world, you",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "need to predict the outcome of your action, so you need world models. I hope that answers your question. If not, happy to clarify. Sure, sure. Thank you. I would like to answer one more sentence. I think Professor Sherry Yang in NYU, she has an opinion",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "that world model can be an evaluator for policies. So I think this can be also your answer. Yeah. We have someone at Slido. Let me see. Someone's asking, masking is shown to improve predictions, but is it really necessary to learn the world model?",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "Does it mean that prediction loss alone is insufficient? The prediction loss-- OK, let me assume that you're talking about-- you're still talking about the object-centric representation. If you only do the prediction loss with no object-centric",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "representation, the shortcut or what model we learn is it can be the self-dynamics. We cannot guarantee that the model learns the interaction-based dynamics. So I won't say that it's insufficient, but with the masking, I think you can reinforce the model",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "to learn the object dynamics. Yeah, that makes sense. Someone's asking, do you have any insights on how C-JEPA learns to plan ahead beyond just the next frame? So for the-- is it all of the question? Yeah. OK. We strictly follow the evaluation method.",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "I mean, the planning of the DINO World Model. So with the predicted future frame, we do with autoregressively to reach the long-horizon planning. And we use the same, the parameters for planning as well. Any in-person questions? OK, I'll continue",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "with the online ones because we have quite a lot. Let me see. Someone's asking, what would a JEPA native agent architecture look like compared to current LLM-based agents? Lucas, do you want to answer? Of course. Can you just repeat the question?",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "It's pretty difficult to hear. Someone asked, what would a JEPA native agent architecture look like compared to current LLM-based agents? OK. Basically, the way it differs is that you learn action-conditioned model, right? So LLM agent, you don't learn",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "action-conditioned model, as far as I know. I'm not expert in LLM as well. But you learn to use tooling and to make tool calls. This is not what you do when you do world models. What you do is you learn, OK, I have an action. I am a current state.",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "What is going to happen in the future if I take that action? This is not how you train LLMs. So this is one step that differs. And the second thing is that by construction, you can just learn to model the future with world models and then use planning by using",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "old concept of control theory, such as model predictive control or whatever, to directly convert that into an agent. You don't need post-training or whatever. You can do that zero-shot. So that's pretty neat. For LLM, I'm not sure, so I cannot reply for that.",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "I think that makes sense. Yeah. I guess this is-- let me see. Yeah, do you think JEPA models are less prone to hallucination than transformer-based models, since they hopefully learn a more accurate representation of the world? I'm not sure if you guys",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "might have any insights. I can answer first. And, Lucas, you can just add your opinion on it. I'm not sure what kind of hallucination the person asked, but in the predictive sense, because JEPA model is-- as I mentioned earlier part of the talk,",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "the JEPA is energy-based model. So rather than just predicting the full pixel space, what it evaluate is oh, is our predicted future make sense? Is it a possible situation, or is it impossible? So I think in that sense, in the sense of the representation,",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "the representation will be more suitable for world model, I think. Yeah. Yeah, so I can complete on that. So I think the original question was to compare JEPA and transformer-based model. So I would like just to emphasize that JEPA is not an architecture,",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "a new architecture. For instance, for LeWorldModel, [INAUDIBLE] encoder and predictor are two transformers. So JEPA is really a framework to try to learn world model. It's not a new architecture. And second, I think you can have definitely a hallucination",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "if you don't learn a good model. But this is not at all the same hallucination as you have with LLM, because LLM, they have multiple sources from hallucination. One of them is that they are not grounded in the real world, OK? With world model, you",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "can easily fix that. Additionally, also, you can say that with world model, you can have another source of hallucination as well is that when you optimize the action sequence that you want to do for doing planning, you could have actions that are not",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "meaningful for the real world. For instance, let's say that your action is minus. It's between minus 1 and 1, and that your optimizer say, OK, you should use minus 2 as an action. So you can have this kind of hallucination. Otherwise, it's just about the",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "quality of your learned model. And this is just a matter of data and capacity. Hopefully, that makes sense. Yeah, no, great. I think that makes a lot of sense. Thanks. We have someone asking, are world models better than the diffusion-based",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "models for robot control? I think we would have similar answer as the previous one. The world model can still use the diffusion model. Yeah, of course, of course. You could use diffusion model to train JEPA. Actually, some people try to do that.",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "Diffusion model have some advantage and some limitation as well. So yeah. Any in-person questions? All right. We got one at the back. A longer horizon question. But you mentioned that you might consider planning through this whole family of",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "different algorithms developed for control, like model predictive control, et cetera. And you mentioned that it might be possible to use these things as a grounding signal to train policies. Do you think that it's combining those approaches,",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "if maybe that's what you already meant by training policies, though, of turning up a lot of compute on something like an alternative controller for a relatively long horizon, and then distilling those back down into policies might",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "be an efficient way of getting some longer horizon behavior for one of those problems and/or research directions you mentioned? You want to go for it, Hazel, or-- You can go for it. OK. Yeah, you can definitely train a policy on that, because as soon as you",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "have world model, basically, you can do either two things. You can use that directly and optimize your action sequence to have a zero-shot policy. Or you can do the same as Dreamer, for instance, and use your pretrained world model and train reinforcement",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "learning policy on that, and periodically go in your environment, and collect better data and fine-tune your model, improve your policy, and blah, blah, blah. You can do that as well. So in the future, I think you will have something similar to System",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "1, System 2, same as human does, where you will have basically an action-reaction policy, where you will learn to directly predict what is the action I should take to have that goal given this state. And then for difficult tasks that you are not",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "very confident about planning and model predictive control to have more careful plan and situation. For instance, when you want to learn to drive a car, maybe at the first 20 hours, you will use model predictive control to make sure you don't kill someone.",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "And then after 20 hours, you think you are an expert. So you can basically distill your prediction of model predictive control and planning to a direct policy that outputs directly the action. All right. Great. Unfortunately, that's all the time we have.",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "Hazel will be staying after in case anybody has any questions or wants to talk to her. So thanks again to our speakers for the very insightful talk. Thank you.",
+      "start": 1380,
+      "duration": 6
+    }
+  ]
+}

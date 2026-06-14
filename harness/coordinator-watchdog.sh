@@ -49,7 +49,7 @@ AUTO_RECOVER_SECS="${AUTO_RECOVER_SECS:-600}"
 _last_cb_notify_ts=0
 
 G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'; N='\033[0m'
-log()  { echo -e "${C}[Watchdog]${N} $(date '+%H:%M:%S') $*"; }
+log()  { echo -e "${C}[Watchdog]${N} $(date '+%m-%d %H:%M:%S') $*"; }
 ok()   { echo -e "${G}[Watchdog]${N} $*"; }
 warn() { echo -e "${Y}[Watchdog]${N} $*"; }
 err()  { echo -e "${R}[Watchdog]${N} $*"; }
@@ -75,6 +75,22 @@ log_unexpected_error() {
   local status="$1"
   local line="$2"
   err "unexpected exit status=${status} line=${line} cmd=${BASH_COMMAND}"
+}
+
+# --- D2 (2026-06-09 P0 修复): 熔断必须有人知道 ---
+# 桌面通知 + events/all.jsonl 落账 (status-server /status 读取此文件)
+notify_event() {
+  local event="$1"
+  local title="$2"
+  local message="$3"
+  bash "$HARNESS_DIR/osascript-notify.sh" "$title" "$message" 2>/dev/null || true
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  mkdir -p "$HARNESS_DIR/events"
+  local msg_escaped="${message//\\/\\\\}"
+  msg_escaped="${msg_escaped//\"/\\\"}"
+  printf '{"ts":"%s","event":"%s","by":"watchdog","severity":"warn","data":{"message":"%s"}}\n' \
+    "$ts" "$event" "$msg_escaped" >> "$HARNESS_DIR/events/all.jsonl" || true
 }
 
 # --- D4: 终态 sprint 过滤 (Sprint 20260422-211820) ---
@@ -137,6 +153,8 @@ do_check() {
   if [[ "$failures" -ge "$MAX_CONSECUTIVE_FAILURES" ]]; then
     err "熔断! Coordinator 连续 ${failures} 次启动失败，停止重启"
     err "手动恢复: bash $HARNESS_DIR/solar-harness.sh wake <sid>"
+    notify_event "watchdog_coordinator_circuit_break" "Solar Harness 熔断" \
+      "Coordinator 连续 ${failures} 次启动失败已熔断, 需人工: solar-harness.sh wake <sid>"
     # 写事件到活跃 sprint
     local sf
     sf=$(ls -t "$SPRINTS_DIR"/*.status.json 2>/dev/null | head -1)
@@ -453,6 +471,8 @@ check_panes() {
         printf '%s\tcircuit_breaker\t\twatchdog 熔断 pane=%s host_role=%s persona=%s count=%s window=%ss\n' \
           "$cb_ts" "$target" "$host_role" "$persona" "$count" "$PANE_RESTART_COOLDOWN" \
           > "$HARNESS_DIR/.planner-last-notice"
+        notify_event "watchdog_pane_circuit_break" "Solar Harness Pane 熔断" \
+          "Pane ${target} (${persona}) ${PANE_RESTART_COOLDOWN}s 内重启 ${count} 次已熔断, 需人工介入"
         _last_cb_notify_ts=$cb_now
       fi
       continue

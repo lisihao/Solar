@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI GRID 智能控制平面 · 技术深度解析</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Source+Code+Pro:wght@400;600&family=Playfair+Display:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafaf8;
+  --surface: #ffffff;
+  --surface-2: #f3f2ef;
+  --surface-3: #eae8e4;
+  --accent: #0b6e54;
+  --accent-light: #e8f5f0;
+  --accent-mid: #0b6e5440;
+  --blue: #1d4ed8;
+  --blue-light: #eff6ff;
+  --orange: #b84318;
+  --orange-light: #fff7ed;
+  --purple: #6d28d9;
+  --purple-light: #f5f3ff;
+  --red: #b91c1c;
+  --red-light: #fef2f2;
+  --text: #1a1a2e;
+  --text-dim: #64647a;
+  --text-light: #9898aa;
+  --border: #e0ddd7;
+  --border-light: #eeedea;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans SC', -apple-system, sans-serif;
+  line-height: 1.8;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ====== HEADER ====== */
+.doc-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 3rem 2rem 2.5rem;
+}
+
+.doc-header-inner {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.doc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 0.35rem 0.85rem;
+  border-radius: 100px;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+
+.doc-badge::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.doc-header h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 900;
+  line-height: 1.15;
+  margin-bottom: 0.75rem;
+  color: var(--text);
+}
+
+.doc-header .subtitle {
+  font-size: 1.1rem;
+  color: var(--text-dim);
+  font-weight: 300;
+  max-width: 680px;
+  line-height: 1.7;
+}
+
+.doc-meta {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-light);
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.7rem;
+  color: var(--text-light);
+}
+
+/* ====== NAV ====== */
+.doc-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(250, 250, 248, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+
+.doc-nav-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0.6rem 2rem;
+  display: flex;
+  gap: 0.15rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.doc-nav-inner::-webkit-scrollbar { display: none; }
+
+.doc-nav a {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 5px;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.doc-nav a:hover, .doc-nav a.active {
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+/* ====== MAIN ====== */
+.doc-body {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem;
+}
+
+.chapter {
+  padding: 3.5rem 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.chapter:last-child { border-bottom: none; }
+
+.ch-label {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.68rem;
+  color: var(--accent);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.ch-title {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+  font-weight: 700;
+  line-height: 1.25;
+  margin-bottom: 1.25rem;
+}
+
+h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 2rem 0 0.75rem;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.5rem;
+  color: var(--text);
+}
+
+p { color: var(--text-dim); font-size: 0.92rem; margin-bottom: 1rem; font-weight: 400; }
+p strong { color: var(--text); font-weight: 600; }
+
+/* ====== SOURCE CARD ====== */
+.src-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  margin: 1.5rem 0;
+  font-size: 0.82rem;
+}
+
+.src-card .src-type {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.src-card .src-type.official { color: var(--accent); }
+.src-card .src-type.analyst { color: var(--blue); }
+.src-card .src-type.vendor { color: var(--purple); }
+.src-card .src-type.benchmark { color: var(--orange); }
+
+.src-card .src-type::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+}
+
+.src-card .src-type.official::before { background: var(--accent); }
+.src-card .src-type.analyst::before { background: var(--blue); }
+.src-card .src-type.vendor::before { background: var(--purple); }
+.src-card .src-type.benchmark::before { background: var(--orange); }
+
+.src-card .src-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+
+.src-card .src-body {
+  color: var(--text-dim);
+  line-height: 1.65;
+}
+
+.src-card .src-url {
+  display: block;
+  margin-top: 0.5rem;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.65rem;
+  color: var(--text-light);
+  word-break: break-all;
+}
+
+/* ====== ARCHITECTURE BOX ====== */
+.arch-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  margin: 2rem 0;
+}
+
+.arch-row {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.arch-row:last-child { margin-bottom: 0; }
+
+.arch-node {
+  flex: 1;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+
+.arch-node .node-label {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.arch-node .node-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+
+.arch-node .node-desc {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+.arch-node.green { background: var(--accent-light); }
+.arch-node.green .node-label { color: var(--accent); }
+.arch-node.blue { background: var(--blue-light); }
+.arch-node.blue .node-label { color: var(--blue); }
+.arch-node.orange { background: var(--orange-light); }
+.arch-node.orange .node-label { color: var(--orange); }
+.arch-node.purple { background: var(--purple-light); }
+.arch-node.purple .node-label { color: var(--purple); }
+.arch-node.red { background: var(--red-light); }
+.arch-node.red .node-label { color: var(--red); }
+
+.arch-arrow {
+  text-align: center;
+  color: var(--text-light);
+  font-size: 1rem;
+  padding: 0.25rem 0;
+}
+
+/* ====== KPI TABLE ====== */
+.kpi-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.85rem;
+}
+
+.kpi-table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.65rem;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--border);
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.kpi-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-dim);
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.kpi-table td:first-child {
+  font-weight: 600;
+  color: var(--text);
+  min-width: 140px;
+}
+
+.kpi-table tr:hover td { background: var(--surface-2); }
+
+/* ====== DETAIL BLOCK ====== */
+.detail-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 1.5rem 0;
+  overflow: hidden;
+}
+
+.detail-block .db-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.detail-block .db-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.detail-block .db-icon.green { background: var(--accent-light); }
+.detail-block .db-icon.blue { background: var(--blue-light); }
+.detail-block .db-icon.orange { background: var(--orange-light); }
+.detail-block .db-icon.purple { background: var(--purple-light); }
+
+.detail-block .db-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.detail-block .db-body {
+  padding: 1.25rem 1.5rem;
+}
+
+.detail-block .db-body p {
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.detail-block .db-body p:last-child { margin-bottom: 0; }
+
+/* ====== CALLOUT ====== */
+.callout {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-light);
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  border-radius: 0 8px 8px 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.65;
+}
+
+.callout strong { color: var(--text); }
+
+.callout.blue-callout {
+  border-color: var(--blue);
+  background: var(--blue-light);
+}
+
+/* ====== STATS ROW ====== */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.stat-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.stat-box .sv {
+  font-family: 'Playfair Display', serif;
+  font-size: 2rem;
+  font-weight: 900;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.stat-box .sl {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 0.35rem;
+  line-height: 1.4;
+}
+
+/* ====== FLOW DIAGRAM ====== */
+.flow-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 1.5rem 0;
+}
+
+.flow-step {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 0;
+}
+
+.flow-step .fs-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.flow-step .fs-body {
+  flex: 1;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 1rem;
+}
+
+.flow-step:last-child .fs-body { border-bottom: none; padding-bottom: 0; }
+
+.flow-step .fs-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-bottom: 0.3rem;
+}
+
+.flow-step .fs-desc {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* ====== SOURCE LIST ====== */
+.source-list {
+  margin-top: 1rem;
+}
+
+.source-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.8rem;
+}
+
+.source-item:last-child { border-bottom: none; }
+
+.source-item .si-num {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.65rem;
+  color: var(--text-light);
+  min-width: 24px;
+  padding-top: 0.15rem;
+}
+
+.source-item .si-body { flex: 1; }
+
+.source-item .si-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.15rem;
+}
+
+.source-item .si-meta {
+  font-size: 0.72rem;
+  color: var(--text-light);
+}
+
+.source-item .si-url {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.62rem;
+  color: var(--blue);
+  word-break: break-all;
+  text-decoration: none;
+}
+
+.source-item .si-url:hover { text-decoration: underline; }
+
+/* ====== DIAGRAM CARDS ====== */
+.dia-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 1.5rem 0;
+}
+
+.dia-group-label {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 0.75rem 1.25rem;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  margin-top: 1.5rem;
+}
+
+.dia-group-label.hw { background: var(--accent-light); color: var(--accent); }
+.dia-group-label.sw { background: var(--blue-light); color: var(--blue); }
+.dia-group-label.cp { background: var(--purple-light); color: var(--purple); }
+.dia-group-label.blog { background: var(--orange-light); color: var(--orange); }
+
+.dia-card {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-top: none;
+  background: var(--surface);
+  align-items: flex-start;
+  transition: background 0.15s;
+}
+
+.dia-card:last-child {
+  border-radius: 0 0 8px 8px;
+}
+
+.dia-card:hover {
+  background: var(--surface-2);
+}
+
+.dia-fig {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-light);
+  min-width: 52px;
+  padding-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.dia-info { flex: 1; }
+
+.dia-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text);
+  margin-bottom: 0.2rem;
+  line-height: 1.4;
+}
+
+.dia-desc {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+.dia-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.62rem;
+  color: var(--blue);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.dia-link:hover { text-decoration: underline; }
+
+.dia-link::before {
+  content: '→';
+  font-size: 0.7rem;
+}
+
+/* ====== FOOTER ====== */
+.doc-footer {
+  text-align: center;
+  padding: 2.5rem 2rem;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.68rem;
+  color: var(--text-light);
+  border-top: 1px solid var(--border);
+}
+
+/* ====== RESPONSIVE ====== */
+@media (max-width: 768px) {
+  .arch-row { flex-direction: column; }
+  .stats-row { grid-template-columns: 1fr 1fr; }
+  .doc-header, .doc-body { padding-left: 1.25rem; padding-right: 1.25rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ====== HEADER ====== -->
+<div class="doc-header">
+  <div class="doc-header-inner">
+    <div class="doc-badge">AI GRID CONTROL PLANE · TECHNICAL DEEP DIVE</div>
+    <h1>智能控制平面<br>技术深度解析</h1>
+    <p class="subtitle">AI GRID 的核心差异化不在硬件层——而在控制平面。它将地理分散的 GPU 集群统一为一个确定性、SLA 感知、KV-Cache 智能路由的逻辑推理平台。本文基于 NVIDIA 官方技术文档、GTC 2026 发布材料及第三方分析报告，系统拆解这一「分布式 AI 神经系统」的关键技术细节。</p>
+    <div class="doc-meta">
+      <span>GTC 2026 · MARCH 16-19</span>
+      <span>9 权威信源支撑</span>
+      <span>20+ 官方架构图索引</span>
+    </div>
+  </div>
+</div>
+
+<!-- ====== NAV ====== -->
+<nav class="doc-nav">
+  <div class="doc-nav-inner">
+    <a href="#overview">总览定位</a>
+    <a href="#arch">三层组件架构</a>
+    <a href="#kpi">KPI 感知路由</a>
+    <a href="#kv">KV-Cache 路由</a>
+    <a href="#dynamo">Dynamo 引擎</a>
+    <a href="#cmx">CMX/STX 存储</a>
+    <a href="#flow">服务编排流</a>
+    <a href="#bench">基准验证</a>
+    <a href="#diagrams">官方架构图索引</a>
+    <a href="#sources">完整信源</a>
+  </div>
+</nav>
+
+<!-- ====== BODY ====== -->
+<div class="doc-body">
+
+<!-- CH1: Overview -->
+<div class="chapter" id="overview">
+  <div class="ch-label">01 — 总览定位</div>
+  <div class="ch-title">控制平面：从「GPU 集群」到「统一推理平台」的关键跳跃</div>
+
+  <p>AI GRID 的硬件层（RTX PRO 6000 Blackwell GPU、BlueField DPU、Spectrum-X 以太网）和网络层解决的是「在哪里放置算力」的问题。但仅有硬件不够——没有控制平面，AI GRID 就只是一堆通过高速网络连接的孤立 GPU 集群。控制平面才是让这些分散资源表现为<strong>单一智能系统</strong>的核心。</p>
+
+  <div class="src-card">
+    <div class="src-type official">NVIDIA 官方技术文档</div>
+    <div class="src-body">NVIDIA AI Grid 参考设计白皮书明确指出：控制平面引入了<strong>确定性的、SLA 感知的 AI 负载路由层</strong>——它不是简单地将请求发送到最近或最空闲的节点，而是将模型端点视为分布式系统架构来处理，实时评估延迟、成本、模型能力、健康信号和容量来精确决定每个请求的执行位置。同时，它通过 KV-Cache 感知的模型路由来优化 LLM prompt 的模型放置与复用，将兼容请求导向缓存命中率最高的实例。</div>
+    <div class="src-url">docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/control_plane_design.html</div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type analyst">第三方分析 · Nscale 技术解析</div>
+    <div class="src-body">Nscale 的分析文章进一步阐述：没有控制平面层，AI GRID 将只是一组由快速传输连接的 GPU 集群的集合。有了它，网格才能作为一个<strong>单一协调的智能系统</strong>运作。该控制平面需持续观察、优化和治理整个分布式环境。</div>
+    <div class="src-url">nscale.com/blog/what-is-the-ai-grid</div>
+  </div>
+
+  <div class="callout">
+    <strong>核心判断：</strong>控制平面是 AI GRID 与传统分布式计算（如 CDN、边缘计算）的根本差异所在。传统架构的流量调度是基于地理位置和负载的简单分发；AI GRID 控制平面是基于 <strong>AI 负载语义、KV-Cache 状态、SLA 约束和 Token 经济学</strong>的多维智能决策。
+  </div>
+</div>
+
+<!-- CH2: Three-Layer Architecture -->
+<div class="chapter" id="arch">
+  <div class="ch-label">02 — 三层组件架构</div>
+  <div class="ch-title">AI Grid Orchestrator + 全局负载均衡器 + LLM 路由器</div>
+
+  <p>根据 NVIDIA 官方控制平面白皮书，控制平面被定义为一个「高性能神经系统」，由三个核心组件协同工作：</p>
+
+  <div class="arch-box">
+    <div class="arch-row">
+      <div class="arch-node green" style="flex: 1;">
+        <div class="node-label">核心组件 ①</div>
+        <div class="node-name">AI Grid Orchestrator（编排器）</div>
+        <div class="node-desc">维护全局状态——哪些集群健康、哪里有可用容量。管理 Pod、集群和模型部署的完整生命周期。若某节点心跳丢失，编排器自动检测并在其他位置重新配置模型。通常构建于 Kubernetes 或专用 AI 调度框架之上，包含决策与策略引擎。</div>
+      </div>
+    </div>
+    <div class="arch-arrow">↕</div>
+    <div class="arch-row">
+      <div class="arch-node blue">
+        <div class="node-label">核心组件 ②</div>
+        <div class="node-name">Global Load Balancer（全局负载均衡器）</div>
+        <div class="node-desc">处理入站数据流（Ingress），决定请求应被发送到哪里处理。分发请求到多个活跃实例，维护基于服务商设定标准的排名列表。查看硬件级健康数据（连接数、CPU/GPU 利用率），可直接或通过 AI 网关连接到编排器获取资源和策略更新。</div>
+      </div>
+      <div class="arch-node purple">
+        <div class="node-label">核心组件 ③</div>
+        <div class="node-name">LLM Router（大模型路由器）</div>
+        <div class="node-desc">专注智能请求路由。分析传入查询的上下文、复杂度和元数据，将每个请求导向最合适的模型。与标准负载均衡器不同，LLM 路由器具备上下文感知能力——分析传入 prompt 以决定最高效的路径。还可实现语义缓存。</div>
+      </div>
+    </div>
+    <div class="arch-arrow">↕</div>
+    <div class="arch-row">
+      <div class="arch-node orange" style="flex: 1;">
+        <div class="node-label">底层执行引擎</div>
+        <div class="node-name">NVIDIA Dynamo</div>
+        <div class="node-desc">简化和自动化分布式推理的复杂性——将推理的各个阶段（prefill/decode）分解到不同 GPU 上，智能路由请求以避免冗余计算，并通过数据缓存将 GPU 内存扩展到低成本存储层。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type official">NVIDIA 官方技术文档</div>
+    <div class="src-body">上述三层架构直接来自 NVIDIA AI Grid 参考设计白皮书的控制平面设计章节。白皮书明确指出：与传统负载均衡器不同，AI Grid 控制平面基于五个维度路由流量——<strong>Prompt 感知、资源与利用率感知、多租户、数据治理、安全性</strong>。</div>
+    <div class="src-url">docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/control_plane_design.html</div>
+  </div>
+
+  <h3>控制平面的五大路由维度</h3>
+
+  <table class="kpi-table">
+    <thead>
+      <tr>
+        <th>维度</th>
+        <th>含义</th>
+        <th>技术实现</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Prompt 感知</td>
+        <td>分析每个请求的复杂度和意图</td>
+        <td>简单交互导向轻量节点，复杂推理任务路由到高密度 RTX PRO 6000 集群</td>
+      </tr>
+      <tr>
+        <td>资源感知</td>
+        <td>实时平衡计算和网络利用率</td>
+        <td>避免热点，防止单一节点成为瓶颈，在用户感受到尾延迟飙升之前规避过载</td>
+      </tr>
+      <tr>
+        <td>多租户</td>
+        <td>支持网格「切片」</td>
+        <td>高优先级租户获保障性能，其他租户在共享架构上硬隔离</td>
+      </tr>
+      <tr>
+        <td>数据治理</td>
+        <td>嵌入式数据治理作为一等公民路由约束</td>
+        <td>在请求时执行租户级数据驻留、主权和合规策略</td>
+      </tr>
+      <tr>
+        <td>安全性</td>
+        <td>安全作为一等设计原则</td>
+        <td>基于角色的访问控制 + 强化多租户 + 完全可审计的确定性路由决策</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- CH3: KPI-Aware Routing -->
+<div class="chapter" id="kpi">
+  <div class="ch-label">03 — KPI 感知路由机制</div>
+  <div class="ch-title">不是「最近优先」，而是「SLA 最优」</div>
+
+  <p>传统边缘计算和 CDN 的路由逻辑通常很简单：将请求发送到地理距离最近或负载最低的节点。AI GRID 控制平面完全颠覆了这一范式。</p>
+
+  <div class="src-card">
+    <div class="src-type official">NVIDIA 技术博客 · GTC 2026</div>
+    <div class="src-body">NVIDIA 技术博客详细描述了控制平面的两大核心路由能力：(1) <strong>KPI 感知路由</strong>——基于延迟要求、主权约束和成本来放置负载；(2) <strong>资源感知放置</strong>——持续考虑节点健康、利用率和配额，在用户察觉尾延迟飙升之前避开过载或退化的站点，同时将兼容流量导向 KV-cache 命中率高的节点，以降低 Token 延迟和每请求 GPU 消耗。</div>
+    <div class="src-url">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/</div>
+  </div>
+
+  <h3>路由决策的多维 KPI 矩阵</h3>
+  <p>控制平面在每个推理请求到达时，实时评估以下多个维度并做出全局最优决策：</p>
+
+  <table class="kpi-table">
+    <thead>
+      <tr>
+        <th>KPI 维度</th>
+        <th>评估内容</th>
+        <th>优化目标</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>端到端延迟</td>
+        <td>RTT + 排队延迟 + 计算延迟（tokenization + prefill + decode）</td>
+        <td>确保语音交互 <500ms、视觉 AI <1s 的硬 SLO</td>
+      </tr>
+      <tr>
+        <td>Token 成本</td>
+        <td>GPU 利用率 × 带宽开销 × 出口成本</td>
+        <td>在满足 SLA 的前提下最小化每 Token 成本</td>
+      </tr>
+      <tr>
+        <td>数据主权</td>
+        <td>租户的数据驻留规则 × 司法管辖区要求</td>
+        <td>数据不出境，模型和日志保留在指定管辖区内</td>
+      </tr>
+      <tr>
+        <td>模型能力</td>
+        <td>目标节点上可用模型版本 × 参数量级</td>
+        <td>复杂任务路由到大模型节点，简单任务路由到轻量 SLM</td>
+      </tr>
+      <tr>
+        <td>KV-Cache 命中率</td>
+        <td>各节点 KV-Cache 状态 × 请求与缓存的重叠度</td>
+        <td>最大化缓存复用，减少重复计算</td>
+      </tr>
+      <tr>
+        <td>节点健康</td>
+        <td>GPU 利用率、内存压力、存储性能、网络延迟、电力、热量</td>
+        <td>在问题影响负载之前主动规避</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout blue-callout">
+    <strong>与传统负载均衡的本质区别：</strong>传统 GSLB（全局服务器负载均衡）只看硬件级指标——连接数和 CPU/GPU 利用率。AI GRID 控制平面增加了 <strong>AI 负载语义层</strong>（prompt 复杂度分析 + KV-Cache 状态追踪 + 数据主权约束），这是分布式 AI 推理特有的需求。
+  </div>
+</div>
+
+<!-- CH4: KV-Cache Routing -->
+<div class="chapter" id="kv">
+  <div class="ch-label">04 — KV-CACHE 感知路由</div>
+  <div class="ch-title">控制平面中最精密的智能：避免重复计算的全局缓存调度</div>
+
+  <p>KV-Cache 感知路由是 AI GRID 控制平面中技术含量最高、对推理效率影响最大的单一机制。要理解它的价值，需要先理解 KV-Cache 在推理中的角色。</p>
+
+  <h3>什么是 KV-Cache？为什么它如此重要？</h3>
+  <p>在 LLM 响应用户 prompt 之前，模型必须构建对输入请求的上下文理解——这个过程会产生 <strong>KV-Cache</strong>（Key-Value 缓存），它存储了模型在推理过程中各层的激活值（key 和 value）。这个过程计算密集，且随输入大小呈二次方增长。复用 KV-Cache 可以避免从头重新计算，显著降低推理时间和计算资源消耗。</p>
+
+  <div class="src-card">
+    <div class="src-type official">NVIDIA Dynamo 技术博客</div>
+    <div class="src-body">NVIDIA Dynamo Smart Router 追踪大规模 GPU 集群中跨多节点和解耦部署的 KV-Cache 状态，并高效路由传入请求以最小化昂贵的重新计算。它将传入请求进行哈希处理并存储在<strong>基数树（Radix Tree）</strong>中，从而在大规模分布式推理环境中追踪 KV 位置。</div>
+    <div class="src-url">developer.nvidia.com/blog/introducing-nvidia-dynamo-a-low-latency-distributed-inference-framework-for-scaling-reasoning-ai-models/</div>
+  </div>
+
+  <h3>KV-Cache 路由的精确技术机制</h3>
+
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="fs-num">1</div>
+      <div class="fs-body">
+        <div class="fs-title">请求 Token 化与分块</div>
+        <div class="fs-desc">传入的 prompt 被转换为 token，然后划分为固定大小的块（如每块 16 或 64 个 token）。</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="fs-num">2</div>
+      <div class="fs-body">
+        <div class="fs-title">块哈希与全局索引</div>
+        <div class="fs-desc">每个 token 块被哈希为唯一标识符。KVPublisher 在每个 worker 上发出 KV-Cache 事件（创建/移除），KVIndexer 全局追踪这些事件，使用前缀树（prefix tree）维护精确的重叠信息。</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="fs-num">3</div>
+      <div class="fs-body">
+        <div class="fs-title">重叠分数计算</div>
+        <div class="fs-desc">当新请求到达时，Smart Router 计算传入请求与<strong>分布式集群中所有 GPU 内存上活跃的 KV-Cache 块</strong>之间的重叠分数（overlap score）。路由决策基于成本函数：<br><code style="background:var(--surface-2); padding:0.2em 0.5em; border-radius:4px; font-family:'Source Code Pro',monospace; font-size:0.8em;">logit = kv_overlap_score_weight × potential_prefill_blocks + potential_active_blocks</code></div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="fs-num">4</div>
+      <div class="fs-body">
+        <div class="fs-title">多因子智能路由</div>
+        <div class="fs-desc">综合考虑缓存命中率、负载均衡和 GPU 容量，将请求智能路由到最合适的 worker。与轮询或基于负载的路由不同，这种方法优化了整个系统性能。权重参数 kv_overlap_score_weight 可调：较高值优先减少 prefill 成本（改善 TTFT），较低值优先均匀分布 decode 负载（改善 ITL）。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type official">NVIDIA Dynamo 路由器文档</div>
+    <div class="src-body">Dynamo KV Router 通过评估不同 worker 上的计算成本来智能路由请求。它同时考虑 decode 成本（来自活跃块）和 prefill 成本（来自新计算块），利用 KV-Cache 重叠来最小化冗余计算。路由器使用来自 worker 的 KV 事件来默认维护缓存块的精确全局视图。</div>
+    <div class="src-url">docs.nvidia.com/dynamo/latest/user-guides/kv-cache-aware-routing</div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type official">NVIDIA Dynamo GitHub 文档</div>
+    <div class="src-body">在 Dynamo 架构中，KV-Cache 路由使用「直接路由」（direct routing）配合特殊的 worker 选择算法。SGLang 贡献的 RadixAttention 引入了前缀树结构，实现了 KV-Cache 块的高效匹配、插入和驱逐。Dynamo 在此基础上引入了 KVPublisher（在每个 worker 上发出 KV-Cache 事件）和 KVIndexer（全局追踪这些事件）。</div>
+    <div class="src-url">github.com/ai-dynamo/dynamo · docs/kv_cache_routing.md</div>
+  </div>
+</div>
+
+<!-- CH5: Dynamo -->
+<div class="chapter" id="dynamo">
+  <div class="ch-label">05 — NVIDIA DYNAMO 分布式推理引擎</div>
+  <div class="ch-title">控制平面的执行底座：五大核心组件</div>
+
+  <p>Dynamo 是控制平面之下的实际执行引擎。它不替代推理后端（SGLang、TensorRT-LLM、vLLM），而是将它们编排为协调的多节点推理系统。Dynamo 1.0 已于 GTC 2026 发布为生产级框架，在 NVIDIA Blackwell 硬件上实现了高达 7 倍的吞吐量提升。</p>
+
+  <div class="detail-block">
+    <div class="db-header">
+      <div class="db-icon green">①</div>
+      <div class="db-title">SLO Planner（服务等级目标规划器）</div>
+    </div>
+    <div class="db-body">
+      <p>监控多节点部署中的容量和 prefill 活动，动态调整 GPU 资源以持续满足服务等级目标（SLO）。通过考虑应用级 SLO（如 TTFT 和 ITL）以及 KV-Cache 传输成本，Planner 做出知情决策来重新分配 GPU 或改变推理策略以缓解瓶颈。</p>
+    </div>
+  </div>
+
+  <div class="detail-block">
+    <div class="db-header">
+      <div class="db-icon blue">②</div>
+      <div class="db-title">KV-aware Router（KV-Cache 感知路由器）</div>
+    </div>
+    <div class="db-body">
+      <p>在大规模 GPU 集群的多节点部署中高效引导流量，最小化冗余 KV-Cache 重计算。核心算法基于 Radix Tree 和全局 KVIndexer（详见上一章节）。</p>
+    </div>
+  </div>
+
+  <div class="detail-block">
+    <div class="db-header">
+      <div class="db-icon orange">③</div>
+      <div class="db-title">NIXL 低延迟通信库</div>
+    </div>
+    <div class="db-body">
+      <p>Dynamo 的专用通信库，用于 GPU 之间以及跨异构内存/存储层的高吞吐、低延迟数据传输。提供统一异步 API，智能抽象底层复杂性，支持 GPUDirect Storage (GDS)、UCX 等多种后端，自动选择最优数据路径。</p>
+    </div>
+  </div>
+
+  <div class="detail-block">
+    <div class="db-header">
+      <div class="db-icon purple">④</div>
+      <div class="db-title">KV Block Manager（KV 块管理器）</div>
+    </div>
+    <div class="db-body">
+      <p>成本感知的 KV 缓存引擎，在不同内存层级间传输 KV-Cache：GPU HBM → CPU DRAM → 本地 SSD → 网络存储。释放昂贵的 GPU 内存同时维持用户体验。现已支持 S3/Azure Blob 存储后端和全局 KV 事件。</p>
+    </div>
+  </div>
+
+  <div class="detail-block">
+    <div class="db-header">
+      <div class="db-icon green">⑤</div>
+      <div class="db-title">Disaggregated Prefill/Decode（解耦 Prefill/Decode）</div>
+    </div>
+    <div class="db-body">
+      <p>将 LLM 推理的上下文处理（prefill）和生成（decode）阶段分离到不同 GPU 上，实现独立分配和优化。在 GB200 NVL72 上配合宽专家并行（wide expert parallel），SemiAnalysis InferenceX 基准测试显示性能提升 7 倍。</p>
+    </div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type official">NVIDIA Dynamo 官方页面 + 技术博客</div>
+    <div class="src-body">Dynamo 1.0 已交付成熟的生产级分布式推理框架，在主要行业和云平台上实现了经过验证的集成。最新进展包括：代理推理优化（优先级路由、缓存钉扎）、多模态加速（解耦编码/预填/解码，embedding 缓存——图像负载 TTFT 提升 30%）、原生视频生成支持、ModelExpress 通过检查点恢复和权重流实现 7 倍更快启动、零配置部署（DGDR）等。</div>
+    <div class="src-url">nvidia.com/en-us/ai/dynamo/ · developer.nvidia.com/blog/nvidia-dynamo-1-production-ready/</div>
+  </div>
+</div>
+
+<!-- CH6: CMX / STX -->
+<div class="chapter" id="cmx">
+  <div class="ch-label">06 — CMX 上下文记忆 + STX 存储架构</div>
+  <div class="ch-title">控制平面的「记忆层」：让 AI Agent 拥有跨会话的持久上下文</div>
+
+  <p>KV-Cache 感知路由解决了「当前会话内如何高效复用缓存」的问题。但 Agentic AI 面临一个更深层的挑战：多步推理、跨工具调用、跨会话的上下文记忆。当上下文窗口增长到百万级 token，传统 GPU HBM 容量成为瓶颈。这就是 CMX 和 STX 要解决的问题。</p>
+
+  <div class="stats-row">
+    <div class="stat-box">
+      <div class="sv">5×</div>
+      <div class="sl">Token/s 吞吐<br>vs 传统存储</div>
+    </div>
+    <div class="stat-box">
+      <div class="sv">4×</div>
+      <div class="sl">能效提升<br>vs CPU 架构</div>
+    </div>
+    <div class="stat-box">
+      <div class="sv">2×</div>
+      <div class="sl">数据摄取速度<br>企业 AI 数据</div>
+    </div>
+    <div class="stat-box">
+      <div class="sv">G3.5</div>
+      <div class="sl">新存储层级<br>GPU↔企业存储之间</div>
+    </div>
+  </div>
+
+  <h3>STX：存储成为推理流程的一部分</h3>
+  <p><strong>STX（Scalable Token eXchange）</strong>是 GTC 2026 发布的模块化参考架构，由 BlueField-4 DPU 加速。它的核心理念是：<strong>将存储纳入推理流程</strong>，而不仅仅在训练或数据准备阶段使用存储。Jensen Huang 在 GTC 上表示：「推理上下文需要一种全新的存储类别。STX 重新发明了存储栈。」</p>
+
+  <h3>CMX：STX 的首个机架级实现</h3>
+  <p><strong>CMX（Context Memory eXtension）</strong>是 STX 架构的首个产品化实现，定位为「G3.5」存储层——介于本地节点存储（G3）和共享企业存储（G4）之间。</p>
+
+  <div class="detail-block">
+    <div class="db-header">
+      <div class="db-icon green">核心能力</div>
+      <div class="db-title">CMX 技术特性</div>
+    </div>
+    <div class="db-body">
+      <p><strong>容量：</strong>每个 GPU Pod 提供 PB 级共享容量，使长上下文负载在 HBM 和 DRAM 驱逐后仍可保留历史。</p>
+      <p><strong>预暂存：</strong>KV 块可从 CMX 预先移入 G2 或 G1 内存，在 decode 阶段前完成就位，减少解码器停滞和 GPU 空闲。</p>
+      <p><strong>共享访问：</strong>上下文成为高带宽共享资源，编排器可跨 Agent 和服务协调访问，无需在每个节点独立重建。</p>
+      <p><strong>硬件加速安全：</strong>BlueField-4 的加密和完整性加速器以线速处理 KV 流的加密和 CRC 校验，不增加主机 CPU 开销。BlueField-4 直接管理 NVMe SSD，在存储处理器层面保持上下文可访问，而非通过主机传输。</p>
+    </div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type analyst">NAND Research 分析</div>
+    <div class="src-body">NAND Research 的分析指出：CMX 引入了新的「G3.5」存储层级，建立在以太网连接的闪存存储之上，在 Pod 级别运作，提供跨 Pod 内所有节点的 KV-Cache 共享访问。同时指出 STX 和 CMX 的关键技术转变是<strong>让存储成为推理流程的组成部分</strong>，而非仅限于训练或数据准备阶段。</div>
+    <div class="src-url">nand-research.com/nvidia-stx-cmx-infrastructure-for-agentic-ai-context-storage/</div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type analyst">VentureBeat 深度报道</div>
+    <div class="src-body">VentureBeat 的报道引用 NVIDIA 副总裁 Ian Buck 的说法确认：STX 同时配备软件参考平台和硬件架构。报道还指出，STX 的核心价值在于解决 KV-Cache 数据瓶颈——当 AI Agent 跨会话、跨工具调用和多步推理时，其 KV-Cache 会随之增长，传统存储无法保持一致的推理吞吐。</div>
+    <div class="src-url">venturebeat.com/data/nvidia-bluefield-4-stx-adds-a-context-memory-layer-to-storage</div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type analyst">SiliconANGLE / ZK Research 分析</div>
+    <div class="src-body">分析师 Zeus Kerravala 在分析中指出了 STX 的深层架构意义：有了 BlueField-4 STX 和 Spectrum-X，「存储」不再是网线末端的一个盒子，而是<strong>网络架构本身的分布式层</strong>。管理 STX 需要深入理解 RDMA、RoCE 以及数据如何在 CMX 层和 GPU 之间移动。传统企业应用中几毫秒的存储延迟只是不便，但在 Agentic AI 中是对 Token 流的灾难。</div>
+    <div class="src-url">siliconangle.com/2026/03/20/convergence-context-nvidias-bluefield-4-stx-marries-network-storage-admin/</div>
+  </div>
+</div>
+
+<!-- CH7: Service Flow -->
+<div class="chapter" id="flow">
+  <div class="ch-label">07 — 服务编排流程</div>
+  <div class="ch-title">从租户请求到推理执行的完整链路</div>
+
+  <p>NVIDIA 官方白皮书给出了完整的服务流程图，展示了企业租户、AI Grid Orchestrator 和终端用户服务之间的交互方式：</p>
+
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="fs-num">1</div>
+      <div class="fs-body">
+        <div class="fs-title">租户创建与部署请求</div>
+        <div class="fs-desc">服务提供商或电信运营商管理租户创建。部署请求由每个租户发起，进入控制平面。</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="fs-num">2</div>
+      <div class="fs-body">
+        <div class="fs-title">资源与意图引擎（Resource and Intent Engine）</div>
+        <div class="fs-desc">控制平面通过集中式资源与意图引擎处理请求，将高层级需求翻译为基础设施操作。</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="fs-num">3</div>
+      <div class="fs-body">
+        <div class="fs-title">决策与策略引擎（Decision and Policy Engine）</div>
+        <div class="fs-desc">与 SDN 控制器协调进行网络创建，与 NVCF（NVIDIA Cloud Functions）协调实现可选的无服务器部署。</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="fs-num">4</div>
+      <div class="fs-body">
+        <div class="fs-title">负载配置到 AI Grid 资源</div>
+        <div class="fs-desc">将负载配置到 AI Grid 资源上。编排器维护目标状态——若节点失败，检测心跳丢失并在其他位置重新配置。</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="fs-num">5</div>
+      <div class="fs-body">
+        <div class="fs-title">推理请求的实时路由</div>
+        <div class="fs-desc">终端用户请求到达后，全局负载均衡器分发到活跃实例，LLM Router 进行语义分析和 KV-Cache 感知路由，Dynamo 执行实际的分布式推理。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type official">NVIDIA AI Grid 参考设计白皮书</div>
+    <div class="src-body">白皮书明确描述了上述多层服务流程，并附带了 Orchestrator 仪表盘的概念图，展示集群健康、负载放置和跨地理分布基础设施的实时遥测的全局视图。白皮书也注明：此架构概述反映当前最佳实践，但预期这些工具会随能力成熟而演进。</div>
+    <div class="src-url">docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/control_plane_design.html</div>
+  </div>
+</div>
+
+<!-- CH8: Benchmark -->
+<div class="chapter" id="bench">
+  <div class="ch-label">08 — 基准验证数据</div>
+  <div class="ch-title">Comcast 实测：控制平面带来的可量化收益</div>
+
+  <p>控制平面的价值不是理论性的——Comcast 在 GTC 2026 上公布了基于 Personal AI 语音 SLM 的对比基准测试，直接展示了控制平面路由能力在集中式 vs 分布式架构下的实际差异。</p>
+
+  <h3>测试配置</h3>
+  <p>同一语音小语言模型运行在 4 块 NVIDIA RTX PRO 6000 GPU 上，对比两种架构：单一集中式集群 vs 跨 4 个站点的 AI Grid 部署。测试施加高度相关的并发会话突发流量。</p>
+
+  <div class="stats-row">
+    <div class="stat-box">
+      <div class="sv">&lt;500ms</div>
+      <div class="sl">AI Grid P99 延迟<br>集中式无法维持</div>
+    </div>
+    <div class="stat-box">
+      <div class="sv">+80.9%</div>
+      <div class="sl">突发吞吐增长<br>42,362 tok/s</div>
+    </div>
+    <div class="stat-box">
+      <div class="sv">-52.8%</div>
+      <div class="sl">基线成本/Token<br>分布式 vs 集中式</div>
+    </div>
+    <div class="stat-box">
+      <div class="sv">-76.1%</div>
+      <div class="sl">突发成本/Token<br>差距进一步扩大</div>
+    </div>
+  </div>
+
+  <div class="src-card">
+    <div class="src-type benchmark">NVIDIA 技术博客 · Comcast 基准测试</div>
+    <div class="src-body">NVIDIA 技术博客详细报告：在所有测试场景中（从 P50 基线到 P99 突发），AI Grid 部署始终将语音交互的端到端延迟维持在 500ms 目标内。关键发现：集中式集群将大部分延迟预算消耗在 RTT（往返时间）上，因此必须以较低利用率运行以避免尾延迟违规。而 AI Grid 部署保持低 RTT，可以在相同延迟目标下安全地驱动 GPU 更高利用率——由此产生的每 Token 成本优势在突发时从 52.8% 扩大到 76.1%。</div>
+    <div class="src-url">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/</div>
+  </div>
+
+  <h3>为什么控制平面是差距的关键</h3>
+  <p>这组数据揭示了一个关键洞察：控制平面通过 <strong>KPI 感知路由</strong>将突发流量均匀分散到 4 个边缘节点（而非让单一集群过载），同时通过 <strong>KV-Cache 感知放置</strong>减少每个节点的冗余计算。结果是延迟更低、吞吐更高、每 Token 成本更低——这三个指标在集中式架构中是相互矛盾的（提高利用率会增加尾延迟），但在 AI Grid 控制平面下实现了同时优化。</p>
+</div>
+
+<!-- CH9: Architecture Diagrams Index -->
+<div class="chapter" id="diagrams">
+  <div class="ch-label">09 — 官方架构图完整索引</div>
+  <div class="ch-title">NVIDIA 参考设计白皮书 12 张架构图 + 技术博客 8 张图表</div>
+
+  <p>以下是 NVIDIA AI Grid 参考设计白皮书和 GTC 2026 技术博客中所有详细架构图的完整索引。每张图均标注了图号、内容描述和直接访问链接，可直接在浏览器中查看高清原图。</p>
+
+  <div class="callout">
+    <strong>如何使用：</strong>点击每张图下方的链接，在浏览器中打开对应文档页面即可查看原始高清架构图。所有图均来自 NVIDIA 官方文档（docs.nvidia.com）和 NVIDIA Developer Blog，可自由用于技术研究和参考。
+  </div>
+
+  <!-- Overview -->
+  <div class="dia-group-label hw">总览章节 · Overview</div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 1</div>
+    <div class="dia-info">
+      <div class="dia-title">AI Grid 参考设计总览图</div>
+      <div class="dia-desc">展示分布式 AI 基础设施（AI 工厂、区域 Hub、边缘站点）如何统一为创建、分发和消费 AI 服务的单一智能平台。四大架构支柱（分布式、互联、编排、统一）的全景视图。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/overview.html" target="_blank">docs.nvidia.com/ai-grid/…/overview.html</a>
+    </div>
+  </div>
+
+  <!-- Hardware -->
+  <div class="dia-group-label hw">硬件参考设计 · Hardware Reference Design</div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 2</div>
+    <div class="dia-info">
+      <div class="dia-title">AI Grid 硬件平台架构图</div>
+      <div class="dia-desc">展示 HGX B300（训练/微调）和 RTX PRO 6000 Blackwell Server Edition（推理/电信）两类硬件通过统一架构连接，在分布式基础设施中交付不同负载。包含 4U 和 2U 配置选项（80:20 vs 50:50 AI/Telco 比例）。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/hw_ref_design.html" target="_blank">docs.nvidia.com/ai-grid/…/hw_ref_design.html</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 6</div>
+    <div class="dia-info">
+      <div class="dia-title">双网络架构概念图（N-S + E-W 双架构）</div>
+      <div class="dia-desc">展示南北向（N-S）网络和东西向（E-W）网络的分工：N-S 负责控制、存储、互联网连接和 CPU/OS 级通信，支持过量订阅拓扑；E-W 形成高带宽低延迟 RDMA 架构，非阻塞拓扑服务 AI 和 RAN 突发负载。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/hw_ref_design.html" target="_blank">docs.nvidia.com/ai-grid/…/hw_ref_design.html</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 7</div>
+    <div class="dia-info">
+      <div class="dia-title">AI Grid 机架实现示例图</div>
+      <div class="dia-desc">RTX PRO 6000 Blackwell 服务器 + Spectrum 交换机构成的高带宽低延迟非阻塞架构机架布局实例，展示实际部署中的物理组织方式。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/hw_ref_design.html" target="_blank">docs.nvidia.com/ai-grid/…/hw_ref_design.html</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 8</div>
+    <div class="dia-info">
+      <div class="dia-title">GPU 东西向网络 Leaf-Spine 规模扩展表</div>
+      <div class="dia-desc">展示 SN5610 交换机数量如何随节点和 GPU 数量扩展：≤96 GPU（12 节点）可用单对 leaf 交换机；>16 节点/128+ GPU 时演进为 spine-leaf 架构。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/hw_ref_design.html" target="_blank">docs.nvidia.com/ai-grid/…/hw_ref_design.html</a>
+    </div>
+  </div>
+
+  <!-- Software -->
+  <div class="dia-group-label sw">软件参考设计 · Software Reference Design</div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 9</div>
+    <div class="dia-info">
+      <div class="dia-title">AI Grid 端到端软件栈架构图 ★ 关键图</div>
+      <div class="dia-desc">四层完整软件栈：基础设施层（IaaS：计算/存储/数据库/网络）→ 容器层（CaaS：K8s 抽象部署）→ 平台层（PaaS：NVIDIA AI Enterprise / NIM / Dynamo / 第三方 SDK）→ AI 即服务层（AIaaS：NVCF / AI Grid Orchestrator / 应用市场 / SLA 感知路由 / Token 变现）。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/sw_ref_design.html" target="_blank">docs.nvidia.com/ai-grid/…/sw_ref_design.html</a>
+    </div>
+  </div>
+
+  <!-- Control Plane -->
+  <div class="dia-group-label cp">控制平面设计 · Control Plane Design</div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 10</div>
+    <div class="dia-info">
+      <div class="dia-title">控制平面路由架构图 ★ 核心图</div>
+      <div class="dia-desc">展示 AI Grid 控制平面如何将分布式端点视为单一逻辑平台：多种负载（语音/视觉/媒体/Agent）进入控制平面后，基于延迟、成本、策略、节点健康和 KV-Cache 命中率等多维 KPI 被路由到最优 Grid 节点。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/control_plane_design.html" target="_blank">docs.nvidia.com/ai-grid/…/control_plane_design.html</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 11</div>
+    <div class="dia-info">
+      <div class="dia-title">控制平面服务流程图 ★ 核心图</div>
+      <div class="dia-desc">完整的多层服务流架构：企业租户 → 部署请求 → 资源与意图引擎（翻译高层需求为基础设施操作）→ 决策与策略引擎（协调 SDN 控制器 + NVCF）→ 负载配置到 AI Grid 资源 → 终端用户服务交付。展示了编排器、负载均衡器和 LLM 路由器的交互关系。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/control_plane_design.html" target="_blank">docs.nvidia.com/ai-grid/…/control_plane_design.html</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Fig 12</div>
+    <div class="dia-info">
+      <div class="dia-title">Orchestrator 仪表盘概念图</div>
+      <div class="dia-desc">AI Grid Orchestrator 管理仪表盘的概念视图：集群健康状态、负载放置分布、跨地理分布基础设施的实时遥测数据，提供全局运维视角。</div>
+      <a class="dia-link" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/control_plane_design.html" target="_blank">docs.nvidia.com/ai-grid/…/control_plane_design.html</a>
+    </div>
+  </div>
+
+  <!-- Tech Blog -->
+  <div class="dia-group-label blog">NVIDIA 技术博客 · GTC 2026 补充图表</div>
+  <div class="dia-card">
+    <div class="dia-fig">Blog Fig 1</div>
+    <div class="dia-info">
+      <div class="dia-title">AI Grid 拓扑全景视图</div>
+      <div class="dia-desc">横跨集中式 AI 工厂和分布式边缘节点的全网拓扑，展示电信站点和 CDN 站点如何组成统一 Grid。</div>
+      <a class="dia-link" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia…</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Blog Fig 2</div>
+    <div class="dia-info">
+      <div class="dia-title">控制平面路由逻辑图（技术博客版）</div>
+      <div class="dia-desc">与白皮书 Fig 10 类似但更面向开发者的版本，展示控制平面如何将多种工作负载类型路由到最优节点。</div>
+      <a class="dia-link" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia…</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Blog Fig 3</div>
+    <div class="dia-info">
+      <div class="dia-title">语音 AI 客户端 TTFT 延迟分解图</div>
+      <div class="dia-desc">将客户端 Time-to-First-Token 分解为 5 个组件：网络 RTT、排队延迟、Tokenization、Prefill/Decode、VAD（语音活动检测），展示 AI Grid 边缘放置如何优化 RTT 和排队延迟。</div>
+      <a class="dia-link" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia…</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Blog Fig 4</div>
+    <div class="dia-info">
+      <div class="dia-title">Comcast 端到端延迟对比图（集中式 vs AI Grid）</div>
+      <div class="dia-desc">语音 SLM 在 RTX PRO 6000 上的延迟百分位对比（P50 至 P99，baseline 和 burst），展示 AI Grid 在所有场景下维持 <500ms。</div>
+      <a class="dia-link" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia…</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Blog Fig 5</div>
+    <div class="dia-info">
+      <div class="dia-title">Comcast 吞吐量对比图</div>
+      <div class="dia-desc">突发流量下集中式 vs AI Grid 的 tokens/s 对比：AI Grid 达 42,362 tok/s，增长 80.9%；集中式在同等条件下吞吐反降。</div>
+      <a class="dia-link" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia…</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Blog Fig 6</div>
+    <div class="dia-info">
+      <div class="dia-title">推理每 Token 成本对比图</div>
+      <div class="dia-desc">归一化成本对比：AI Grid 基线时成本低 52.8%，突发时扩大至 76.1%，因 RTT 低可安全推高 GPU 利用率。</div>
+      <a class="dia-link" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia…</a>
+    </div>
+  </div>
+  <div class="dia-card">
+    <div class="dia-fig">Blog Fig 7</div>
+    <div class="dia-info">
+      <div class="dia-title">Metropolis 视觉 AI 带宽影响图</div>
+      <div class="dia-desc">1000 路 4K 摄像头场景：从集中式处理到边缘分析 + 超分辨率的带宽递减——连续主干负载从数十 Gbps 降至个位数 Gbps。</div>
+      <a class="dia-link" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia…</a>
+    </div>
+  </div>
+  <div class="dia-card" style="border-radius: 0 0 8px 8px;">
+    <div class="dia-fig">Blog Fig 8</div>
+    <div class="dia-info">
+      <div class="dia-title">视频生成 vs LLM 数据出口对比图</div>
+      <div class="dia-desc">10 分钟会话的数据出口量对比：LLM 文本输出接近零 vs Decart Lucy 2 视频生成模型产生 3.3 GB 输出——视频生成产生的出口流量比文本高 825,000 倍。</div>
+      <a class="dia-link" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia…</a>
+    </div>
+  </div>
+
+  <div class="src-card" style="margin-top: 2rem;">
+    <div class="src-type vendor">SpectroCloud · 合作伙伴架构图</div>
+    <div class="src-body">SpectroCloud 的 PaletteAI 技术博客中还提供了一张关键的 <strong>PaletteAI 跨 NVIDIA AI Grid 栈集成图</strong>（Figure 2），展示了编排平台如何跨 AI Grid 的每一层（从硬件到 AIaaS）深度集成，包含 Kairos 不可变基础设施、Aviz/Netris 多租户隔离、Run.ai/ClearML/LiteLLM 应用目录等具体组件。</div>
+    <div class="src-url">spectrocloud.com/blog/nvidia-ai-grid</div>
+  </div>
+</div>
+
+<!-- CH10: Sources -->
+<div class="chapter" id="sources">
+  <div class="ch-label">10 — 完整信源清单</div>
+  <div class="ch-title">本文所引用的全部权威素材</div>
+
+  <p>以下按引用频次和权威性排列所有信源。所有技术细节均直接来自 NVIDIA 官方文档、第一手厂商资料或经认可的第三方分析机构。</p>
+
+  <div class="source-list">
+    <div class="source-item">
+      <div class="si-num">[1]</div>
+      <div class="si-body">
+        <div class="si-title">NVIDIA AI Grid Control Plane Design — 官方参考设计白皮书</div>
+        <div class="si-meta">NVIDIA · 2026年3月16日 · 官方技术文档</div>
+        <a class="si-url" href="https://docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/control_plane_design.html" target="_blank">docs.nvidia.com/ai-grid/whitepapers/ai-grid-reference-design/control_plane_design.html</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[2]</div>
+      <div class="si-body">
+        <div class="si-title">Building the AI Grid with NVIDIA: Orchestrating Intelligence Everywhere — 技术博客</div>
+        <div class="si-meta">NVIDIA Developer Blog · Sree Sankar, Shuvo Chowdhury, Amogh Dendukuri · 2026年3月</div>
+        <a class="si-url" href="https://developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/" target="_blank">developer.nvidia.com/blog/building-the-ai-grid-with-nvidia-orchestrating-intelligence-everywhere/</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[3]</div>
+      <div class="si-body">
+        <div class="si-title">NVIDIA Dynamo, A Low-Latency Distributed Inference Framework — 技术博客</div>
+        <div class="si-meta">NVIDIA Developer Blog · 2025年8月 (GTC 2025 首发，GTC 2026 发布 1.0)</div>
+        <a class="si-url" href="https://developer.nvidia.com/blog/introducing-nvidia-dynamo-a-low-latency-distributed-inference-framework-for-scaling-reasoning-ai-models/" target="_blank">developer.nvidia.com/blog/introducing-nvidia-dynamo-a-low-latency-distributed-inference-framework-for-scaling-reasoning-ai-models/</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[4]</div>
+      <div class="si-body">
+        <div class="si-title">NVIDIA Dynamo KV Router — 官方文档</div>
+        <div class="si-meta">NVIDIA Dynamo Documentation</div>
+        <a class="si-url" href="https://docs.nvidia.com/dynamo/latest/user-guides/kv-cache-aware-routing" target="_blank">docs.nvidia.com/dynamo/latest/user-guides/kv-cache-aware-routing</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[5]</div>
+      <div class="si-body">
+        <div class="si-title">NVIDIA Dynamo 1.0 Production Ready — 技术博客</div>
+        <div class="si-meta">NVIDIA Developer Blog · GTC 2026 · 2026年3月</div>
+        <a class="si-url" href="https://developer.nvidia.com/blog/nvidia-dynamo-1-production-ready/" target="_blank">developer.nvidia.com/blog/nvidia-dynamo-1-production-ready/</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[6]</div>
+      <div class="si-body">
+        <div class="si-title">NVIDIA Launches BlueField-4 STX Storage Architecture — 新闻稿</div>
+        <div class="si-meta">NVIDIA Newsroom · 2026年3月16日</div>
+        <a class="si-url" href="https://nvidianews.nvidia.com/news/nvidia-launches-bluefield-4-stx-storage-architecture-with-broad-industry-adoption" target="_blank">nvidianews.nvidia.com/news/nvidia-launches-bluefield-4-stx-storage-architecture-with-broad-industry-adoption</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[7]</div>
+      <div class="si-body">
+        <div class="si-title">NVIDIA STX & CMX: Infrastructure for Agentic AI Context Storage</div>
+        <div class="si-meta">NAND Research · Steve McDowell · 2026年3月</div>
+        <a class="si-url" href="https://nand-research.com/nvidia-stx-cmx-infrastructure-for-agentic-ai-context-storage/" target="_blank">nand-research.com/nvidia-stx-cmx-infrastructure-for-agentic-ai-context-storage/</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[8]</div>
+      <div class="si-body">
+        <div class="si-title">What is the AI Grid? — 四层架构完整解析</div>
+        <div class="si-meta">Nscale · 2026年3月16日</div>
+        <a class="si-url" href="https://www.nscale.com/blog/what-is-the-ai-grid" target="_blank">nscale.com/blog/what-is-the-ai-grid</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[9]</div>
+      <div class="si-body">
+        <div class="si-title">Nvidia BlueField-4 STX adds a context memory layer — 深度报道</div>
+        <div class="si-meta">VentureBeat · 2026年3月</div>
+        <a class="si-url" href="https://venturebeat.com/data/nvidia-bluefield-4-stx-adds-a-context-memory-layer-to-storage-to-close-the" target="_blank">venturebeat.com/data/nvidia-bluefield-4-stx-adds-a-context-memory-layer-to-storage</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[10]</div>
+      <div class="si-body">
+        <div class="si-title">The convergence of context: Nvidia's BlueField-4 STX — 分析</div>
+        <div class="si-meta">SiliconANGLE · Zeus Kerravala (ZK Research) · 2026年3月20日</div>
+        <a class="si-url" href="https://siliconangle.com/2026/03/20/convergence-context-nvidias-bluefield-4-stx-marries-network-storage-admin/" target="_blank">siliconangle.com/2026/03/20/convergence-context-nvidias-bluefield-4-stx-marries-network-storage-admin/</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[11]</div>
+      <div class="si-body">
+        <div class="si-title">Nvidia and its partners' KV Cache extenders — 技术综述</div>
+        <div class="si-meta">Blocks & Files · 2026年3月30日</div>
+        <a class="si-url" href="https://www.blocksandfiles.com/ai-ml/2026/03/30/nvidia-and-its-partners-kv-cache-extenders/" target="_blank">blocksandfiles.com/ai-ml/2026/03/30/nvidia-and-its-partners-kv-cache-extenders/</a>
+      </div>
+    </div>
+    <div class="source-item">
+      <div class="si-num">[12]</div>
+      <div class="si-body">
+        <div class="si-title">NVIDIA GTC 2026: Infrastructure Announcements — 全厂商分析</div>
+        <div class="si-meta">NAND Research · 2026年3月</div>
+        <a class="si-url" href="https://nand-research.com/nvidia-gtc-2026-infrastructure-announcements/" target="_blank">nand-research.com/nvidia-gtc-2026-infrastructure-announcements/</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="doc-footer">
+  AI GRID CONTROL PLANE · TECHNICAL DEEP DIVE · 12 AUTHORITATIVE SOURCES · 20+ ARCHITECTURE DIAGRAMS · MARCH 2026
+</div>
+
+<script>
+const sections = document.querySelectorAll('.chapter');
+const navLinks = document.querySelectorAll('.doc-nav a');
+window.addEventListener('scroll', () => {
+  let current = '';
+  sections.forEach(s => {
+    if (pageYOffset >= s.offsetTop - 80) current = s.getAttribute('id');
+  });
+  navLinks.forEach(l => {
+    l.classList.remove('active');
+    if (l.getAttribute('href') === '#' + current) l.classList.add('active');
+  });
+});
+navLinks.forEach(l => {
+  l.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelector(l.getAttribute('href')).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+</script>
+</body>
+</html>

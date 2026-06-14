@@ -62,6 +62,8 @@ def record_model_event(
     session_id: str,
     pane: str,
     dispatch_id: str = "",
+    sprint_id: str = "",
+    node_id: str = "",
     instruction_file: str = "",
     actor: str = "coordinator",
     status: str = "",
@@ -76,6 +78,8 @@ def record_model_event(
     payload: dict[str, Any] = {
         "pane": pane,
         "dispatch_id": dispatch_id,
+        "sprint_id": sprint_id or session_id,
+        "node_id": node_id,
         "status": status,
         "error": error,
         "tries": tries,
@@ -101,6 +105,8 @@ def record_model_event(
             "session_id": session_id,
             "pane": pane,
             "dispatch_id": dispatch_id,
+            "sprint_id": sprint_id or session_id,
+            "node_id": node_id,
             "instruction_file": instruction_file,
             "status": status,
             "error": error,
@@ -114,7 +120,7 @@ def record_model_event(
             event_type,
             actor=actor,
             source="model_call_runtime",
-            sprint_id=session_id,
+            sprint_id=sprint_id or session_id,
             activity_id=dispatch_id or None,
             correlation_id=dispatch_id or None,
             idempotency_key=idem,
@@ -132,6 +138,8 @@ def record_model_event(
         "session_id": session_id,
         "pane": pane,
         "dispatch_id": dispatch_id,
+        "sprint_id": sprint_id or session_id,
+        "node_id": node_id,
     }
 
 
@@ -141,6 +149,8 @@ def main() -> int:
     parser.add_argument("--session-id", required=True)
     parser.add_argument("--pane", default="")
     parser.add_argument("--dispatch-id", default="")
+    parser.add_argument("--sprint-id", default="")
+    parser.add_argument("--node-id", default="")
     parser.add_argument("--instruction-file", default="")
     parser.add_argument("--actor", default="coordinator")
     parser.add_argument("--status", default="")
@@ -165,6 +175,8 @@ def main() -> int:
         session_id=args.session_id,
         pane=args.pane,
         dispatch_id=args.dispatch_id,
+        sprint_id=args.sprint_id,
+        node_id=args.node_id,
         instruction_file=args.instruction_file,
         actor=args.actor,
         status=args.status,

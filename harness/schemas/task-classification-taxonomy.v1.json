@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar.local/schemas/task-classification-taxonomy.v1.json",
+  "title": "APO Task Classification Taxonomy v1",
+  "description": "Configuration schema for APO goal-driven task classification and workflow expansion.",
+  "schema_status": "stable",
+  "schema_version": "v1.0.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "version",
+    "task_classes",
+    "classifier",
+    "planner_artifact_contract"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "solar.apo.task_classification_taxonomy.v1"
+    },
+    "version": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "classifier": {
+      "type": "object",
+      "required": [
+        "version",
+        "selection_policy",
+        "signal_weights",
+        "confidence_thresholds",
+        "rejection_reasons"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "selection_policy": {
+          "type": "string",
+          "enum": [
+            "score_then_priority"
+          ]
+        },
+        "signal_weights": {
+          "type": "object",
+          "required": [
+            "primary",
+            "secondary",
+            "negative"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "primary": {
+              "type": "integer"
+            },
+            "secondary": {
+              "type": "integer"
+            },
+            "negative": {
+              "type": "integer"
+            }
+          }
+        },
+        "confidence_thresholds": {
+          "type": "object",
+          "required": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "high": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "medium": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "rejection_reasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "task_classes": {
+      "type": "object",
+      "required": [
+        "PERFORMANCE_REGRESSION",
+        "SOFT_HW_OPT",
+        "CODE_IMPL_REQUIRED",
+        "PERFORMANCE_KERNEL_DEBUG",
+        "FAST_PROTOTYPE"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/task_class"
+      },
+      "properties": {
+        "PERFORMANCE_REGRESSION": {
+          "$ref": "#/$defs/task_class"
+        },
+        "SOFT_HW_OPT": {
+          "$ref": "#/$defs/task_class"
+        },
+        "CODE_IMPL_REQUIRED": {
+          "$ref": "#/$defs/task_class"
+        },
+        "PERFORMANCE_KERNEL_DEBUG": {
+          "$ref": "#/$defs/task_class"
+        },
+        "FAST_PROTOTYPE": {
+          "$ref": "#/$defs/task_class"
+        }
+      }
+    },
+    "planner_artifact_contract": {
+      "type": "object",
+      "required": [
+        "required_sections",
+        "explainability_required",
+        "selection_rationale_required",
+        "rejection_rationale_required",
+        "fallback_flags_required"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "required_sections": {
+          "type": "array",
+          "minItems": 7,
+          "contains": {
+            "const": "evidence_refs"
+          },
+          "items": {
+            "type": "string",
+            "enum": [
+              "task_classification",
+              "logical_workflow",
+              "skill_plan",
+              "mcp_plan",
+              "capsule_plan",
+              "physical_plan",
+              "evidence_refs"
+            ]
+          }
+        },
+        "explainability_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "selection_rationale_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "rejection_rationale_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "fallback_flags_required": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "task_class": {
+      "type": "object",
+      "required": [
+        "id",
+        "priority",
+        "description",
+        "primary_signals",
+        "secondary_signals",
+        "negative_signals",
+        "min_signal_score",
+        "default_workflow",
+        "required_workflow_stages",
+        "preferred_capsule_tags",
+        "required_artifact_sections"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "PERFORMANCE_REGRESSION",
+            "SOFT_HW_OPT",
+            "CODE_IMPL_REQUIRED",
+            "PERFORMANCE_KERNEL_DEBUG",
+            "FAST_PROTOTYPE"
+          ]
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "primary_signals": {
+          "$ref": "#/$defs/signals"
+        },
+        "secondary_signals": {
+          "$ref": "#/$defs/signals"
+        },
+        "negative_signals": {
+          "$ref": "#/$defs/signals"
+        },
+        "min_signal_score": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "default_workflow": {
+          "type": "string"
+        },
+        "required_workflow_stages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "ScanContext",
+              "DebugRCA",
+              "DesignSolution",
+              "ImplementPatch",
+              "RunBenchmark",
+              "ReviewPatch",
+              "VerifyEvidence"
+            ]
+          }
+        },
+        "preferred_capsule_tags": {
+          "$ref": "#/$defs/signals"
+        },
+        "required_artifact_sections": {
+          "type": "array",
+          "minItems": 7,
+          "items": {
+            "type": "string",
+            "enum": [
+              "task_classification",
+              "logical_workflow",
+              "skill_plan",
+              "mcp_plan",
+              "capsule_plan",
+              "physical_plan",
+              "evidence_refs"
+            ]
+          }
+        }
+      }
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

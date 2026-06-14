@@ -1,0 +1,294 @@
+/**
+ * Deep Research Types
+ * 定义深度研究 Agent 的所有类型
+ */
+
+// ==================== 研究计划相关 ====================
+
+export type ResearchStepType =
+  | "initial_search" // 初始搜索
+  | "deep_dive" // 深入搜索
+  | "academic" // 学术搜索
+  | "comparison" // 对比分析
+  | "verification"; // 验证确认
+
+export interface ResearchPlanStep {
+  id: string;
+  type: ResearchStepType;
+  query: string;
+  rationale: string; // 为什么需要这个步骤
+  estimatedSources: number; // 预计结果数量
+}
+
+export interface ResearchPlan {
+  objective: string; // 研究目标
+  approach: string; // 研究方法
+  steps: ResearchPlanStep[];
+  estimatedTime: number; // 预计时间（秒）
+}
+
+// ==================== 搜索结果相关 ====================
+
+export interface SearchSource {
+  id: string;
+  title: string;
+  url: string;
+  snippet: string;
+  domain: string;
+  publishedDate?: string;
+  relevanceScore: number;
+}
+
+export interface SearchRound {
+  round: number;
+  stepId: string;
+  query: string;
+  resultsCount: number;
+  sources: SearchSource[];
+  timestamp: Date;
+}
+
+// ==================== 反思相关 ====================
+
+export type ReflectionDecision =
+  | "continue" // 继续当前计划
+  | "pivot" // 调整搜索方向
+  | "complete"; // 信息充足，可以结束
+
+export interface Reflection {
+  round: number;
+  assessment: string; // 当前搜索质量评估
+  gaps: string[]; // 识别到的信息缺口
+  decision: ReflectionDecision;
+  reasoning: string; // 决策理由
+  nextSteps?: string[]; // 如果 pivot，下一步建议
+  timestamp: Date;
+}
+
+// ==================== 思考链相关 ====================
+
+export type ThinkingStepType =
+  | "analyzing_query" // 分析用户查询
+  | "planning_research" // 规划研究步骤
+  | "executing_search" // 执行搜索
+  | "evaluating_results" // 评估结果
+  | "reflecting" // 反思与决策
+  | "synthesizing" // 合成报告
+  | "formatting"; // 格式化输出
+
+export interface ThinkingStep {
+  step: ThinkingStepType;
+  content: string;
+  timestamp: Date;
+}
+
+// ==================== 报告相关 ====================
+
+export interface ReportSection {
+  title: string;
+  content: string;
+  citations: number[]; // 引用的来源 ID 索引
+}
+
+export interface ReportReference {
+  id: number;
+  title: string;
+  url: string;
+  snippet: string;
+  accessedAt: Date;
+}
+
+export interface DeepResearchReport {
+  executiveSummary: string;
+  sections: ReportSection[];
+  conclusion: string;
+  references: ReportReference[];
+  metadata: {
+    totalSources: number;
+    totalTokens: number;
+    duration: number; // 总耗时（秒）
+    searchRounds: number;
+  };
+}
+
+// ==================== SSE 事件相关 ====================
+
+export interface ThoughtSummaryEvent {
+  type: "thought_summary";
+  data: {
+    step: ThinkingStepType;
+    content: string;
+    timestamp: string;
+  };
+}
+
+export interface PlanReadyEvent {
+  type: "plan_ready";
+  data: {
+    plan: ResearchPlan;
+  };
+}
+
+export interface SearchProgressEvent {
+  type: "search_progress";
+  data: {
+    round: number;
+    totalRounds: number;
+    query: string;
+    resultsCount: number;
+    message: string;
+  };
+}
+
+export interface ReflectionEvent {
+  type: "reflection";
+  data: {
+    assessment: string;
+    decision: ReflectionDecision;
+    reasoning: string;
+  };
+}
+
+export interface ContentDeltaEvent {
+  type: "content.delta";
+  data: {
+    section: string;
+    delta: string;
+  };
+}
+
+export interface InteractionCompleteEvent {
+  type: "interaction.complete";
+  data: {
+    sessionId: string;
+    report: DeepResearchReport;
+    status: "success" | "partial" | "failed";
+  };
+}
+
+export interface ErrorEvent {
+  type: "error";
+  data: {
+    code: string;
+    message: string;
+    recoverable: boolean;
+  };
+}
+
+// ==================== 讨论驱动型研究 SSE 事件 ====================
+
+import type {
+  DiscussionMessageEvent,
+  DiscussionPhaseEvent,
+  DiscussionTypingEvent,
+} from "./discussion-types";
+
+export type DeepResearchSSEEvent =
+  | ThoughtSummaryEvent
+  | PlanReadyEvent
+  | SearchProgressEvent
+  | ReflectionEvent
+  | ContentDeltaEvent
+  | InteractionCompleteEvent
+  | ErrorEvent
+  // Discussion-driven research events
+  | DiscussionMessageEvent
+  | DiscussionPhaseEvent
+  | DiscussionTypingEvent;
+
+// ==================== 计划审批相关 ====================
+
+export interface PlanApprovalRequest {
+  sessionId: string;
+  plan: ResearchPlan;
+  estimatedTime: number;
+  depth: string;
+}
+
+export interface PlanApprovalResponse {
+  approved: boolean;
+  modifiedPlan?: ResearchPlan;
+  feedback?: string;
+}
+
+// ==================== 请求/响应相关 ====================
+
+export interface PreviousReportContext {
+  executiveSummary: string;
+  sections: { title: string; content: string }[];
+  conclusion: string;
+  references: { title: string; url: string }[];
+  iterationHistory?: string;
+}
+
+export interface StartDeepResearchDto {
+  query: string;
+  mode?: "single" | "iterative" | "iterative_internal"; // 研究模式，默认 single
+  options?: {
+    maxRounds?: number; // 最大搜索轮次，默认 5
+    includeAcademic?: boolean; // 是否包含学术搜索
+    language?: string; // 报告语言
+    depth?: "quick" | "standard" | "thorough"; // 研究深度
+  };
+  iterationOptions?: {
+    maxIterations?: number; // 最大迭代次数，默认 4
+    qualityThreshold?: number; // 质量阈值 0-1，默认 0.75
+    autoGenerateDemo?: boolean; // 自动生成 Demo，默认 true
+    feedbackTimeoutMs?: number; // 反馈等待超时 (ms)，默认 120_000
+  };
+  // 追问模式：在现有报告基础上继续研究
+  isFollowUp?: boolean;
+  previousContext?: PreviousReportContext;
+}
+
+export interface DeepResearchSessionResponse {
+  id: string;
+  projectId: string;
+  query: string;
+  status: string;
+  plan: ResearchPlan | null;
+  searchRounds: SearchRound[];
+  reflections: Reflection[];
+  thinkingChain: ThinkingStep[];
+  report: DeepResearchReport | null;
+  sourcesUsed: number;
+  tokensUsed: number;
+  createdAt: Date;
+  updatedAt: Date;
+  completedAt: Date | null;
+}
+
+// ==================== AI 响应解析相关 ====================
+
+export interface AIResearchPlanResponse {
+  objective: string;
+  approach: string;
+  steps: Array<{
+    type: ResearchStepType;
+    query: string;
+    rationale: string;
+    estimatedSources: number;
+  }>;
+}
+
+export interface AIReflectionResponse {
+  quality_score: number; // 0-100
+  information_coverage: string;
+  gaps_identified: string[];
+  decision: ReflectionDecision;
+  reasoning: string;
+  suggested_queries?: string[];
+}
+
+export interface AIReportSectionResponse {
+  title: string;
+  content: string;
+  key_findings: string[];
+  citations: number[];
+}
+
+export interface AIReportResponse {
+  executive_summary: string;
+  sections: AIReportSectionResponse[];
+  conclusion: string;
+}

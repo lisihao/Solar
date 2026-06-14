@@ -59,6 +59,8 @@ export LC_ALL="en_US.UTF-8"
 [[ -f "$HARNESS_DIR/lib/telemetry.sh" ]] && . "$HARNESS_DIR/lib/telemetry.sh"
 # sprint-20260507-symphony3 S2: structured events library
 [[ -f "$HARNESS_DIR/lib/events.sh" ]] && . "$HARNESS_DIR/lib/events.sh"
+# P0-D3 (2026-06-09 架构审计): 派发失败持久重排队 + 配额闸门
+[[ -f "$HARNESS_DIR/lib/dispatch-requeue.sh" ]] && . "$HARNESS_DIR/lib/dispatch-requeue.sh"
 # sprint-20260508-coordinator-control-plane-v2 S1: canonical state mapper
 [[ -f "$HARNESS_DIR/lib/state-mapper.sh" ]] && . "$HARNESS_DIR/lib/state-mapper.sh"
 # sprint-20260508-coordinator-control-plane-v2 S2: dispatch ledger + queue
@@ -762,7 +764,7 @@ G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'; N='\033[0m'
 COORD_LOG="$HARNESS_DIR/.coordinator.log"
 exec 2>>"$COORD_LOG"
 
-log() { echo -e "${C}[协调器]${N} $(date '+%H:%M:%S') $*" >&2; }
+log() { echo -e "${C}[协调器]${N} $(date '+%m-%d %H:%M:%S') $*" >&2; }
 
 clear_stale_dispatch_lock() {
   local lock_dir="$1"
@@ -1740,6 +1742,16 @@ dispatch_to_pane() {
     return 4
   fi
 
+  # P0-D3 (2026-06-09): 配额闸门 — 缓存明确显示耗尽时延迟入队而非丢弃
+  if type dispatch_quota_gate &>/dev/null && ! dispatch_quota_gate; then
+    log "${Y}[dispatch] 配额耗尽, 延迟入队 sid=${sid} pane=${pane}${N}"
+    emit_event "$sid" "dispatch_blocked" "coordinator" \
+      "{\"pane\":\"${pane}\",\"reason\":\"quota_exhausted\"}"
+    type dispatch_requeue_add &>/dev/null && \
+      dispatch_requeue_add "$sid" "$pane" "$instruction_file" "quota_exhausted" || true
+    return 1
+  fi
+
   # Planner/PM panes must receive real dispatches. Older code returned after
   # notify_planner(), which made "dispatch to planner" silently become
   # "write an inbox line"; this broke lazy handoff for drafting contracts.
@@ -2072,6 +2084,9 @@ dispatch_to_pane() {
   # sprint-20260508-coordinator-control-plane-v2 S3: release lease on nack
   [[ -n "${_dispatch_id:-}" ]] && type release_pane_lease &>/dev/null && \
     release_pane_lease "$pane" "$_dispatch_id" "dispatch_failed" 2>/dev/null || true
+  # P0-D3 (2026-06-09): 失败任务持久重排队 (退避+上限), 不再静默丢失
+  type dispatch_requeue_add &>/dev/null && \
+    dispatch_requeue_add "$sid" "$pane" "$instruction_file" "dispatch_failed" || true
   rm -rf "$lock_dir"
   return 1
 }
@@ -4959,7 +4974,40 @@ with open('$patches_file','w') as f:
     # 保留 get_latest_sprint_file 函数: init/recovery 路径仍在用 (line ~1808)
     if [[ "$skip_sprint" -eq 0 ]]; then
       local sf
-      for sf in "$SPRINTS_DIR"/sprint-*.status.json; do
+      # P0 性能修复 (2026-06-10): 主循环每轮全扫 529 sprint × 多次 get_field(每次
+      # fork python3 ~80ms) → 每轮 ~128s(设计10s), 慢 12 倍, 拖垮一切周期任务。
+      # 预筛: 一次 python 批量列出活跃 sprint, 跳过 failed/cancelled/superseded/
+      # interrupted 及已 finalized 的 passed/done/eval_pass (529→~174, 省 67%)。
+      # 保留 "passed 但无 .finalized" 走 handle_passed 补偿的语义。损坏文件保留自愈。
+      local _active_sfs
+      mapfile -t _active_sfs < <(python3 - "$SPRINTS_DIR" <<'PYEOF' 2>/dev/null
+import json, os, sys, glob
+sd = sys.argv[1]
+TERMINAL_FINAL = {"failed", "cancelled", "superseded", "interrupted"}
+out = []
+try:
+    files = glob.glob(os.path.join(sd, "sprint-*.status.json"))
+except Exception:
+    files = []
+for sf in files:
+    try:
+        st = json.load(open(sf)).get("status", "")
+    except Exception:
+        out.append(sf); continue  # 损坏 → 保留, 主循环走 repair_status_identity 自愈
+    sid = os.path.basename(sf)[:-len(".status.json")]
+    if st in TERMINAL_FINAL:
+        continue
+    if st in {"passed", "done", "eval_pass"} and os.path.exists(os.path.join(sd, sid + ".finalized")):
+        continue
+    out.append(sf)
+print("\n".join(out))
+PYEOF
+)
+      # 回退: 预筛异常输出空但确有 sprint 文件 → 全扫, 避免整轮空转。
+      if [[ "${#_active_sfs[@]}" -eq 0 ]] && compgen -G "$SPRINTS_DIR/sprint-*.status.json" >/dev/null 2>&1; then
+        _active_sfs=( "$SPRINTS_DIR"/sprint-*.status.json )
+      fi
+      for sf in "${_active_sfs[@]}"; do
         [[ -f "$sf" ]] || continue
 
         local sid st
@@ -5091,6 +5139,12 @@ with open('$patches_file','w') as f:
     # D2: auto-suggest 每 10 次迭代 (~100s) 检查一次
     if (( loop_count % 10 == 0 )); then
       check_auto_suggest
+      # P0-D3 (2026-06-09): 派发失败重排队 — 重试到期项 (退避+上限)
+      type dispatch_requeue_process &>/dev/null && dispatch_requeue_process || true
+      # Wake 环兜底 (2026-06-10): inbox 有未消费任务且无活跃 operatord 时补踢
+      # (限流 SOLAR_INBOX_PUMP_LIMIT=3/轮; operatord daemon slot 锁自防重)
+      [[ -f "$HARNESS_DIR/tools/inbox_pump.py" ]] && \
+        (python3 "$HARNESS_DIR/tools/inbox_pump.py" --apply >> "$COORD_LOG" 2>&1) || true
       # D2: 检查规划者通知 (每 ~60s)
       check_planner_notice
       # D4: 扫 auto-generated drafting Sprint, Done>=3 则通知规划者
@@ -5138,6 +5192,28 @@ PY
       (bash ~/.claude/hooks/scan-low-quality-capabilities.sh 2>> "$COORD_LOG" && \
        bash ~/.claude/hooks/auto-boost-capability.sh 2>> "$COORD_LOG") &
 
+      # Q2 FAIL 分诊阀门 (2026-06-10): A 类越界 (功能PASS+scope违规) 自动扩 scope
+      # 重派, 4 道安全栏 (只扩已声明/留痕/次数上限/保护核心需人批)。必须在
+      # graph_redispatch 之前跑 — 它精准处理 A 类, 避免无脑重派器把 A 类重做撞同墙。
+      if [[ -f "$HARNESS_DIR/lib/scope_arbiter.py" ]]; then
+        (python3 "$HARNESS_DIR/lib/scope_arbiter.py" --scan-all --apply \
+          --max-expand "${SOLAR_SCOPE_EXPAND_MAX:-2}" \
+          --limit "${SOLAR_SCOPE_ARBITER_LIMIT:-3}" --json >> "$COORD_LOG" 2>&1) || \
+          log "[scope-arbiter] WARN: scope_arbiter failed (non-fatal)"
+      fi
+
+      # P0 卡点修复 (2026-06-10): FAIL 节点重派器 — 每 ~5min 低速重派至多
+      # SOLAR_DAG_REDISPATCH_LIMIT 个卡死 DAG 节点 (failed→pending, 带 retry 上限),
+      # 超上限转 needs_human_review 告警。根治 "evaluator 判一次 FAIL = DAG 永久卡死"。
+      # 注: scope_arbiter 已先处理 A 类越界; 此处兜底 B/C 类 (本期仍走无脑重派,
+      #     下期接语义算子后改为分类处理)。
+      if [[ -f "$HARNESS_DIR/lib/graph_redispatch.py" ]]; then
+        (python3 "$HARNESS_DIR/lib/graph_redispatch.py" --scan-all --apply \
+          --max-retry "${SOLAR_DAG_MAX_REDISPATCH:-2}" \
+          --limit "${SOLAR_DAG_REDISPATCH_LIMIT:-3}" --json >> "$COORD_LOG" 2>&1) || \
+          log "[redispatch] WARN: graph_redispatch failed (non-fatal)"
+      fi
+
       # Sprint 20260420-113026: handle_passed 运行时补偿
       # 扫所有 status=passed 但无 .finalized 的 sprint → 补跑 handle_passed
       for rsf in "$SPRINTS_DIR"/sprint-*.status.json; do
@@ -5154,6 +5230,11 @@ PY
 
       # Sprint 20260420-113026: 通用中间态卡死检测
       detect_stuck_state
+    fi
+
+    # 唤醒空闲 Operator (每 3 次迭代，即 ~30 秒)
+    if (( loop_count % 3 == 0 )); then
+      (python3 "$HARNESS_DIR/lib/operator_runtime.py" wake-idle 2>> "$COORD_LOG") || true
     fi
 
     # Sprint 20260423-062851 D1 / sprint-20260502-182804: md5 自检热加载 + 兜底

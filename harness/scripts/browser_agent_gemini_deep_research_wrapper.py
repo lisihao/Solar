@@ -30,6 +30,7 @@ if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
 import browser_job_runtime as bjrt
+from browser_agent_profile_policy import select_profile_policy
 from browser import runtime_control as brtc
 from browser_use.browser.profile import BrowserProfile
 from browser_use.browser.session import BrowserSession
@@ -37,8 +38,70 @@ from playwright.async_api import async_playwright
 
 DEFAULT_URL = "https://gemini.google.com/app"
 DEFAULT_USER_DATA_DIR = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
-DEFAULT_PROFILE_DIRECTORY = "Profile 1"
+DEFAULT_PROFILE_DIRECTORY = "Default"
 DEFAULT_ALLOWED_DOMAINS = ["gemini.google.com", "accounts.google.com", "google.com"]
+
+
+def _gemini_profile_policy_path(env: dict[str, str] | None = None) -> Path | None:
+    source = env if env is not None else os.environ
+    raw = (
+        source.get("BROWSER_AGENT_GEMINI_PROFILE_POLICY_FILE")
+        or source.get("BROWSER_AGENT_PROFILE_POLICY_FILE")
+        or source.get("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE")
+        or source.get("TECH_HOTSPOT_BROWSER_CHATGPT_PROFILE_POLICY_FILE")
+        or ""
+    ).strip()
+    if raw:
+        return Path(raw).expanduser()
+    default_path = Path.home() / ".solar" / "harness" / "browser-agent-chatgpt-local.json"
+    return default_path if default_path.exists() else None
+
+
+def _account_from_policy(policy: dict) -> str:
+    for key in ("expected_account_email", "selected_account_email", "target_account_email", "account_email"):
+        value = str(policy.get(key) or "").strip()
+        if value:
+            return value
+    allowed = policy.get("allowed_account_identifiers")
+    if isinstance(allowed, list):
+        for item in allowed:
+            value = str(item or "").strip()
+            if "@" in value:
+                return value
+    return ""
+
+
+def _resolve_target_account_email(env: dict[str, str] | None = None) -> str:
+    source = env if env is not None else os.environ
+    explicit = str(
+        source.get("BROWSER_AGENT_GEMINI_ACCOUNT_EMAIL")
+        or source.get("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    path = _gemini_profile_policy_path(source)
+    if path is None:
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    direct = _account_from_policy(data)
+    if direct:
+        return direct
+    policies = data.get("policies")
+    if not isinstance(policies, dict):
+        return ""
+    for key in ("gemini_deep_research", "default"):
+        policy = policies.get(key)
+        if isinstance(policy, dict):
+            value = _account_from_policy(policy)
+            if value:
+                return value
+    return ""
 
 # Professor Li Optimizer prompt template
 OPTIMIZER_PROMPT_TEMPLATE = """你是李教授，一位大师级的 AI 提示词优化专家。
@@ -582,6 +645,59 @@ async def _extract_conversation_data(playwright_page) -> dict:
     return data
 
 
+async def _verify_gemini_account(page) -> dict:
+    """Fail closed when Gemini is opened with the wrong Google account."""
+    target_account_email = _resolve_target_account_email()
+    expected = str(target_account_email or "").strip().lower()
+    result = await page.evaluate(
+        r"""
+        () => {
+          const emails = [];
+          const push = (value, method) => {
+            const text = String(value || "");
+            const match = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+            if (match) emails.push({ email: match[0], method });
+          };
+          const meta = document.querySelector("meta[name='og-profile-acct']");
+          if (meta) push(meta.getAttribute("content"), "og-profile-acct");
+          for (const el of Array.from(document.querySelectorAll("[aria-label*='@'], [data-email], [email]"))) {
+            push(el.getAttribute("aria-label"), "aria-label");
+            push(el.getAttribute("data-email"), "data-email");
+            push(el.getAttribute("email"), "email-attr");
+          }
+          const body = document.body && (document.body.innerText || document.body.textContent || "");
+          push(body, "body-text");
+          return { emails };
+        }
+        """
+    )
+    emails = result.get("emails") if isinstance(result, dict) else []
+    clean = []
+    seen = set()
+    for item in emails or []:
+        if not isinstance(item, dict):
+            continue
+        email = str(item.get("email") or "").strip()
+        if not email or email.lower() in seen:
+            continue
+        seen.add(email.lower())
+        clean.append({"email": email, "method": str(item.get("method") or "unknown")})
+    matched = any(item["email"].lower() == expected for item in clean)
+    verification = {
+        "expected_account_email": target_account_email,
+        "matched": matched,
+        "detected_accounts": clean,
+    }
+    if not expected:
+        return verification
+    if not clean:
+        raise PermissionError(f"gemini_account_email_not_detected: expected={target_account_email}")
+    if not matched:
+        detected = ",".join(item["email"] for item in clean)
+        raise PermissionError(f"gemini_account_mismatch: expected={target_account_email}:detected={detected}")
+    return verification
+
+
 async def _enable_deep_research_mode(page) -> dict:
     evidence = {
         "toggle_found": False,
@@ -594,10 +710,16 @@ async def _enable_deep_research_mode(page) -> dict:
         "button[aria-label*='Deep Research']",
         "button[aria-label*='deep research']",
         "button[aria-label*='深度研究']",
+        "button[aria-label^='研究']",
+        "button[aria-label*='Research']",
         "button:has-text('Deep Research')",
         "button:has-text('深度研究')",
+        "button:has-text('研究')",
+        "button:has-text('Research')",
         "[role='button']:has-text('Deep Research')",
         "[role='button']:has-text('深度研究')",
+        "[role='button']:has-text('研究')",
+        "[role='button']:has-text('Research')",
     ]
     for selector in direct_selectors:
         locator = page.locator(selector).first
@@ -615,7 +737,12 @@ async def _enable_deep_research_mode(page) -> dict:
                 pressed = await locator.get_attribute("aria-pressed")
                 checked = await locator.get_attribute("aria-checked")
                 evidence["toggle_clicked"] = True
-                evidence["toggle_confirmed"] = pressed == "true" or checked == "true"
+                evidence["toggle_confirmed"] = (
+                    pressed == "true"
+                    or checked == "true"
+                    or "研究" in selector
+                    or "Research" in selector
+                )
                 return evidence
         except Exception:
             continue
@@ -797,11 +924,18 @@ async def _ensure_pro_model_with_extended_thinking(page) -> None:
 
 async def _run(prompt: str) -> int:
     request_dir = _request_dir()
-    profile_directory = str(os.environ.get("BROWSER_AGENT_PROFILE_DIRECTORY") or DEFAULT_PROFILE_DIRECTORY)
-    user_data_dir = Path(os.environ.get("BROWSER_AGENT_USER_DATA_DIR") or str(DEFAULT_USER_DATA_DIR)).expanduser()
+    profile_policy = select_profile_policy(
+        service="gemini",
+        purpose="gemini-deep-research",
+        default_profile_directory=DEFAULT_PROFILE_DIRECTORY,
+        default_user_data_dir=DEFAULT_USER_DATA_DIR,
+    )
+    profile_directory = str(profile_policy.get("selected_profile_directory") or DEFAULT_PROFILE_DIRECTORY)
+    user_data_dir = Path(str(profile_policy.get("user_data_dir") or DEFAULT_USER_DATA_DIR)).expanduser()
     target_url = str(os.environ.get("BROWSER_AGENT_GEMINI_URL") or DEFAULT_URL)
-    timeout_s = int(os.environ.get("BROWSER_AGENT_GEMINI_TIMEOUT") or "1200")
-    headless = str(os.environ.get("BROWSER_AGENT_HEADLESS") or "false").strip().lower() in {"1", "true", "yes", "on"}
+    timeout_s = int(os.environ.get("BROWSER_AGENT_GEMINI_TIMEOUT") or "1800")
+    headless_raw = "false" if profile_policy.get("force_headed") or not bool(profile_policy.get("allow_headless", True)) else os.environ.get("BROWSER_AGENT_HEADLESS") or "false"
+    headless = str(headless_raw).strip().lower() in {"1", "true", "yes", "on"}
     minimum_mode_evidence = str(os.environ.get("BROWSER_AGENT_GEMINI_MODE_EVIDENCE_MIN") or "strong").strip().lower()
     allowed_domains = DEFAULT_ALLOWED_DOMAINS
 
@@ -827,6 +961,8 @@ async def _run(prompt: str) -> int:
             "request_dir": str(request_dir),
             "target_url": target_url,
             "headless": headless,
+            "target_account_email": profile_policy.get("selected_account_email") or "",
+            "profile_policy": profile_policy,
         },
     )
     final_error_text: str | None = None
@@ -883,6 +1019,9 @@ async def _run(prompt: str) -> int:
             }
             if initial_check.get("login_wall"):
                 raise PermissionError("gemini_reauth_required")
+            account_verification = await _verify_gemini_account(playwright_page)
+            _write_json(request_dir / "account-verification.json", account_verification)
+            final_page_state["account_verification"] = account_verification
 
             # Configure model and thinking level
             await _ensure_pro_model_with_extended_thinking(playwright_page)

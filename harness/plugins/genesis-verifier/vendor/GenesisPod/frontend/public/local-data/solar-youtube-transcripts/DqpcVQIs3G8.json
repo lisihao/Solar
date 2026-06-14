@@ -1,0 +1,954 @@
+{
+  "videoId": "DqpcVQIs3G8",
+  "title": "SREcon26 Americas - Taming the Unpredictable: Reliability in Chaos",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 46809,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thank you for that lovely introduction.\nAnd I wanted to start today with letting\nyou all just ponder a question.\nWhat's the scariest thing you've ever\nseen in code?\nFor me, it's this comment.\nThis should never happen.\nNow, we all know that engineers use this\ncomment to capture some state that\nseemed impossible given system\nconstraints and what they knew at the\ntime.\nUh often it's an error code they never\nthought would be returned or it's\nsomething they thought wouldn't be null\nthat, you know, is in fact null.\nAnd the fact that they never expected it\nto happen means they couldn't reason\nabout when or why it could happen, which\nmeans they didn't think through the\nconsequences and probably didn't test\nthe code all that well.\nAnd so years later, um someone changes\nthe code and that error is just finally\nreturned maybe.\nAnd suddenly this thing that could never\nhappen happens and we get to see how the\nwhole system reacts.\nI've been on the receiving end of many\npages generated when the the impossible\nsuddenly became the inevitable.\nUh so whenever I see that in code, I\nthink, \"Just wait.\"\nAnd so as Laura introduced me, um I'm a\num I'm Shell Brush. I am a site\nreliability engineer like most of you um\nand then I do have responsibility for\nthe reliability of Google Compute Engine\nand Persistent Disk.\nUh when people ask me what my job is who\naren't in tech, I say my job is to\nworry.\nand that I worry about how things might\nfail and then when they fail cuz they\nalways do, I show up and get them\nworking again and then we try to learn\nfrom what just happened.\nAnd the one thing I've learned\nresponding to incidents is that every\nline of code has the potential to be\nload bearing.\nAnd this is because every line of code\ncarries all of the assumptions that the\nengineer made when they wrote it. And\neven if those assumptions were\nabsolutely correct on the day the code\nwas written, of course things change.\nAnd this to me is why things like design\nreviews, launch reviews, production\nreadiness reviews, and even code reviews\ncan only take us so far in terms of\nreliability.\nUm they are point-in-time reviews based\non how the system is expected to look\nright now.\nAnd then the system changes.\nAnd part of being a good SRE is\nunderstanding the nature of change.\nUm in the systems we support, every\nmicrosecond something is changing,\nright?\nAnd we cannot control those changes even\nif we want to.\nAnd so all we can do is build systems\nthat are easy to change, that recover\nquickly when a change fails, and that do\nnot require that we understand and\nreview every change in the system.\nAnd now our jobs are changing.\nLarge language models have made it so\npeople can build applications, refactor\nlarge code bases, um add features, and\nfix bugs in less time than before.\nAnd of course the SRE in me worries,\nright? That's worrying some.\nBut I'm also excited and I'm hoping\nthrough this talk I can make you feel\nexcited about it, too.\nHowever, to get you there, I'm going to\nwalk through a bunch of ideas. Some of\nthem you've heard before, but please\nbear with me. I'll pull them all\ntogether.\nTo start as the guiding thought\nexperiment, let's imagine what happens\nif agents do make the work of building\nand running software faster, easier,\ncheaper, better, all those things.\nAnd what if we suddenly had all the\nprogrammers we ever wanted to build\nwhatever we wanted once we figured out\nwhat that was? What would we think would\nhappen?\nMy hypothesis is we're about to\nexperience the Jevons paradox.\nThe Jevons paradox says that if\nsomething becomes cheaper or easy to do,\nwe do more of it. As a great example, I\ntake way more pictures now that I don't\nhave to carry around film and get it\ndeveloped, right?\nSo, if we think of the capacity to do\nengineering work as a limited resource,\nwhich it has been for a long time,\nand the act of coding and doing commands\nand operational work it all gets easier\nand faster,\nthe Jevons paradox suggests that the\nworld is going to engineer more things.\nSoftware applications that we never\nthought possible will be built now and\nthings that were previously too\nexpensive to even consider will now be\ncost effective.\nWe just can't imagine what all those\nthings are right now.\nAnd so as software gets cheaper and\neasier to build, we will come up with\nmore ways to use it and bring it into\nour lives and that already happened\nthrough the years as we moved beyond\ndifferent levels of abstraction in\nsoftware.\nAnd the good news is these new systems\nwill create demand for engineers.\nNow,\nas a result of all this, we are still\ngoing to need software engineers and\nsite reliability engineers to help\ndesign these new applications, to make\nsure they're reliable, to keep them\nrunning.\nBut some of the work we all used to do\nwill now be taken away and automated by\nthe use of agents. That's probably\nhappening.\nAnd so what does it mean for us to be\nless exposed to the day-to-day coding\nand operations as we gradually automate\naway part but not all of our jobs?\nWell, the best framing for this is the\npaper The Ironies of Automation and I'm\nsure many of you are familiar with it,\nbut I'll quickly summarize.\nWhat Bainbridge tells us is that when\nyou automate away most of a task that a\nhuman used to do, but leaves some of the\nwork left for humans, the overall job\nrequires even more skill.\nPart of this is because you've left for\nwhat you've left for humans is the work\nthat requires judgment, like you\ncouldn't just write it as rules or\nheuristics or patterns.\nUm but also the automation itself\ncreates a whole new set of tasks that\nhave to happen.\nYou have to monitor the automation. You\nhave to fix it when it breaks.\nUm you need to account for it failing or\nor making mistakes and that is all\nharder than doing the original work in\nthe first place.\nAnd making things worse, because you\nweren't doing the work anymore, you've\nautomated away, you lose familiarity\nwith it and this is called skills decay.\nAnd so when something breaks, it takes\nmore time for you to understand and sort\nof like page back in the memory of of\nhow to do the work and what it should\nlook like.\nAnd so basically, as you remove some but\nnot all of the work, um the job gets\nharder not easier. And you need more\npeople people with more skills not\nfewer.\nTo illustrate with a very simple\nexample, let's take dishwashers.\nWe have dishwashers, they've taken away\nmost of the work of washing dishes for\nus, but they still left a few things for\nus to do.\nbasically, even automating this simple\ntask left us things like we have to now\ndetect when the dishwasher is done.\nWe now have to check each dish because\nsometimes the dishes don't all get\nclean. And then when they don't get\nclean, we have to troubleshoot, you\nknow, did we was the water not hot\nenough? Was there enough pressure? Do we\nneed to clean the filter?\nAnd this troubleshooting is harder than\njust washing the dishes.\nBut also when the dishwasher breaks,\nsuddenly we have to start doing this\nactivity we haven't done in a while and\nwe're not as efficient as it at it as we\nwould be if we were doing it every day.\nHowever, we still want to use the\ndishwasher, right? Like even though it\nintroduces these challenges,\num because it does save us time and to\nbe honest, we didn't really enjoy the\nwork of washing the dishes anyway.\nSo basically, when we think about what's\nhappening in our industry right now, um\nour relationships with the systems we\nsupport is going to change.\nUm but we'll still need to respond when\nsomething goes wrong. So even though\nwe'll be less familiar with some of the\nwork we used to do, we'll still have to\njump in and fix things. And so the big\nquestion is how are we going to respond\nto failures um when we know we won't\nhave people who fully understand the\nsystem anymore. They won't have the\ndepth.\nNow, if you're an engineering leader and\nyou're in this audience, um and you take\nnothing from this talk, I want you to\nremember this slide,\nwhich is basically the Jevons paradox\nsuggests that we're going to be building\na lot more things once programming is\neasier, faster, cheaper. And the ironies\nof automation say that we're going to\nneed more skilled engineers to review\nthe outputs and monitor the system at\nwork and fix it when it breaks.\nAnd this means in all likelihood we're\ngoing to see more demand for skilled\nengineers over time,\nnot less.\nUm and the important question though is\nwhat skills are we talking about?\nWell, definitely debugging and\ntroubleshooting. That's obvious.\nI love this old Brian Kernighan quote.\nUm however, even this quote assumes you\nwrote the code you were debugging. And\neven now, especially as SREs, most of\nthe time we're debugging code that is a\nmix of something maybe we wrote and and\na lot of what somebody else wrote. And\nnow we'll have code that the large\nlanguage model wrote in the mix.\nNow, I want to be clear, this is not an\nAI/ML talk. I'm not going to go into\ndetail about deploying models or or\nrunning systems or how to keep GPUs and\nTPUs um healthy.\nUm I am going to talk as promised about\nmanaging complex systems, but we have to\ntalk about AI/ML right now um to\nunderstand how our jobs are going to\nchange.\nAnd I have one more concept before I\njump into that, which is something\ncalled the curse of knowledge.\nThe curse of knowledge is a very simple\nmodel for human knowledge. It has two\ndimensions. The first dimension is\ncompetence. Are you incompetent or\ncompetent at a subject? The second\ndimension is consciousness. Are you\naware of your level of competence? And\nin particular, can you explain it?\nI want to be clear that incompetent in\nthis context is not an insult. It's just\nwe're all incompetent at something in\nlife, right?\nI'm aware that I suck at basketball, I'm\nreally bad at it. Um I used to write\nmedical software, so I know enough about\nmedicine to annoy doctors. And I\ndefinitely know how to cook a chicken.\nNow, if you take this two-dimensional\nmodel and you stack it like a pyramid,\nat the bottom are all the things that we\ndon't know we don't know. And let's be\nhonest, this is most human knowledge,\nright? Like we all have just a slice of\nwhat we understand.\nAnd for those things we are\nunconsciously incompetent. And this is a\ndangerous place to be if you're\noverconfident cuz that's how we get\nDunning-Kruger.\nPart of learning is moving beyond the\nstate up to this conscious incompetence\npart where you actually are aware that\nyou don't know things.\nAnd because you're aware you don't know\nthings, you become willing to learn.\nAnd as you study something, eventually\nyou become competent at it, and you are\naware of your competence. You know why\nyou know the things you know, and that\nmakes you a really good teacher. You can\nexplain it.\nHowever, we all know that if you do\nsomething enough, eventually you move up\ninto this unconscious competence place,\nwhere we start working more on\nintuition. Like we have these\nheuristics, and we have these feelings,\nand we operate based on those feelings.\nAnd when we get there, it's really hard\nto explain why we think the things we\nthink, or why we feel the things we feel\nto someone else, because we've just\ncreated all these mental shortcuts.\nAnd if you're an experienced engineer, I\nbet there are times when you found\nyourself looking at a design document or\nan architecture diagram, and you\nthought, \"This is wrong. This is so\nwrong.\" But then when somebody asked you\nwhy, you struggled to put it to words,\nright? That's your unconscious um\ncompetence speaking to you.\nAnd it makes you sometimes a bad mentor,\nbecause uh you you can't really teach\npeople who aren't there yet, because you\ncan't explain it.\nAnd when that happens, you end up being\nthe one person who has to show up all\nthe time and fix things, because you're\nthe only person who understands the way\nthe thing way the things the way you do.\nAnd that leads me to my next point,\nwhich is in our jobs, things break a\nlot.\nYou know, obviously software has bugs,\nhardware fails, you know, processes fall\napart. And when these things happen, we\nhave to make use of our intuition built\non years of experience to point us in\nthe direction of what might be wrong.\nBut often it's not until we've really\ndug into the problem and understood what\nwas going on that we can actually figure\nout how to fix it.\nAnd so our jobs constantly require us to\nmove between this unconscious and\nconscious competence to do our job all\nday long.\nAnd so the mental framing that works for\nis to think that generally speaking,\nlarge language models are by their\nnature\nunconsciously competent. They know\nthings. They know a lot of things, but\nthey can't explain why.\nHumans are much better at the conscious\ncompetence part.\nWe're also really good at knowing what\nwe don't know.\nLLMs are not.\nThe way you think about hallucinations\nis that there are moments when AI/ML is\nunconsciously incompetent, and it\ndoesn't know what it doesn't know, so it\ngets creative and fills in the blanks,\nright?\nNow, obviously the various models are\ngetting better and better at getting rid\nof hallucinations, and there's a Hugging\nFace as a cool leader board you can\ncheck out. Um when I made this slide,\nthe top model was a 1.3%\nhallucination rate. However, some are as\nmuch as like 10%.\nAnd\noften when I talk about this, people\nsometimes say things like, \"Well, it it\nfeels worse to me. Like when I'm working\nwith these models, I I can't believe\nit's 1.3% or or 10%.\"\nAnd the my answer to that is that this\nbenchmark that they use basically tracks\nwhether or not the answer the model gave\nwas in the source material or where they\nmade up something that wasn't in the\nsource material.\nAnd so when you think about our jobs,\nwe're often asking the models to solve\nnovel problems for us. There is no\nsource material.\nAnd so we're asking them to be creative,\nand that's part of the feature, but it\nalso means that what we get is a little\nmore unpredictable.\nAnd basically, because of that, a lot of\nworking with agents and models is going\nto be about making sure that they\nproduce the right thing in the first\nplace.\nAnd that has always been the hardest\npart about our jobs. It's not building\nthings or running things, but knowing\nwhat is the right thing to build, or how\nto keep something running the correct\nway.\nSo put this all together, at our\nfingertips, we can now call up a number\nof like coding or operations agents who\nwill behave like really solid but\noverconfident engineers.\nAnd if we want them to produce quality\nsystems, we're going to need to give\ngood instructions, of course.\nWe'll have to monitor their work. We may\nhave to jump in and make sense of the\nsystem when they do something wrong and\ntry to figure out how to get it working\nagain. Maybe we'll create guardrails\naround what they do, right? To make sure\nthat they don't run off and do something\nlike delete the whole database.\nAnd when they make mistakes, we will\nhave to give them feedback and ask them\nto correct their mistakes.\nAnd of course, there'll always be tough\ndecisions about which parts do we trust\nthem to do versus we keep for ourselves.\nAnd this job overall is harder than\ndoing the original work, right?\nAnd but like the dishwasher example, we\nstill want to use these tools, cuz one\nwill be more efficient, and and two,\nthey'll probably do some work we didn't\nlike doing anyway.\nNow, some of you might be thinking this\nsounds like being a tech lead, and I\nkind of think it is. It's kind of like\nbeing a tech lead. Um\nbut you have this seemingly unbounded\nsupply of engineers.\nSo what's going to happen?\nWell, what is going to happen is that\nbecause these agents and the models are\nnot rate limited by the words per minute\nthey can type,\nthey're rate limited by the speed of\ninference,\nand our ability to give them feedback\nand good instructions, um what I imagine\nis our systems are going to change at a\nrate we've never seen before.\nAnd that means they're going to get\nbigger, and they're going to get more\ncomplex.\nAnd so we're going to have to figure out\nhow to deal with these increasingly\ncomplex systems.\nAnd unfortunately, complexity theory\ntells us that as systems get more and\nmore complex, their behavior becomes\nemergent, and it's harder to understand\ncause and effect, meaning it's harder to\nunderstand ahead of time the consequence\nof the change you're about to make, but\nit's also a harder to look in hindsight\nabout why did this thing just happen.\nAnd all the moving parts and assumptions\nalmost begin to behave in a way that\nfeels non-deterministic, maybe even\nchaotic, right?\nAnd this happens even if your system is\ndescribed as a simple algorithm or\nfunction. Um chaos theory has a ton of\nexamples of like really simple functions\nthat can have extreme results and\nextreme variability based on just slight\ndifferences in inputs.\nSo we're going to be living with more\ncomplexity going forward. And we're\ngoing to have to figure out what to do\nwith that.\nAnd of course, you can't talk about\ncomplex systems unless you talk about\nhow complex systems fail by Dr. Richard\nCook.\nAnd if you haven't read the whole thing,\nplease do, because I don't have time to\ngo into all of it, but I'm going to\nspeed through what I think is the most\nrelevant takeaway, and I tend to do this\nvisually.\nAnd how I think about it is I think all\nsmall systems start all systems start as\na small system that mostly works. And I\nsay mostly cuz things are broken all the\ntime.\nAnd also, I say small, but in reality, a\nsmall system that works involves usually\nmultiple services, sometimes a data\nstore, but definitely people that\ninteract with the system following\npolicies and using interfaces.\nAnd working with these complex systems\nrequires that we acknowledge that the\nsystem is this mix of humans, hardware,\nand code,\nand that all the participants are\ninteracting while making assumptions.\nAnd the assumptions and the interactions\nmake the system complex, but that\ncomplex is almost like an aura around\nthe system. We can't actually see it,\nand the boundaries are kind of fuzzy.\nAnd this is because a lot of assumptions\nare implicit and undocumented. And also,\nthere's variation in system performance,\nright?\nAnd that complexity is often the cause\nof incidents.\nUm we've all had the experience of an\noutage happening even when everything\nwas working as intended, right?\nBecause it's the bad assumptions amongst\nthe parts that create the circumstances\nthat allowed for some small change to\ntrigger the outage. Maybe something\nstarted running a little slower. Maybe\nthat error code we never thought was\ngoing to return finally gets returned.\nAnd that breaks an assumption somewhere\nin the system, and of course, things\ncascade.\nOf course, we, SREs and other humans,\nare the source of resilience,\nand we respond and we resolve the issues\nin that complexity,\nand we get the system working again.\nAnd, you know,\nmaybe we remove some of the bad\nassumptions or behavior that led to the\noutage.\nBut also, in a in an effort to prevent\nsimilar outages, we add controls, we add\nautomation.\nUm and that all helps, but it also makes\nthe system bigger and more complex.\nAnd so now we have a new set of\nassumptions and behaviors to manage,\neven bigger than the initial set.\nAnd complexity increases as the system\ngrows.\nAnd again, we have some outages.\nMaybe it's a hardware failure, um and\nhumans have to show up and fix the\nissue, and maybe they add more\nsafeguards and controls. And the system\ngets bigger\nand more complex, with even more hidden\nassumptions.\nAnd if we're using AI AI/ML to build\nparts of the system, the speed of change\nis just going to make this\nexplode, like right? It's going to\naccelerate. And we'll be managing these\nincreasingly complex systems.\nAnd of course, going back to the ironies\nof automation, because we automated away\nsome of the work when we did this, um\nsome of it will feel like a black box to\nus. Like we won't understand all the\nworking details anymore, and we'll have\nto adjust our approaches.\nNow, when I talk about this, sometimes\nthe first answer I hear is, \"We'll use\nAI ops.\"\nAnd I do think that is part of the\nanswer, but let's just be frank, that's\njust a bigger system.\nAnd one that also behaves\nnon-deterministically,\nso it'll be more complex than the\noriginal system.\nAnd so we need additional answers.\nAnd to reiterate my statement from\nearlier, any line of code can be\nload-bearing, so even the code or\ncommands written by LLMs\ncan cause an outage, of course.\nSo if agents only make a few mistakes\nper say, like\n>> [clears throat]\n>> a thousand activities, the rate that\nthey are producing code will still\ngenerate many hidden surprises,\njust as humans already do, but faster.\nAnd while we'll have tests and code\nreviews, um some things inevitably will\nbe missed, and then they'll come back\nand poke us, like needles hiding in a\nbig haystack.\nBut of course, making things challenging\nsince we're going to be dealing with\ncomplex systems, there's going to be a\nlot of parts.\nAnd so some sense it's more like needles\nhiding in many haystacks.\nAnd since most outages have multiple\ncontributing factors, of course, any one\nof these haystacks can be part of the\nproblem.\nSo how do we find all the needles?\nWe can't rely on human review, cuz\nthat's going to be too slow. And also\ntraditionally human review only catches\nobvious errors.\nWe can get better at testing, and I will\ntalk about that. Um, but let's start\nwith the idea we're going to have to\nchange how we approach addressing issues\nin the system\nfundamentally.\nBecause back to the curse of knowledge,\nwe're going to have that harder time\nmoving between that uh unconscious\ncompetence and conscious competence to\nunderstand what went wrong. And of\ncourse, as Kernighan said, uh debugging\nwas already harder than writing code in\nthe first place.\nSo, I think we're going to have to\nembrace that our relationship with the\nsystem and how we understand it will be\nmore abstract.\nIt's just changing in that way.\nAnd that's okay, because we've been\ndoing this our whole careers, right?\nLike, the tech industry has a long\nhistory of increasing levels of\nabstraction. We're not writing code out\nof AND and OR gates anymore, thankfully.\nUm, we're not even using assembly\nlanguage.\nAnd we've gotten to the point now that\noften we talk about systems, we talk in\nthese whole constructs, like the\ndatabase or the API or this particular\nservice.\nAnd we've always been moving in a way\nthat we got to abstract away bigger and\nbigger parts of our solutions. And this\nis going to accelerate, and I think\nwhat's going to happen is we're going to\nmove to the top of this table, right? To\nthe top of this stack.\nAnd we'll be spending more of our time\nthinking about systems, processes, and\npeople.\nAnd this means the way we respond to\nincidents and breakages will be less\nabout understanding exactly what went\nwrong and more thinking about the\nproblem as a systems problem.\nAnd when I think about viewing systems,\nI always think about this old paper\ncalled the 4+1 view of software\narchitecture.\nUm, it's a really great paper about how\nour systems have always looked different\ndepending on who was looking at it.\nLike, I always used to joke about if you\ntake two people to a whiteboard and you\nask them to draw the same system, the\npictures will look different, and that's\nactually an interesting conversation to\nhave is like, \"Why did you draw that box\nand not that box?\"\nBut this old paper said it wasn't just\nthat, it's also that who you're talking\nto views the system differently based on\nwhat they work with every day.\nAnd so, if you have uh your average\ndeveloper, they think in the logical\nview, which is what the code looks like,\nfunctions, classes, APIs, if statements,\nfor loops.\nUm, and then you have if you're the\nsomeone who runs the deployments and the\nrollouts, you might think of the\ndevelopment view, which is how the\nsystem is packaged up, libraries,\nbinaries, rollouts.\nAnd then if you're, you know, operating\nthe system and responding to incidents,\nyou might think about the process view,\nwhich is how the system runs and\ncommunicates in real time.\nAnd then if you're someone who's like\ndeep in the infrastructure, you might be\nfocused on the physical view, which is\nwhere is everything running? Like, which\nmachines, which data centers, what is\nthe power redundancy?\nBut in the middle, there's always been\nthis unifying experience of what is the\nuser experience under different\nscenarios.\nAnd so, moving into this abstract world,\nwe first have to recognize these these\nviews have always existed, and we have\nto be aware of them all\nbecause this is the full complexity of\nour system.\nBut we also have to spend more time in\nthat middle reading it listening about\nthe user experience, what scenarios are\ngoing to happen, and how we want the\nuser experience to feel when those\nscenarios happen. And when I mean\nscenario is it's both a mix of positive\nthings and negative things, like failure\nevents, but also as the user interacts\nwith various user journeys.\nAnd so, I think more of our jobs will be\nabout worrying, but in a way that we're\nasking what if at this level.\nAnd we'll have to start incorporating\nunderstanding how engineers, users,\noperators, and agents will be constantly\nchanging the system.\nAnd that will change the way we think\nabout our roles and what work SRE needs\nto do.\nAnd basically, we need a broader\nunderstanding of the system from not\njust how it lives, but how it was built,\nand what was involved, and what\nassumptions were made.\nNow, as a great way where we already do\nthis in our jobs is that we already deal\nwith the fact that when we're responding\nto incidents, we can't always understand\nwhat went wrong when we need to respond.\nAnd so, we build generic mitigations,\nwhich, you know, the Google thinks of\nthis as a series of buttons or levers\nthat we can safely push to get the\nsystem working right again just long\nenough for us to get to understand the\nthings better and actually get a more\nsolid solution.\nUm,\nthe way I think about it is that there's\na million ways anything can go wrong, so\nyou need a few things you can just do to\nget them going well again. And uh all of\nyou have done a generic mitigation,\nwhether you know it or not, every single\nperson in this room. Um, and you've all\ndone the same one at least once, which\nis turn it off and turn it back on\nagain.\nThat fixes all sorts of problems, right?\nDeadlocks, memory leaks, tons of\nproblems. And um and that's a great one\nif your system's designed to support it,\nright? You have to you have to have an\narchitecture that supports it. Another\nobvious one is rolling back to the last\nworking version of the software, it's an\neasy one we do a lot. But also things\nlike if you suspect the hardware is the\nissue, back to that physical view,\ndraining away from the hardware or\ntriggering a live migration is another\ngeneric mitigation.\nAnd I think these will become more\nimportant because as we're less\nin the weeds of the system going\nforward, we're going to need more of\nthese tools, and we're going to need to\nensure that they work because it's going\nto take longer to page back in all the\ninformation about how the system works\nwhen we're responding.\nAnd so, imagine we did show up and we\ndid perform some generic mitigation,\nwhether we drained away traffic or\nturned it off and back on again.\nAnd now we have to learn and fix some of\nthe bad assumptions that led to the\noutage, right?\nAnd so, the question is where to start.\nWe have to focus our efforts somewhere,\nright?\nUm,\nmaybe not. How about everywhere?\nI'm half joking, but since complex\nsystems break our understanding of cause\nand effect, and because the relationship\nwith the code has changed, we're not\ngoing to be as quick in terms of like\nreproducing the issue and doing some\ndeep debugging. And so, it's it'll be\nharder to understand exactly what went\nwrong.\nAnd so, what we can do easily though is\ntreat anything that could have gone\nwrong as a risk,\nand then remediate those risks.\nBy that I mean, we will no longer ever\nanoint a root cause, um and we instead\nwe need to create mechanisms by which\nthe things that are wrong can be\ncontinuously fixed.\nAnd the good news is we will now have a\nsmall army of operations leads to do our\nbidding in this regard.\nRecently, one of my SREs suspected there\nwas a deadlock in a particular service\nthat was contributing to the outage, so\nhe asked an agent to find it, and it\ndid. And then he asked the agent to fix\nit, and it did.\nAnother engineer I know asked the agent\nto write more unit tests to catch edge\ncases,\nand that uncovered areas that needed to\nbe fixed and likely contributing to what\nthe behavior we're seeing.\nSo, we can have agents both find and fix\nthings, but not even just the immediate\nthing. Uh recently, we had an outage\nexacerbated because uh a playbook had\noutdated commands.\nUm, and we realized that\nthat we needed to not just fix this one\nplaybook, but go look across the whole\norganization and see if anyone else had\nthese outdated commands.\nAnd so, we asked agents to do it, and\nthey fixed them all at once.\nSo, another way to look at this is we\nhave this opportunity to realize Linus's\nLaw finally because we'll have enough\neyeballs.\nAnd so, the way I want to think about\nthis is\nwe often see a lot of patterns that\ncontribute to outages, right? Um, bad\nerror handling is my number one\nuh contributor whenever I look at\nsystems.\nBut there's also concurrency issues,\nthere's, you know, resource management\nchallenges, and all these are sort of\npatterns that you can see in the system,\nand they show up all over the place. And\nthese are all the needles hiding in the\nhaystack.\nAnd so, the way we can bring reliability\nto systems now using these new tools is\nwe can take basically say, \"What\nanti-patterns do we see in our systems,\nand can we pose them as questions about\nthe code base?\"\nSo, for example, we've asked agents to\nfind missing error retries or where we\nhave retries without backoff and jitter,\nand then they can find those things for\nus.\nAnd this all comes back to this idea\nthat reliability, and also just\ngenerally software quality, is a\nfunction of us all understanding that\nthere are always going to be errors in\nthe system,\nand that we all write bugs,\nand that too, the number of errors or\nbugs is proportional to the size and\ncomplexity of the system, right? As the\nsystem gets bigger, there's going to be\nmore of them.\nAnd that the secret to great engineering\nisn't being satisfied just because the\ntest pass. It's being satisfied when you\nfind enough things that are wrong. And\nenough is often built on your prior\nexperience, so that's sometimes often\nyour unconscious competence.\nSo, if we take a systems thinking\nperspective, uh we can create a great\nfeedback loop for ratcheting up system\nreliability by using these new tools at\nour disposal,\nand basically ask them to find and fix\nenough bugs constantly throughout the\nsystem.\nAnd this will be a leading indicator of\nsystem quality.\nIt's also a funny way to move between\nthat unconscious competence of knowing\nthat we'll have some problems in the\nsystem and the conscious competence\nrequired to find and fix them.\nWith the irony being we're using the\nunconscious competence of the coding\nagents to help us here.\nPutting this together, imagine as a\nthought experiment never having to\nmanage a bug backlog.\nNow, obviously we're not here, and we\nmay never get here, but I like this as a\nguiding light that we want to get to\nspend less time figuring out the right\nthing to fix and more time just fixing\neverything we can.\nAnd if a bug can be fixed, tested, or\nreviewed like in an hour, like does it\nreally matter that it's not the most\nimportant bug to fix? It's still a risk\nin the system because every line of code\nis load bearing,\nand many low priority bugs turn out to\nbe contributing factors in outages\nlater.\nAt Google, we even commemorate this\nmoment by having an I told you so badge,\nwhere if someone logs a bug and that bug\nis later identified as a contributing\nfactor, um you you get to celebrate. So.\nSo, all of this to say we get to rethink\nhow we approach prioritization.\nAnd I think this will be a noticeable\nshift and it'll be hard for some folks\nto adjust to.\nBecause many of us have been conditioned\nto think that we always need to be\nworking on the most important thing we\ncan do for some definition of important.\nBut if we can find things we need to do\nquickly and do as much as them as we can\nquickly,\num then it doesn't matter as much\nanymore.\nAnd this takes me to my favorite book on\nsoftware development, The Art of\nBusiness Value by Mark Schwartz.\nIn it, Mark talks about how one of the\nchallenges we have in any engineering\norganization is assessing the value of\nthe work we could be doing.\nAnd this is particularly challenging\nbecause we always have many, many great\nideas about what we could be doing and\nthat always outpaces the capacity we\nhave to do work, right?\nAnd this often creates frustration in\nthe organization because this mismatch\nof the the cost of doing work is so much\nslower than the cost of coming up with\nwork that good ideas get starved for\nattention, right? You get a lot of those\nI told you so badges.\nAnd we don't know how to reason about\nthe work we should be doing because\nbacklog gets too big and there's just\ntoo much to analyze and then\nunfortunately organizational politics\nstart to get playing more of a role in\nwhat work we choose to do, right?\nAnd so the usual solution to this\nproblem is like, oh, we'll just sort the\nbacklog by value and maybe we can go\nfurther and say we'll use return on\ninvestment or cost of delay or some\nother way of assessing the importance of\ndoing work. Maybe you get a stack\nranking from your leadership.\nHowever, we have to realize that all of\nthis sorting work also takes engineering\ncapacity because often you you're asked\nto to estimate feasibility, value, and\nthe cost, right? So, it's not free.\nAnd Mark Schwartz and others have\npointed out that we're all bad at\npredicting both the cost and value of\nthe work we want to do.\nAnd so when we prioritize based on these\nconcepts, we're making decisions based\non poor estimates.\nI think we've all had at least one\nproject run double the original estimate\nor to turn out to deliver nowhere near\nthe value we thought it would when we\nstarted.\nAnd the only time we ever truly know the\nvalue and cost of something is after\nwe've built and deployed it.\nAnd so no amount of planning can ever\nfully fix this and of course planning\nhas a cost.\nHowever, we feel we have to prioritize\nby something because we do have a\nconstraint set on engineering capacity\nand we want that capacity working on the\nmost valuable things. And Mark Schwartz\nproposed a path forward. One is to break\nthings up into smaller, more easily\ndelivered pieces.\nAnd two, make sure you're getting\nfeedback from reality early and often.\nAnd this creates the opportunity to fail\nfast if your idea isn't working, right?\nAnd then you get to try more good ideas\nbecause you're not spending all your\ntime on ones that aren't working.\nAnd I think this is another place that\nthese new tools can help us. As the\nJevons paradox suggests, we can build\nmore things because building got more\nefficient and so it'll be faster to test\neven seemingly, you know,\nridiculous ideas or absurd ideas, we can\nstill like test them quickly.\nAnd so the good news, experimentation\njust got a lot of cheaper.\nAnd even better news is experimentation\nis the mechanism by which we manage\nincreasingly complex systems.\nBecause predictability is not a feature\nof complex systems, we often have to\ntreat the work we do as a learning\nprocess when working with them.\nBecause we can't predict the full\nbehavior of the system. We can't devise\na plan that just goes like do A, B, C,\nand D and and everything will be fine.\nWe often have to discover the work.\nAnd so this world coming coming to us,\nrigid plans won't work all that well.\nAnd we'll have to structure our work as\na series of experiments that'll each\ninform each step of the plan and we'll\nhave to preserve optionality.\nAnd if we\nact this way, if we treat our work as\nexperimentation, we'll be much more\nsuccessful at containing the complexity.\nAnd when I say experiments, I mean in\nthe most fundamental sense, which is we\ntreat every project as a hypothesis\nabout what we expect to happen when we\nimplement it.\nAnd we cut up the project into mini\nprojects so we can see if our hypotheses\nare correct more quickly.\nAnd of course the good news is it'll be\nless expensive to do from an\nimplementation standpoint, but the bad\nnews is we still have to do the hard\nwork of devising the experiments and\ndriving the work forward based on what\nwe learn.\nAnd for some of you playing thinking\nthat sounds like Agile development and\nit's similar in practice. Like Agile\ndevelopment is one flavor of doing this.\nBut this is more about reordering your\nwork so that you answer the important\nquestions first. Like you you get the\nrisks settled early and often.\nFor example, you might do an upfront\nscalability test on the skeleton\narchitecture before any business logic\nis implemented to make sure it will\nscale.\nOr you might actually build your\ncapacity plan ahead of implementation\nbased on like back of the envelope\nestimates to make sure that you can\nactually afford to run the system once\nit's built.\nAnd the thing is when you do this, when\nyou when you plan based on learning, the\nproject's going to proceed proceed\nnon-linearly and that means you're not\ngoing to have this perfect Gantt chart,\nright? That just flows and you're not\ngoing to have this perfect burn down of\nwork either. It's going to look a little\ndifferent.\nAnd this might make some people\nuncomfortable.\nBecause the mistake engineering leaders\noften make is they demand a predictable\napproach when dealing with a complex\nsystem.\nAnd they don't empower their teams to\nwork in a way that yields discovery.\nAnd I think this happens when you have\nan engineering led organization where\nthe people who wrote that first small\nsystem that works\nare now the leadership, but as you grow\nin leadership, obviously you're removed\nfrom the details and so you you spend\nless time there and you don't understand\nhow complex the system's gotten.\nAnd so without even knowing it, these\nengineering leaders trick themselves\ninto thinking you can solve problems the\nway they did in simpler times with\ndetailed plans and best practices.\nHowever, the system you're dealing with\nwill be this system.\nIt's complex, maybe even chaotic.\nAnd you're going to have to structure\nyour work to account for that complexity\nand accept that some of the things you\nmight try might fail.\nBecause this system cannot be tamed with\nplaybooks and best practices.\nIt requires risk management,\nexperimentation, and discovery.\nAnd if the system is really complex, uh\nyou can no longer trust that you know\nthe full set of system behaviors\nand you can only suspect certain\npatterns of behaviors.\nAnd so to actually do your work, you\nalmost have to probe or poke at the\nsystem a little bit and see how it\nreacts, right? You know, what if I try\nthis? Back to those scenarios.\nAnd devising these experiments and\nexercises and doing them safely is not\nintuitive. It's a skill you have to\nbuild.\nIn some ways, basically what I'm talking\nabout is building feedback loops.\nAnd this is part of what SRE's always\ndone, right? Like if you think about\nSLOs and error budgets, that was just a\nreally,\nyou know, clean and simple feedback loop\non development velocity.\nAnd so we're going to be doing this\nmore, but because of the rate of change,\nyou know, coming back to how I started\nthis talk, our jobs are going to be less\nabout\nbeing the human feedback loop\nand being more about building feedback\nloops that scale with the rate of\nchange.\nAnd\nthe one way that works really well in my\nmind to think about this, about how do\nwe build feedback loops that scale, is\nthis concept called an architectural\nfitness function.\nAn architectural fitness function is\nbasically a system level assertion for\nsome of your system requirements.\nAnd I say system requirements, I mean\nthe things we want to be true about the\nsystem regardless of what features it\nsupports, right?\nSLOs are a great example of a fitness\nfunction.\nAnother way of looking at them is they\nare a system level mechanism for making\nsure the things that should never happen\nactually don't happen.\nHowever, they can also ensure the things\nthat should happen still happen.\nAnd basically you take these assertions\nand you codify them in a form of\ncontinuous testing or maybe you enforce\nthem architecturally by failing certain\nchanges that don't meet your your rules.\nAnd that ensures as the system changes,\nno matter how fast as the changes are\nhappening,\nsome things will always be true.\nSo, as a great example,\nuh one of the rules we have in Compute\nEngine is that the system should support\nan arbitrary number of clusters\nand that cluster should be able to be\nadded or removed with no side effects.\nYou should be able to like not impact\nanywhere else in the system.\nAnd so how do we how do we ensure this\nalways happens no matter what changes\nany human or agent makes?\nWell, we set it up we set up continuous\nautomation\nthat constantly creates, registers new\nclusters,\nthen hides them and tears them down\nagain. Just over and over and over\nagain.\nAnd that way we can prove that or at\nleast we can catch, we can never prove,\nbut we can catch the moment that someone\nmakes a change\nthat breaks this the system requirement.\nThe cool thing is this automation turned\nout to be a potential generic mitigation\nas well.\nBecause one way to fix something is to\nsafely delete it and and recreate it,\nright? If you know you can do that\nbecause you're doing it all the time\nthat it's safe to do it.\nAnd this takes me to a key point. You\nhave to treat your generic mitigations\nas system requirements.\nThis means you don't just test when you\nchange the mitigation tool. Like so if\nyou don't just test your rollback system\nwhen you um change the rollback system,\nyou have to change those you have to\ntest those mitigations every time the\nsystem changes. So, you should be\nconstantly rolling back just to make\nsure it still works again.\nOther fitness function examples, um you\nmight say the system should support\nmultiple operating systems. Maybe it\nneeds to survive losing a certain number\nof machines. Maybe it should be able to\nhandle a certain frequency of live\nmigrations.\nYou might make rules about your\ndependencies. Like it shouldn't have any\ncircular dependencies or some\ndependencies aren't allowed.\nOr you might say it can't crash during\nuser interaction.\nThat last one is a one we had at one of\nthe consumer device companies I worked\nfor\nwhere basically we had this testing\napparatus we called the hopper and it\nwould randomly touch pixels until it\neventually accidentally uh triggered a\nUI event\nand then it would keep doing that over\nand over and over again and all the\nevent handling code would get triggered.\nAnd basically, before you could deploy\nyour code, regardless of whether you\nchange the UI or not, you had to let it\nrun in the hopper.\nAnd if it crashed, the uh you would get\nthis you get the core dump, of course,\nand then you'd get the list of events\nthat have been triggered. And it was\nreally cool cuz we found all sorts of\nweird and improbable bugs in the system\nand we were able to fix them before they\ncreated a bigger problem or before they,\nyou know, impacted the user.\nAnd well, of course, it's never proved\nthat the software wouldn't crash. Um\nthat would be impossible. We knew we\nwere finding enough bugs, right?\nAnd if you do have agents or\nThat's weird.\nOkay, well, um if you do have agents or\nother um\nAIML in your systems, you have to accept\nthat you're going to have to uh test\nthose as um\nas a fitness function as well, right?\nAnd typically, how people do that\nis they do that through the form of um\ne-bells. So, these are auto raters,\nthese are manual raters. And I really\napologize that my computer decided to\ncrash. I always joke computers are a\nmistake when it does this stuff.\nUm the So, you want to test the e-bells\nwork, too.\nNow,\nOh, it went to the beginning.\nHold on. Sorry.\nNow, where I was going to say next is\nthat uh the good news is some things\nabout our job aren't changing.\nAnd in particular, what isn't changing\nis we are still going to be the people\nthat need to show up\nand uh\nrespond when things fail and get things\nworking again. And I think if you are\ncurrently on call, you will probably\nstill be on call.\nJust maybe the way you respond and the\nthings you respond to will be different.\nAnd And so, And this is because, again,\nhumans are the things that resolve the\ncomplexity, that resolve the the\nchallenges at that boundary of\ncomplexity.\nBut hopefully, with everything you see\ncoming at you with these agents, like\nyou'll be able to build tools that makes\nthat job easier.\nAnd so, ultimately, that's why I'm\nhopeful. You know, I started out this\ntalk like that's I worry, but I'm\nexcited.\nI think SREs are used to dealing with\ncomplex systems.\nThe problems they present are\nchallenging, but also fun.\nAnd we're used to having to work with\ncode we didn't really write and\nsometimes don't fully understand, right?\nThis is part of our jobs.\nAnd so, to me, it feels like our skills\nin particular and our experiences will\nbe critical in this new landscape.\nAnd that's That's why I'm excited. Um I\nthink it's a great time to be an SRE.\nWhat? Thank you.",
+  "segments": [
+    {
+      "text": "Thank you for that lovely introduction. And I wanted to start today with letting you all just ponder a question. What's the scariest thing you've ever seen in code? For me, it's this comment. This should never happen. Now, we all know that engineers use this",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "comment to capture some state that seemed impossible given system constraints and what they knew at the time. Uh often it's an error code they never thought would be returned or it's something they thought wouldn't be null that, you know, is in fact null.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "And the fact that they never expected it to happen means they couldn't reason about when or why it could happen, which means they didn't think through the consequences and probably didn't test the code all that well. And so years later, um someone changes",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "the code and that error is just finally returned maybe. And suddenly this thing that could never happen happens and we get to see how the whole system reacts. I've been on the receiving end of many pages generated when the the impossible",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "suddenly became the inevitable. Uh so whenever I see that in code, I think, \"Just wait.\" And so as Laura introduced me, um I'm a um I'm Shell Brush. I am a site reliability engineer like most of you um and then I do have responsibility for",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "the reliability of Google Compute Engine and Persistent Disk. Uh when people ask me what my job is who aren't in tech, I say my job is to worry. and that I worry about how things might fail and then when they fail cuz they always do, I show up and get them",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "working again and then we try to learn from what just happened. And the one thing I've learned responding to incidents is that every line of code has the potential to be load bearing. And this is because every line of code",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "carries all of the assumptions that the engineer made when they wrote it. And even if those assumptions were absolutely correct on the day the code was written, of course things change. And this to me is why things like design",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "reviews, launch reviews, production readiness reviews, and even code reviews can only take us so far in terms of reliability. Um they are point-in-time reviews based on how the system is expected to look right now. And then the system changes.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "And part of being a good SRE is understanding the nature of change. Um in the systems we support, every microsecond something is changing, right? And we cannot control those changes even if we want to. And so all we can do is build systems",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "that are easy to change, that recover quickly when a change fails, and that do not require that we understand and review every change in the system. And now our jobs are changing. Large language models have made it so people can build applications, refactor",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "large code bases, um add features, and fix bugs in less time than before. And of course the SRE in me worries, right? That's worrying some. But I'm also excited and I'm hoping through this talk I can make you feel excited about it, too.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "However, to get you there, I'm going to walk through a bunch of ideas. Some of them you've heard before, but please bear with me. I'll pull them all together. To start as the guiding thought experiment, let's imagine what happens",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "if agents do make the work of building and running software faster, easier, cheaper, better, all those things. And what if we suddenly had all the programmers we ever wanted to build whatever we wanted once we figured out",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "what that was? What would we think would happen? My hypothesis is we're about to experience the Jevons paradox. The Jevons paradox says that if something becomes cheaper or easy to do, we do more of it. As a great example, I",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "take way more pictures now that I don't have to carry around film and get it developed, right? So, if we think of the capacity to do engineering work as a limited resource, which it has been for a long time, and the act of coding and doing commands",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "and operational work it all gets easier and faster, the Jevons paradox suggests that the world is going to engineer more things. Software applications that we never thought possible will be built now and things that were previously too",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "expensive to even consider will now be cost effective. We just can't imagine what all those things are right now. And so as software gets cheaper and easier to build, we will come up with more ways to use it and bring it into",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "our lives and that already happened through the years as we moved beyond different levels of abstraction in software. And the good news is these new systems will create demand for engineers. Now, as a result of all this, we are still",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "going to need software engineers and site reliability engineers to help design these new applications, to make sure they're reliable, to keep them running. But some of the work we all used to do will now be taken away and automated by",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "the use of agents. That's probably happening. And so what does it mean for us to be less exposed to the day-to-day coding and operations as we gradually automate away part but not all of our jobs? Well, the best framing for this is the",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "paper The Ironies of Automation and I'm sure many of you are familiar with it, but I'll quickly summarize. What Bainbridge tells us is that when you automate away most of a task that a human used to do, but leaves some of the",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "work left for humans, the overall job requires even more skill. Part of this is because you've left for what you've left for humans is the work that requires judgment, like you couldn't just write it as rules or heuristics or patterns.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "Um but also the automation itself creates a whole new set of tasks that have to happen. You have to monitor the automation. You have to fix it when it breaks. Um you need to account for it failing or or making mistakes and that is all",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "harder than doing the original work in the first place. And making things worse, because you weren't doing the work anymore, you've automated away, you lose familiarity with it and this is called skills decay. And so when something breaks, it takes",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "more time for you to understand and sort of like page back in the memory of of how to do the work and what it should look like. And so basically, as you remove some but not all of the work, um the job gets harder not easier. And you need more",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "people people with more skills not fewer. To illustrate with a very simple example, let's take dishwashers. We have dishwashers, they've taken away most of the work of washing dishes for us, but they still left a few things for us to do.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "basically, even automating this simple task left us things like we have to now detect when the dishwasher is done. We now have to check each dish because sometimes the dishes don't all get clean. And then when they don't get clean, we have to troubleshoot, you",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "know, did we was the water not hot enough? Was there enough pressure? Do we need to clean the filter? And this troubleshooting is harder than just washing the dishes. But also when the dishwasher breaks, suddenly we have to start doing this",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "activity we haven't done in a while and we're not as efficient as it at it as we would be if we were doing it every day. However, we still want to use the dishwasher, right? Like even though it introduces these challenges,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "um because it does save us time and to be honest, we didn't really enjoy the work of washing the dishes anyway. So basically, when we think about what's happening in our industry right now, um our relationships with the systems we support is going to change.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "Um but we'll still need to respond when something goes wrong. So even though we'll be less familiar with some of the work we used to do, we'll still have to jump in and fix things. And so the big question is how are we going to respond",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "to failures um when we know we won't have people who fully understand the system anymore. They won't have the depth. Now, if you're an engineering leader and you're in this audience, um and you take nothing from this talk, I want you to remember this slide,",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "which is basically the Jevons paradox suggests that we're going to be building a lot more things once programming is easier, faster, cheaper. And the ironies of automation say that we're going to need more skilled engineers to review",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "the outputs and monitor the system at work and fix it when it breaks. And this means in all likelihood we're going to see more demand for skilled engineers over time, not less. Um and the important question though is what skills are we talking about?",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "Well, definitely debugging and troubleshooting. That's obvious. I love this old Brian Kernighan quote. Um however, even this quote assumes you wrote the code you were debugging. And even now, especially as SREs, most of the time we're debugging code that is a",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "mix of something maybe we wrote and and a lot of what somebody else wrote. And now we'll have code that the large language model wrote in the mix. Now, I want to be clear, this is not an AI/ML talk. I'm not going to go into detail about deploying models or or",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "running systems or how to keep GPUs and TPUs um healthy. Um I am going to talk as promised about managing complex systems, but we have to talk about AI/ML right now um to understand how our jobs are going to change. And I have one more concept before I",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "jump into that, which is something called the curse of knowledge. The curse of knowledge is a very simple model for human knowledge. It has two dimensions. The first dimension is competence. Are you incompetent or competent at a subject? The second",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "dimension is consciousness. Are you aware of your level of competence? And in particular, can you explain it? I want to be clear that incompetent in this context is not an insult. It's just we're all incompetent at something in life, right?",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "I'm aware that I suck at basketball, I'm really bad at it. Um I used to write medical software, so I know enough about medicine to annoy doctors. And I definitely know how to cook a chicken. Now, if you take this two-dimensional",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "model and you stack it like a pyramid, at the bottom are all the things that we don't know we don't know. And let's be honest, this is most human knowledge, right? Like we all have just a slice of what we understand. And for those things we are",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "unconsciously incompetent. And this is a dangerous place to be if you're overconfident cuz that's how we get Dunning-Kruger. Part of learning is moving beyond the state up to this conscious incompetence part where you actually are aware that",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "you don't know things. And because you're aware you don't know things, you become willing to learn. And as you study something, eventually you become competent at it, and you are aware of your competence. You know why you know the things you know, and that",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "makes you a really good teacher. You can explain it. However, we all know that if you do something enough, eventually you move up into this unconscious competence place, where we start working more on intuition. Like we have these",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "heuristics, and we have these feelings, and we operate based on those feelings. And when we get there, it's really hard to explain why we think the things we think, or why we feel the things we feel to someone else, because we've just",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "created all these mental shortcuts. And if you're an experienced engineer, I bet there are times when you found yourself looking at a design document or an architecture diagram, and you thought, \"This is wrong. This is so",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "wrong.\" But then when somebody asked you why, you struggled to put it to words, right? That's your unconscious um competence speaking to you. And it makes you sometimes a bad mentor, because uh you you can't really teach",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "people who aren't there yet, because you can't explain it. And when that happens, you end up being the one person who has to show up all the time and fix things, because you're the only person who understands the way the thing way the things the way you do.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "And that leads me to my next point, which is in our jobs, things break a lot. You know, obviously software has bugs, hardware fails, you know, processes fall apart. And when these things happen, we have to make use of our intuition built",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "on years of experience to point us in the direction of what might be wrong. But often it's not until we've really dug into the problem and understood what was going on that we can actually figure out how to fix it. And so our jobs constantly require us to",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "move between this unconscious and conscious competence to do our job all day long. And so the mental framing that works for is to think that generally speaking, large language models are by their nature unconsciously competent. They know",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "things. They know a lot of things, but they can't explain why. Humans are much better at the conscious competence part. We're also really good at knowing what we don't know. LLMs are not. The way you think about hallucinations",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "is that there are moments when AI/ML is unconsciously incompetent, and it doesn't know what it doesn't know, so it gets creative and fills in the blanks, right? Now, obviously the various models are getting better and better at getting rid",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "of hallucinations, and there's a Hugging Face as a cool leader board you can check out. Um when I made this slide, the top model was a 1.3% hallucination rate. However, some are as much as like 10%. And often when I talk about this, people",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "sometimes say things like, \"Well, it it feels worse to me. Like when I'm working with these models, I I can't believe it's 1.3% or or 10%.\" And the my answer to that is that this benchmark that they use basically tracks whether or not the answer the model gave",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "was in the source material or where they made up something that wasn't in the source material. And so when you think about our jobs, we're often asking the models to solve novel problems for us. There is no source material.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "And so we're asking them to be creative, and that's part of the feature, but it also means that what we get is a little more unpredictable. And basically, because of that, a lot of working with agents and models is going to be about making sure that they",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "produce the right thing in the first place. And that has always been the hardest part about our jobs. It's not building things or running things, but knowing what is the right thing to build, or how to keep something running the correct way.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "So put this all together, at our fingertips, we can now call up a number of like coding or operations agents who will behave like really solid but overconfident engineers. And if we want them to produce quality systems, we're going to need to give",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "good instructions, of course. We'll have to monitor their work. We may have to jump in and make sense of the system when they do something wrong and try to figure out how to get it working again. Maybe we'll create guardrails",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "around what they do, right? To make sure that they don't run off and do something like delete the whole database. And when they make mistakes, we will have to give them feedback and ask them to correct their mistakes. And of course, there'll always be tough",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "decisions about which parts do we trust them to do versus we keep for ourselves. And this job overall is harder than doing the original work, right? And but like the dishwasher example, we still want to use these tools, cuz one",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "will be more efficient, and and two, they'll probably do some work we didn't like doing anyway. Now, some of you might be thinking this sounds like being a tech lead, and I kind of think it is. It's kind of like being a tech lead. Um",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "but you have this seemingly unbounded supply of engineers. So what's going to happen? Well, what is going to happen is that because these agents and the models are not rate limited by the words per minute they can type, they're rate limited by the speed of",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "inference, and our ability to give them feedback and good instructions, um what I imagine is our systems are going to change at a rate we've never seen before. And that means they're going to get bigger, and they're going to get more complex.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "And so we're going to have to figure out how to deal with these increasingly complex systems. And unfortunately, complexity theory tells us that as systems get more and more complex, their behavior becomes emergent, and it's harder to understand",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "cause and effect, meaning it's harder to understand ahead of time the consequence of the change you're about to make, but it's also a harder to look in hindsight about why did this thing just happen. And all the moving parts and assumptions",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "almost begin to behave in a way that feels non-deterministic, maybe even chaotic, right? And this happens even if your system is described as a simple algorithm or function. Um chaos theory has a ton of examples of like really simple functions",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "that can have extreme results and extreme variability based on just slight differences in inputs. So we're going to be living with more complexity going forward. And we're going to have to figure out what to do with that. And of course, you can't talk about",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "complex systems unless you talk about how complex systems fail by Dr. Richard Cook. And if you haven't read the whole thing, please do, because I don't have time to go into all of it, but I'm going to speed through what I think is the most",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "relevant takeaway, and I tend to do this visually. And how I think about it is I think all small systems start all systems start as a small system that mostly works. And I say mostly cuz things are broken all the time. And also, I say small, but in reality, a",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "small system that works involves usually multiple services, sometimes a data store, but definitely people that interact with the system following policies and using interfaces. And working with these complex systems requires that we acknowledge that the",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "system is this mix of humans, hardware, and code, and that all the participants are interacting while making assumptions. And the assumptions and the interactions make the system complex, but that complex is almost like an aura around",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "the system. We can't actually see it, and the boundaries are kind of fuzzy. And this is because a lot of assumptions are implicit and undocumented. And also, there's variation in system performance, right? And that complexity is often the cause of incidents.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "Um we've all had the experience of an outage happening even when everything was working as intended, right? Because it's the bad assumptions amongst the parts that create the circumstances that allowed for some small change to",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "trigger the outage. Maybe something started running a little slower. Maybe that error code we never thought was going to return finally gets returned. And that breaks an assumption somewhere in the system, and of course, things cascade.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "Of course, we, SREs and other humans, are the source of resilience, and we respond and we resolve the issues in that complexity, and we get the system working again. And, you know, maybe we remove some of the bad assumptions or behavior that led to the outage.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "But also, in a in an effort to prevent similar outages, we add controls, we add automation. Um and that all helps, but it also makes the system bigger and more complex. And so now we have a new set of assumptions and behaviors to manage,",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "even bigger than the initial set. And complexity increases as the system grows. And again, we have some outages. Maybe it's a hardware failure, um and humans have to show up and fix the issue, and maybe they add more safeguards and controls. And the system",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "gets bigger and more complex, with even more hidden assumptions. And if we're using AI AI/ML to build parts of the system, the speed of change is just going to make this explode, like right? It's going to accelerate. And we'll be managing these",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "increasingly complex systems. And of course, going back to the ironies of automation, because we automated away some of the work when we did this, um some of it will feel like a black box to us. Like we won't understand all the",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "working details anymore, and we'll have to adjust our approaches. Now, when I talk about this, sometimes the first answer I hear is, \"We'll use AI ops.\" And I do think that is part of the answer, but let's just be frank, that's just a bigger system.",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "And one that also behaves non-deterministically, so it'll be more complex than the original system. And so we need additional answers. And to reiterate my statement from earlier, any line of code can be load-bearing, so even the code or",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "commands written by LLMs can cause an outage, of course. So if agents only make a few mistakes per say, like >> [clears throat] >> a thousand activities, the rate that they are producing code will still generate many hidden surprises,",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "just as humans already do, but faster. And while we'll have tests and code reviews, um some things inevitably will be missed, and then they'll come back and poke us, like needles hiding in a big haystack. But of course, making things challenging",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "since we're going to be dealing with complex systems, there's going to be a lot of parts. And so some sense it's more like needles hiding in many haystacks. And since most outages have multiple contributing factors, of course, any one",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "of these haystacks can be part of the problem. So how do we find all the needles? We can't rely on human review, cuz that's going to be too slow. And also traditionally human review only catches obvious errors. We can get better at testing, and I will",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "talk about that. Um, but let's start with the idea we're going to have to change how we approach addressing issues in the system fundamentally. Because back to the curse of knowledge, we're going to have that harder time moving between that uh unconscious",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "competence and conscious competence to understand what went wrong. And of course, as Kernighan said, uh debugging was already harder than writing code in the first place. So, I think we're going to have to embrace that our relationship with the",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "system and how we understand it will be more abstract. It's just changing in that way. And that's okay, because we've been doing this our whole careers, right? Like, the tech industry has a long history of increasing levels of",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "abstraction. We're not writing code out of AND and OR gates anymore, thankfully. Um, we're not even using assembly language. And we've gotten to the point now that often we talk about systems, we talk in these whole constructs, like the",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "database or the API or this particular service. And we've always been moving in a way that we got to abstract away bigger and bigger parts of our solutions. And this is going to accelerate, and I think what's going to happen is we're going to",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "move to the top of this table, right? To the top of this stack. And we'll be spending more of our time thinking about systems, processes, and people. And this means the way we respond to incidents and breakages will be less",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "about understanding exactly what went wrong and more thinking about the problem as a systems problem. And when I think about viewing systems, I always think about this old paper called the 4+1 view of software architecture.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "Um, it's a really great paper about how our systems have always looked different depending on who was looking at it. Like, I always used to joke about if you take two people to a whiteboard and you ask them to draw the same system, the",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "pictures will look different, and that's actually an interesting conversation to have is like, \"Why did you draw that box and not that box?\" But this old paper said it wasn't just that, it's also that who you're talking to views the system differently based on",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "what they work with every day. And so, if you have uh your average developer, they think in the logical view, which is what the code looks like, functions, classes, APIs, if statements, for loops. Um, and then you have if you're the",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "someone who runs the deployments and the rollouts, you might think of the development view, which is how the system is packaged up, libraries, binaries, rollouts. And then if you're, you know, operating the system and responding to incidents,",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "you might think about the process view, which is how the system runs and communicates in real time. And then if you're someone who's like deep in the infrastructure, you might be focused on the physical view, which is where is everything running? Like, which",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "machines, which data centers, what is the power redundancy? But in the middle, there's always been this unifying experience of what is the user experience under different scenarios. And so, moving into this abstract world,",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "we first have to recognize these these views have always existed, and we have to be aware of them all because this is the full complexity of our system. But we also have to spend more time in that middle reading it listening about",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "the user experience, what scenarios are going to happen, and how we want the user experience to feel when those scenarios happen. And when I mean scenario is it's both a mix of positive things and negative things, like failure",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "events, but also as the user interacts with various user journeys. And so, I think more of our jobs will be about worrying, but in a way that we're asking what if at this level. And we'll have to start incorporating understanding how engineers, users,",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "operators, and agents will be constantly changing the system. And that will change the way we think about our roles and what work SRE needs to do. And basically, we need a broader understanding of the system from not just how it lives, but how it was built,",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "and what was involved, and what assumptions were made. Now, as a great way where we already do this in our jobs is that we already deal with the fact that when we're responding to incidents, we can't always understand what went wrong when we need to respond.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "And so, we build generic mitigations, which, you know, the Google thinks of this as a series of buttons or levers that we can safely push to get the system working right again just long enough for us to get to understand the",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "things better and actually get a more solid solution. Um, the way I think about it is that there's a million ways anything can go wrong, so you need a few things you can just do to get them going well again. And uh all of you have done a generic mitigation,",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "whether you know it or not, every single person in this room. Um, and you've all done the same one at least once, which is turn it off and turn it back on again. That fixes all sorts of problems, right? Deadlocks, memory leaks, tons of",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "problems. And um and that's a great one if your system's designed to support it, right? You have to you have to have an architecture that supports it. Another obvious one is rolling back to the last working version of the software, it's an",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "easy one we do a lot. But also things like if you suspect the hardware is the issue, back to that physical view, draining away from the hardware or triggering a live migration is another generic mitigation. And I think these will become more",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "important because as we're less in the weeds of the system going forward, we're going to need more of these tools, and we're going to need to ensure that they work because it's going to take longer to page back in all the information about how the system works",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "when we're responding. And so, imagine we did show up and we did perform some generic mitigation, whether we drained away traffic or turned it off and back on again. And now we have to learn and fix some of the bad assumptions that led to the outage, right?",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "And so, the question is where to start. We have to focus our efforts somewhere, right? Um, maybe not. How about everywhere? I'm half joking, but since complex systems break our understanding of cause and effect, and because the relationship",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "with the code has changed, we're not going to be as quick in terms of like reproducing the issue and doing some deep debugging. And so, it's it'll be harder to understand exactly what went wrong. And so, what we can do easily though is",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "treat anything that could have gone wrong as a risk, and then remediate those risks. By that I mean, we will no longer ever anoint a root cause, um and we instead we need to create mechanisms by which the things that are wrong can be continuously fixed.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "And the good news is we will now have a small army of operations leads to do our bidding in this regard. Recently, one of my SREs suspected there was a deadlock in a particular service that was contributing to the outage, so",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "he asked an agent to find it, and it did. And then he asked the agent to fix it, and it did. Another engineer I know asked the agent to write more unit tests to catch edge cases, and that uncovered areas that needed to be fixed and likely contributing to what",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "the behavior we're seeing. So, we can have agents both find and fix things, but not even just the immediate thing. Uh recently, we had an outage exacerbated because uh a playbook had outdated commands. Um, and we realized that",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "that we needed to not just fix this one playbook, but go look across the whole organization and see if anyone else had these outdated commands. And so, we asked agents to do it, and they fixed them all at once. So, another way to look at this is we",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "have this opportunity to realize Linus's Law finally because we'll have enough eyeballs. And so, the way I want to think about this is we often see a lot of patterns that contribute to outages, right? Um, bad error handling is my number one",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "uh contributor whenever I look at systems. But there's also concurrency issues, there's, you know, resource management challenges, and all these are sort of patterns that you can see in the system, and they show up all over the place. And",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "these are all the needles hiding in the haystack. And so, the way we can bring reliability to systems now using these new tools is we can take basically say, \"What anti-patterns do we see in our systems, and can we pose them as questions about the code base?\"",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "So, for example, we've asked agents to find missing error retries or where we have retries without backoff and jitter, and then they can find those things for us. And this all comes back to this idea that reliability, and also just",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "generally software quality, is a function of us all understanding that there are always going to be errors in the system, and that we all write bugs, and that too, the number of errors or bugs is proportional to the size and",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "complexity of the system, right? As the system gets bigger, there's going to be more of them. And that the secret to great engineering isn't being satisfied just because the test pass. It's being satisfied when you find enough things that are wrong. And",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "enough is often built on your prior experience, so that's sometimes often your unconscious competence. So, if we take a systems thinking perspective, uh we can create a great feedback loop for ratcheting up system reliability by using these new tools at",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "our disposal, and basically ask them to find and fix enough bugs constantly throughout the system. And this will be a leading indicator of system quality. It's also a funny way to move between that unconscious competence of knowing",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "that we'll have some problems in the system and the conscious competence required to find and fix them. With the irony being we're using the unconscious competence of the coding agents to help us here. Putting this together, imagine as a",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "thought experiment never having to manage a bug backlog. Now, obviously we're not here, and we may never get here, but I like this as a guiding light that we want to get to spend less time figuring out the right thing to fix and more time just fixing",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "everything we can. And if a bug can be fixed, tested, or reviewed like in an hour, like does it really matter that it's not the most important bug to fix? It's still a risk in the system because every line of code is load bearing,",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "and many low priority bugs turn out to be contributing factors in outages later. At Google, we even commemorate this moment by having an I told you so badge, where if someone logs a bug and that bug is later identified as a contributing",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "factor, um you you get to celebrate. So. So, all of this to say we get to rethink how we approach prioritization. And I think this will be a noticeable shift and it'll be hard for some folks to adjust to. Because many of us have been conditioned",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "to think that we always need to be working on the most important thing we can do for some definition of important. But if we can find things we need to do quickly and do as much as them as we can quickly, um then it doesn't matter as much anymore.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "And this takes me to my favorite book on software development, The Art of Business Value by Mark Schwartz. In it, Mark talks about how one of the challenges we have in any engineering organization is assessing the value of the work we could be doing.",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "And this is particularly challenging because we always have many, many great ideas about what we could be doing and that always outpaces the capacity we have to do work, right? And this often creates frustration in the organization because this mismatch",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "of the the cost of doing work is so much slower than the cost of coming up with work that good ideas get starved for attention, right? You get a lot of those I told you so badges. And we don't know how to reason about the work we should be doing because",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "backlog gets too big and there's just too much to analyze and then unfortunately organizational politics start to get playing more of a role in what work we choose to do, right? And so the usual solution to this problem is like, oh, we'll just sort the",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "backlog by value and maybe we can go further and say we'll use return on investment or cost of delay or some other way of assessing the importance of doing work. Maybe you get a stack ranking from your leadership. However, we have to realize that all of",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "this sorting work also takes engineering capacity because often you you're asked to to estimate feasibility, value, and the cost, right? So, it's not free. And Mark Schwartz and others have pointed out that we're all bad at",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "predicting both the cost and value of the work we want to do. And so when we prioritize based on these concepts, we're making decisions based on poor estimates. I think we've all had at least one project run double the original estimate",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "or to turn out to deliver nowhere near the value we thought it would when we started. And the only time we ever truly know the value and cost of something is after we've built and deployed it. And so no amount of planning can ever",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "fully fix this and of course planning has a cost. However, we feel we have to prioritize by something because we do have a constraint set on engineering capacity and we want that capacity working on the most valuable things. And Mark Schwartz",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "proposed a path forward. One is to break things up into smaller, more easily delivered pieces. And two, make sure you're getting feedback from reality early and often. And this creates the opportunity to fail fast if your idea isn't working, right?",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "And then you get to try more good ideas because you're not spending all your time on ones that aren't working. And I think this is another place that these new tools can help us. As the Jevons paradox suggests, we can build",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "more things because building got more efficient and so it'll be faster to test even seemingly, you know, ridiculous ideas or absurd ideas, we can still like test them quickly. And so the good news, experimentation just got a lot of cheaper.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "And even better news is experimentation is the mechanism by which we manage increasingly complex systems. Because predictability is not a feature of complex systems, we often have to treat the work we do as a learning process when working with them.",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "Because we can't predict the full behavior of the system. We can't devise a plan that just goes like do A, B, C, and D and and everything will be fine. We often have to discover the work. And so this world coming coming to us,",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "rigid plans won't work all that well. And we'll have to structure our work as a series of experiments that'll each inform each step of the plan and we'll have to preserve optionality. And if we act this way, if we treat our work as",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "experimentation, we'll be much more successful at containing the complexity. And when I say experiments, I mean in the most fundamental sense, which is we treat every project as a hypothesis about what we expect to happen when we implement it.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "And we cut up the project into mini projects so we can see if our hypotheses are correct more quickly. And of course the good news is it'll be less expensive to do from an implementation standpoint, but the bad news is we still have to do the hard",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "work of devising the experiments and driving the work forward based on what we learn. And for some of you playing thinking that sounds like Agile development and it's similar in practice. Like Agile development is one flavor of doing this.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "But this is more about reordering your work so that you answer the important questions first. Like you you get the risks settled early and often. For example, you might do an upfront scalability test on the skeleton architecture before any business logic",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "is implemented to make sure it will scale. Or you might actually build your capacity plan ahead of implementation based on like back of the envelope estimates to make sure that you can actually afford to run the system once it's built.",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "And the thing is when you do this, when you when you plan based on learning, the project's going to proceed proceed non-linearly and that means you're not going to have this perfect Gantt chart, right? That just flows and you're not",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "going to have this perfect burn down of work either. It's going to look a little different. And this might make some people uncomfortable. Because the mistake engineering leaders often make is they demand a predictable approach when dealing with a complex",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "system. And they don't empower their teams to work in a way that yields discovery. And I think this happens when you have an engineering led organization where the people who wrote that first small system that works are now the leadership, but as you grow",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "in leadership, obviously you're removed from the details and so you you spend less time there and you don't understand how complex the system's gotten. And so without even knowing it, these engineering leaders trick themselves",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "into thinking you can solve problems the way they did in simpler times with detailed plans and best practices. However, the system you're dealing with will be this system. It's complex, maybe even chaotic. And you're going to have to structure",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "your work to account for that complexity and accept that some of the things you might try might fail. Because this system cannot be tamed with playbooks and best practices. It requires risk management, experimentation, and discovery.",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "And if the system is really complex, uh you can no longer trust that you know the full set of system behaviors and you can only suspect certain patterns of behaviors. And so to actually do your work, you almost have to probe or poke at the",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "system a little bit and see how it reacts, right? You know, what if I try this? Back to those scenarios. And devising these experiments and exercises and doing them safely is not intuitive. It's a skill you have to build.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "In some ways, basically what I'm talking about is building feedback loops. And this is part of what SRE's always done, right? Like if you think about SLOs and error budgets, that was just a really, you know, clean and simple feedback loop",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "on development velocity. And so we're going to be doing this more, but because of the rate of change, you know, coming back to how I started this talk, our jobs are going to be less about being the human feedback loop and being more about building feedback",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "loops that scale with the rate of change. And the one way that works really well in my mind to think about this, about how do we build feedback loops that scale, is this concept called an architectural fitness function. An architectural fitness function is",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "basically a system level assertion for some of your system requirements. And I say system requirements, I mean the things we want to be true about the system regardless of what features it supports, right? SLOs are a great example of a fitness function.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "Another way of looking at them is they are a system level mechanism for making sure the things that should never happen actually don't happen. However, they can also ensure the things that should happen still happen. And basically you take these assertions",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "and you codify them in a form of continuous testing or maybe you enforce them architecturally by failing certain changes that don't meet your your rules. And that ensures as the system changes, no matter how fast as the changes are happening,",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "some things will always be true. So, as a great example, uh one of the rules we have in Compute Engine is that the system should support an arbitrary number of clusters and that cluster should be able to be added or removed with no side effects.",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "You should be able to like not impact anywhere else in the system. And so how do we how do we ensure this always happens no matter what changes any human or agent makes? Well, we set it up we set up continuous automation that constantly creates, registers new",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "clusters, then hides them and tears them down again. Just over and over and over again. And that way we can prove that or at least we can catch, we can never prove, but we can catch the moment that someone makes a change",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "that breaks this the system requirement. The cool thing is this automation turned out to be a potential generic mitigation as well. Because one way to fix something is to safely delete it and and recreate it, right? If you know you can do that",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "because you're doing it all the time that it's safe to do it. And this takes me to a key point. You have to treat your generic mitigations as system requirements. This means you don't just test when you change the mitigation tool. Like so if",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "you don't just test your rollback system when you um change the rollback system, you have to change those you have to test those mitigations every time the system changes. So, you should be constantly rolling back just to make sure it still works again.",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "Other fitness function examples, um you might say the system should support multiple operating systems. Maybe it needs to survive losing a certain number of machines. Maybe it should be able to handle a certain frequency of live migrations.",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "You might make rules about your dependencies. Like it shouldn't have any circular dependencies or some dependencies aren't allowed. Or you might say it can't crash during user interaction. That last one is a one we had at one of",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "the consumer device companies I worked for where basically we had this testing apparatus we called the hopper and it would randomly touch pixels until it eventually accidentally uh triggered a UI event and then it would keep doing that over",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "and over and over again and all the event handling code would get triggered. And basically, before you could deploy your code, regardless of whether you change the UI or not, you had to let it run in the hopper. And if it crashed, the uh you would get",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "this you get the core dump, of course, and then you'd get the list of events that have been triggered. And it was really cool cuz we found all sorts of weird and improbable bugs in the system and we were able to fix them before they",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "created a bigger problem or before they, you know, impacted the user. And well, of course, it's never proved that the software wouldn't crash. Um that would be impossible. We knew we were finding enough bugs, right? And if you do have agents or That's weird.",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "Okay, well, um if you do have agents or other um AIML in your systems, you have to accept that you're going to have to uh test those as um as a fitness function as well, right? And typically, how people do that is they do that through the form of um",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "e-bells. So, these are auto raters, these are manual raters. And I really apologize that my computer decided to crash. I always joke computers are a mistake when it does this stuff. Um the So, you want to test the e-bells work, too. Now,",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "Oh, it went to the beginning. Hold on. Sorry. Now, where I was going to say next is that uh the good news is some things about our job aren't changing. And in particular, what isn't changing is we are still going to be the people that need to show up and uh",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "respond when things fail and get things working again. And I think if you are currently on call, you will probably still be on call. Just maybe the way you respond and the things you respond to will be different. And And so, And this is because, again,",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "humans are the things that resolve the complexity, that resolve the the challenges at that boundary of complexity. But hopefully, with everything you see coming at you with these agents, like you'll be able to build tools that makes that job easier.",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "And so, ultimately, that's why I'm hopeful. You know, I started out this talk like that's I worry, but I'm excited. I think SREs are used to dealing with complex systems. The problems they present are challenging, but also fun.",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "And we're used to having to work with code we didn't really write and sometimes don't fully understand, right? This is part of our jobs. And so, to me, it feels like our skills in particular and our experiences will be critical in this new landscape.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "And that's That's why I'm excited. Um I think it's a great time to be an SRE. What? Thank you.",
+      "start": 1122,
+      "duration": 6
+    }
+  ]
+}

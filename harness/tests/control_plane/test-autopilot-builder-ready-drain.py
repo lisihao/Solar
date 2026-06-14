@@ -45,6 +45,29 @@ def test_drain_builder_ready_backlog_invokes_pm_dispatch(tmp_path: Path, monkeyp
     assert kwargs["env"]["SOLAR_PM_DISPATCH_BACKPRESSURE_NO_RECORD"] == "1"
 
 
+def test_builder_role_handoff_with_task_graph_is_left_to_graph_drain(tmp_path: Path, monkeypatch):
+    monitor = _load_monitor(tmp_path, monkeypatch)
+    sid = "sprint-with-task-graph"
+    (monitor.SPRINTS / f"{sid}.task_graph.json").write_text(
+        json.dumps({"nodes": [{"id": "B1", "status": "pending"}]}),
+        encoding="utf-8",
+    )
+
+    def fail_run(*args, **kwargs):
+        raise AssertionError("builder role handoff should not submit synthetic B0 when task_graph exists")
+
+    monkeypatch.setattr(monitor.subprocess, "run", fail_run)
+
+    sent, detail = monitor.dispatch_role_handoff(sid, "ready_for_builder")
+
+    assert sent is False
+    assert detail == {
+        "reason": "builder_handoff_managed_by_task_graph",
+        "role": "builder",
+        "sprint_id": sid,
+    }
+
+
 def test_scan_once_drains_builder_ready_when_apply_dispatch(tmp_path: Path, monkeypatch):
     monitor = _load_monitor(tmp_path, monkeypatch)
     monkeypatch.setattr(monitor, "reconcile_pm_inbox", lambda: {"action": "pm_inbox_reconcile", "ok": True})

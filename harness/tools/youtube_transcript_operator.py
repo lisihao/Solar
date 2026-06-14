@@ -22,6 +22,7 @@ if str(ROOT / "lib") not in sys.path:
     sys.path.insert(0, str(ROOT / "lib"))
 
 import operator_flow_control as ofc  # noqa: E402
+from browser_agent_queue_client import enqueue_current_process_if_needed  # noqa: E402
 
 DEFAULT_OPERATOR_ID = "mini-youtube-transcript-extractor"
 DEFAULT_WRAPPER = ROOT / "scripts" / "browser_agent_youtube_transcript_wrapper.py"
@@ -201,7 +202,7 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
     if "BROWSER_AGENT_HEADLESS" not in env:
         env["BROWSER_AGENT_HEADLESS"] = "false"
     env.setdefault("BROWSER_AGENT_PROFILE_DIRECTORY", "Default")
-    env.setdefault("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL", "browser-agent@example.com")
+    env.setdefault("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL", "haogege1977@gmail.com")
     env.update({
         "BROWSER_AGENT_REQUEST_DIR": str(request_dir),
         "BROWSER_AGENT_YT_TIMEOUT": str(request.get("timeout_seconds") or 300),
@@ -297,6 +298,9 @@ def main() -> int:
         return 1
 
     task_dir = _task_dir()
+    queued_rc = enqueue_current_process_if_needed(job_name=_operator_id(envelope), repo_root=ROOT, cwd=task_dir)
+    if queued_rc is not None:
+        return queued_rc
     ofc.clear_task_control(task_dir)
     request = build_request(envelope, task_dir=task_dir)
     rate_control = _rate_control_settings(envelope)

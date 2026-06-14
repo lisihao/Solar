@@ -1,0 +1,249 @@
+{
+  "videoId": "Y5zHHoLrvAE",
+  "title": "How do AI video generation models work?",
+  "channelName": "Google for Developers",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 11852,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-j3PyPqV-e1s",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[MUSIC PLAYING]\nNIKITA NAMJOSHI: AI\nvideo generation models\nare pretty easy to use.\nYou type in a prompt,\nand you get back a video.\nBut how does AI video\ngeneration actually work?\nHow do we go from\nnatural language\nto a video clip in just\na handful of seconds?\nTo answer that question,\nlet's back up a few steps.\nGenerative AI is a broad class\nof machine learning models\ndesigned to create new content.\nBut there are different\nneural network architectures\nand techniques for\ngenerating that content.\nFor example, most\nstate-of-the-art text generation\nmodels are what's known\nas autoregressive.\nThey generate tokens one at a\ntime, each token conditioned\non what came before.\nBut most state-of-the-art\nimage, video,\nand audio generation\nmodels work differently.\nThey don't generate\npixels one at a time.\nInstead, models\nlike Imagine and Veo\nuse a technique\ncalled diffusion.\nWhile the core mechanism\nof autoregressive models\nis generating data\none token at a time,\ndiffusion models\nwork by iteratively\nrefining random noise\ninto a coherent output.\nLet's see what this looks\nlike for a single image.\nThere are two steps to\nthe diffusion process--\nforward diffusion and\nreverse diffusion.\nDuring forward diffusion,\nwe start with an image,\nlike this one here of a bird,\nand we add a small amount\nof Gaussian noise to the image.\nBasically, imagine taking\nevery pixel in the image\nand giving its\ncolor and brightness\na tiny little random nudge.\nThat's the Gaussian noise.\nAnd the word Gaussian here\njust describes the distribution\nof that randomness, defining\nhow those pixels get scrambled.\nWe then take that\nslightly noisy image\nand add just a bit more\nGaussian noise and a bit more.\nAnd if we keep adding noise,\nthen after enough time steps,\nyou have an image that\nis indistinguishable\nfrom random noise.\nThat is forward diffusion.\nNote that there is no\nlearning in this phase.\nThe purpose is to create\na data set of images\nat various levels of noisiness.\nThe later the time step, the\nmore indistinguishable the image\nis from the original\nimage of a bird.\nOnce we have this\ndata set, we'll\nuse it to train a model that can\nperform reverse diffusion, which\nis the process of incrementally\nremoving noise from an image.\nHave you ever heard that quote,\n\"Every block of stone has\na statue inside of it, and\nit's the task of the sculptor\nto discover it\"?\nWell, it turns out every\nimage of random noise\nhas a coherent image in it.\nAnd it's the job of the\nneural network to discover it.\nSo how do we train a model to do\nthis reverse diffusion process?\nWell, we give the model a noisy\nimage at a particular time step,\nand the model's\ntask is to predict\nthe exact noise of\nthe noise pattern\nthat was added at the\nprevious time step.\nThe model is trying to\nminimize the distance\nbetween the predicted\nnoise and the actual noise\nadded during forward diffusion.\nThat is our ground truth label.\nWe then subtract that\npredicted noise from the image\nto get a slightly\nless noisy image.\nIf you do this over enough\ntime steps and enough data,\nthe model learns to take\nan image of total noise\nand iteratively refine\nit by removing noise\nto produce something coherent.\nNote that during inference,\nthe reverse diffusion process\nhappens over a\nsequence of steps.\nWe don't just go from noise\nto a coherent image in one\nforward pass through the model.\nInstead, we perform\nmultiple forward passes,\neach time inputting a\nprogressively less noisy image.\nNow, up until this\npoint, we've just\ncreated a random\nimage generator,\nwhich is cool and all\nbut not super helpful,\nbecause we don't just want a\nmodel to produce random images.\nWe want to prompt the model to\nproduce images of ravens wearing\ntop hats or plates\nof tropical fruit\nor whatever else\nwe come up with.\nThat is where conditional\ndiffusion comes in.\nIf we want to guide the model to\nproduce a certain type of image,\nthen during the\ntraining process,\nwe don't just pass in an image.\nWe also pass in a\ncorresponding text description.\nWe embed the text, and the model\nlearns how the words in a prompt\ncorrespond to different\nfeatures in an image.\nIn this way, we can\nguide what type of image\nthe model produces\nfrom the noise.\nOK, that's the\nhigh-level overview\nof diffusion over\nimages, and that\ngets us one step\ncloser to understanding\nhow video generation works.\nFirst off, what is a video?\nIt's actually just a\ncollection of images.\nSo if a video has a frame\nrate of 24 frames per second\nand it's 8 seconds\nlong, then it's\njust a collection of 24\ntimes 8 equals 192 images.\nFor simplicity, let's\nsay that our video\nis only four frames long.\nIn reality, video\ngeneration models\nwill output way more\nimage frames than this,\nbut 4 makes the math\nand visualization\njust a little bit easier.\nEarlier, we took one image,\nand during forward diffusion,\nwe gradually added\nnoise to the image.\nLet's extend this\nprocess and run forward\ndiffusion on all four images\nthat make up our video.\nTo train the model to\ndo reverse diffusion,\nwe can take all four images\nfrom a particular time\nstep as a batch, and that's\nour input training data.\nThe label is the exact\nnoise of the noise pattern\nthat needs to be\nremoved from each image\nto get the slightly less noisy\nimage from the previous time\nstep.\nAs before, the\nmodel's training goal\nis to minimize the distance\nbetween the predicted noise\nand the actual noise.\nSo basically, a batch of\nimages goes into the model,\nand a batch of corresponding\nnoise to be removed comes out.\nWe subtract that\nnoise from the images,\nand we get back a slightly\nless noisy sequence of images.\nNow, in a perfect\nworld, this process\nof extending diffusion\nfrom just a single image\nto multiple images\nwould work just fine\nwithout any extra modifications.\nAt inference time,\nwe would start\nwith four frames\nof random noise,\nand then the model iteratively\ndenoises these images\nand returns a sequence\nof images that, when\nplayed in rapid succession,\ndepicts a bird taking flight.\nBut unfortunately, it\nisn't quite that simple\nbecause video generation\nintroduces two big challenges.\nThe first is\ntemporal consistency.\nIf you saw old iterations\nof video generation models\nwith some crazy physics, that's\nbecause these models were not\ngreat at understanding\nhow objects\nmove through space and time.\nIn fact, as good as video\ngeneration models are now,\nthey often still get this wrong.\nThink flickering,\nunnecessary color changes,\nobjects passing through\nwalls, and things that just\ngenerally the laws of physics.\nIf we simply pass four random\nnoise images into our diffusion\nmodel with the text prompt\n\"bird taking flight,\"\nwe'll get back four different\nimages of birds on different\nbranches in different locations.\nWhen it comes to\nvideo generation,\nwe don't just care about each\nimage individually looking good.\nThe images need to make\nsense in a sequence\nso they can be\nplayed as a video.\nThe model also needs\nsome way of understanding\nhow earlier frames\nimpact later frames,\nlike if the subject of the\nvideo were to pick up a coffee\ncup from the table and\nthrow it in the trash,\nthe coffee cup shouldn't\nmagically reappear\non the table in later frames.\nThe second big challenge that\nvideo generation introduces\nis the computational demand.\nVideos are seriously big data.\nEarlier, we said we had\n24 frames per second times\n8 seconds equals 192 images.\nAnd if each of those images\nis, say, 720 by 1080p,\nthat's a whopping\n176 million pixels.\nThat's just way too many pixels.\nSo we're going to use\nroughly the same diffusion\nstrategy that we applied when\nworking with a single image.\nBut to tackle these\nvideo-specific challenges,\nwe just need a few extra tricks.\nSince videos are just\ncollections of images,\nwe can think of them\nas a 3D matrix or cube.\nInstead of passing in each\nimage frame separately,\nwe're actually going to break\nthis big cube into a sequence\nof smaller cubes or patches.\nBecause these patches span\nacross multiple images\nin the sequence, they're known\nas spatial-temporal patches.\nThis strategy will enable us to\nget better temporal coherence.\nNow, if you hear sequence\nand you think transformer,\nyou're on the right track.\nThe diffusion model is usually a\ntransformer-based neural network\ncalled a vision transformer.\nWhen we train the model,\nwe pass in these batches\nof noisy space-time patches.\nAnd the neat thing about using\na transformer architecture\nis that the model can use\nthe attention mechanism\nto figure out for a particular\npatch which other patches are\nassociated and relevant.\nThis is how the model learns\nthat if the bird starts\nto take flight in\nframe 1, then it'll\nbe in the air in frame\n160, and it can interpolate\nfor the frames in between.\nAnd that's how the model\nlearns temporal consistency.\nOK, so we've tackled\nthat first problem--\nhelping the model to maintain\nconsistency across frames.\nBut we still have the issue\nof this whole thing being way\ntoo computationally demanding.\nWe're going to use a technique\ncalled latent diffusion, which\nmakes this whole\nprocess a little more\ncomputationally tractable.\nIn addition to our\ntransformer diffusion model,\nwe're going to\nintroduce a second ML\nmodel into the mix, which\nis known as an autoencoder.\nAutoencoders are a\ntype of neural network\nthat condense images\ninto latent space.\nThey have two components--\nthe encoder and the decoder.\nEssentially, they\ntake in an image\nand produce a compressed\nrepresentation\nof the image, a.k.a.\nthe encoding.\nThe decoder model takes in\nthat encoded representation\nand is able to return\nthe original image.\nYou can think of the\nencoder as a series\nof layers that get smaller\nand smaller and smaller,\ncompressing the image, and the\ndecoder as a series of layers\nthat get bigger and\nbigger and bigger,\nreconstructing the\noriginal image.\nOK, so we've compressed\nan image and then\nuncompressed it to return\nthe original image--\non its own, not super helpful.\nBut this matrix here,\nwhich is an encoding\nof the image in latent\nspace, is what we need.\nIt's a compressed version of our\noriginal image, so it's smaller,\nbut it still retains\ncritical information.\nInstead of doing diffusion\nover image pixels,\nwe'll diffuse over\nthe latent space.\nBecause this latent\nvector is much smaller\nthan the original\nimage, the whole process\nbecomes computationally\ntractable.\nLet's put everything\nall together.\nTo train the diffusion model,\nwe start with our sequence\nof image frames.\nWe break the images into\npatches across space and time\nand then get smaller encoded\nrepresentation of these patches\nin latent space.\nThese patches are passed to\nthe diffusion model, which\npredicts the noise to\nremove from the patches,\nand the model tries to\nminimize the distance\nbetween the predicted\nnoise and the actual noise.\nThis is how we train\nour diffusion model.\nAt inference time, once\nthe diffusion model\nhas been properly\ntrained, we start\nwith random noise and the\ndimensions of our latent space.\nThis matrix is\nsplit into patches.\nThese latent space patches go\nthrough the diffusion model,\nwhich iteratively\ndenoises the patches,\nand after enough iterations,\nthe latent space time patches\nare passed through the decoder,\ntaking us out of latent space\nand into image pixels.\nAnd voila, we have a video\nof a bird taking flight.\nTo try out video\ngeneration with Veo,\ncheck out the\ndocumentation below.\nLet me know in the comments what\nyou want to learn about next.\nI'll read the research\npapers so you don't have to.\n[MUSIC PLAYING]",
+  "segments": [
+    {
+      "text": "[MUSIC PLAYING] NIKITA NAMJOSHI: AI video generation models are pretty easy to use. You type in a prompt, and you get back a video. But how does AI video generation actually work? How do we go from natural language to a video clip in just a handful of seconds?",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "To answer that question, let's back up a few steps. Generative AI is a broad class of machine learning models designed to create new content. But there are different neural network architectures and techniques for generating that content. For example, most",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "state-of-the-art text generation models are what's known as autoregressive. They generate tokens one at a time, each token conditioned on what came before. But most state-of-the-art image, video, and audio generation models work differently.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "They don't generate pixels one at a time. Instead, models like Imagine and Veo use a technique called diffusion. While the core mechanism of autoregressive models is generating data one token at a time, diffusion models work by iteratively",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "refining random noise into a coherent output. Let's see what this looks like for a single image. There are two steps to the diffusion process-- forward diffusion and reverse diffusion. During forward diffusion, we start with an image,",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "like this one here of a bird, and we add a small amount of Gaussian noise to the image. Basically, imagine taking every pixel in the image and giving its color and brightness a tiny little random nudge. That's the Gaussian noise. And the word Gaussian here",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "just describes the distribution of that randomness, defining how those pixels get scrambled. We then take that slightly noisy image and add just a bit more Gaussian noise and a bit more. And if we keep adding noise, then after enough time steps,",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "you have an image that is indistinguishable from random noise. That is forward diffusion. Note that there is no learning in this phase. The purpose is to create a data set of images at various levels of noisiness. The later the time step, the",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "more indistinguishable the image is from the original image of a bird. Once we have this data set, we'll use it to train a model that can perform reverse diffusion, which is the process of incrementally removing noise from an image.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "Have you ever heard that quote, \"Every block of stone has a statue inside of it, and it's the task of the sculptor to discover it\"? Well, it turns out every image of random noise has a coherent image in it. And it's the job of the",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "neural network to discover it. So how do we train a model to do this reverse diffusion process? Well, we give the model a noisy image at a particular time step, and the model's task is to predict the exact noise of the noise pattern that was added at the",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "previous time step. The model is trying to minimize the distance between the predicted noise and the actual noise added during forward diffusion. That is our ground truth label. We then subtract that predicted noise from the image to get a slightly",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "less noisy image. If you do this over enough time steps and enough data, the model learns to take an image of total noise and iteratively refine it by removing noise to produce something coherent. Note that during inference, the reverse diffusion process",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "happens over a sequence of steps. We don't just go from noise to a coherent image in one forward pass through the model. Instead, we perform multiple forward passes, each time inputting a progressively less noisy image. Now, up until this point, we've just",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "created a random image generator, which is cool and all but not super helpful, because we don't just want a model to produce random images. We want to prompt the model to produce images of ravens wearing top hats or plates of tropical fruit or whatever else",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "we come up with. That is where conditional diffusion comes in. If we want to guide the model to produce a certain type of image, then during the training process, we don't just pass in an image. We also pass in a corresponding text description.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "We embed the text, and the model learns how the words in a prompt correspond to different features in an image. In this way, we can guide what type of image the model produces from the noise. OK, that's the high-level overview of diffusion over",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "images, and that gets us one step closer to understanding how video generation works. First off, what is a video? It's actually just a collection of images. So if a video has a frame rate of 24 frames per second and it's 8 seconds long, then it's",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "just a collection of 24 times 8 equals 192 images. For simplicity, let's say that our video is only four frames long. In reality, video generation models will output way more image frames than this, but 4 makes the math and visualization",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "just a little bit easier. Earlier, we took one image, and during forward diffusion, we gradually added noise to the image. Let's extend this process and run forward diffusion on all four images that make up our video. To train the model to",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "do reverse diffusion, we can take all four images from a particular time step as a batch, and that's our input training data. The label is the exact noise of the noise pattern that needs to be removed from each image to get the slightly less noisy",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "image from the previous time step. As before, the model's training goal is to minimize the distance between the predicted noise and the actual noise. So basically, a batch of images goes into the model, and a batch of corresponding",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "noise to be removed comes out. We subtract that noise from the images, and we get back a slightly less noisy sequence of images. Now, in a perfect world, this process of extending diffusion from just a single image to multiple images would work just fine",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "without any extra modifications. At inference time, we would start with four frames of random noise, and then the model iteratively denoises these images and returns a sequence of images that, when played in rapid succession, depicts a bird taking flight.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "But unfortunately, it isn't quite that simple because video generation introduces two big challenges. The first is temporal consistency. If you saw old iterations of video generation models with some crazy physics, that's because these models were not",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "great at understanding how objects move through space and time. In fact, as good as video generation models are now, they often still get this wrong. Think flickering, unnecessary color changes, objects passing through walls, and things that just",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "generally the laws of physics. If we simply pass four random noise images into our diffusion model with the text prompt \"bird taking flight,\" we'll get back four different images of birds on different branches in different locations. When it comes to",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "video generation, we don't just care about each image individually looking good. The images need to make sense in a sequence so they can be played as a video. The model also needs some way of understanding how earlier frames impact later frames,",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "like if the subject of the video were to pick up a coffee cup from the table and throw it in the trash, the coffee cup shouldn't magically reappear on the table in later frames. The second big challenge that video generation introduces",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "is the computational demand. Videos are seriously big data. Earlier, we said we had 24 frames per second times 8 seconds equals 192 images. And if each of those images is, say, 720 by 1080p, that's a whopping 176 million pixels.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "That's just way too many pixels. So we're going to use roughly the same diffusion strategy that we applied when working with a single image. But to tackle these video-specific challenges, we just need a few extra tricks. Since videos are just",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "collections of images, we can think of them as a 3D matrix or cube. Instead of passing in each image frame separately, we're actually going to break this big cube into a sequence of smaller cubes or patches. Because these patches span across multiple images",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "in the sequence, they're known as spatial-temporal patches. This strategy will enable us to get better temporal coherence. Now, if you hear sequence and you think transformer, you're on the right track. The diffusion model is usually a",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "transformer-based neural network called a vision transformer. When we train the model, we pass in these batches of noisy space-time patches. And the neat thing about using a transformer architecture is that the model can use the attention mechanism",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "to figure out for a particular patch which other patches are associated and relevant. This is how the model learns that if the bird starts to take flight in frame 1, then it'll be in the air in frame 160, and it can interpolate for the frames in between.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "And that's how the model learns temporal consistency. OK, so we've tackled that first problem-- helping the model to maintain consistency across frames. But we still have the issue of this whole thing being way too computationally demanding.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "We're going to use a technique called latent diffusion, which makes this whole process a little more computationally tractable. In addition to our transformer diffusion model, we're going to introduce a second ML model into the mix, which",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "is known as an autoencoder. Autoencoders are a type of neural network that condense images into latent space. They have two components-- the encoder and the decoder. Essentially, they take in an image and produce a compressed representation",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "of the image, a.k.a. the encoding. The decoder model takes in that encoded representation and is able to return the original image. You can think of the encoder as a series of layers that get smaller and smaller and smaller, compressing the image, and the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "decoder as a series of layers that get bigger and bigger and bigger, reconstructing the original image. OK, so we've compressed an image and then uncompressed it to return the original image-- on its own, not super helpful. But this matrix here,",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "which is an encoding of the image in latent space, is what we need. It's a compressed version of our original image, so it's smaller, but it still retains critical information. Instead of doing diffusion over image pixels, we'll diffuse over the latent space.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "Because this latent vector is much smaller than the original image, the whole process becomes computationally tractable. Let's put everything all together. To train the diffusion model, we start with our sequence of image frames. We break the images into",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "patches across space and time and then get smaller encoded representation of these patches in latent space. These patches are passed to the diffusion model, which predicts the noise to remove from the patches, and the model tries to minimize the distance",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "between the predicted noise and the actual noise. This is how we train our diffusion model. At inference time, once the diffusion model has been properly trained, we start with random noise and the dimensions of our latent space. This matrix is",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "split into patches. These latent space patches go through the diffusion model, which iteratively denoises the patches, and after enough iterations, the latent space time patches are passed through the decoder, taking us out of latent space",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "and into image pixels. And voila, we have a video of a bird taking flight. To try out video generation with Veo, check out the documentation below. Let me know in the comments what you want to learn about next. I'll read the research",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "papers so you don't have to. [MUSIC PLAYING]",
+      "start": 276,
+      "duration": 6
+    }
+  ]
+}

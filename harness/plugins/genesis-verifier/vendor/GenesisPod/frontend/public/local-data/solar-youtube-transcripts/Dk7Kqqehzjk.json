@@ -1,0 +1,1029 @@
+{
+  "videoId": "Dk7Kqqehzjk",
+  "title": "Stanford CS221 | Autumn 2025 | Lecture 13: Bayesian Networks and Gibbs Sampling",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 52672,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Last lecture, we started\ntalking about Bayesian networks,\nand Bayesian networks\nis this new chapter\non how to represent the\nworld and, in particular,\nuncertainties about the world.\nAnd last time we looked at\nrejection sampling as a way\nto answer queries about\nBayesian networks.\nAnd this time,\nwe're mostly going\nto focus on Gibbs sampling,\nwhich is a faster, potentially\nfaster, I should say, way to\ndo probabilistic inference.\nAnd then we're going to talk\nabout conditional independence.\nSo let's start by reviewing\nBayesian networks.\nSo Bayesian networks\nare probably\none of the most intensely\ndeep part of the class.\nSo please ask me questions\nif anything is confusing.\nSo to get us into\nthe right mindset,\nwe should think about\njoint distributions\nover a set of variables\nas like a database that\nspecifies how the world works.\nSo you have a state of the world\nthat's represented by assignment\nto a bunch of variables.\nAnd the database, basically\nsays for every assignment\nhow likely that is.\nSo remember, we defined\nBayesian networks\nthrough a four-step procedure.\nThe first step is in\nany given problem,\nyou have to figure out\nwhat the variables are.\nIn general, we talk about\nvariables as x1 through xn.\nBut in the specific\nexample, we saw a case\nwhere we had three\nvariables, one representing\nwhether there's a burglary--\nB, one representing whether\nthere's an earthquake--\nE, and one representing\nwhether the alarm went off--A.\nSo once you have\nall the variables,\nthen you define a graph\nover all the variables.\nSo in this case, we\nintuitively think\nof burglaries and earthquakes\nas independent events.\nBut the alarm is going to\ndepend on whether there's\na burglary or an earthquake.\nThat's what's advertised by\nthe alarm-- the alarm goes off\nif there's a burglary\nor earthquake.\nSo now we have this graph, and\nthis specifies the structure\nof the Bayesian network.\nThink about it-- it's like\nthe bones in some sense.\nAnd now, the third\nstep is to actually put\nmeat on those bones.\nSo the meat here is\nactually specifying\nnumerically the local\nconditional distribution\nfor every node given the\nparents of that node.\nSo in this case,\nthere are three nodes.\nSo for each node--\nB, I have the probability\nof B given its parents--\nthere's no parents--\nso it's just P of B.\nI have probability of\nE given it's parents--\nthere's no parents-- so that's\nP of E, and the probability of A\ngiven its parents,\nwhich are B and E.\nSo I have probability\nof A given B and A.\nSo the local conditional\ndistributions are going to be\ndenoted with a lowercase p.\nSo just to ground\nthis out in code,\nwe can look at\nprobability tables.\nSo for example,\nprobability of B represents\nthis table, which is\nfor every setting of B,\nI have a probability.\nSo the probability of there\nbeing a burglary is of 0.05,\nand the probability of not\nbeing a burglary is 0.95.\nSo same with earthquake, I have\nthe probability of earthquake\nbeing 0.05 and not\nbeing earthquake, 0.95.\nAnd then finally\nI have this table,\nwhich represents the probability\nof their alarm given the status\nof burglary and earthquake.\nSo for all possible\nsettings of B and E,\nI have to give a\nprobability of A.\nAnd this is a really\nshorthand for saying I first\ncompute b or e--\nthat's a Boolean,\nand if that equals a, then\nthat's a probability of 1--\notherwise, it's a probability 0.\nSo what this logically\nsays is A equals B or E.\nSo you can just check\nthat if A equals B or E,\nthen I get a probability of 1.\nIf A does not equal B or E,\nthen I get a probability of 0.\nSo that's a\nprobabilistically verbose way\nof just saying A equals B or E.\nOK, so given these tables, I can\ndefine the joint distribution\nover a set of random variables\nas simply the product\nof all the local\nconditional distributions.\nSo in this particular example,\nthe joint distribution written\nwith an uppercase P is\nequal to just the product\nof the local conditional\ndistributions-- p of b, p of e,\np of a given b and e.\nSo we also saw that we\ncan use einsum notation\nto simply multiply all these\nlocal conditional distributions,\nwhich are just tensors together.\nAnd so we have p of b, p\nof e, p of a given b and e.\nAnd then you just make sure\nyou index the right variables--\nb and e for the first\ncase and then b, e,\na for the last local\nconditional distribution.\nAnd that gives me the\njoint distribution.\nSo I could have\njust written down\nnumbers for all these\neight possible assignments,\nbut the way we did it is going\nthrough this more qualitatively\ninspired process of defining\nthe Bayesian network.\nThis gives us a little\nbit more interpretability\nthan just writing down\nsome arbitrary numbers.\nSo what do you do with\na Bayesian network?\nYeah, so we infer the\nprobability of certain variables\ngiven other ones.\nSo this is a joint distribution.\nYou can think about\nit as a database.\nSo literally it can be\nrepresented as a table.\nBut instead of using\nSQL, you use the language\nof probabilistic inference.\nSo you might be\ninterested in what\nis the probability of there\nbeing a burglary given\nthe alarm went off.\nThat is one particular query.\nAnd the way you compute\nthis is as follows.\nI'm going to introduce\nanother step here.\nThis is different\nfrom last time--\nI think this is a\nbit more intuitive.\nSo the first, up here, I\nhave just the probability\nof B, E, and A, right?\nAnd then, in general\nprobabilistic inference\nquery looks like I'm\ninterested in the probability\nof some query variables\ngiven some evidence.\nEvidence here is A equals 1.\nSo what I'm going to do\nis condition on evidence.\nSo I basically take the\nprobability tensor of B, E, A,\nand I'm going to slice it--\nso this corresponds to\nB, this corresponds to E,\nand this corresponds to A.\nSo when I say E, A equals 1,\nI'm just going to take the slice\nwhere I only look at A equals 1.\nSo what this looks like\nis I take this table,\nand I'm going to look at all\nthe rows where A equals 1,\nand I'm going to\nselect them out.\nSo these four rows are exactly\nthe rows where A equals 1.\nYou can check that.\nSo now I'm interested in\nB given A equals one--\nI don't care about E.\nSo what I'm going to do\nis marginalize E out.\nAnd that basically\ncorresponds to-- remember,\nmarginalization is just\nkind of ignoring E.\nSo I'm going to collapse entries\nthat have different values of e\nbut the same elsewhere.\nSo I'm going to\ncollapse these first two\nrows and these last two rows.\nAnd then in this notation, I can\nuse einsum to do that as well.\nSo that gives me probability\nof B and A equals 1.\nSo that's probability\nof B and A equals 1.\nSo the next step is--\nthis is the probability\nof B and A equals 1.\nI want condition on A equals 1.\nSo to condition, it's just\nthe rules of probability\nthat I need to\nfirst compute-- what\nis the probability of the\nevidence P equals A equals 1?\nAnd that conveniently here is\njust the sum of these two items.\nSo if I sum these\ntwo--three items,\nI get the probability\nof A equals 1.\nAnd then finally,\nin order to get\nthe probability of the joint\ndivided by the marginal gives me\nthe conditional--\nso I'm just going to divide\neach of these two numbers\nby this number, and\nwe get my answer.\nSo finally, the probability of\na burglary given alarm equals 1\nis 0.51, which is\nwhat we got last time.\nNow, one downside is that\nforming the joint distribution\nin this way can be\nreally, really slow.\nSo imagine you have\na hundred variables--\neach variable has two values.\nThen the total number of\nassignments is 2 to a hundred.\nAnd you definitely don't\nwant to be writing that down.\nSo what we're going to do\nis do approximate inference.\nSo we're going to try to\napproximate the answer\nand hope for the best.\nThat's all we can do.\nAnd we took a\nlittle bit of detour\nto explain probabilistic\nprograms, which is another way\nto think about\nBayesian networks,\nin order to introduce\nrejection sampling.\nSo the idea behind\nprobabilistic program\nis that it's a\nprogram that returns\na sample from the\njoint distribution,\nand therefore, it\ndefines the distribution.\nI give you a program,\nand if samples from it\nobey some distribution,\nthen that's\nas good as the\ndefinition in some sense.\nSo here's an example of the\nalarm probabilistic program.\nI just basically go through each\nof the variables in the Bayesian\nnetwork, and I set its\nvalue given its parents.\nSo naturally a node has to be\ngenerated after its parents are\ngenerated.\nSo I flip with probability 0.05.\nI set B equals 1.\nSo usually I get 0.\nE, I get 0, and A\nequals B, or E--\nI get 0.\nSo that is one\nparticular assignment.\nSo when I run a\nprobabilistic program,\nI get an assignment of\nvariables to values.\nSo if I run it again, I'm\ngoing to get potentially\na different set\nindependent of the first.\nSo then rejection sampling, as\nwe talked about last time, is,\nI first declare what\npart of the assignment\nI'm interested in-- what\nis a query variable?\nSo here I'm interested\nin B-- so given a sample,\nI want to extract B.\nAnd then what is the evidence?\nI'm going to\nrepresent the evidence\nas a test of whether the\nsample satisfies that evidence.\nAnd here I'm going to\nlook up the value of A--\ncheck that it equals 1.\nSo remember, I'm still\ncomputing probability\nof B given A equals 1.\nSo let's step through the\nrejection sampling algorithm,\njust taking one sample.\nSo for each number\nof samples, I'm\ngoing to just draw\na sample calling\nthe probabilistic program.\nThat might give me\nsomething like this.\nAnd then, oh, I\ngot an earthquake.\nWow!\nIt's very lucky, or not lucky.\nBut anyway--\nSo if evidence of sample--\nso remember evidence is this\ntest-- that test A equals 1.\nAnd if that is true, then\nI increment the count,\nand I can't increment\nthe count of--\nI take query of sample, which\ngives me the value of B, which\nis 0, and I increment that.\nAnd I loop until I'm at the end.\nI look at the total\nnumber of counts,\nand I normalize by that count\nto get the probabilities.\nSo here's a question-- why\nis total count not the same\nas number of samples?\nYeah, so only some of the\nevidence because of rejection.\nI only count a sample\nif it's meets evidence.\nSo that gives me\nthe probabilities.\nAnd if I do a 300 times,\nthen I get this distribution,\nwhich 0.44 probability of\nburglary given alarm equals 1.\nSo notice that it's\nin the ballpark.\nThis is the exact\nquantity that we computed\nusing the actual tensor.\nHere is the approximation\nwith 300 samples.\nNow if you increase the number\nof samples to a million,\nthis is going to get\nreally, really close.\nBut at 300, we're still in the\nrough-- only the rough ballpark.\nSo one problem with\nrejection sampling\nis that it can be quite slow\nif the evidence is rare.\nAnd in this case, I actually\ngot extremely lucky.\nRemember last lecture, I wasn't\nable to get any earthquakes\nor burglars.\nAnd in general, if you're\nconditioning on some evidence,\nmaybe it could be\nexponentially small.\nMaybe it's like the probability\nof hitting the evidence\nis 10 to the minus\n30 or something.\nAnd then you would just be\nsitting around and rejecting,\nrejecting, rejecting, rejecting.\nSo it can be a very,\nvery slow algorithm.\nAnd the problem with\nthis is that if you\nthink about the program,\nI'm just generating samples,\nand I'm not even\nlooking at the evidence.\nAnd I just hope that\nthe program happened\nto generate the evidence.\nSo while I really like\nrejection sampling\nbecause it is very\nsimple, in some sense,\nthis is the fastest path to\ndefining a Bayesian network\nand also an inference\nalgorithm that is actually\nprovably works in the limit, but\nit is not the most efficient way\nto do it.\nSo then how can\nwe do this faster?\nThat's going to be the topic of\nthe next part of this lecture.\nSo now I'm going to talk\nabout Gibbs sampling.\nSo remember,\nrejection sampling--\nwhat it looks like is that I\ndraw a sample, I draw a sample,\nI might reject it, I draw a\nsample, I might reject it.\nReject it.\nAnd so the nice thing\nabout rejection sampling\nis that every sample\nis independent.\nSo if I'm estimating some\nquantity, like 10 samples--\nis 10 independent samples.\nBut the cons are that every\ntime I'm starting from scratch--\nit's the flip side of this--\nis that I'm generating fresh--\nI don't even consider\nwhat happened before.\nSo I'm not really\nlearning anything\nabout my past experiences.\nAnd the second thing is\nthat, as I mentioned before,\nI'm generating a sample without\nlooking at the evidence.\nSo if the evidence\nis rare, that's\ngoing to cause a\nlot of rejections.\nSo Gibbs sampling is\nanother sampling procedure.\nThe idea is that\nI'm going to work\nwith a previous\nsample, which I'm\ngoing to construct to\nalways satisfy the evidence,\nand then gradually\nmodify it over time.\nSo it's a much more\nincremental approach\nrather than throw everything\nout, sample afresh, and hope\nthat you hit the evidence.\nSo here's the basic\nidea of Gibbs sampling.\nI'm going to start with\nan arbitrary assignment.\nAnd then I'm going\nto iteratively change\none variable at a time\ngiven the other variables.\nAnd I'm going to do this\nin a very specific way\nso that I'm going to\nget a bunch of samples,\nand those samples are going to\ngive me also the correct answer\nin the limit.\nIt is worth noticing or\nnoting that Gibbs sampling is\na special case of a\nwider class of algorithms\ncalled Markov chain Monte Carlo.\nSo if you study\nprobability or statistics,\nyou might encounter\nthese things.\nAnd the idea is that you\nhave a sequence of samples,\nwhich are drawn, and each one\nis dependent on the other.\nAnd that's why it's\ncalled a Markov\nchain, because each\none is dependent\non the previous sample.\nAnd the idea with\nGibbs sampling is\nthat we're going to\nstart with samples\nthat satisfy the evidence.\nSo from the first\nget go, I'm going\nto incorporate the evidence so\nI don't have to reject anything.\nThere's no rejection\nin Gibbs sampling.\nNow the con is that the samples\nare not going to be independent.\nSo this sample might be\nvery similar to that one.\nSo if you could get\n10 independent samples\nfrom rejection\nsampling, that's going\nto give you a better\nestimate than 10\nsamples from Gibbs\nsampling, where\nthe samples are correlated.\nSo I still haven't told\nyou what Gibbs sampling\nis, so let me try to go through\nthat using a simple example.\nSo how many played\nthe game, telephone?\nOK, maybe when you\nwere very young.\nBut the idea is that you\nhave some person A, who\nsends a message to\nperson B, and then\nthe person B sends\na message to C.\nAnd in general this\ncould go on for a while.\nAnd then you basically\nsee if the message\nyou got out at the\nend is the same\nas the one in the beginning.\nAnd of course, the whole point\nis that every point in time,\nthere's a chance that the\nmessage gets corrupted.\nSo at the end, the\ntwo are not the same,\nand everyone burst\nout into laughter.\nThat's how it works.\nSo let's model this\nusing a Bayesian network.\nSo I'm going to assume that the\nmessage is single bit, either 1\nor 0.\nAnd the probability\nof the first message\nis going to be given by a coin\nflip-- either 0.5 probability\nof 0, 0.5 probability of 1.\nSo then I look at\nprobability of B\ngiven A, and that's\ngoing to be essentially\nif point A probability\nof saying the same,\nand 0.2 probability\nof flipping it.\nSo if a is 0, then the\nprobability of b equal to 0\nis 0.8.\nIf a is 1, the probability\nof b equals 1 is 0.8.\nAnd c given b is the same--\nso 0.8 probability of preserving\nthe message and 0.2 probability\nof flipping it.\nSo this defines another\nBayesian network.\nAnd it defines in particular\njoint distribution\nover A, B, and C.\nSo now the probabilistic\ninference query I want to ask\nis, assuming C-- the\nperson at the end--\ngets a 1, what is the\nprobability of A equals 1 or 0?\nSo intuitively, if\nyou saw C equals 1,\nthat probably increases the\nprobability of A equals 1\nbecause the probability\nof error is less than 50%.\nBut there's noise.\nSo it's not going to be\ncertainly 1 because there\ncould have been flips.\nSo that's the intuition.\nSo let's first rerun\nrejection sampling.\nSo you shouldn't\nnecessarily in general\nbe expected to know\nwhat the exact value is.\nSo let's try to compute it.\nSo here is the\nprobabilistic program--\nI have A-- my sample of 1, B--\nI decided to preserve\nthe message, C--\nI decided to preserve the\nmessage, and I get this sample.\nSo then I'm going to\nredo rejection sampling.\nI'm interested in the\nquery, which is what A is.\nAnd then the evidence, I'm going\nto condition on C equals 1.\nAnd I do rejection\nsampling with 100 samples.\nAnd I get the probability--\nestimated probability\nof A equals 1 to be 0.65.\nSo seems plausible.\nEvery point there is a\n0.2 probability of error.\nSo if you add that, you\nget point around 0.6.\nThat's for sketchy math--\nthere's more precise estimate--\nyou can compute.\nSo let's do Gibbs sampling.\nSo what we're going to do is--\nhere's a pseudocode--\nwe're going\nto start with a\nparticular initialization\nto all the variables.\nAnd then I'm going to round\nrobin through the variables.\nAnd I'm going to change it based\non all the other variables.\nIn particular, to\nchange it, I'm going\nto compute the\nconditional distribution\nover a variable given all\nthe other variables, and then\nsample a new value for\nthat variable given\nthis conditional distribution.\nSo let me walk\nthrough an example\nto explain what that looks like.\nSo here I've initialized\nwith an arbitrary sample\nthat satisfies the evidence.\nSo this should be C equals 1.\nSo A is 1, B is 0, C is 1.\nThe initialization generally\ndoesn't matter too much,\nbut sometimes for\ncertain problems\nit could make your\nconvergence faster or slower.\nSo now let's look at what this\nconditional distribution is.\nSo suppose our goal is to sample\nB given A and C. So A is 1,\nC is 1, B is 0 right now.\nBasically, sampling is like,\nwhat is the probability of B\ngiven A and C?\nSo what's my best guess at\nwhat B should have been?\nSo to do that, we're going\nto do some basic math.\nSo the probability of\nB equals some value\ngiven A and C is the joint\nprobability of A, B, and C\ndivided by the\nprobability of A and C.\nSo all the variables except\nfor the one I'm sampling.\nSo now let's break this down.\nSo the normalizer, which is\nthe thing I'm dividing by,\nis the probability of all the\nvariables we're not sampling.\nAnd that is simply equal\nto the sum of over values\nof b of the joint.\nAnd then what is the\njoint probability\nis the product of the local\nconditional probabilities, which\nare given above,\nas I define them.\nAnd note something\nthat's important here.\nI'm writing this\ndown, but I don't\nhave to instantiate\nthe joint distribution\nfor all possible values of\nA, B, and C, because in Gibbs\nsampling I'm only looking\nat a particular assignment,\nand I only care about\nlooking up the probability\nof that particular\nassignment or the assignments\naround that assignment.\nSo this is where\nI get the savings.\nAlthough if I have to\ninstantiate this for all\nvalues A, B, and C, I\nmight as well just brute\nforce the whole thing.\nWe do have to, as stated,\ntouch every variable\nwhen evaluating an assignment--\nwe'll come back to that later.\nSo suppose we're\nsampling B. So I\nneed to compute what the value\nof A equals 1, B equals 0,\nand C equals 1.\nAs well as the probability\nof A equals 1, B equals 1,\nC equals 1.\nSo basically, what I'm\nsaying is I'm freezing\nall the other variables--\nI'm only changing\nB. And I'm going\nto evaluate each of\nthese new assignments\nbased on the joint probability.\nSo let's look at\nhow this is defined.\nSo joint probability\nis a function.\nIt takes a particular\nassignment,\nand then it's, in some\nsense, making a modification.\nSo it says, I'm going to change\nvarious-- some var into value.\nSo I might pass B for\nvar and 1 to value.\nAnd then so here I'm going to\nlet y be the updated assignment.\nSo basically taking\nthis original assignment\nand substituting\nvar colon val here.\nSo here I basically\nchange 1,0,1 to--\nOK, well, I guess it's a--\nB, 0 is the same--\nso nothing gets changed there.\nAnd then I compute\nthe joint probability\nof the updated assignment.\nAnd this is going\nto be that tensor.\nSo probability of A given\ny A, which is 1 here.\nAnd then probability of B given\nA using these assignments.\nSo 0 given 1, and\nthen probability of C\ngiven B. So that gives\nme a probability of 0.02\nfor the probability of A equals\n1, B equals 0, C equals 1.\nAnd now I do the same thing\nfor the alternative value\nthat I'm considering,\nwhich is B equals 1.\nAnd again, now I update this\nassignment to be 1, 1, 1,\nI compute its probability,\nand I get a number out.\nAnd now I compute the\nnormalization factor, which\nis the sum of these two things.\nI get 0.34, and then I divide\neach of these quantities\nby p of ac, and that gives me\na valid distribution over b.\nSo now, given this\ndistribution--\n0.05 for b equals 0 and\n0.94 for b equals 1--\nI can sample this\nB. And notice that I\nmodified x to be 1, 1, 1,\nnow based on that sample.\nAnd intuitively, what's\nhappening is that 1, 1, 1\nis much more likely\nthan 1, 0, 1.\nSo B gets pulled to 1 because\nof A equals 1 and C equals 1.\nNow this is probabilistic--\nwith 5% probability\nI could have just left 1, 0, 1.\nBut it's more likely that\nA started with a message 1,\nand then it preserved\nthe message along, rather\nthan A flipping to 0 and\nthen flipping back to 1.\nI think the most important\nthing is that basically you\nhave an assignment\nand you're considering\none particular\nvariable, and I'm going\nto look at different values\nthat variable could be.\nAnd then I evaluate\nthe joint probability\nof each of those possibilities.\nAnd then I sample according\nto those probabilities.\nSo here's Gibbs\nsampling in general.\nSo I'm going to define this\nGibbs sampling function.\nI'm going to pass in\nthe initial assignment.\nVars is going to\ngive me the variables\nI'm going to actually sample.\nQuery is the same as\nrejection sampling\nwhere I'm interested\nin-- let's say, A,\nand a joint probability\nis how I define-- how\nI decide to score variables.\nAnd I'm going to do\nit for one iteration.\nSo let's do Gibbs sampling.\nSo I start out with x.\nAnd then I'm going to track\ncounts of the query values\nas before, as in\nrejection sampling.\nI'm going to iterate--\nnumber of iteration times.\nAnd for each variable--\nso here the variables\nI'm sampling are A and B.\nWhy don't I include C?\nYeah, C is the evidence.\nThat's the one I'm\nconditioning on.\nSo I conditioned on C equals 1,\nso I don't want to change that.\nSo let's consider A--\nso that means I'm going\nto try to modify A.\nSo what I'm doing\nhere is I'm going\nto consider all possible\nvalues that A could take on.\nAnd for each of them, I'm going\nto compute the joint probability\nof the assignment where\nvariable has been assigned\nto A. Basically for A, I\nhave the joint probability\nof 0.08 and 0.32.\nNow I compute the evidence\nor the probability--\nsorry, not the evidence--\nthe probability of B and C,\nwhich is the sum of these\ntwo things and I normalize.\nSo here I'm just normalizing the\nprobabilities to 0.2 and 0.8,\nand I sample according to that.\nAnd in this case, I drew\na 1, so nothing changed.\nAnd then here I'm\ngoing to record\nthe count of the query value.\nSo I look at this assignment,\nand I see A equals 1,\nso I'm going to write down--\nI saw 1 once.\nAnd then now I go to\nthe second variable, B.\nAnd again, I'm going to compute\nthe joint probabilities here.\nThis is actually what\nwe just did before\nin the specific example.\nSo I normalize the\nprobabilities, and I sample.\nAnd here again I\ndidn't change anything.\nAnd then I recorded that I\nsaw A equals one another time.\nAnd so I keep on doing that\nfor some number of iterations.\nAnd then at the end, I keep\ntrack of the probabilities.\nSo that's one round\nof Gibbs sampling.\nSo now if I run it for multiple\niterations, then what do I get?\nI get that the probability of--\nso I'm interested in the query,\nwhich is the probability of A--\neverything is given C equals 1.\nI get that the probability of\n1, A equals 1 given C equals 1,\nis estimated to be 0.68.\nAnd then if I compare that\nwith rejection sampling,\nit's in the same ballpark.\nSo these are random algorithms\nor different algorithms,\nso we're not going to get\nexactly the same thing.\nSo let me actually\ndraw a picture-- maybe\nit can help visualize\nwhat's happening here.\nSo I have variables A,\nB, and C. So C equals 1.\nSo I'm not going to touch it.\nSo this is over time some\nnumber of iterations.\nSo I start out with 1, 0, 1.\nAnd then I'm going to sample A\naccording to some probability.\nSo let's say I do 1, 0, 1,\nand now I'm going to sample B.\nSo let's do this.\nSo I'm going to\nsample B. So I'm going\nto let's say sample 1 because\nremember that's more likely.\nAnd then I go back\nto A, and I sample.\nLet's say, I got unlucky\nand that becomes a 0.\nAnd I sample B, so that\nbecomes, let's say it's a 1.\nSo I sample A, that becomes--\nI know, 1.\nAnd then I sample B now--\nsorry, I'm getting\nconfused here--\nA, B, A-- that\nshouldn't be there.\nAnd this continues and\ndot, dot, dot, dot.\nAnd then how do I compute the\nestimate of the probability?\nSo each of these\ncolumns is a sample--\na joint sample.\nAnd so what I'm going to do\nis now I'm going to look at--\nif I'm interested in, let's\nsay, probability of A equals 1\ngiven C equals 1,\nwell, C equals 1\nis already taken care of\nbecause I never change it.\nSo I'm going to look\nat only the query.\nSo I'm going to look\nat only these values.\nAnd I'm going to just count\nhow many 1s there are.\nAnd the fraction of 1s\nis not my estimated--\nso this is the fraction of 1s.\nSo that's going to be my\nestimate of the probability\nof A given C equals 1.\nSorry, that must\nhave been a mistake.\nSo here I'm sampling B,\nso A should not change.\nYep, you're right.\nSo each column, I'm only\nchanging one variable at a time.\nAnd the reason why you\nonly change one variable--\nbecause it keeps it tractable.\nBecause when I'm\nfixing everything else,\nI'm only looking\nat one variable.\nThat means I can consider\nall the possible values\nof that variable,\nand in some sense,\nI'm like brute forcing\nthat variable--\nlet's see what that\nvariable value could be.\nAnd then I'm sampling\naccording to that distribution.\nYeah, so in the code,\nfor every variable,\nI'm considering all\npossible values.\nAnd so that's the same here.\nI'm not showing\nyou the computation\nof the probabilities--\nI'm just saying I\npick this variable,\nand I'm going to\nconsider 0 here.\nI'm also going to\nconsider 1 here.\nAnd I'm going to sample, and\nit happened to choose a 1.\nSo the running time of this\nalgorithm is the number\nof iterations times the\nnumber of variables--\nbecause I go through all the\nvariables per iteration--\ntimes the size of the domain,\nwhich is the number of values\nthat a variable can take\non-- in this case, it's 2--\nand times the number of\nvariables, because every time\nI consider a\npossible assignment,\njoint probability has to go\nthrough all the variables\nto evaluate the\njoint probability.\nSo, summary-- the basic\nformula of algorithm is I'm\ngoing to update one\nvariable at a time,\nusing its conditional\ndistribution, given\nall the other variables.\nAnd then I'm going to compute\nthe conditional distribution\nusing the joint distribution.\nAnd here I only have\nto sum over the domain\nof the variable we're sampling.\nSo next I'm going to show you\nhow you can make this a bit more\nefficient by leveraging the\nproperty of the Bayesian\nnetwork.\nSo let's do that.\nAnd that's going to introduce\na new concept called the Markov\nblanket.\nSo imagine this is some\narbitrary probability over five\nvariables-- a, b, c, d, e.\nAnd if you were doing\nGibbs sampling here,\nfor every variable, for\nevery value of that variable,\nI have to consider the\nwhole set of variables\nin my entire Bayesian network.\nAnd so, can you\navoid doing that?\nAnd intuitively, it\nseems like you should,\nbecause only one\nvariable is changing.\nSo why do other\nvariables matter?\nMaybe they don't matter.\nYou can't just ignore\nall the other variables\nbecause the variables interact,\nbut these interactions\nare potentially local.\nSo remember this telephone\nBayesian network--\nso A generates B\ngenerates C. So that's\nthe same thing we\nhad from before.\nSo now, suppose we're sampling\nprobability of A given B and C.\nSo what we would\nnormally do is we're\ngoing to look at the\njoint distribution of both\nA equals 0 and A equals 1.\nSo I'm considering\nwhat should A be,\nso I'm going to consider\nboth all the values--\nA equals 0 and a equals 1.\nAnd I fill in my\ncurrent assignment\nfor all the other variables.\nAnd this is just by the\ndefinition of a Bayesian\nnetwork-- the probability of A\ngiven B given A times C given B.\nSo when I compute\nthe probability,\nI also have to normalize.\nSo I sum these\ntwo numbers, and I\nget probability of B\nequals B and C equals C.\nAnd then I divide each of these\nquantities by this normalizer,\nand I sample from that.\nSo that's what we did normally.\nBut there's something\nthat we might\nnotice about this\nexpression that could\nallow us to save some work.\nSo if you look at\nthis expression--\nI care about basically\nwhat's happening to A--\nA is changing either 0 or 1.\nBut if you look at\nthis last factor here,\nit doesn't depend on A--\nit's just some number.\nAnd in particular, this number\nthat gets multiplied by this A\nequals 0, and if A equals\n1, it's the same number.\nAnd in the\ndenominator, I'm going\nto also have the same number.\nSo I'm basically multiplying\nand dividing by the same number.\nAnd you can see that if\nthis is 0.1 versus 0.2,\nit doesn't really matter.\nSo therefore, I can just\ndrop that completely,\nand I can just ignore it\nSo in general, there's a\nquestion of which variables can\nyou drop and which\nones you can't.\nAnd there's a very nice\nway to think about that.\nSo we need to only\ninclude variables\nthat touch the variable we're\nsampling-- that interact with it\ndirectly.\nSo B is connected to\nA, so therefore, I\ncan't drop this factor.\nBut C is not connected\nto A, so I can drop it.\nAnd so the set of variables\nthat I need to consider\nis called the Markov blanket.\nAnd the Markov blanket of a\nvariable in a Bayesian network\nis simply all its\nchildren and its parents.\nSo let me just\ndraw this visually.\nSo in general, you\nhave a variable.\nLet's say you're sampling, and\nit has a number of parents.\nAnd maybe these\nhave other parents.\nMaybe this is\nreally complicated,\nand maybe it could be--\nas long as it's\na DAG, it's fine.\nSo I'm just going\nto draw some stuff.\nAnd suppose I'm interested in\nthis node, what is the Markov\nblanket of this node of--\nno, this node is\nall its children--\nso these nodes are in the Markov\nblanket, and all its parents.\nSo these are all the local\nconditional distributions\nthat touch depend on this value.\nSo this is not the\nMarkov blanket.\nThis is not a Markov blanket.\nThis is not either.\nSo when I compute\nthe joint-- you\ncan imagine just writing down\nthe joint-- remember local\nconditional distribution\nfor every variable.\nSo I have this\ncondition on its parent.\nAnd then I have this condition\non its parents, which\nincludes this, this condition\non its parents, this condition\non its parents.\nAnd then everything else doesn't\ndepend on the orange node.\nSo the question is, do you\nhave to include co-parents?\nSo for example, do\nyou have to include--\nlet's say this is just to make\nit more interesting-- let's\nsay this depends on that.\nSo the answer is yes.\nBecause if you think about--\nlet's just label this x, y, z.\nSo this conditional\ndistribution is y given x and z.\nThis acts as a unit-- the\nparents always act as a unit.\nSo if you're changing this, you\nhave to depend on the value of z\nto determine what the\nprobability of y is.\nSo for this-- just for\nmaybe a simpler example--\nso let's do this example.\nSo what's the\nMarkov blanket of A?\nShould be B. What's the\nMarkov blanket of B?\nA and C. And what about C?\nSo I think we're good.\nSo then what it means is\nthat instead of computing\nthe joint probability over the\nentire assignment, what we're\ngoing to do is only\ninclude the terms that\nare in the Markov blanket.\nSo for this particular\nthree-variable network,\nwhat it looks like\nis the following--\nso I have a joint assignment\nx, and I updated this variable\nwith this value.\nAnd if it's A, I just have\nto include A and B given\nA. I don't have to\nlook at C given B.\nAnd if it's a variable\nequals B, I only\nhave to look at B\ngiven A and C given B,\nand I don't look at\nprobability of A.\nSo if I run Gibbs sampling\nusing passing in this function\nto evaluate basically a\nscore for every assignment,\nthen I get this quantity, which\nis similar to what I had before,\nbut this is a lot faster.\nActually, this should compute\nexactly the same answer\nas Gibbs sampling\nwith joint probability\nup to floating-point precision.\nAnd there's a speed-up here\nbecause instead of considering\nthe total number of\nvariables for evaluating\nthis probability\nof an assignment,\nI only have to consider the\nsize of the Markov blanket\nfor evaluating the cost of\nthis particular assignment.\nSo this, I would say,\nis an optimization.\nIt doesn't resolve any\nsort of fundamental issues\nwith Gibbs sampling.\nBut it's just like,\nwhy not do it?\nSo the quick summary here is\nthat a Markov blanket of a node\nis all its children and parents.\nGibbs sampling requires the\nconditional probabilities\nof the node and its\nMarkov blanket, so\nany local conditional\ndistribution that\ntouches the node and\nits Markov blanket.\nAnd this is much more efficient\nif the Markov blankets\nare small.\nSo if the Markov\nblankets are large,\nif you have a node that's\nconnected to many, many nodes,\nthen it doesn't really\nsave you very much.\nBut it doesn't hurt either.\nOK, let's move on.\nSo now let's apply Gibbs\nsampling to this alarm\nnetwork, which we\nare familiar with.\nSo remember we have burglary,\nearthquake giving rise to alarm.\nSo here is the\nprobability tables.\nWe're going to initialize\nwith an arbitrary sample that\nsatisfies the evidence.\nSo assuming there's a burglary,\nassume everything bad happens,\nand then let's look at--\nwe're interested,\nlet's say, in burglary\ngiven the evidence,\nwhich is A equals 1.\nAnd I'm going to see what\nhappens if I run Gibbs sampling.\nSo if I run Gibbs sampling\nhere, I get probability of B\nequals 1 given A\nequals 1 is 0.6.\nSo if you guys remember, that's\nnot exactly the correct answer--\nit was more like 0.51.\nIf you run it again for 200\niterations, it's 0.33 now.\nSo you might wonder this\nis not working super well.\nSo let's try to understand why.\nAnd so, as I mentioned before,\nthese sampling algorithms\nare just approximate,\nand your mileage\nis going to vary depending\non what situation you're in.\nSo it's very important before\nyou try one of these algorithms\nto be attentive to when it's\ngoing to work and when it's not.\nAnd by the way, I'm also going\nto talk about when rejection\nsampling works and\nwhen it doesn't.\nSo let's actually start\nwith rejection sampling\nbecause I think I've\nalready said this,\nbut just to put it\nin concrete terms--\nwhen is it hard for\nrejection sampling?\nAnd the answer is\nwhen the evidence\nhas low probability\nbecause you're going\nto reject most of the things.\nThe number of samples\nthat you actually keep\nis basically the 1 minus the\nprobability of the-- sorry-- the\nprobability of the evidence.\nSo if the evidence\nis low probability,\nthat means you're going to have\nvery few samples to work with.\nPossibly 0 even.\nSo here is an example where\nit's sort of telephone\nexcept for the probability of--\nactually, sorry,\nit's not telephone--\nthere's the problem.\nSo if it's a 1, the probability\nof a 0 is very high.\nSo if a is 0, b is 0 with 0.999.\nIf a is 1, b is 0 with 0.9998.\nSo if you look at the\njoint distribution here,\nthe probability of B equals\n1 is going to be quite small.\nBut what I'm interested in\nis probability of A given B\nequals 1.\nAnd intuitively if you think\nabout a PVP of A given B equals\n1, you're taking these two\nrows, and it should be 2/3.\nSo the ratio between\nthese is 2 over 3,\nbut you need to reject\nall the samples that\ndon't match the evidence.\nSo if you were to do\nrejection sampling,\nbasically you would read--\nlike you would only keep\none out of 10,000 samples.\nSo this is a very\ninefficient way of sampling.\nAnd it would probably take\n100,000 or even more samples\nto get a fine estimate.\nBut if you do Gibbs sampling,\nthis is totally fine.\nBecause what Gibbs\nsampling says is,\nI'm going to condition\non b equals 1.\nSo immediately, I restrict\nto only these two rows,\nand I normalize.\nIn fact, Gibbs sampling will\njust give you the exact answer\nevery time.\nSo what about the other way?\nSo what examples are\nhard for Gibbs sampling?\nAnd the answer is when the\nvariables are highly correlated.\nSo let's take\nanother example here.\nSo two variables, A and B. A\nis 0.5 probability on 0 and 1.\nAnd here b equals a.\nSo probability 1-- a\nand b are the same.\nSo now let's say I want\nto do Gibbs sampling,\nand I just want to compute\nthe probability of A.\nJust question-- what's\nthe probability of A?\nSo it should be 50/50, right?\nSo here there's nothing I'm\nconditioning on-- there's\nno evidence here.\nSo rejection sampling\nwill nail this,\nbecause it generates\nfrom scratch every time\nand works perfectly.\nThere's no rejection because\nthere's no condition.\nSo it's going to have no problem\ndetecting that P of A is 0.5.\nBut what happens with\nGibbs sampling now?\nGibbs sampling will get stuck.\nAnd the reason it will\nget stuck is that--\nlet's say I start out with 0, 0.\nSo now I try to\nsample A. And what\nhappens when I try to sample A?\nWell, I can come over here,\nand I look at-- b is 0.\nAnd we're going to consider\npossible values of a-- it\ncould be 0 or 1.\nWell, if it's 1-- oops--\nthat has 0 probability.\nSo therefore, I\nhave to choose 0.\nAnd same with b-- if\nI try to sample b,\nit always sticks to the same.\nSo basically,\nGibbs sampling will\nget stuck completely in 0,\n0, and not be able to move.\nAnd the estimated\nprobability of A\nis going to be\nprobability 1 on 0,\nwhich is the incorrect answer.\nSo this is an instance\nwhere A and B are\nas correlated as possible\nhere-- they're identical.\nAnd in that case, because\nGibbs sampling is just\ntrying to change one\nof the variables,\nthen you can't do it,\nbecause the other one\nneeds to change as well.\nI don't know-- it's like doing a\nthree-legged race with someone--\nyou're attached to\nthem and can't really\nmove until the\nother person moves.\nAnd even if this weren't exactly\nidentical, if this were 0.9999,\nthat would also be pretty\nbad, because then it\nwould be very unlikely for\nGibbs sampling to change\ninto a different variable.\nSo we saw\ncomplementary examples,\nwhich are bad for Gibbs\nsampling and rejection sampling.\nSo rejection sampling--\nrare events are hard,\nand for Gibbs sampling, highly\ncorrelated variables are hard.\nAnd the bad news is that in\nmost real-world problems,\nboth are true.\nSo it's going to be hard\nfor both Gibbs sampling\nand rejection sampling.\nBut it's helpful to know the\nreasons why a problem is hard.\nSo a few remarks here.\nSo Gibbs sampling,\nas I mentioned,\nis an example of MCMC algorithm.\nThere's a more\ngeneral MCMC algorithm\ncalled\nMetropolis-Hastings, which\nuses a proposal distribution to\nmore smartly guide the search.\nAnd there's actually some really\nbeautiful theory around Markov\nchains and analyzing\nhow fast they run,\nand it has to do with this\nthing called \"mixing times.\"\nIn practice, Gibbs\nsampling is fairly commonly\nused because it's fairly\nsimple and effective.\nThe only simpler thing\nis rejection sampling,\nwhich generally doesn't get\nused because the probability\nof hitting the evidence\nis generally pretty low.\nBut Gibbs sampling can\nalso be quite slow.\nSo now I'm going to\nswitch gears and talk\nabout conditional independence.\nSo this is going to\nbe kind of different.\nSo far what we've\ndone is we focus\non probabilistic inference\nalgorithms in Bayesian networks.\nAnd they've been mostly agnostic\nto the structure of the Bayesian\nnetwork.\nSo in rejection sampling, you\njust sample all the variables,\nand then you reject.\nIt doesn't matter\nwhat depends on what.\nNow with Gibbs sampling,\nwe paid attention\nto the structure a little bit.\nWe defined the Markov blanket.\nSo when you're computing the\nprobability of a variable,\nyou're looking at\nthe things around it.\nBut there's some\nreally interesting\ndeeper structures in\nBayesian networks,\nso let's try to\nexplore them a bit.\nBayesian network\nis simultaneously\na probabilistic object.\nIt is a distribution over\na bunch of variables,\nand it is also a\ncombinatorial object.\nIt's a graph, and\nthere's a connection\nbetween the graph properties\nand the probability properties.\nIn particular, when we\ntalk about independence.\nSo hopefully you guys\nhave seen independence\nfrom your probability class.\nBut just to review it, two\nvariables, random variables,\nare independent if and only if\nyou look at the probability of A\nand B, that's the same as\nthe probability of A times\nthe probability of B for all\npossible values of A and B.\nSo that's the definition.\nSo let's look at\nsome examples where\nA and B corresponds to\nvariables in Bayesian networks.\nSo example 1--\nI'm going to try to do some of\nthese on the board actually.\nSo this is the world's second\nsimplest Bayesian network.\nThe simplest one is,\nI guess, one variable.\nAnd so this corresponds to\na joint probability just\nP of A times P of B. And in this\none, A and B are independent--\njust almost like if you\npattern match-- that's exactly\nthe definition of independence.\nAnd notably, A and\nB are not connected.\nSo independence corresponds\nto, in this case,\ntwo nodes which\nare disconnected.\nSo if you see Bayesian\nnetworks where\nyou have two variables\nthat are not connected,\nthen you can reasonably say\nthat they're independent.\nNow we'll see later-- it gets\na little bit more complicated.\nBut in this case, that's\ngenerally the right intuition\nyou should have.\nSo what about if I put\nan arrow between them?\nSo that means the\nprobability of A and B\nis probability A times\nprobability of B given A.\nAnd in this case, A and B are\nnot independent because B here\ndepends on A in some way.\nAnd here they are connected.\nSo just intuitively,\nthey're kind of connected\nand depend on each other.\nSo now, let's look at\na different graph here.\nSo let me just ask a\nquestion-- are A and B--\nso this is the\nindependence symbol--\nA and B independent here?\nSo let's just try\nto figure this out.\nLet's look at the joint\ndistribution over A, B, and C--\nthat's the product of local\nconditional distributions.\nAnd I'm going to look at\nprobability of A and B--\nthat's the marginal here.\nAnd that's the summation\nover C over the joint--\nand then write it out--\nsummation of C over the local\nconditional distributions.\nAnd notice that I can\nmove this summation over C\nover to this side,\nand that gives me 1.\nLet me just make sure--\nthis is an important point.\nSo I want to make\nsure that summation\nover C of probability\nof A, probability of B,\nprobability of C given A and B.\nSo this is equal to probability\nof A times probability of B\ntimes the summation over C,\nprobability of C given\nA and B. And whenever\nyou sum a local conditional\ndistribution over all\nthe values on the left-hand\nside, what do you get?\nWhat is this value?\nThis is equal to 1, right?\nSo therefore, this is just\nprobability of A and B.\nSo therefore, A and B\nare actually independent.\nSo this is the part\nthat's a little bit\ntricky about Bayesian networks.\nSo you can't just only look\nat whether two variables\nare connected or not.\nBut this is just the\nonly real special case\nthat you have to think about.\nSo intuitively, we already\nactually saw this before.\nSo we had burglary, an\nearthquake, and alarm.\nAnd we said that burglary and\nearthquake are independent.\nAnd it just happened\nthat there's stuff\nthat could depend on both.\nSo you can have two\nindependent things,\nand then someone\ncreates a variable\nthat depends on those things--\nit shouldn't change anything\nabout the underlying\ncauses independence.\nSo mathematically, you\ncan see it this way,\nbut intuitively, you can\nsee why it might be true.\nSo that's an important case.\nSo let me just write it.\nSo A-- yes.\nOK.\nSo here is another case.\nSo C and A and B. So\nare A and B independent?\nHow many of you think yes?\nHow many think no?\nOK.\nThe answer is no,\nso don't be fooled.\nIt looks like that if\nyou're looking upside down,\nthen they look the same,\nbut the direction matters.\nAnd in particular, these things\nvisually look very similar,\nbut they're almost completely\ndifferent Bayesian networks.\nThis one in particular\nhas C given A and B,\nand this has probability\nof A given C times\nprobability of B given C. So\nthe directionality matters.\nAnd so if you look at\nthe joint distribution--\nprobability of C, A\ngiven C, B given C.\nAnd if you look at the joint\nprobability of A and B,\nthat's equal to summation over C\ntimes probability of C. I mean,\nit's just like a mess-- there's\nno way to simplify that.\nSo they're not\nindependent in general.\nAnd sometimes it can be\nuseful to think about--\nif you see a\nstructure-- just think\nabout special\ncases in your head.\nFor example, I can say, well, C\nis a coin flip, and A equals C,\nand B equals C. And clearly\nthey're not independent\nbecause A can be\nliterally equal to B.\nSo you can somehow work out\nthese some simple examples\nin your head to convince\nyourself when things might not\nbe independent.\nSo that's independent.\nSo this is definitely no.\nSo let's look at conditional\nindependence now.\nSo this is also a familiar\nconcept from probability.\nAnd we say that two\nvariables, A and B,\nare conditionally\nindependent given\nC equals some particular value.\nIt's the same thing,\nexcept, for your condition\non C and all the\ndifferent terms.\nSo let's look at some examples.\nSo let's revisit this\nexample here-- example 4.\nSo the question is,\nA and B given C--\nare they conditional-- A and\nB conditionally independent\ngiven C?\nSo here, let's\nlook at the math--\njoint distribution.\nSorry, this is the\nconditional distribution,\nand this is simply equal to the\njoint divided by probability\nof C, and that's equal to\nprobability of A given C times\nB equals given C,\nwhich is literally\nthe definition of\nconditional independence.\nSo here, A and B\nare conditionally\nindependent given\nC. And intuitively,\nyou can think about it as--\nlet's say there's a coin flip,\nand then A does some stuff,\nand then B does some\nstuff, and they only\ndepend on that coin flip.\nSo, conditioned on\nknowing the coin flip,\nthen A and B are doing\ndifferent, independent things.\nSo now let's revisit example 3.\nSo here, I want to\nask the question--\nare A and B independent given C?\nSo remember, A and\nB are independent.\nWhat about given C?\nHow many of you think they\nare still independent?\nThey're not independent?\nSo now hopefully you're anchored\nto the burglar alarm, earthquake\nexample.\nAnd you see in math that--\nwell, this whole thing\nis just a kind of a mess.\nYou see that C and A and B are\nall combined in this arbitrary\nfunction here.\nSo it definitely is not the case\nthat A and B are conditionally\nindependent given\nC. So this is a no.\nSo these two are examples\nyou should really\nremember in your head\nbecause there's very similar,\nbut yet they follow differently.\nSo in the above, A and B\nare marginally independent\nbut conditionally\nnot independent,\nwhere it's the opposite here--\nA and B are marginally\nnot independent.\nBut when you condition on\nC, they become independent.\nSo this is a good primitive\nto have in your head\nwhen you're trying to\nreason about these things.\nSo let's now go to\nthe alarm example.\nHopefully, this should\nbe old news by now.\nSo here B and E are\nindependent, but B and E\nare not conditionally\nindependent\ngiven A equals 1, which is\nhow you get explaining away,\nwhich we saw in\nthe last lecture.\nSo in general, how do you\ntell if I just gave you\na huge Bayesian network and\nthere are some variables?\nHere's a general algorithm.\nSo A and B, are they\nindependent given C?\nFirst, you shade\nin the variable C.\nSo you can think about these as\nwhen you condition on something,\nit's kind of blocking a path--\nthat's intuition.\nYou recursively remove\nany non-shaded leaves.\nSo this is to deal with the\nfact that A and B are really\nindependent, but\nthere's some things here\nthat makes it look like\nit's not independent,\nso you just remove that.\nI mean, you don't have\nto literally remove it\nfrom the picture,\nbut in your head,\nyou should think about\nit not being there.\nNow you connect the\nparents to each other.\nYou can think about remembering\nit as marrying the parents.\nAnd then finally,\nthe answer is return\nwhether there's a\npath from A to B\nthat doesn't go through\nany shaded nodes.\nSo let me do a\nquick example here.\nSo I have this medical diagnosis\nexample from the last time.\nSo we have cold, allergies,\ncough, and itchy eyes.\nSo I can go through\na bunch of examples.\nSo our C and A are independent.\nAnd the answer is\nyes, because this\nis a condition-- there's\nnothing to condition on.\nI can essentially remove this\nand remove that because they're\nunshaded-- no leaves.\nAnd then I'm just\nleft with C and A,\nand there is no path\nthat goes between them,\nso they're independent.\nWhat about C and I?\nC and I-- again, I\ncan't remove this.\nI can remove H because H is\na leaf that's not shaded.\nAnd then I get basically C\nand this subgraph, A and I,\nand there's no\npath between them,\nand therefore,\nthey're independent.\nSo I given A equals 1,\nor A equals 0, whatever.\nSo if I shade that,\nand I'm asking--\nare these independent or not?\nThese are independent because\nthere's no path that goes--\nlike this is\nessentially blocking off\nthe way to go over there.\nAnd similarly, if I\nshade H, then these two\nare also blocked off.\nSo, maybe we'll do more of\nthese examples next time.\nBut hopefully,\nthat's just a taste\nof how you think about\nconditional independence\nin the context of\nBayesian networks.\nSo just a summary--\nwe talked about\nprobabilistic inference,\nthe ability to answer queries on\nthis database, Bayesian network.\nAnd we can do exact\nprobabilistic inference--\nwe just form the distribution,\njoint distribution,\nand we can marginalize\nand we can condition.\nThis is exact,\nbut its complexity\ncan be exponential in the\nsize of the number of nodes\nin the Bayesian network.\nThen we looked at two\napproximate Bayesian\nprobabilistic inference\nmethods-- rejection\nsampling, Gibbs sampling.\nRemember, they have\ncomplementary strengths\nand weaknesses.\nAnd then finally,\nwe started looking\nat conditional\nindependence, which\nassesses whether two variables\nare independent given evidence.\nAnd we're essentially\nable to reduce\nthat to graph properties-- are\nthese two variables connected\nafter a bunch of\nprocessing on the graph?\nSo far we've just assumed that\nthe Bayesian network is given\nand we're answering questions.\nNext time, we're going to\ntalk about how you actually\nlearn the parameters of\nthe Bayesian network--\nhow do you get these\nprobability tables?",
+  "segments": [
+    {
+      "text": "Last lecture, we started talking about Bayesian networks, and Bayesian networks is this new chapter on how to represent the world and, in particular, uncertainties about the world. And last time we looked at rejection sampling as a way to answer queries about",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Bayesian networks. And this time, we're mostly going to focus on Gibbs sampling, which is a faster, potentially faster, I should say, way to do probabilistic inference. And then we're going to talk about conditional independence. So let's start by reviewing",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "Bayesian networks. So Bayesian networks are probably one of the most intensely deep part of the class. So please ask me questions if anything is confusing. So to get us into the right mindset, we should think about joint distributions over a set of variables",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "as like a database that specifies how the world works. So you have a state of the world that's represented by assignment to a bunch of variables. And the database, basically says for every assignment how likely that is. So remember, we defined",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Bayesian networks through a four-step procedure. The first step is in any given problem, you have to figure out what the variables are. In general, we talk about variables as x1 through xn. But in the specific example, we saw a case where we had three",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "variables, one representing whether there's a burglary-- B, one representing whether there's an earthquake-- E, and one representing whether the alarm went off--A. So once you have all the variables, then you define a graph over all the variables.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "So in this case, we intuitively think of burglaries and earthquakes as independent events. But the alarm is going to depend on whether there's a burglary or an earthquake. That's what's advertised by the alarm-- the alarm goes off if there's a burglary",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "or earthquake. So now we have this graph, and this specifies the structure of the Bayesian network. Think about it-- it's like the bones in some sense. And now, the third step is to actually put meat on those bones. So the meat here is actually specifying",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "numerically the local conditional distribution for every node given the parents of that node. So in this case, there are three nodes. So for each node-- B, I have the probability of B given its parents-- there's no parents-- so it's just P of B.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "I have probability of E given it's parents-- there's no parents-- so that's P of E, and the probability of A given its parents, which are B and E. So I have probability of A given B and A. So the local conditional distributions are going to be",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "denoted with a lowercase p. So just to ground this out in code, we can look at probability tables. So for example, probability of B represents this table, which is for every setting of B, I have a probability. So the probability of there",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "being a burglary is of 0.05, and the probability of not being a burglary is 0.95. So same with earthquake, I have the probability of earthquake being 0.05 and not being earthquake, 0.95. And then finally I have this table, which represents the probability",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "of their alarm given the status of burglary and earthquake. So for all possible settings of B and E, I have to give a probability of A. And this is a really shorthand for saying I first compute b or e-- that's a Boolean, and if that equals a, then",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "that's a probability of 1-- otherwise, it's a probability 0. So what this logically says is A equals B or E. So you can just check that if A equals B or E, then I get a probability of 1. If A does not equal B or E, then I get a probability of 0. So that's a",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "probabilistically verbose way of just saying A equals B or E. OK, so given these tables, I can define the joint distribution over a set of random variables as simply the product of all the local conditional distributions. So in this particular example,",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "the joint distribution written with an uppercase P is equal to just the product of the local conditional distributions-- p of b, p of e, p of a given b and e. So we also saw that we can use einsum notation to simply multiply all these",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "local conditional distributions, which are just tensors together. And so we have p of b, p of e, p of a given b and e. And then you just make sure you index the right variables-- b and e for the first case and then b, e, a for the last local",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "conditional distribution. And that gives me the joint distribution. So I could have just written down numbers for all these eight possible assignments, but the way we did it is going through this more qualitatively inspired process of defining",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "the Bayesian network. This gives us a little bit more interpretability than just writing down some arbitrary numbers. So what do you do with a Bayesian network? Yeah, so we infer the probability of certain variables given other ones.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "So this is a joint distribution. You can think about it as a database. So literally it can be represented as a table. But instead of using SQL, you use the language of probabilistic inference. So you might be interested in what is the probability of there",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "being a burglary given the alarm went off. That is one particular query. And the way you compute this is as follows. I'm going to introduce another step here. This is different from last time-- I think this is a bit more intuitive. So the first, up here, I",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "have just the probability of B, E, and A, right? And then, in general probabilistic inference query looks like I'm interested in the probability of some query variables given some evidence. Evidence here is A equals 1. So what I'm going to do",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "is condition on evidence. So I basically take the probability tensor of B, E, A, and I'm going to slice it-- so this corresponds to B, this corresponds to E, and this corresponds to A. So when I say E, A equals 1, I'm just going to take the slice",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "where I only look at A equals 1. So what this looks like is I take this table, and I'm going to look at all the rows where A equals 1, and I'm going to select them out. So these four rows are exactly the rows where A equals 1. You can check that.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "So now I'm interested in B given A equals one-- I don't care about E. So what I'm going to do is marginalize E out. And that basically corresponds to-- remember, marginalization is just kind of ignoring E. So I'm going to collapse entries",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "that have different values of e but the same elsewhere. So I'm going to collapse these first two rows and these last two rows. And then in this notation, I can use einsum to do that as well. So that gives me probability of B and A equals 1.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "So that's probability of B and A equals 1. So the next step is-- this is the probability of B and A equals 1. I want condition on A equals 1. So to condition, it's just the rules of probability that I need to first compute-- what is the probability of the",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "evidence P equals A equals 1? And that conveniently here is just the sum of these two items. So if I sum these two--three items, I get the probability of A equals 1. And then finally, in order to get the probability of the joint",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "divided by the marginal gives me the conditional-- so I'm just going to divide each of these two numbers by this number, and we get my answer. So finally, the probability of a burglary given alarm equals 1 is 0.51, which is what we got last time.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "Now, one downside is that forming the joint distribution in this way can be really, really slow. So imagine you have a hundred variables-- each variable has two values. Then the total number of assignments is 2 to a hundred. And you definitely don't",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "want to be writing that down. So what we're going to do is do approximate inference. So we're going to try to approximate the answer and hope for the best. That's all we can do. And we took a little bit of detour to explain probabilistic",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "programs, which is another way to think about Bayesian networks, in order to introduce rejection sampling. So the idea behind probabilistic program is that it's a program that returns a sample from the joint distribution, and therefore, it",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "defines the distribution. I give you a program, and if samples from it obey some distribution, then that's as good as the definition in some sense. So here's an example of the alarm probabilistic program. I just basically go through each",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "of the variables in the Bayesian network, and I set its value given its parents. So naturally a node has to be generated after its parents are generated. So I flip with probability 0.05. I set B equals 1. So usually I get 0. E, I get 0, and A equals B, or E--",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "I get 0. So that is one particular assignment. So when I run a probabilistic program, I get an assignment of variables to values. So if I run it again, I'm going to get potentially a different set independent of the first. So then rejection sampling, as",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "we talked about last time, is, I first declare what part of the assignment I'm interested in-- what is a query variable? So here I'm interested in B-- so given a sample, I want to extract B. And then what is the evidence? I'm going to represent the evidence",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "as a test of whether the sample satisfies that evidence. And here I'm going to look up the value of A-- check that it equals 1. So remember, I'm still computing probability of B given A equals 1. So let's step through the rejection sampling algorithm,",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "just taking one sample. So for each number of samples, I'm going to just draw a sample calling the probabilistic program. That might give me something like this. And then, oh, I got an earthquake. Wow! It's very lucky, or not lucky. But anyway--",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "So if evidence of sample-- so remember evidence is this test-- that test A equals 1. And if that is true, then I increment the count, and I can't increment the count of-- I take query of sample, which gives me the value of B, which is 0, and I increment that.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "And I loop until I'm at the end. I look at the total number of counts, and I normalize by that count to get the probabilities. So here's a question-- why is total count not the same as number of samples? Yeah, so only some of the evidence because of rejection.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "I only count a sample if it's meets evidence. So that gives me the probabilities. And if I do a 300 times, then I get this distribution, which 0.44 probability of burglary given alarm equals 1. So notice that it's in the ballpark. This is the exact",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "quantity that we computed using the actual tensor. Here is the approximation with 300 samples. Now if you increase the number of samples to a million, this is going to get really, really close. But at 300, we're still in the rough-- only the rough ballpark.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "So one problem with rejection sampling is that it can be quite slow if the evidence is rare. And in this case, I actually got extremely lucky. Remember last lecture, I wasn't able to get any earthquakes or burglars. And in general, if you're",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "conditioning on some evidence, maybe it could be exponentially small. Maybe it's like the probability of hitting the evidence is 10 to the minus 30 or something. And then you would just be sitting around and rejecting, rejecting, rejecting, rejecting.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "So it can be a very, very slow algorithm. And the problem with this is that if you think about the program, I'm just generating samples, and I'm not even looking at the evidence. And I just hope that the program happened to generate the evidence.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "So while I really like rejection sampling because it is very simple, in some sense, this is the fastest path to defining a Bayesian network and also an inference algorithm that is actually provably works in the limit, but it is not the most efficient way",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "to do it. So then how can we do this faster? That's going to be the topic of the next part of this lecture. So now I'm going to talk about Gibbs sampling. So remember, rejection sampling-- what it looks like is that I draw a sample, I draw a sample,",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "I might reject it, I draw a sample, I might reject it. Reject it. And so the nice thing about rejection sampling is that every sample is independent. So if I'm estimating some quantity, like 10 samples-- is 10 independent samples. But the cons are that every",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "time I'm starting from scratch-- it's the flip side of this-- is that I'm generating fresh-- I don't even consider what happened before. So I'm not really learning anything about my past experiences. And the second thing is that, as I mentioned before,",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "I'm generating a sample without looking at the evidence. So if the evidence is rare, that's going to cause a lot of rejections. So Gibbs sampling is another sampling procedure. The idea is that I'm going to work with a previous sample, which I'm",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "going to construct to always satisfy the evidence, and then gradually modify it over time. So it's a much more incremental approach rather than throw everything out, sample afresh, and hope that you hit the evidence. So here's the basic idea of Gibbs sampling.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to start with an arbitrary assignment. And then I'm going to iteratively change one variable at a time given the other variables. And I'm going to do this in a very specific way so that I'm going to get a bunch of samples,",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "and those samples are going to give me also the correct answer in the limit. It is worth noticing or noting that Gibbs sampling is a special case of a wider class of algorithms called Markov chain Monte Carlo. So if you study probability or statistics,",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "you might encounter these things. And the idea is that you have a sequence of samples, which are drawn, and each one is dependent on the other. And that's why it's called a Markov chain, because each one is dependent on the previous sample. And the idea with",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "Gibbs sampling is that we're going to start with samples that satisfy the evidence. So from the first get go, I'm going to incorporate the evidence so I don't have to reject anything. There's no rejection in Gibbs sampling. Now the con is that the samples",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "are not going to be independent. So this sample might be very similar to that one. So if you could get 10 independent samples from rejection sampling, that's going to give you a better estimate than 10 samples from Gibbs sampling, where",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "the samples are correlated. So I still haven't told you what Gibbs sampling is, so let me try to go through that using a simple example. So how many played the game, telephone? OK, maybe when you were very young. But the idea is that you",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "have some person A, who sends a message to person B, and then the person B sends a message to C. And in general this could go on for a while. And then you basically see if the message you got out at the end is the same as the one in the beginning.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "And of course, the whole point is that every point in time, there's a chance that the message gets corrupted. So at the end, the two are not the same, and everyone burst out into laughter. That's how it works. So let's model this using a Bayesian network.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to assume that the message is single bit, either 1 or 0. And the probability of the first message is going to be given by a coin flip-- either 0.5 probability of 0, 0.5 probability of 1. So then I look at probability of B given A, and that's",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "going to be essentially if point A probability of saying the same, and 0.2 probability of flipping it. So if a is 0, then the probability of b equal to 0 is 0.8. If a is 1, the probability of b equals 1 is 0.8. And c given b is the same--",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "so 0.8 probability of preserving the message and 0.2 probability of flipping it. So this defines another Bayesian network. And it defines in particular joint distribution over A, B, and C. So now the probabilistic inference query I want to ask",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "is, assuming C-- the person at the end-- gets a 1, what is the probability of A equals 1 or 0? So intuitively, if you saw C equals 1, that probably increases the probability of A equals 1 because the probability of error is less than 50%. But there's noise.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "So it's not going to be certainly 1 because there could have been flips. So that's the intuition. So let's first rerun rejection sampling. So you shouldn't necessarily in general be expected to know what the exact value is. So let's try to compute it.",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "So here is the probabilistic program-- I have A-- my sample of 1, B-- I decided to preserve the message, C-- I decided to preserve the message, and I get this sample. So then I'm going to redo rejection sampling. I'm interested in the",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "query, which is what A is. And then the evidence, I'm going to condition on C equals 1. And I do rejection sampling with 100 samples. And I get the probability-- estimated probability of A equals 1 to be 0.65. So seems plausible. Every point there is a",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "0.2 probability of error. So if you add that, you get point around 0.6. That's for sketchy math-- there's more precise estimate-- you can compute. So let's do Gibbs sampling. So what we're going to do is-- here's a pseudocode-- we're going to start with a",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "particular initialization to all the variables. And then I'm going to round robin through the variables. And I'm going to change it based on all the other variables. In particular, to change it, I'm going to compute the conditional distribution",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "over a variable given all the other variables, and then sample a new value for that variable given this conditional distribution. So let me walk through an example to explain what that looks like. So here I've initialized with an arbitrary sample",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "that satisfies the evidence. So this should be C equals 1. So A is 1, B is 0, C is 1. The initialization generally doesn't matter too much, but sometimes for certain problems it could make your convergence faster or slower. So now let's look at what this",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "conditional distribution is. So suppose our goal is to sample B given A and C. So A is 1, C is 1, B is 0 right now. Basically, sampling is like, what is the probability of B given A and C? So what's my best guess at what B should have been?",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "So to do that, we're going to do some basic math. So the probability of B equals some value given A and C is the joint probability of A, B, and C divided by the probability of A and C. So all the variables except for the one I'm sampling.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "So now let's break this down. So the normalizer, which is the thing I'm dividing by, is the probability of all the variables we're not sampling. And that is simply equal to the sum of over values of b of the joint. And then what is the joint probability",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "is the product of the local conditional probabilities, which are given above, as I define them. And note something that's important here. I'm writing this down, but I don't have to instantiate the joint distribution for all possible values of",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "A, B, and C, because in Gibbs sampling I'm only looking at a particular assignment, and I only care about looking up the probability of that particular assignment or the assignments around that assignment. So this is where I get the savings.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "Although if I have to instantiate this for all values A, B, and C, I might as well just brute force the whole thing. We do have to, as stated, touch every variable when evaluating an assignment-- we'll come back to that later. So suppose we're sampling B. So I",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "need to compute what the value of A equals 1, B equals 0, and C equals 1. As well as the probability of A equals 1, B equals 1, C equals 1. So basically, what I'm saying is I'm freezing all the other variables-- I'm only changing B. And I'm going",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "to evaluate each of these new assignments based on the joint probability. So let's look at how this is defined. So joint probability is a function. It takes a particular assignment, and then it's, in some sense, making a modification.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "So it says, I'm going to change various-- some var into value. So I might pass B for var and 1 to value. And then so here I'm going to let y be the updated assignment. So basically taking this original assignment and substituting var colon val here.",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "So here I basically change 1,0,1 to-- OK, well, I guess it's a-- B, 0 is the same-- so nothing gets changed there. And then I compute the joint probability of the updated assignment. And this is going to be that tensor. So probability of A given",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "y A, which is 1 here. And then probability of B given A using these assignments. So 0 given 1, and then probability of C given B. So that gives me a probability of 0.02 for the probability of A equals 1, B equals 0, C equals 1. And now I do the same thing",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "for the alternative value that I'm considering, which is B equals 1. And again, now I update this assignment to be 1, 1, 1, I compute its probability, and I get a number out. And now I compute the normalization factor, which is the sum of these two things.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "I get 0.34, and then I divide each of these quantities by p of ac, and that gives me a valid distribution over b. So now, given this distribution-- 0.05 for b equals 0 and 0.94 for b equals 1-- I can sample this B. And notice that I modified x to be 1, 1, 1,",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "now based on that sample. And intuitively, what's happening is that 1, 1, 1 is much more likely than 1, 0, 1. So B gets pulled to 1 because of A equals 1 and C equals 1. Now this is probabilistic-- with 5% probability I could have just left 1, 0, 1.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "But it's more likely that A started with a message 1, and then it preserved the message along, rather than A flipping to 0 and then flipping back to 1. I think the most important thing is that basically you have an assignment and you're considering",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "one particular variable, and I'm going to look at different values that variable could be. And then I evaluate the joint probability of each of those possibilities. And then I sample according to those probabilities. So here's Gibbs sampling in general.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to define this Gibbs sampling function. I'm going to pass in the initial assignment. Vars is going to give me the variables I'm going to actually sample. Query is the same as rejection sampling where I'm interested in-- let's say, A,",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "and a joint probability is how I define-- how I decide to score variables. And I'm going to do it for one iteration. So let's do Gibbs sampling. So I start out with x. And then I'm going to track counts of the query values as before, as in rejection sampling.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to iterate-- number of iteration times. And for each variable-- so here the variables I'm sampling are A and B. Why don't I include C? Yeah, C is the evidence. That's the one I'm conditioning on. So I conditioned on C equals 1,",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "so I don't want to change that. So let's consider A-- so that means I'm going to try to modify A. So what I'm doing here is I'm going to consider all possible values that A could take on. And for each of them, I'm going to compute the joint probability",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "of the assignment where variable has been assigned to A. Basically for A, I have the joint probability of 0.08 and 0.32. Now I compute the evidence or the probability-- sorry, not the evidence-- the probability of B and C, which is the sum of these",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "two things and I normalize. So here I'm just normalizing the probabilities to 0.2 and 0.8, and I sample according to that. And in this case, I drew a 1, so nothing changed. And then here I'm going to record the count of the query value.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "So I look at this assignment, and I see A equals 1, so I'm going to write down-- I saw 1 once. And then now I go to the second variable, B. And again, I'm going to compute the joint probabilities here. This is actually what we just did before",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "in the specific example. So I normalize the probabilities, and I sample. And here again I didn't change anything. And then I recorded that I saw A equals one another time. And so I keep on doing that for some number of iterations. And then at the end, I keep",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "track of the probabilities. So that's one round of Gibbs sampling. So now if I run it for multiple iterations, then what do I get? I get that the probability of-- so I'm interested in the query, which is the probability of A-- everything is given C equals 1.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "I get that the probability of 1, A equals 1 given C equals 1, is estimated to be 0.68. And then if I compare that with rejection sampling, it's in the same ballpark. So these are random algorithms or different algorithms, so we're not going to get",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "exactly the same thing. So let me actually draw a picture-- maybe it can help visualize what's happening here. So I have variables A, B, and C. So C equals 1. So I'm not going to touch it. So this is over time some number of iterations.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "So I start out with 1, 0, 1. And then I'm going to sample A according to some probability. So let's say I do 1, 0, 1, and now I'm going to sample B. So let's do this. So I'm going to sample B. So I'm going to let's say sample 1 because",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "remember that's more likely. And then I go back to A, and I sample. Let's say, I got unlucky and that becomes a 0. And I sample B, so that becomes, let's say it's a 1. So I sample A, that becomes-- I know, 1. And then I sample B now-- sorry, I'm getting",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "confused here-- A, B, A-- that shouldn't be there. And this continues and dot, dot, dot, dot. And then how do I compute the estimate of the probability? So each of these columns is a sample-- a joint sample. And so what I'm going to do",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "is now I'm going to look at-- if I'm interested in, let's say, probability of A equals 1 given C equals 1, well, C equals 1 is already taken care of because I never change it. So I'm going to look at only the query. So I'm going to look at only these values.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "And I'm going to just count how many 1s there are. And the fraction of 1s is not my estimated-- so this is the fraction of 1s. So that's going to be my estimate of the probability of A given C equals 1. Sorry, that must have been a mistake.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "So here I'm sampling B, so A should not change. Yep, you're right. So each column, I'm only changing one variable at a time. And the reason why you only change one variable-- because it keeps it tractable. Because when I'm fixing everything else,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "I'm only looking at one variable. That means I can consider all the possible values of that variable, and in some sense, I'm like brute forcing that variable-- let's see what that variable value could be. And then I'm sampling according to that distribution.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, so in the code, for every variable, I'm considering all possible values. And so that's the same here. I'm not showing you the computation of the probabilities-- I'm just saying I pick this variable, and I'm going to consider 0 here. I'm also going to",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "consider 1 here. And I'm going to sample, and it happened to choose a 1. So the running time of this algorithm is the number of iterations times the number of variables-- because I go through all the variables per iteration-- times the size of the domain,",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "which is the number of values that a variable can take on-- in this case, it's 2-- and times the number of variables, because every time I consider a possible assignment, joint probability has to go through all the variables to evaluate the joint probability.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "So, summary-- the basic formula of algorithm is I'm going to update one variable at a time, using its conditional distribution, given all the other variables. And then I'm going to compute the conditional distribution using the joint distribution.",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "And here I only have to sum over the domain of the variable we're sampling. So next I'm going to show you how you can make this a bit more efficient by leveraging the property of the Bayesian network. So let's do that. And that's going to introduce",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "a new concept called the Markov blanket. So imagine this is some arbitrary probability over five variables-- a, b, c, d, e. And if you were doing Gibbs sampling here, for every variable, for every value of that variable, I have to consider the",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "whole set of variables in my entire Bayesian network. And so, can you avoid doing that? And intuitively, it seems like you should, because only one variable is changing. So why do other variables matter? Maybe they don't matter. You can't just ignore",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "all the other variables because the variables interact, but these interactions are potentially local. So remember this telephone Bayesian network-- so A generates B generates C. So that's the same thing we had from before. So now, suppose we're sampling",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "probability of A given B and C. So what we would normally do is we're going to look at the joint distribution of both A equals 0 and A equals 1. So I'm considering what should A be, so I'm going to consider both all the values-- A equals 0 and a equals 1.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "And I fill in my current assignment for all the other variables. And this is just by the definition of a Bayesian network-- the probability of A given B given A times C given B. So when I compute the probability, I also have to normalize. So I sum these",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "two numbers, and I get probability of B equals B and C equals C. And then I divide each of these quantities by this normalizer, and I sample from that. So that's what we did normally. But there's something that we might notice about this expression that could",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "allow us to save some work. So if you look at this expression-- I care about basically what's happening to A-- A is changing either 0 or 1. But if you look at this last factor here, it doesn't depend on A-- it's just some number. And in particular, this number",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "that gets multiplied by this A equals 0, and if A equals 1, it's the same number. And in the denominator, I'm going to also have the same number. So I'm basically multiplying and dividing by the same number. And you can see that if this is 0.1 versus 0.2,",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "it doesn't really matter. So therefore, I can just drop that completely, and I can just ignore it So in general, there's a question of which variables can you drop and which ones you can't. And there's a very nice way to think about that. So we need to only",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "include variables that touch the variable we're sampling-- that interact with it directly. So B is connected to A, so therefore, I can't drop this factor. But C is not connected to A, so I can drop it. And so the set of variables that I need to consider",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "is called the Markov blanket. And the Markov blanket of a variable in a Bayesian network is simply all its children and its parents. So let me just draw this visually. So in general, you have a variable. Let's say you're sampling, and",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "it has a number of parents. And maybe these have other parents. Maybe this is really complicated, and maybe it could be-- as long as it's a DAG, it's fine. So I'm just going to draw some stuff. And suppose I'm interested in this node, what is the Markov",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "blanket of this node of-- no, this node is all its children-- so these nodes are in the Markov blanket, and all its parents. So these are all the local conditional distributions that touch depend on this value. So this is not the Markov blanket.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "This is not a Markov blanket. This is not either. So when I compute the joint-- you can imagine just writing down the joint-- remember local conditional distribution for every variable. So I have this condition on its parent. And then I have this condition",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "on its parents, which includes this, this condition on its parents, this condition on its parents. And then everything else doesn't depend on the orange node. So the question is, do you have to include co-parents? So for example, do you have to include--",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "let's say this is just to make it more interesting-- let's say this depends on that. So the answer is yes. Because if you think about-- let's just label this x, y, z. So this conditional distribution is y given x and z. This acts as a unit-- the",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "parents always act as a unit. So if you're changing this, you have to depend on the value of z to determine what the probability of y is. So for this-- just for maybe a simpler example-- so let's do this example. So what's the Markov blanket of A?",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "Should be B. What's the Markov blanket of B? A and C. And what about C? So I think we're good. So then what it means is that instead of computing the joint probability over the entire assignment, what we're going to do is only include the terms that",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "are in the Markov blanket. So for this particular three-variable network, what it looks like is the following-- so I have a joint assignment x, and I updated this variable with this value. And if it's A, I just have to include A and B given A. I don't have to",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "look at C given B. And if it's a variable equals B, I only have to look at B given A and C given B, and I don't look at probability of A. So if I run Gibbs sampling using passing in this function to evaluate basically a score for every assignment,",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "then I get this quantity, which is similar to what I had before, but this is a lot faster. Actually, this should compute exactly the same answer as Gibbs sampling with joint probability up to floating-point precision. And there's a speed-up here",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "because instead of considering the total number of variables for evaluating this probability of an assignment, I only have to consider the size of the Markov blanket for evaluating the cost of this particular assignment. So this, I would say,",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "is an optimization. It doesn't resolve any sort of fundamental issues with Gibbs sampling. But it's just like, why not do it? So the quick summary here is that a Markov blanket of a node is all its children and parents. Gibbs sampling requires the",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "conditional probabilities of the node and its Markov blanket, so any local conditional distribution that touches the node and its Markov blanket. And this is much more efficient if the Markov blankets are small. So if the Markov blankets are large,",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "if you have a node that's connected to many, many nodes, then it doesn't really save you very much. But it doesn't hurt either. OK, let's move on. So now let's apply Gibbs sampling to this alarm network, which we are familiar with.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "So remember we have burglary, earthquake giving rise to alarm. So here is the probability tables. We're going to initialize with an arbitrary sample that satisfies the evidence. So assuming there's a burglary, assume everything bad happens,",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "and then let's look at-- we're interested, let's say, in burglary given the evidence, which is A equals 1. And I'm going to see what happens if I run Gibbs sampling. So if I run Gibbs sampling here, I get probability of B equals 1 given A equals 1 is 0.6.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "So if you guys remember, that's not exactly the correct answer-- it was more like 0.51. If you run it again for 200 iterations, it's 0.33 now. So you might wonder this is not working super well. So let's try to understand why. And so, as I mentioned before,",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "these sampling algorithms are just approximate, and your mileage is going to vary depending on what situation you're in. So it's very important before you try one of these algorithms to be attentive to when it's going to work and when it's not.",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "And by the way, I'm also going to talk about when rejection sampling works and when it doesn't. So let's actually start with rejection sampling because I think I've already said this, but just to put it in concrete terms-- when is it hard for",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "rejection sampling? And the answer is when the evidence has low probability because you're going to reject most of the things. The number of samples that you actually keep is basically the 1 minus the probability of the-- sorry-- the",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "probability of the evidence. So if the evidence is low probability, that means you're going to have very few samples to work with. Possibly 0 even. So here is an example where it's sort of telephone except for the probability of-- actually, sorry,",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "it's not telephone-- there's the problem. So if it's a 1, the probability of a 0 is very high. So if a is 0, b is 0 with 0.999. If a is 1, b is 0 with 0.9998. So if you look at the joint distribution here, the probability of B equals",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "1 is going to be quite small. But what I'm interested in is probability of A given B equals 1. And intuitively if you think about a PVP of A given B equals 1, you're taking these two rows, and it should be 2/3. So the ratio between these is 2 over 3,",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "but you need to reject all the samples that don't match the evidence. So if you were to do rejection sampling, basically you would read-- like you would only keep one out of 10,000 samples. So this is a very inefficient way of sampling.",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "And it would probably take 100,000 or even more samples to get a fine estimate. But if you do Gibbs sampling, this is totally fine. Because what Gibbs sampling says is, I'm going to condition on b equals 1. So immediately, I restrict to only these two rows,",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "and I normalize. In fact, Gibbs sampling will just give you the exact answer every time. So what about the other way? So what examples are hard for Gibbs sampling? And the answer is when the variables are highly correlated. So let's take another example here.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "So two variables, A and B. A is 0.5 probability on 0 and 1. And here b equals a. So probability 1-- a and b are the same. So now let's say I want to do Gibbs sampling, and I just want to compute the probability of A. Just question-- what's",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "the probability of A? So it should be 50/50, right? So here there's nothing I'm conditioning on-- there's no evidence here. So rejection sampling will nail this, because it generates from scratch every time and works perfectly. There's no rejection because",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "there's no condition. So it's going to have no problem detecting that P of A is 0.5. But what happens with Gibbs sampling now? Gibbs sampling will get stuck. And the reason it will get stuck is that-- let's say I start out with 0, 0. So now I try to",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "sample A. And what happens when I try to sample A? Well, I can come over here, and I look at-- b is 0. And we're going to consider possible values of a-- it could be 0 or 1. Well, if it's 1-- oops-- that has 0 probability. So therefore, I have to choose 0.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "And same with b-- if I try to sample b, it always sticks to the same. So basically, Gibbs sampling will get stuck completely in 0, 0, and not be able to move. And the estimated probability of A is going to be probability 1 on 0, which is the incorrect answer.",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "So this is an instance where A and B are as correlated as possible here-- they're identical. And in that case, because Gibbs sampling is just trying to change one of the variables, then you can't do it, because the other one needs to change as well.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "I don't know-- it's like doing a three-legged race with someone-- you're attached to them and can't really move until the other person moves. And even if this weren't exactly identical, if this were 0.9999, that would also be pretty bad, because then it",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "would be very unlikely for Gibbs sampling to change into a different variable. So we saw complementary examples, which are bad for Gibbs sampling and rejection sampling. So rejection sampling-- rare events are hard, and for Gibbs sampling, highly",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "correlated variables are hard. And the bad news is that in most real-world problems, both are true. So it's going to be hard for both Gibbs sampling and rejection sampling. But it's helpful to know the reasons why a problem is hard. So a few remarks here.",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "So Gibbs sampling, as I mentioned, is an example of MCMC algorithm. There's a more general MCMC algorithm called Metropolis-Hastings, which uses a proposal distribution to more smartly guide the search. And there's actually some really",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "beautiful theory around Markov chains and analyzing how fast they run, and it has to do with this thing called \"mixing times.\" In practice, Gibbs sampling is fairly commonly used because it's fairly simple and effective. The only simpler thing",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "is rejection sampling, which generally doesn't get used because the probability of hitting the evidence is generally pretty low. But Gibbs sampling can also be quite slow. So now I'm going to switch gears and talk about conditional independence.",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "So this is going to be kind of different. So far what we've done is we focus on probabilistic inference algorithms in Bayesian networks. And they've been mostly agnostic to the structure of the Bayesian network. So in rejection sampling, you",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "just sample all the variables, and then you reject. It doesn't matter what depends on what. Now with Gibbs sampling, we paid attention to the structure a little bit. We defined the Markov blanket. So when you're computing the probability of a variable,",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "you're looking at the things around it. But there's some really interesting deeper structures in Bayesian networks, so let's try to explore them a bit. Bayesian network is simultaneously a probabilistic object. It is a distribution over a bunch of variables,",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "and it is also a combinatorial object. It's a graph, and there's a connection between the graph properties and the probability properties. In particular, when we talk about independence. So hopefully you guys have seen independence from your probability class.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "But just to review it, two variables, random variables, are independent if and only if you look at the probability of A and B, that's the same as the probability of A times the probability of B for all possible values of A and B. So that's the definition.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "So let's look at some examples where A and B corresponds to variables in Bayesian networks. So example 1-- I'm going to try to do some of these on the board actually. So this is the world's second simplest Bayesian network. The simplest one is,",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "I guess, one variable. And so this corresponds to a joint probability just P of A times P of B. And in this one, A and B are independent-- just almost like if you pattern match-- that's exactly the definition of independence. And notably, A and",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "B are not connected. So independence corresponds to, in this case, two nodes which are disconnected. So if you see Bayesian networks where you have two variables that are not connected, then you can reasonably say that they're independent.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "Now we'll see later-- it gets a little bit more complicated. But in this case, that's generally the right intuition you should have. So what about if I put an arrow between them? So that means the probability of A and B is probability A times",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "probability of B given A. And in this case, A and B are not independent because B here depends on A in some way. And here they are connected. So just intuitively, they're kind of connected and depend on each other. So now, let's look at a different graph here.",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "So let me just ask a question-- are A and B-- so this is the independence symbol-- A and B independent here? So let's just try to figure this out. Let's look at the joint distribution over A, B, and C-- that's the product of local conditional distributions.",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "And I'm going to look at probability of A and B-- that's the marginal here. And that's the summation over C over the joint-- and then write it out-- summation of C over the local conditional distributions. And notice that I can move this summation over C",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "over to this side, and that gives me 1. Let me just make sure-- this is an important point. So I want to make sure that summation over C of probability of A, probability of B, probability of C given A and B. So this is equal to probability",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "of A times probability of B times the summation over C, probability of C given A and B. And whenever you sum a local conditional distribution over all the values on the left-hand side, what do you get? What is this value? This is equal to 1, right?",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "So therefore, this is just probability of A and B. So therefore, A and B are actually independent. So this is the part that's a little bit tricky about Bayesian networks. So you can't just only look at whether two variables are connected or not.",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "But this is just the only real special case that you have to think about. So intuitively, we already actually saw this before. So we had burglary, an earthquake, and alarm. And we said that burglary and earthquake are independent. And it just happened",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "that there's stuff that could depend on both. So you can have two independent things, and then someone creates a variable that depends on those things-- it shouldn't change anything about the underlying causes independence. So mathematically, you",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "can see it this way, but intuitively, you can see why it might be true. So that's an important case. So let me just write it. So A-- yes. OK. So here is another case. So C and A and B. So are A and B independent? How many of you think yes? How many think no?",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "OK. The answer is no, so don't be fooled. It looks like that if you're looking upside down, then they look the same, but the direction matters. And in particular, these things visually look very similar, but they're almost completely",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "different Bayesian networks. This one in particular has C given A and B, and this has probability of A given C times probability of B given C. So the directionality matters. And so if you look at the joint distribution-- probability of C, A given C, B given C.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "And if you look at the joint probability of A and B, that's equal to summation over C times probability of C. I mean, it's just like a mess-- there's no way to simplify that. So they're not independent in general. And sometimes it can be",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "useful to think about-- if you see a structure-- just think about special cases in your head. For example, I can say, well, C is a coin flip, and A equals C, and B equals C. And clearly they're not independent because A can be literally equal to B.",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "So you can somehow work out these some simple examples in your head to convince yourself when things might not be independent. So that's independent. So this is definitely no. So let's look at conditional independence now. So this is also a familiar",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "concept from probability. And we say that two variables, A and B, are conditionally independent given C equals some particular value. It's the same thing, except, for your condition on C and all the different terms. So let's look at some examples.",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "So let's revisit this example here-- example 4. So the question is, A and B given C-- are they conditional-- A and B conditionally independent given C? So here, let's look at the math-- joint distribution. Sorry, this is the conditional distribution,",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "and this is simply equal to the joint divided by probability of C, and that's equal to probability of A given C times B equals given C, which is literally the definition of conditional independence. So here, A and B are conditionally independent given",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "C. And intuitively, you can think about it as-- let's say there's a coin flip, and then A does some stuff, and then B does some stuff, and they only depend on that coin flip. So, conditioned on knowing the coin flip, then A and B are doing",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "different, independent things. So now let's revisit example 3. So here, I want to ask the question-- are A and B independent given C? So remember, A and B are independent. What about given C? How many of you think they are still independent?",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "They're not independent? So now hopefully you're anchored to the burglar alarm, earthquake example. And you see in math that-- well, this whole thing is just a kind of a mess. You see that C and A and B are all combined in this arbitrary function here.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "So it definitely is not the case that A and B are conditionally independent given C. So this is a no. So these two are examples you should really remember in your head because there's very similar, but yet they follow differently. So in the above, A and B",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "are marginally independent but conditionally not independent, where it's the opposite here-- A and B are marginally not independent. But when you condition on C, they become independent. So this is a good primitive to have in your head when you're trying to",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "reason about these things. So let's now go to the alarm example. Hopefully, this should be old news by now. So here B and E are independent, but B and E are not conditionally independent given A equals 1, which is how you get explaining away, which we saw in",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "the last lecture. So in general, how do you tell if I just gave you a huge Bayesian network and there are some variables? Here's a general algorithm. So A and B, are they independent given C? First, you shade in the variable C. So you can think about these as",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "when you condition on something, it's kind of blocking a path-- that's intuition. You recursively remove any non-shaded leaves. So this is to deal with the fact that A and B are really independent, but there's some things here that makes it look like",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "it's not independent, so you just remove that. I mean, you don't have to literally remove it from the picture, but in your head, you should think about it not being there. Now you connect the parents to each other. You can think about remembering",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "it as marrying the parents. And then finally, the answer is return whether there's a path from A to B that doesn't go through any shaded nodes. So let me do a quick example here. So I have this medical diagnosis example from the last time.",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "So we have cold, allergies, cough, and itchy eyes. So I can go through a bunch of examples. So our C and A are independent. And the answer is yes, because this is a condition-- there's nothing to condition on. I can essentially remove this",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "and remove that because they're unshaded-- no leaves. And then I'm just left with C and A, and there is no path that goes between them, so they're independent. What about C and I? C and I-- again, I can't remove this. I can remove H because H is",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "a leaf that's not shaded. And then I get basically C and this subgraph, A and I, and there's no path between them, and therefore, they're independent. So I given A equals 1, or A equals 0, whatever. So if I shade that, and I'm asking--",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "are these independent or not? These are independent because there's no path that goes-- like this is essentially blocking off the way to go over there. And similarly, if I shade H, then these two are also blocked off. So, maybe we'll do more of",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "these examples next time. But hopefully, that's just a taste of how you think about conditional independence in the context of Bayesian networks. So just a summary-- we talked about probabilistic inference, the ability to answer queries on",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "this database, Bayesian network. And we can do exact probabilistic inference-- we just form the distribution, joint distribution, and we can marginalize and we can condition. This is exact, but its complexity can be exponential in the",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "size of the number of nodes in the Bayesian network. Then we looked at two approximate Bayesian probabilistic inference methods-- rejection sampling, Gibbs sampling. Remember, they have complementary strengths and weaknesses. And then finally,",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "we started looking at conditional independence, which assesses whether two variables are independent given evidence. And we're essentially able to reduce that to graph properties-- are these two variables connected after a bunch of processing on the graph?",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "So far we've just assumed that the Bayesian network is given and we're answering questions. Next time, we're going to talk about how you actually learn the parameters of the Bayesian network-- how do you get these probability tables?",
+      "start": 1212,
+      "duration": 6
+    }
+  ]
+}

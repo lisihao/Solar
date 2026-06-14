@@ -11,8 +11,9 @@ if _HARNESS_LIB not in sys.path:
 from research.survey.evidence_pack import build_evidence_packs
 from research.survey.backends import LocalCommandWriterError, PanePacketSurveyWriterBackend
 from research.survey.planner import create_survey_plan, write_survey_plan
+from research.survey.schemas import validate_figure_spec, validate_section_render_card
 from research.survey.section_compiler import compile_section, compile_survey
-from research.survey.writing_loop import run_ready_sections, run_section_revision_loop, watch_pane_responses
+from research.survey.writing_loop import build_section_prompt_packet, run_ready_sections, run_section_revision_loop, watch_pane_responses
 
 
 def _append_jsonl(path, rows):
@@ -25,6 +26,21 @@ def _strong_fixture(root):
     sources = [{"id": f"src_{i}", "source_type": t, "title": t} for i, t in enumerate(["paper", "official_doc", "code", "benchmark"])]
     evidence = [{"id": f"ev_{i}", "source_id": sources[i % len(sources)]["id"], "content": "latent reasoning architecture evaluation deployment"} for i in range(16)]
     claims = [{"id": f"cl_{i}", "claim_text": "latent reasoning architecture requires evaluation evidence"} for i in range(12)]
+    links = [{"claim_id": f"cl_{i % 12}", "evidence_id": f"ev_{i}"} for i in range(16)]
+    _append_jsonl(root / "sources.jsonl", sources)
+    _append_jsonl(root / "evidence.jsonl", evidence)
+    _append_jsonl(root / "claims.jsonl", claims)
+    _append_jsonl(root / "claim_evidence.jsonl", links)
+    build_evidence_packs(root, plan["report_ast"])
+    return plan
+
+
+def _strong_insight_fixture(root):
+    plan = create_survey_plan("DeepDive: Agent runtime 为什么会成为基础设施？", target_chars=50000, planner_mode_hint="insight")
+    write_survey_plan(plan, root)
+    sources = [{"id": f"src_{i}", "source_type": t, "title": f"{t} source", "url": f"https://example.com/{t}"} for i, t in enumerate(["paper", "official_doc", "code", "benchmark"])]
+    evidence = [{"id": f"ev_{i}", "source_id": sources[i % len(sources)]["id"], "content": "agent runtime evidence supports thesis action roadmap and risk indicators"} for i in range(16)]
+    claims = [{"id": f"cl_{i}", "claim_text": "agent runtime requires stateful execution and quality gates"} for i in range(12)]
     links = [{"claim_id": f"cl_{i % 12}", "evidence_id": f"ev_{i}"} for i in range(16)]
     _append_jsonl(root / "sources.jsonl", sources)
     _append_jsonl(root / "evidence.jsonl", evidence)
@@ -108,6 +124,187 @@ def test_compile_section_and_survey(tmp_path):
     assert human_summary["template_heading_count"] == 0
     assert human_summary["char_count"] < len(final_text)
     assert human_summary["execution_metrics"]["document_word_count"] > 0
+
+
+def test_compile_insight_survey_emits_section_render_cards(tmp_path):
+    _strong_insight_fixture(tmp_path)
+    result = compile_section(tmp_path, "ch01/sec01")
+    assert result["ok"] is True
+
+    compiled = compile_survey(tmp_path)
+
+    assert compiled["ok"] is True
+    assert compiled["section_render_cards"].endswith("section_render_cards.json")
+    assert (tmp_path / "section_render_cards.json").exists()
+    assert (tmp_path / "section_render_cards" / "ch01__sec01.json").exists()
+    assert (tmp_path / "figures.json").exists()
+    payload = json.loads((tmp_path / "section_render_cards.json").read_text(encoding="utf-8"))
+    assert payload["card_count"] >= 1
+    first_card = payload["cards"][0]
+    assert first_card["schema_version"] == "solar.deepdive.section_render_card.v1"
+    assert first_card["thesis"]
+    assert first_card["evidence_callouts"]
+    assert first_card["title_claim_type"]
+    assert first_card["body_blocks"]
+    assert first_card["figure"]
+    assert first_card["citations"]
+    assert first_card["solar_absorption"]
+    assert first_card["prediction_packet_refs"]
+    assert validate_section_render_card(first_card).ok is True
+    assert validate_figure_spec(first_card["figure"]).ok is True
+    assert (tmp_path / "figure_specs").exists()
+    figure_spec_payloads = sorted((tmp_path / "figure_specs").glob("*.json"))
+    assert figure_spec_payloads
+    first_figure_spec = json.loads(figure_spec_payloads[0].read_text(encoding="utf-8"))
+    assert validate_figure_spec(first_figure_spec).ok is True
+    figures_payload = json.loads((tmp_path / "figures.json").read_text(encoding="utf-8"))
+    assert figures_payload["figures"][0]["figure_type"] in {
+        "architecture_diagram",
+        "roadmap",
+        "matrix",
+        "evidence_map",
+        "causal_map",
+    }
+    assert figures_payload["figures"][0]["grounding_ids"]
+    assert figures_payload["legacy_figures"][0]["type"] in {
+        "architecture_map",
+        "roadmap_timeline",
+        "process_flow",
+        "comparison_matrix",
+        "evidence_map",
+        "risk_map",
+        "insight_argument_map",
+    }
+    assert first_card["figure_spec"]["type"] in {
+        "architecture_map",
+        "roadmap_timeline",
+        "process_flow",
+        "comparison_matrix",
+        "evidence_map",
+        "risk_map",
+        "insight_argument_map",
+    }
+    assert first_card["figure_spec"]["render_rule"].startswith("draw_")
+    assert first_card["figure_spec"]["label"]
+    assert first_card["figure_spec"]["content_sources"]["thesis"]
+    assert first_card["figure_spec"]["nodes"]
+    assert first_card["figure_spec"]["edges"]
+    assert first_card["figure_spec"]["asset_path"].startswith("assets/figures/")
+    assert first_card["figure_spec"]["asset_format"] == "svg"
+    assert compiled["final_html"].endswith("final.html")
+    assert compiled["insight_html_summary"].endswith("survey_insight_html_summary.json")
+    assert (tmp_path / "final.html").exists()
+    assert (tmp_path / "survey_insight_html_summary.json").exists()
+    assert (tmp_path / "visual_audit.json").exists()
+    assert (tmp_path / first_card["figure_spec"]["asset_path"]).exists()
+    svg_text = (tmp_path / first_card["figure_spec"]["asset_path"]).read_text(encoding="utf-8")
+    assert "<svg" in svg_text
+    assert "中心判断" in svg_text or "组件/机制" in svg_text or "当前判断" in svg_text
+    html = (tmp_path / "final.html").read_text(encoding="utf-8")
+    assert 'class="section-card"' in html
+    assert 'class="evidence-sidebar"' in html
+    assert 'class="takeaway-box"' in html
+    assert 'class="figure-block"' in html
+    assert 'class="figure-svg"' in html
+    assert 'class="body-block' in html
+    assert 'class="solar-mapping"' in html
+    assert 'class="prediction-refs"' in html
+    assert 'class="card-citations"' in html
+    assert "Solar operator/schema/gate mapping" in html
+    assert "Forecast packet" in html
+    assert "assets/figures/" in html
+    assert "图由本节材料生成" in html
+    assert "论证图" in html or "架构图" in html or "路线图" in html
+    # N5: raw machine field names excluded from human HTML
+    assert "claim_id" not in html
+    assert "evidence_id" not in html
+    assert "official_doc" not in html
+    # N5: body_blocks rendered with title_claim_type as data attribute (claim titles)
+    assert 'class="body-block' in html
+    assert 'data-claim-type=' in html
+    # N5: Solar operator/schema/gate mappings, prediction packets, visible citations
+    assert "Solar 关联" in html
+    assert "算子 / Schema / Gate" in html
+    assert "预测包" in html
+    assert "引用" in html
+    # N5: evidence_id raw machine label excluded
+    assert "ev_0" not in html
+    visual_audit = json.loads((tmp_path / "visual_audit.json").read_text(encoding="utf-8"))
+    assert visual_audit["renderer"] == "section_render_svg_renderer"
+    assert visual_audit["svg_asset_count"] >= 1
+    human_text = (tmp_path / "human_final.md").read_text(encoding="utf-8")
+    assert "## 信号地图与证据强度" in human_text
+    assert "#### 本节判断" in human_text
+    assert "#### 影响与行动" in human_text
+    assert "2026 年的 Agentic Runtime" not in human_text
+    assert "official_doc" not in human_text
+    assert "Execution Metrics" not in human_text
+    assert "estimated_from_report_artifacts" not in human_text
+    assert "官方材料" in human_text
+
+
+def test_compile_insight_survey_can_render_premium_figure_with_svg_fallback(tmp_path):
+    _strong_insight_fixture(tmp_path)
+    spec_path = tmp_path / "sections" / "ch01" / "sec01" / "section.spec.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    spec["suggested_figure_type"] = "architecture_map"
+    spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    result = compile_section(tmp_path, "ch01/sec01")
+    assert result["ok"] is True
+
+    fake_cmd = tmp_path / "fake_premium_figure.py"
+    fake_cmd.write_text(
+        "import json, pathlib, sys\n"
+        "req = json.loads(sys.stdin.read())\n"
+        "out = pathlib.Path(req['request_dir']).parent / 'premium.png'\n"
+        "out.write_bytes(b'premium-image')\n"
+        "print(json.dumps({'image_path': str(out)}))\n",
+        encoding="utf-8",
+    )
+
+    compiled = compile_survey(
+        tmp_path,
+        premium_figures=True,
+        premium_figure_command=f"{sys.executable} {fake_cmd}",
+        premium_figure_limit=1,
+    )
+
+    assert compiled["ok"] is True
+    visual_audit = json.loads((tmp_path / "visual_audit.json").read_text(encoding="utf-8"))
+    assert visual_audit["premium_figures_enabled"] is True
+    assert visual_audit["premium_rendered_count"] == 1
+    first_asset = visual_audit["assets"][0]
+    assert first_asset["status"] == "premium_rendered"
+    assert first_asset["fallback_asset_path"].endswith(".svg")
+    assert first_asset["asset_path"].endswith("_premium.png")
+    assert (tmp_path / first_asset["asset_path"]).exists()
+    assert (tmp_path / first_asset["fallback_asset_path"]).exists()
+    html = (tmp_path / "final.html").read_text(encoding="utf-8")
+    assert "_premium.png" in html
+
+
+def test_insight_writer_uses_section_render_policy(tmp_path):
+    _strong_insight_fixture(tmp_path)
+    packet = build_section_prompt_packet(tmp_path, "ch01/sec01")
+
+    assert packet["insight_mode"] is True
+    assert packet["role"] == "DeepDive insight section writer"
+    assert packet["writing_policy"]["policy_id"] == "solar.deepdive.section_render_writing.v1"
+    assert "本节判断" in packet["writing_policy"]["section_template"]
+    assert "Literature Lineage" not in packet["writing_policy"]["section_template"]
+    assert packet["figure_type_guidance"]["suggested_figure_type"] == "insight_argument_map"
+    assert "architecture_map" in packet["figure_type_guidance"]["supported_types"]
+
+    result = run_section_revision_loop(tmp_path, "ch01/sec01", min_chars=800)
+    assert result["ok"] is True
+    text = (tmp_path / "sections" / "ch01" / "sec01" / "final.md").read_text(encoding="utf-8")
+    assert "## 本节判断" in text
+    assert "## 证据链" in text
+    assert "## 影响与行动" in text
+    assert "## 反证和观察" in text
+    assert "## SectionRender JSON" in text
+    assert "## Literature Lineage" not in text
+    assert "section_render_card" in text
 
 
 def test_deterministic_writer_outputs_professor_survey_scaffolds(tmp_path):
@@ -453,3 +650,57 @@ def test_watch_pane_responses_finalizes_existing_response(tmp_path):
     assert result["processed"] == 1
     assert result["passed"] == 1
     assert "Watched response" in (section_dir / "final.md").read_text(encoding="utf-8")
+
+
+def test_html_publisher_renders_section_render_card_fields(tmp_path):
+    """N5: HTML publisher builds final.html from typed SectionRenderCard fields, not free Markdown."""
+    _strong_insight_fixture(tmp_path)
+    from research.survey.section_compiler import compile_section, compile_survey
+    compile_section(tmp_path, "ch01/sec01")
+    compiled = compile_survey(tmp_path)
+    assert compiled["ok"] is True
+    assert compiled["final_html"].endswith("final.html")
+    html = (tmp_path / "final.html").read_text(encoding="utf-8")
+
+    # AC: Publisher builds from SectionRenderCard, not free Markdown wrapper
+    insight_summary = json.loads((tmp_path / "survey_insight_html_summary.json").read_text(encoding="utf-8"))
+    assert insight_summary["publisher"] == "section_render_card_html"
+
+    # AC: body_blocks rendered (claim titles + body content)
+    assert 'class="body-block' in html
+    assert 'data-claim-type=' in html  # title_claim_type emitted
+
+    # AC: evidence rail/callouts already present (regression guard)
+    assert 'class="evidence-sidebar"' in html
+
+    # AC: figures rendered
+    assert 'class="figure-block"' in html
+
+    # AC: takeaway boxes rendered
+    assert 'class="takeaway-box"' in html
+
+    # AC: visible citations rendered from evidence callouts (source_title + URL, no machine evidence_id)
+    assert 'class="card-citations"' in html
+    assert "ev_0" not in html         # raw machine evidence_id excluded
+    assert "evidence_id" not in html  # raw field name excluded
+
+    # AC: Solar operator/schema/gate mappings rendered
+    assert 'class="solar-mapping"' in html
+    assert "Solar 关联" in html
+    assert "算子 / Schema / Gate" in html
+
+    # AC: prediction packets rendered
+    assert 'class="prediction-refs"' in html
+    assert "预测包" in html
+    assert "预测指标" in html
+
+    # AC: raw machine labels excluded from human HTML
+    assert "claim_id" not in html
+    assert "evidence_id" not in html
+
+    # machine/audit labels preserved in sidecars only
+    cards_json = json.loads((tmp_path / "section_render_cards.json").read_text(encoding="utf-8"))
+    first_card = cards_json["cards"][0]
+    assert first_card["solar_absorption"]         # machine refs in sidecar
+    assert first_card["prediction_packet_refs"]   # machine refs in sidecar
+    assert first_card["citations"]                # machine refs in sidecar

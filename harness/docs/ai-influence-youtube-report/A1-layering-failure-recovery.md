@@ -42,7 +42,7 @@ A1 references the canonical S01 spec documents for invariants it does not own:
 | `model_call_ledger` schema | N2 §4 | §4.2 |
 | 8 validator checks | `docs/ai-influence-youtube-report/N3-output-validator-archive-fixture.md` §3.1 + §3.4 | §1.L6, §4.3, §6 row 6 |
 | 4-artifact archive (md + html + plan.json + evidence_map.json) | N3 §4.1, §4.2 | §1.L7, §4.4, §6 row 7 |
-| ChatGPT 杂项 session metadata | N3 §4.3 | §1.L5, §4.4 |
+| ChatGPT 1234 session metadata | N3 §4.3 | §1.L5, §4.4 |
 | S01 outcome traceability O1-O10 | S01 traceability.json | §0, §8 |
 | Cross-epic surface (YouTube Transcript epic / HF Paper Insight epic) | sprint design.md §7 | §6 row 8 |
 
@@ -103,8 +103,8 @@ Each layer has one responsibility, one input contract, one output contract, and 
 | Responsibility | The three judgment-bearing phases per N2 §1: Phase 1 plan (one call), Phase 2 per-chapter writing (**one call per chapter, no batching**, per N2 §2.2), Phase 3 final synthesis (one call). |
 | Inputs | The grouped corpus from L4 + L3; allowed_evidence packets; the style contract (no internal terms, no video_id, must show source_mapping). |
 | Outputs (data plane) | `phase1_plan`, `phase2_chapter[]` (one per chapter), `phase3_synthesis`. Each output references the `model_call_id` row written to `model_call_ledger.jsonl` (§4.2). |
-| Side effects | Writes one row per call to `model_call_ledger.jsonl`; archives the ChatGPT conversation to project `杂项` per N3 §4.3; produces `chatgpt-session.json` sidecar. |
-| Failure surface | ChatGPT unreachable (timeout > 90 s) → §6 row 4; malformed JSON output → §6 row 5; archive failure to `杂项` → non-fatal (`archive_status=failed` recorded, report proceeds). |
+| Side effects | Writes one row per call to `model_call_ledger.jsonl`; archives the ChatGPT conversation to project `1234` per N3 §4.3; produces `chatgpt-session.json` sidecar. |
+| Failure surface | ChatGPT unreachable (timeout > 90 s) → §6 row 4; malformed JSON output → §6 row 5; archive failure to `1234` → non-fatal (`archive_status=failed` recorded, report proceeds). |
 | NG enforcement | **NG3** — ThunderOMLX / Qwen / any other local model MUST NOT be substituted for Phase 1/2/3. If Browser Agent is unavailable, the run aborts with `run_rejected_model_unreachable`; degraded modes never replace the high model here (see §7). |
 
 ### 1.L6 — Output Validator (8 checks; any-FAIL ⇒ archive rejected)
@@ -310,7 +310,7 @@ Fields (canonical per N2 §4; A1 pins the minimum set):
 | `report_id` | string | yes | Plan-level identifier. |
 | `chapter_id` | string \| null | conditional | Required when `stage = phase2_chapter_write`; null otherwise. |
 | `browser_session_id` | string | yes | Stable handle from the Browser Agent wrapper. |
-| `chatgpt_project` | string (literal `杂项`) | yes | Archive target (N3 §4.3). |
+| `chatgpt_project` | string (literal `1234`) | yes | Archive target (N3 §4.3). |
 | `conversation_url` | string \| null | yes | Reachable URL; null only when Browser Agent failed before allocating a conversation. |
 | `input_tokens_estimate` | int | optional | Best-effort. |
 | `output_tokens_estimate` | int | optional | Best-effort. |
@@ -318,7 +318,7 @@ Fields (canonical per N2 §4; A1 pins the minimum set):
 | `call_count` | int | yes | Always 1 per ledger row; rollup is a sum. |
 | `prompt_version` | string | yes | One of `aiyt-plan-v1`, `aiyt-chapter-v1`, `aiyt-synthesis-v1`. |
 | `schema_version` | string (literal `model_call_ledger.v1`) | yes | A3 owns the canonical schema. |
-| `archive_status` | enum {`pending`, `archived`, `failed`} | yes | Reflects the 杂项 archival outcome. |
+| `archive_status` | enum {`pending`, `archived`, `failed`} | yes | Reflects the 1234 archival outcome. |
 | `latency_ms` | int | yes | Wall-clock for the round-trip. |
 | `outcome` | enum {`ok`, `unreachable`, `malformed_json`, `retry_then_ok`} | yes | Drives §6 row 4-5 recovery decisions. |
 | `created_at` | ISO-8601 UTC | yes | Wall-clock when the row was appended. |

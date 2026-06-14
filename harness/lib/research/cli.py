@@ -47,6 +47,7 @@ from research.report_metrics import (
 
 WEB_USER_AGENT = "Solar-Harness-DeepResearch/1.0 (+local; evidence-ledger)"
 WEB_TIMEOUT_SEC = 12
+SOURCE_HARNESS_DIR = Path(os.environ.get("SOLAR_SOURCE_HARNESS_DIR", str(Path(__file__).resolve().parents[2])))
 BROWSER_USE_ROOT = Path.home() / ".claude" / "mcp-servers" / "browser-use"
 BROWSER_USE_SERVER = BROWSER_USE_ROOT / "server.py"
 BROWSER_USE_PYTHON = BROWSER_USE_ROOT / ".venv" / "bin" / "python"
@@ -2413,8 +2414,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     table_counts = {}
     for table in storage.SEVEN_TABLES:
-        count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        table_counts[table] = count
+        table_counts[table] = storage.table_count(conn, table)
     if emit_json(args, {"ok": True, "db_path": db_path, "tables": table_counts}):
         conn.close()
         return 0
@@ -3110,16 +3110,73 @@ def _ensure_blueprint_and_contracts(output_dir: str | Path) -> None:
         contract_path.write_text(json.dumps(contract, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _prepare_deepdive_entry_contract(
+    output_dir: str | Path,
+    brief: str,
+    *,
+    target_chars: int,
+    audience: str,
+    domain: str,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    from research.deepdive_brief_expander import expand_deepdive_brief
+    from research.deepdive_requirement_compiler import (
+        DeepDiveCompileOptions,
+        compile_deepdive_brief,
+        validate_deepdive_contract,
+    )
+
+    root = Path(output_dir).expanduser()
+    root.mkdir(parents=True, exist_ok=True)
+    expansion = expand_deepdive_brief(brief, root)
+    effective_brief = str(expansion.get("expanded_brief") or brief).strip()
+    contract = compile_deepdive_brief(
+        brief,
+        options=DeepDiveCompileOptions(
+            profile="deepdive",
+            source_channel="survey",
+            target_chars=target_chars,
+        ),
+        expansion=expansion,
+    )
+    validation = validate_deepdive_contract(contract)
+    contract_path = root / "deepdive_requirement_contract.json"
+    trace_path = root / "deepdive_traceability.json"
+    contract_path.write_text(json.dumps(contract, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    trace_path.write_text(json.dumps(contract.get("traceability", {}), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {
+        "ok": bool(validation.get("ok")),
+        "effective_brief": effective_brief,
+        "mode": str(contract.get("mode") or "survey"),
+        "contract_path": str(contract_path),
+        "traceability_path": str(trace_path),
+        "expansion_path": expansion.get("output_json_path", ""),
+        "validation": validation,
+        "run_id": run_id or "",
+        "audience": audience,
+        "domain": domain,
+    }
+
+
 def cmd_survey_plan(args: argparse.Namespace) -> int:
     """Plan a professor-grade survey without embedding survey logic in cli.py."""
     from research.survey.planner import create_survey_plan, write_survey_plan
 
-    plan = create_survey_plan(
+    deepdive_entry = _prepare_deepdive_entry_contract(
+        args.output_dir,
         args.brief,
         target_chars=args.target_chars,
         audience=args.audience,
         domain=args.domain,
         run_id=args.run_id or None,
+    )
+    plan = create_survey_plan(
+        deepdive_entry["effective_brief"],
+        target_chars=args.target_chars,
+        audience=args.audience,
+        domain=args.domain,
+        run_id=args.run_id or None,
+        planner_mode_hint=deepdive_entry.get("mode"),
     )
     files = write_survey_plan(plan, args.output_dir)
     _ensure_blueprint_and_contracts(args.output_dir)
@@ -3129,6 +3186,7 @@ def cmd_survey_plan(args: argparse.Namespace) -> int:
         "chapter_count": len(plan["report_ast"]["chapters"]),
         "section_count": len(plan["report_ast"]["sections"]),
         "files": files,
+        "deepdive_entry": deepdive_entry,
     }
     if emit_json(args, payload):
         return 0
@@ -3322,6 +3380,7 @@ def cmd_survey_finalize_run(args: argparse.Namespace) -> int:
             audience=args.audience,
             domain=args.domain,
             run_id=args.run_id,
+            planner_mode_hint=args.planner_mode_hint,
             section_limit=args.section_limit,
             repair_limit=args.repair_limit,
             max_revisions=args.max_revisions,
@@ -3349,6 +3408,10 @@ def cmd_survey_finalize_run(args: argparse.Namespace) -> int:
             narrative_max_budget_usd=args.narrative_max_budget_usd,
             narrative_min_chars=args.narrative_min_chars,
             narrative_require_hitl=args.narrative_require_hitl,
+            premium_figures=True if args.premium_figures else None,
+            premium_figure_command=args.premium_figure_command,
+            premium_figure_limit=args.premium_figure_limit,
+            premium_figure_timeout=args.premium_figure_timeout,
         )
         
         # Intercept and run final closeout gate
@@ -3388,11 +3451,17 @@ def cmd_survey_import_search_results(args: argparse.Namespace) -> int:
         audience=args.audience,
         domain=args.domain,
         run_id=args.run_id,
+        planner_mode_hint=args.planner_mode_hint,
         section_limit=args.section_limit,
         repair_limit=args.repair_limit,
         min_finalized=args.min_finalized,
         min_chars=args.min_chars,
         require_complete=args.require_complete,
+        writer_backend=args.writer_backend,
+        writer_command=args.writer_command,
+        writer_timeout=args.writer_timeout,
+        pane_target=args.pane_target,
+        pane_send=args.pane_send,
         narrative_backend=args.narrative_backend,
         narrative_model=args.narrative_model,
         narrative_fallback_models=args.narrative_fallback_models,
@@ -3406,6 +3475,186 @@ def cmd_survey_import_search_results(args: argparse.Namespace) -> int:
         return 0 if payload.get("ok") and (not args.continue_finalize or (payload.get("finalize") or {}).get("ok")) else 1
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("ok") and (not args.continue_finalize or (payload.get("finalize") or {}).get("ok")) else 1
+
+
+def _survey_source_angles(source_type: str) -> str:
+    if source_type == "paper":
+        return "literature_lineage, method_taxonomy, evaluation_protocol"
+    if source_type == "benchmark":
+        return "evaluation_protocol, controversy, engineering"
+    if source_type == "code":
+        return "method_taxonomy, engineering"
+    if source_type == "official_doc":
+        return "literature_lineage, engineering"
+    return "literature_lineage, method_taxonomy, engineering"
+
+
+def _survey_source_block(index: int, *, title: str, url: str, source_type: str, summary: str, publisher: str = "N/A") -> str:
+    cleaned_summary = re.sub(r"\s+", " ", summary or title or url).strip()
+    if not cleaned_summary:
+        cleaned_summary = "Search result returned title and URL but no snippet."
+    return f"""## Source {index}: {title or url or 'Untitled source'}
+URL: {url or 'N/A'}
+Publisher: {publisher or 'N/A'}
+Published: N/A
+Source Type: {source_type or 'web'}
+Research Angles: {_survey_source_angles(source_type)}
+
+Summary:
+- {cleaned_summary}
+
+Key Claims:
+- {cleaned_summary}
+
+Relevant Quotes:
+> N/A
+"""
+
+
+def _survey_local_solar_blocks(start_index: int, brief: str) -> list[str]:
+    local_sources = [
+        (
+            "Solar DeepDive requirement compiler",
+            SOURCE_HARNESS_DIR / "lib" / "research" / "deepdive_requirement_compiler.py",
+            "code",
+            "Solar-Harness code defines DeepDive-specific operators including thesis planning, signal extraction, action mapping, prediction packet building, chief insight editing, and artifact publishing.",
+        ),
+        (
+            "Solar DeepDive insight quality gates",
+            SOURCE_HARNESS_DIR / "lib" / "research" / "survey" / "insight_gates.py",
+            "code",
+            "Solar-Harness insight gates check thesis clarity, user-question fitness, action mapping, Solar absorption, figure coverage, citation visibility, prediction packets, and required signal coverage.",
+        ),
+        (
+            "Solar survey source gap policy",
+            SOURCE_HARNESS_DIR / "lib" / "research" / "survey" / "source_gap.py",
+            "code",
+            "Solar-Harness source gap policy requires paper, code, official documentation, benchmark, visible citations, prediction drivers, counter-scenarios, and operator design signals for insight reports.",
+        ),
+    ]
+    blocks: list[str] = []
+    lowered = brief.lower()
+    if "solar" not in lowered and "harness" not in lowered and "agent" not in lowered:
+        return blocks
+    for offset, (title, path, source_type, summary) in enumerate(local_sources):
+        if not path.exists():
+            continue
+        blocks.append(_survey_source_block(
+            start_index + offset,
+            title=title,
+            url=str(path),
+            source_type=source_type,
+            summary=summary,
+            publisher="Solar-Harness Local",
+        ))
+    return blocks
+
+
+def cmd_survey_auto_source(args: argparse.Namespace) -> int:
+    from research.survey.import_results import import_survey_search_results
+
+    root = Path(args.output_dir).expanduser()
+    root.mkdir(parents=True, exist_ok=True)
+    source_gap = {}
+    gap_path = root / "survey_source_gap.json"
+    if gap_path.exists():
+        try:
+            source_gap = json.loads(gap_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            source_gap = {}
+    missing_types = list(source_gap.get("missing_source_types") or [])
+    if not missing_types:
+        missing_types = ["paper", "code", "official_doc", "benchmark"]
+    missing_types = [str(item) for item in missing_types if str(item)]
+    blocks: list[str] = [f"# External Search Results: {args.brief or 'DeepDive survey'}", ""]
+    errors: list[str] = []
+    hit_count = 0
+    online_hit_count = 0
+    index = 1
+    for source_type in missing_types:
+        query = " ".join(part for part in [
+            args.brief,
+            SOURCE_TYPE_QUERY_HINTS.get(source_type, source_type),
+            args.extra_query,
+        ] if part).strip()
+        hits, search_errors = web_search(query, args.max_results, provider=args.provider)
+        errors.extend(search_errors)
+        for hit in hits[: args.max_results]:
+            title = str(hit.get("title") or hit.get("url") or "Untitled source").strip()
+            url = str(hit.get("url") or "").strip()
+            snippet = str(hit.get("snippet") or title).strip()
+            publisher = str(hit.get("connector") or args.provider or "web").strip()
+            blocks.append(_survey_source_block(index, title=title, url=url, source_type=source_type, summary=snippet, publisher=publisher))
+            blocks.append("")
+            index += 1
+            hit_count += 1
+            online_hit_count += 1
+
+    local_blocks = _survey_local_solar_blocks(index, args.brief)
+    blocks.extend(local_blocks)
+    local_hit_count = len(local_blocks)
+    if local_blocks:
+        hit_count += local_hit_count
+        blocks.append("")
+
+    output_md = Path(args.output_md).expanduser() if args.output_md else root / "returned_sources.md"
+    payload = {
+        "ok": hit_count > 0,
+        "output_dir": str(root),
+        "output_md": str(output_md),
+        "brief": args.brief,
+        "provider": args.provider,
+        "missing_source_types": missing_types,
+        "hit_count": hit_count,
+        "online_hit_count": online_hit_count,
+        "local_hit_count": local_hit_count,
+        "errors": errors,
+    }
+    if hit_count <= 0 or online_hit_count <= 0:
+        payload["ok"] = False
+        payload["reason"] = "no_online_sources_found"
+        if hit_count > 0:
+            output_md.write_text("\n".join(blocks).strip() + "\n", encoding="utf-8")
+        if emit_json(args, payload):
+            return 2
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 2
+    output_md.write_text("\n".join(blocks).strip() + "\n", encoding="utf-8")
+
+    if args.continue_finalize:
+        payload["import"] = import_survey_search_results(
+            root,
+            output_md,
+            continue_finalize=True,
+            brief=args.brief,
+            target_chars=args.target_chars,
+            audience=args.audience,
+            domain=args.domain,
+            planner_mode_hint=args.planner_mode_hint,
+            section_limit=args.section_limit,
+            repair_limit=args.repair_limit,
+            min_finalized=args.min_finalized,
+            min_chars=args.min_chars,
+            require_complete=args.require_complete,
+            writer_backend=args.writer_backend,
+            writer_command=args.writer_command,
+            writer_timeout=args.writer_timeout,
+            pane_target=args.pane_target,
+            pane_send=args.pane_send,
+            narrative_backend=args.narrative_backend,
+            narrative_model=args.narrative_model,
+            narrative_fallback_models=args.narrative_fallback_models,
+            narrative_command=args.narrative_command,
+            narrative_timeout=args.narrative_timeout,
+            narrative_max_budget_usd=args.narrative_max_budget_usd,
+            narrative_min_chars=args.narrative_min_chars,
+            narrative_require_hitl=args.narrative_require_hitl,
+        )
+        payload["ok"] = bool((payload.get("import") or {}).get("ok"))
+    if emit_json(args, payload):
+        return 0 if payload.get("ok") else 1
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload.get("ok") else 1
 
 
 def cmd_survey_enrich_papers(args: argparse.Namespace) -> int:
@@ -3454,11 +3703,17 @@ def cmd_survey_continue(args: argparse.Namespace) -> int:
         target_chars=args.target_chars,
         audience=args.audience,
         domain=args.domain,
+        planner_mode_hint=args.planner_mode_hint,
         section_limit=args.section_limit,
         repair_limit=args.repair_limit,
         min_finalized=args.min_finalized,
         min_chars=args.min_chars,
         require_complete=args.require_complete,
+        writer_backend=args.writer_backend,
+        writer_command=args.writer_command,
+        writer_timeout=args.writer_timeout,
+        pane_target=args.pane_target,
+        pane_send=args.pane_send,
         narrative_backend=args.narrative_backend,
         narrative_model=args.narrative_model,
         narrative_fallback_models=args.narrative_fallback_models,
@@ -3470,7 +3725,8 @@ def cmd_survey_continue(args: argparse.Namespace) -> int:
     )
     
     # Intercept and run final closeout gate
-    if payload.get("ok"):
+    should_run_closeout = payload.get("ok") and (payload.get("completed") or not args.allow_pending)
+    if should_run_closeout:
         closeout = evaluate_final_closeout(
             args.output_dir,
             strict=True,
@@ -3515,7 +3771,13 @@ def cmd_survey_compile(args: argparse.Namespace) -> int:
     from research.survey.section_compiler import compile_survey
 
     _ensure_blueprint_and_contracts(args.output_dir)
-    payload = compile_survey(args.output_dir)
+    payload = compile_survey(
+        args.output_dir,
+        premium_figures=True if args.premium_figures else None,
+        premium_figure_command=args.premium_figure_command,
+        premium_figure_limit=args.premium_figure_limit,
+        premium_timeout_seconds=args.premium_figure_timeout,
+    )
     if emit_json(args, payload):
         return 0 if payload.get("ok") else 1
     print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -3907,7 +4169,7 @@ ALL_SUBCOMMANDS = [
     "mine", "outline", "write", "check", "compile", "synthesize", "export", "eval-artifacts",
     "policy-doctor", "policy-explain",
     "source-audit",
-    "survey-plan", "survey-pack", "survey-write-section", "survey-run-sections", "survey-watch-responses", "survey-watch-register", "survey-watch-tick", "survey-rewrite-queue", "survey-rewrite-run", "survey-auto-repair", "survey-finalize-run", "survey-import-search-results", "survey-enrich-papers", "survey-status-next-action", "survey-continue", "survey-review", "survey-compile", "survey-chief-editor", "survey-doctor", "survey-eval", "survey-diagnose",
+    "survey-plan", "survey-pack", "survey-write-section", "survey-run-sections", "survey-watch-responses", "survey-watch-register", "survey-watch-tick", "survey-rewrite-queue", "survey-rewrite-run", "survey-auto-repair", "survey-finalize-run", "survey-import-search-results", "survey-auto-source", "survey-enrich-papers", "survey-status-next-action", "survey-continue", "survey-review", "survey-compile", "survey-chief-editor", "survey-doctor", "survey-eval", "survey-diagnose",
     "closeout",
 ]
 
@@ -3946,6 +4208,7 @@ SUBCOMMANDS = {
     "survey-auto-repair": cmd_survey_auto_repair,
     "survey-finalize-run": cmd_survey_finalize_run,
     "survey-import-search-results": cmd_survey_import_search_results,
+    "survey-auto-source": cmd_survey_auto_source,
     "survey-enrich-papers": cmd_survey_enrich_papers,
     "survey-status-next-action": cmd_survey_status_next_action,
     "survey-continue": cmd_survey_continue,
@@ -4255,6 +4518,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_survey_finalize.add_argument("--audience", default="technical")
     p_survey_finalize.add_argument("--domain", default="ai")
     p_survey_finalize.add_argument("--run-id", default="")
+    p_survey_finalize.add_argument("--planner-mode-hint", default="", help="Force planner mode, e.g. insight or conference_insight")
     p_survey_finalize.add_argument("--section-limit", type=int, default=3, help="Number of ready sections to write before eval; 0 means all")
     p_survey_finalize.add_argument("--repair-limit", type=int, default=0, help="Number of rewrite queue items per auto-repair pass; 0 means all")
     p_survey_finalize.add_argument("--max-revisions", type=int, default=3)
@@ -4274,7 +4538,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_survey_finalize.add_argument("--min-sources", type=int, default=4)
     p_survey_finalize.add_argument("--min-evidence", type=int, default=8)
     p_survey_finalize.add_argument("--min-claims", type=int, default=8)
-    p_survey_finalize.add_argument("--narrative-backend", default="claude-cli", choices=["off", "none", "skip", "claude-cli", "opus", "claude", "local-command", "command", "deterministic"], help="Chief-editor narrative rewrite after strict final eval; defaults to claude-cli")
+    p_survey_finalize.add_argument("--narrative-backend", default="off", choices=["off", "none", "skip", "claude-cli", "opus", "claude", "local-command", "command", "browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent", "deterministic"], help="Chief-editor narrative rewrite after compile; use browser-agent-chatgpt for the shared ChatGPT browser-agent logical operator")
     p_survey_finalize.add_argument("--narrative-model", default="opus", help="Model alias for --narrative-backend claude-cli/opus/claude")
     p_survey_finalize.add_argument("--narrative-fallback-models", default="sonnet", help="Comma/space-separated narrative rewrite fallback models")
     p_survey_finalize.add_argument("--narrative-command", default="", help="Local command for --narrative-backend local-command; receives chapter prompt on stdin")
@@ -4282,6 +4546,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_survey_finalize.add_argument("--narrative-max-budget-usd", type=float, default=3.0)
     p_survey_finalize.add_argument("--narrative-min-chars", type=int, default=8000)
     p_survey_finalize.add_argument("--narrative-require-hitl", action="store_true", help="Require chief_editor_approval.txt containing APPROVED after narrative rewrite")
+    p_survey_finalize.add_argument("--premium-figures", action="store_true", help="Try TechnologyDiagramPainter/custom backend for high-priority DeepDive figures; SVG remains fallback")
+    p_survey_finalize.add_argument("--premium-figure-command", default="", help="Custom premium figure command; reads request JSON on stdin and emits JSON with image_path")
+    p_survey_finalize.add_argument("--premium-figure-limit", type=int, default=3, help="Max premium figure attempts per compile")
+    p_survey_finalize.add_argument("--premium-figure-timeout", type=int, default=600)
     p_survey_finalize.add_argument("--allow-incomplete", action="store_true", help="Return zero even if final strict eval fails")
     p_survey_finalize.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
@@ -4294,12 +4562,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_survey_import.add_argument("--audience", default="technical")
     p_survey_import.add_argument("--domain", default="ai")
     p_survey_import.add_argument("--run-id", default="")
+    p_survey_import.add_argument("--planner-mode-hint", default="", help="Force planner mode when --continue-finalize is used")
     p_survey_import.add_argument("--section-limit", type=int, default=3)
     p_survey_import.add_argument("--repair-limit", type=int, default=0)
     p_survey_import.add_argument("--min-finalized", type=int, default=None)
     p_survey_import.add_argument("--min-chars", type=int, default=1200)
     p_survey_import.add_argument("--require-complete", action="store_true", help="Require every planned section plus final quality gate when --continue-finalize is used")
-    p_survey_import.add_argument("--narrative-backend", default="claude-cli", choices=["off", "none", "skip", "claude-cli", "opus", "claude", "local-command", "command", "deterministic"], help="Chief-editor narrative rewrite when --continue-finalize runs")
+    p_survey_import.add_argument("--writer-backend", default="deterministic")
+    p_survey_import.add_argument("--writer-command", default="", help="Local command for --writer-backend local-command; receives prompt JSON on stdin and emits Markdown on stdout")
+    p_survey_import.add_argument("--writer-timeout", type=int, default=120)
+    p_survey_import.add_argument("--pane-target", default="", help="tmux pane target for --writer-backend pane-packet with --pane-send")
+    p_survey_import.add_argument("--pane-send", action="store_true", help="Actually send the pane packet to --pane-target via tmux send-keys")
+    p_survey_import.add_argument("--narrative-backend", default="off", choices=["off", "none", "skip", "claude-cli", "opus", "claude", "local-command", "command", "browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent", "deterministic"], help="Chief-editor narrative rewrite when --continue-finalize runs")
     p_survey_import.add_argument("--narrative-model", default="opus")
     p_survey_import.add_argument("--narrative-fallback-models", default="sonnet")
     p_survey_import.add_argument("--narrative-command", default="")
@@ -4308,6 +4582,38 @@ def build_parser() -> argparse.ArgumentParser:
     p_survey_import.add_argument("--narrative-min-chars", type=int, default=8000)
     p_survey_import.add_argument("--narrative-require-hitl", action="store_true")
     p_survey_import.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+    p_survey_auto_source = sub.add_parser("survey-auto-source", help="Search for missing survey sources and write returned_sources.md")
+    p_survey_auto_source.add_argument("--output-dir", required=True)
+    p_survey_auto_source.add_argument("--brief", default="")
+    p_survey_auto_source.add_argument("--output-md", default="", help="Defaults to <output-dir>/returned_sources.md")
+    p_survey_auto_source.add_argument("--provider", default="auto", choices=SEARCH_PROVIDERS)
+    p_survey_auto_source.add_argument("--max-results", type=int, default=8)
+    p_survey_auto_source.add_argument("--extra-query", default="", help="Additional search terms appended to every source-type query")
+    p_survey_auto_source.add_argument("--continue-finalize", action="store_true")
+    p_survey_auto_source.add_argument("--target-chars", type=int, default=50000)
+    p_survey_auto_source.add_argument("--audience", default="technical")
+    p_survey_auto_source.add_argument("--domain", default="ai")
+    p_survey_auto_source.add_argument("--planner-mode-hint", default="")
+    p_survey_auto_source.add_argument("--section-limit", type=int, default=3)
+    p_survey_auto_source.add_argument("--repair-limit", type=int, default=0)
+    p_survey_auto_source.add_argument("--min-finalized", type=int, default=None)
+    p_survey_auto_source.add_argument("--min-chars", type=int, default=1200)
+    p_survey_auto_source.add_argument("--require-complete", action="store_true")
+    p_survey_auto_source.add_argument("--writer-backend", default="deterministic")
+    p_survey_auto_source.add_argument("--writer-command", default="", help="Local command for --writer-backend local-command; receives prompt JSON on stdin and emits Markdown on stdout")
+    p_survey_auto_source.add_argument("--writer-timeout", type=int, default=120)
+    p_survey_auto_source.add_argument("--pane-target", default="", help="tmux pane target for --writer-backend pane-packet with --pane-send")
+    p_survey_auto_source.add_argument("--pane-send", action="store_true", help="Actually send the pane packet to --pane-target via tmux send-keys")
+    p_survey_auto_source.add_argument("--narrative-backend", default="off", choices=["off", "none", "skip", "claude-cli", "opus", "claude", "local-command", "command", "browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent", "deterministic"])
+    p_survey_auto_source.add_argument("--narrative-model", default="opus")
+    p_survey_auto_source.add_argument("--narrative-fallback-models", default="sonnet")
+    p_survey_auto_source.add_argument("--narrative-command", default="")
+    p_survey_auto_source.add_argument("--narrative-timeout", type=int, default=240)
+    p_survey_auto_source.add_argument("--narrative-max-budget-usd", type=float, default=3.0)
+    p_survey_auto_source.add_argument("--narrative-min-chars", type=int, default=8000)
+    p_survey_auto_source.add_argument("--narrative-require-hitl", action="store_true")
+    p_survey_auto_source.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     p_survey_enrich = sub.add_parser("survey-enrich-papers", help="Recursively enrich survey paper titles and synthesize trend clusters")
     p_survey_enrich.add_argument("--output-dir", required=True)
@@ -4335,12 +4641,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_survey_continue.add_argument("--target-chars", type=int, default=50000)
     p_survey_continue.add_argument("--audience", default="technical")
     p_survey_continue.add_argument("--domain", default="ai")
+    p_survey_continue.add_argument("--planner-mode-hint", default="", help="Force planner mode when finalizing")
     p_survey_continue.add_argument("--section-limit", type=int, default=3)
     p_survey_continue.add_argument("--repair-limit", type=int, default=0)
     p_survey_continue.add_argument("--min-finalized", type=int, default=None)
     p_survey_continue.add_argument("--min-chars", type=int, default=1200)
     p_survey_continue.add_argument("--require-complete", action="store_true", help="Require every planned section plus final quality gate before completion")
-    p_survey_continue.add_argument("--narrative-backend", default="claude-cli", choices=["off", "none", "skip", "claude-cli", "opus", "claude", "local-command", "command", "deterministic"], help="Chief-editor narrative rewrite when finalizing")
+    p_survey_continue.add_argument("--writer-backend", default="deterministic")
+    p_survey_continue.add_argument("--writer-command", default="", help="Local command for --writer-backend local-command; receives prompt JSON on stdin and emits Markdown on stdout")
+    p_survey_continue.add_argument("--writer-timeout", type=int, default=120)
+    p_survey_continue.add_argument("--pane-target", default="", help="tmux pane target for --writer-backend pane-packet with --pane-send")
+    p_survey_continue.add_argument("--pane-send", action="store_true", help="Actually send the pane packet to --pane-target via tmux send-keys")
+    p_survey_continue.add_argument("--narrative-backend", default="off", choices=["off", "none", "skip", "claude-cli", "opus", "claude", "local-command", "command", "browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent", "deterministic"], help="Chief-editor narrative rewrite when finalizing")
     p_survey_continue.add_argument("--narrative-model", default="opus")
     p_survey_continue.add_argument("--narrative-fallback-models", default="sonnet")
     p_survey_continue.add_argument("--narrative-command", default="")
@@ -4359,6 +4671,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_survey_compile = sub.add_parser("survey-compile", help="Compile survey section artifacts")
     p_survey_compile.add_argument("--output-dir", required=True)
+    p_survey_compile.add_argument("--premium-figures", action="store_true", help="Try TechnologyDiagramPainter/custom backend for high-priority DeepDive figures; SVG remains fallback")
+    p_survey_compile.add_argument("--premium-figure-command", default="", help="Custom premium figure command; reads request JSON on stdin and emits JSON with image_path")
+    p_survey_compile.add_argument("--premium-figure-limit", type=int, default=3, help="Max premium figure attempts per compile")
+    p_survey_compile.add_argument("--premium-figure-timeout", type=int, default=600)
     p_survey_compile.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     p_survey_chief = sub.add_parser("survey-chief-editor", help="Rewrite human_final.md with a chief-editor backend")

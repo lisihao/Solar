@@ -1,0 +1,339 @@
+{
+  "videoId": "mJRhFo3QnHY",
+  "title": "Concurrency, understanding the BEAM limits - Lorena Mireles Rivero | Erlang Solutions Webinar",
+  "channelName": "GOTO Conferences",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 16291,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello. Welcome to the talk Concurrency:\nUnderstanding the BEAM Limits. I know\nthis is not a live session, but if\nyou're watching this recording, I really\nappreciate and I'd like you to invite\nyou to share your questions, comments,\nand any feedback you may have on Erlang\nSolutions social media, or feel free to\nsend them\nto me directly. I'll do my best to\nrespond as soon as possible.\nI also want to mention that this talk is\ninspired by the first edition of Code\nBEAM Vancouver that took place last\nmonth.\nSo, with that, let's get it started. My\nname is Lorena Mireles. I am an Elixir\ndeveloper at Erlang Solutions, and I've\nbeen working with Elixir since 2018.\nI have around 10 years of experience in\nthe industry, and throughout that\njourney, I have explored different\nthings, but everything changed up when I\ndiscovered Elixir.\nSince then, I have been fully dedicated\nmyself to working with this programming\nlanguage and the BEAM ecosystem in\ngeneral. And today, I'm excited to share\npart of that journey with you.\nAlso, the inspiration for this talk came\nwhen while I was reading The BEAM Book\nby Erik Stenman, which dives deep into\nthe technical aspects of how the BEAM\nworks.\nAfter several years of working with\nElixir, I thought I had a solid\nunderstanding of these concepts, but as\nI kept reading, I started to notice the\ngaps, the details I had overlooked or\nnever fully explored.\nAnd that realization took me back to the\nvery beginning of my journey with\nElixir.\nThe first time I heard about this\nlanguage was almost by chance,\ncoincidence, if you will.\nSomeone mentioned it to me, and ended up\nattending a conference without really\nknowing what to expect. I had no prior\ncontext, no reference point, but\neveryone there was sharing stories,\ntalking about their projects, and there\nwas this genuine excitement about what\nthis technology could do.\nAnd I couldn't help but be surrounded.\nAt some point, I realized I want to be\npart of that energy, too.\nI'm a programmer. I love writing code.\nSo, of course, that was my first\ninstinct. I wanted to learn Elixir by\ncoding. Looking at examples, using a\nframework, something hands-on and quick.\nAnd then, someone pointed out that if I\nreally wanted to understand the\nstrengths of the language, I need to\nunderstand its fundamentals first.\nSo, Elixir runs on top of Erlang OTP,\nwhich itself runs in the BEAM virtual\nmachine.\nSo, in order to truly understand the\nadvantages of the language,\nwe should first take some time to\nunderstand the foundations it was\nit was built on.\nIn theory, this makes perfect sense, but\nin practice, I know it's not always\npossible. Sometimes, priorities get in\nthe way or we simply have time\nconstraints.\nSo, we rely on the capabilities of\nElixir, Erlang, and the BEAM, and most\nof the time, everything works perfect.\nBecause that's part of the magic of this\necosystem.\nIts robustness has been proven in\nproduction systems for many years.\nBut the reality is that if we could have\nspent a bit more time diving into the\ntechnical details, we could build more\nefficient systems and avoid unexpected\nissues and errors. And that's exactly\nthe point of this talk.\nTo better understand the foundations\nbehind not only Elixir, but any language\nthat runs on the beam.\nMore specifically, to understand how\nconcurrency is handled in the Erlang\nruntime system.\nAnd what's the real cost\nto make better design decisions and\nprevent errors.\nNow, this concept, the Erlang runtime,\nis important for this talk. So, let's\ntake a moment to clarify its\nrelationship with the beam.\nWhen we talk about Erlang or Elixir, we\noften say that everything runs on the\nbeam.\nBut that's only part of the story.\nThe beam is the virtual machine that\nexecutes the code, but doesn't operate\non its own. It runs within the Erlang\nruntime system,\nwhich is responsible for processing,\nscheduling, memory management, and\nhandling input-output operations.\nIn short, your code runs on beam,\nand the runtime makes execution possible\nand efficient.\nNow, to better understand the historical\ncontext behind why these technologies\nwere designed the way they were, and how\nthat compares to how we use them today,\nlet's go back to the '80s.\n'80s.\nEricsson was researching programming\nlanguages for the next generation of\ntelecommunication systems. They explored\nmany different options, and after a\ncouple of years of of experimentation\nand prototyping, they came to the\nconclusion that none of the existing\nprogramming languages met all their\nrequirements. So, they decided to create\na new one with very specific\ncharacteristics: distribution, fault\ntolerance, soft real time, massive\nconcurrency, and large volumes of data.\nCuriously, those requirements are\nprecisely what we expect from other\nsystems by default.\nSo, in that sense, past and present are\naligned.\nBut, there is an important difference\nbetween telecommunication systems in how\nwe use the beam today.\nThose systems operated within\nwell-defined limits. That doesn't mean\nthey handle small amount of load.\nFar from it, but the load was\ncontrolled. A telecommunication switch\ndoes not accumulate unlimited work.\nIt enforced limits in order to maintain\nstability.\nIn contrast, modern web systems can\neasily accept more work than they can\nactually process.\nAnd that's where the problem begin to\nappear.\nToday, we use the beam in much broader\ncontext like public APIs, e-commerce\nplatforms, data pipelines, much more\nopen environments where the amount of\nincoming work can grow predictably.\nAnd to have a real example, uh we're\ngoing to see something that we are very\nfamiliarized with.\nLet's say an e-commerce system during a\npeak sales season.\nIn this case, the normal is that when a\nuser open a product page, the front end\nneeds to gather a bunch of information\nto show price, variants, stock, and so\non.\nTo do that, it makes several calls to\nthe back end, the usual endpoints we all\nknow, and everything works just fine.\nFor this example, let's assume the\npricing logic is centralized in a single\nprocess,\na pricing server implemented as a gen\nserver.\nThis is actually a pretty common um\nchoice early on because it simplifies\nthe state management and makes the\nsystem easier to understand, test, and\ndebug. And that's what we want.\nBut, as the system grows and traffic\nincreases, that same centralization can\nstart to hurt performance.\nWhy? Because a GenServer processes\nmessages sequentially.\nSo, in this case, imagine it can handle\naround 50 requests per second, but\nduring something like the Black Friday,\nit suddenly gets 300.\nSo, what is going to happen is that now\nthe messages start piling up in its\nmailbox and latency increases.\nApparently, the system does not crash,\nbut you start to notice the symptoms.\nLike\nprices take a few seconds to show up,\nthe add to cart button feels laggy, some\nrequests start timing out. And here's\nthe key point, the problem is not the\nbeam.\nThe problem is that the system is\naccepting more work than it can actually\nhandle.\nSo, even if no explicit error is shown\nto the user, the site just starts to\nfeel slow or broken.\nAnd most of the users, I include myself\nthere, we're going to leave the site\nafter three, maximum five seconds.\nSo,\nwhat would happen if we made the\ncapacity explicit?\nInstead of trying to accept everything,\nwe could limit concurrency, distribute\nthe load across multiple workers,\nintroduce back pressure, or even fail\nfast when the system is overloaded.\nNow, the system behaves a bit\ndifferently. If the capacity is 50\nrequests per second and 300 requests per\nsecond's coming, we process 50 and\nreject or gracefully degrade the other\n250.\nAnd here's the key idea. The system is\nstays a stable\nand latency doesn't spiral out of\ncontrol.\nNow, this is just a familiar example\nbecause we have all used e-commerce\nsystems, but the point here is not to\nanalyze a specific type of system,\nand it's not really about concurrency\neither.\nWhat really matters is a more\nfundamental idea.\nEvery system has capacity limits. The\nBeam makes it incredibly cheap and\npowerful to create processes and accept\nwork, but accepting work is not the same\nas being able to execute that work\nwithin a responsible amount of time.\nAnd that's where the idea of limits\ncomes in. So,\nnow let's get a bit more technical and\ntake a look at how work is actually\nexecuted inside the Beam.\nWhen we talk about designing systems in\nthe Beam, we often focus on concurrency,\nhow easy is to create thousands or even\nmillions of processes.\nAnd that's true and relatively cheap,\nbut it's important to remember that not\nall of those processes run at the same\ntime.\nThe Erlang runtime has a finite number\nof schedulers. Usually, it's one per CPU\ncore.\nEach scheduler is an operating system\nthread responsible for executing Beam\nprocesses.\nEvery scheduler maintains its own run\nqueue with a list of processes that are\nready to run.\nAnd when a process has work to do, it\ngets placed into one of those queues.\nSo, basically, the scheduler picks a\nprocess,\nruns it\nfor a small number of reductions, which\nis basically a unit of work, and then\nmoves on to the next process to keep\nthings fair.\nSo, even if your system has very high\nconcurrency, meaning a lot of active\nprocesses, the actual parallelism is\nlimited by the number of available\nschedulers.\nAnd when the rate of incoming work\nexceeds what those the can handle, the\nwork as starts to pile up.\nFirst, in the run queues, then in\nprocess mailboxes, and eventually, what\nyou see from the outside is increasing\nlatency.\nSo, now just to be clear, this doesn't\nmean that we need to limit the number of\nprocesses.\nThe limits in the beam don't come from a\nfixed number of processes.\nThey appear during the execution as a\nresult of the interaction between\ndifferent system resources. For example,\nCPU, because the actual execution is\nlimited by the number of schedulers and\navailable CPU cores.\nProcess themselves, because processes\nare sequential by design. So, each\nprocess handles one message at a time.\nMailboxes and message passing, and\nmemory.\nSo, how do we actually measure the\nlimits? Okay, we know something's\nhappening, but now what?\nIn practice, we start noticing them when\nthe system begins to show signs of\nsaturation.\nUm like the first signals is usually\ngrowing mailboxes, which then leads to\nhigher latency.\nAs pressure builds, CPU and memory usage\nmay also increase.\nUh let's going to break down those\nsignals to understand each one.\nThe scheduler utilization tell us how\nbusy the system is at the CPU level.\nThe run queue lengths show how many\nprocesses are waiting to be executed.\nMailbox size reveals whether a process\nis receiving more messages that it can\nhandle. And finally, latency, which is\noften the symptom users users actually\nexperience.\nNow, to observe all of this, the VM\nsystem give us some really powerful\ntools, and starting with observer.\nObserver provides a real-time visual\noverview of the system. You can inspect\nprocesses, schedulers, memory usage, and\nmessage queues.\nIn production, though, we tend to rely\nmore on tools like Recon,\nwhich help us identify such as large\nmailboxes or overloaded processes.\nAnd for latency and broader system\nmetrics, we usually depend on telemetry\nand external monitoring systems like\nDataDog.\nNow, we're going to go deep into the\ntools themselves, but the key idea is\nthis.\nWhen you combine them, you get a new\nvisibility to understand when your\nsystem is approaching its limits and\ntake action before things start to\nbreak.\nSo, now let's go back to our e-commerce\nexample to get a more tangible sense of\nwhat the limits actually look like.\nLet's say that we have three cases. Case\none is when we have the mailbox growing,\nbut CPU usage is still relatively slow.\nThis actually points to a localized\nbottleneck. In our example, this could\nbe the pricing server\nreceiving more requests that it can\nhandle. Even though the machine is still\nhas available CPU, this single process\nhandles messages sequentially. So, its\nmailbox keeps growing. And the system as\na whole is not overloaded, but this\ncomponent is.\nNow, case two is the scenario when we\nhad when we have high scheduler\nutilization, a growing run queue, and\nincreasing latency.\nAnd this points to system-wide\nsaturation.\nHere, many processes are competing for\nCPU time, and the schedulers are fully\nutilized.\nSo, requests are not just waiting in a\nsingle mailbox. They are waiting across\nthe system just to get CPU time.\nThis is what happens under heavy load,\nlike during the Black Friday, when\nmultiple parts of the system are active\nat once.\nAnd finally, we have a case where memory\nusage is increasing, mailboxes are\ngrowing, and latency is high.\nThis is a compounding effect. Messages\nstart piling up, consuming memory. As\nmemory grows, garbage collection becomes\nmore frequent, which adds even more\nlatency, making the backlog even worse.\nSo, the system begins to degrade\nprogressively.\nNow,\nwe can identify different types of\nsaturation. The next question is, what\ndo we do about it?\nAnd the answer is, like almost\neverything in technology, it depends. It\ndepends on the kind of problem we're\ndealing with.\nSo, for this example, let's say case\none,\nwhen we have a local bottleneck.\nIf the issue is localized, like our\npricing server, then we need to break\nthat single single point of contention.\nWe can do this by introducing multiple\nworkers and partitioning the workload.\nInstead of a single process handling\neverything, we distribute the work\nacross several processes, allowing the\nsystem to leverage the beam concurrency\nmodel.\nThe case two, when we have a system-wide\nsaturation,\nif the problem is global, adding more\nprocesses won't necessarily help.\nAt that point, the system is already\nusing all available CPUs. So, the focus\nshifts to reducing the amount of work\nwe're doing.\nOptimizing expensive operation, caching\nresults, or applying back pressure to\ncontrol incoming load.\nAnd for the case three, memories and\nqueues.\nWhen we see growing memory in large\nqueues, we need to be careful.\nBecause letting queues grow indefinitely\ncan make the system unstable. So, we may\nneed to introduce limits like drop stale\nrequests and add timeouts.\nThe idea is this,\ndifferent signals require different\nresponses.\nThere is no one-size-fit-\nall solution. We need to understand how\nthe system behaves before deciding how\nto scale it.\nAnd now, let's go back to the beginning.\nWhen I first started learning Elixir,\none of the things I heard was that\nthanks to the beam, you could run\nmillions of processes. And that's true.\nThat's one of the things that makes the\nplatform so powerful. But over the time,\nyou start to realize that the\ninteresting question is not how many\nprocesses you can create. It's how many\nyou can actually run sustainably.\nWe can expand thousands, even millions\nof processes, and the system handles\nthem efficiently.\nBut cheap doesn't mean free.\nEvery process is still consuming CPU,\nmemory, and scheduling time.\nAnd at the end of the day, the system\nhas finite capacity.\nSo, when we design systems, the goal is\nnot just to add more concurrency. Is to\nunderstand how that concurrency\ntranslates into real work, and whether\nthe system can actually sustain it.\nThe beam let us do everything at once.\nBut great systems know when not to.\nThe beam give us the illusion of\ninfinite capacity, but every system has\nlimits. And the difference between a\nsystem that survives and one that fails\nis whether we understand those limits.\nSo, I hope that this talk was helpful\nand encourage you to keep exploring the\nbeam and ecosystem. Keep exploring, keep\nlearning, and keep building not just\nsystem that is killed, but system that\nlasts.\nThank you so much.\nAnd finally, I just like to give a\nspecial thanks to Carlo Hilmar for the\ncustom design of all the visual\ncomponents used in this presentation.\nThanks.",
+  "segments": [
+    {
+      "text": "Hello. Welcome to the talk Concurrency: Understanding the BEAM Limits. I know this is not a live session, but if you're watching this recording, I really appreciate and I'd like you to invite you to share your questions, comments,",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "and any feedback you may have on Erlang Solutions social media, or feel free to send them to me directly. I'll do my best to respond as soon as possible. I also want to mention that this talk is inspired by the first edition of Code",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "BEAM Vancouver that took place last month. So, with that, let's get it started. My name is Lorena Mireles. I am an Elixir developer at Erlang Solutions, and I've been working with Elixir since 2018. I have around 10 years of experience in",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "the industry, and throughout that journey, I have explored different things, but everything changed up when I discovered Elixir. Since then, I have been fully dedicated myself to working with this programming language and the BEAM ecosystem in",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "general. And today, I'm excited to share part of that journey with you. Also, the inspiration for this talk came when while I was reading The BEAM Book by Erik Stenman, which dives deep into the technical aspects of how the BEAM works.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "After several years of working with Elixir, I thought I had a solid understanding of these concepts, but as I kept reading, I started to notice the gaps, the details I had overlooked or never fully explored. And that realization took me back to the",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "very beginning of my journey with Elixir. The first time I heard about this language was almost by chance, coincidence, if you will. Someone mentioned it to me, and ended up attending a conference without really knowing what to expect. I had no prior",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "context, no reference point, but everyone there was sharing stories, talking about their projects, and there was this genuine excitement about what this technology could do. And I couldn't help but be surrounded. At some point, I realized I want to be",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "part of that energy, too. I'm a programmer. I love writing code. So, of course, that was my first instinct. I wanted to learn Elixir by coding. Looking at examples, using a framework, something hands-on and quick. And then, someone pointed out that if I",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "really wanted to understand the strengths of the language, I need to understand its fundamentals first. So, Elixir runs on top of Erlang OTP, which itself runs in the BEAM virtual machine. So, in order to truly understand the advantages of the language,",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "we should first take some time to understand the foundations it was it was built on. In theory, this makes perfect sense, but in practice, I know it's not always possible. Sometimes, priorities get in the way or we simply have time constraints.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "So, we rely on the capabilities of Elixir, Erlang, and the BEAM, and most of the time, everything works perfect. Because that's part of the magic of this ecosystem. Its robustness has been proven in production systems for many years.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "But the reality is that if we could have spent a bit more time diving into the technical details, we could build more efficient systems and avoid unexpected issues and errors. And that's exactly the point of this talk. To better understand the foundations",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "behind not only Elixir, but any language that runs on the beam. More specifically, to understand how concurrency is handled in the Erlang runtime system. And what's the real cost to make better design decisions and prevent errors.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "Now, this concept, the Erlang runtime, is important for this talk. So, let's take a moment to clarify its relationship with the beam. When we talk about Erlang or Elixir, we often say that everything runs on the beam. But that's only part of the story.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "The beam is the virtual machine that executes the code, but doesn't operate on its own. It runs within the Erlang runtime system, which is responsible for processing, scheduling, memory management, and handling input-output operations.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "In short, your code runs on beam, and the runtime makes execution possible and efficient. Now, to better understand the historical context behind why these technologies were designed the way they were, and how that compares to how we use them today,",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "let's go back to the '80s. '80s. Ericsson was researching programming languages for the next generation of telecommunication systems. They explored many different options, and after a couple of years of of experimentation and prototyping, they came to the",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "conclusion that none of the existing programming languages met all their requirements. So, they decided to create a new one with very specific characteristics: distribution, fault tolerance, soft real time, massive concurrency, and large volumes of data.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "Curiously, those requirements are precisely what we expect from other systems by default. So, in that sense, past and present are aligned. But, there is an important difference between telecommunication systems in how we use the beam today.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Those systems operated within well-defined limits. That doesn't mean they handle small amount of load. Far from it, but the load was controlled. A telecommunication switch does not accumulate unlimited work. It enforced limits in order to maintain stability.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "In contrast, modern web systems can easily accept more work than they can actually process. And that's where the problem begin to appear. Today, we use the beam in much broader context like public APIs, e-commerce platforms, data pipelines, much more",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "open environments where the amount of incoming work can grow predictably. And to have a real example, uh we're going to see something that we are very familiarized with. Let's say an e-commerce system during a peak sales season.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "In this case, the normal is that when a user open a product page, the front end needs to gather a bunch of information to show price, variants, stock, and so on. To do that, it makes several calls to the back end, the usual endpoints we all",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "know, and everything works just fine. For this example, let's assume the pricing logic is centralized in a single process, a pricing server implemented as a gen server. This is actually a pretty common um choice early on because it simplifies",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "the state management and makes the system easier to understand, test, and debug. And that's what we want. But, as the system grows and traffic increases, that same centralization can start to hurt performance. Why? Because a GenServer processes",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "messages sequentially. So, in this case, imagine it can handle around 50 requests per second, but during something like the Black Friday, it suddenly gets 300. So, what is going to happen is that now the messages start piling up in its",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "mailbox and latency increases. Apparently, the system does not crash, but you start to notice the symptoms. Like prices take a few seconds to show up, the add to cart button feels laggy, some requests start timing out. And here's",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "the key point, the problem is not the beam. The problem is that the system is accepting more work than it can actually handle. So, even if no explicit error is shown to the user, the site just starts to feel slow or broken.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "And most of the users, I include myself there, we're going to leave the site after three, maximum five seconds. So, what would happen if we made the capacity explicit? Instead of trying to accept everything, we could limit concurrency, distribute",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "the load across multiple workers, introduce back pressure, or even fail fast when the system is overloaded. Now, the system behaves a bit differently. If the capacity is 50 requests per second and 300 requests per second's coming, we process 50 and",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "reject or gracefully degrade the other 250. And here's the key idea. The system is stays a stable and latency doesn't spiral out of control. Now, this is just a familiar example because we have all used e-commerce systems, but the point here is not to",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "analyze a specific type of system, and it's not really about concurrency either. What really matters is a more fundamental idea. Every system has capacity limits. The Beam makes it incredibly cheap and powerful to create processes and accept",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "work, but accepting work is not the same as being able to execute that work within a responsible amount of time. And that's where the idea of limits comes in. So, now let's get a bit more technical and take a look at how work is actually",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "executed inside the Beam. When we talk about designing systems in the Beam, we often focus on concurrency, how easy is to create thousands or even millions of processes. And that's true and relatively cheap, but it's important to remember that not",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "all of those processes run at the same time. The Erlang runtime has a finite number of schedulers. Usually, it's one per CPU core. Each scheduler is an operating system thread responsible for executing Beam processes. Every scheduler maintains its own run",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "queue with a list of processes that are ready to run. And when a process has work to do, it gets placed into one of those queues. So, basically, the scheduler picks a process, runs it for a small number of reductions, which",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "is basically a unit of work, and then moves on to the next process to keep things fair. So, even if your system has very high concurrency, meaning a lot of active processes, the actual parallelism is limited by the number of available schedulers.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "And when the rate of incoming work exceeds what those the can handle, the work as starts to pile up. First, in the run queues, then in process mailboxes, and eventually, what you see from the outside is increasing latency.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "So, now just to be clear, this doesn't mean that we need to limit the number of processes. The limits in the beam don't come from a fixed number of processes. They appear during the execution as a result of the interaction between",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "different system resources. For example, CPU, because the actual execution is limited by the number of schedulers and available CPU cores. Process themselves, because processes are sequential by design. So, each process handles one message at a time.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "Mailboxes and message passing, and memory. So, how do we actually measure the limits? Okay, we know something's happening, but now what? In practice, we start noticing them when the system begins to show signs of saturation.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "Um like the first signals is usually growing mailboxes, which then leads to higher latency. As pressure builds, CPU and memory usage may also increase. Uh let's going to break down those signals to understand each one. The scheduler utilization tell us how",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "busy the system is at the CPU level. The run queue lengths show how many processes are waiting to be executed. Mailbox size reveals whether a process is receiving more messages that it can handle. And finally, latency, which is",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "often the symptom users users actually experience. Now, to observe all of this, the VM system give us some really powerful tools, and starting with observer. Observer provides a real-time visual overview of the system. You can inspect",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "processes, schedulers, memory usage, and message queues. In production, though, we tend to rely more on tools like Recon, which help us identify such as large mailboxes or overloaded processes. And for latency and broader system",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "metrics, we usually depend on telemetry and external monitoring systems like DataDog. Now, we're going to go deep into the tools themselves, but the key idea is this. When you combine them, you get a new visibility to understand when your",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "system is approaching its limits and take action before things start to break. So, now let's go back to our e-commerce example to get a more tangible sense of what the limits actually look like. Let's say that we have three cases. Case",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "one is when we have the mailbox growing, but CPU usage is still relatively slow. This actually points to a localized bottleneck. In our example, this could be the pricing server receiving more requests that it can handle. Even though the machine is still",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "has available CPU, this single process handles messages sequentially. So, its mailbox keeps growing. And the system as a whole is not overloaded, but this component is. Now, case two is the scenario when we had when we have high scheduler",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "utilization, a growing run queue, and increasing latency. And this points to system-wide saturation. Here, many processes are competing for CPU time, and the schedulers are fully utilized. So, requests are not just waiting in a",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "single mailbox. They are waiting across the system just to get CPU time. This is what happens under heavy load, like during the Black Friday, when multiple parts of the system are active at once. And finally, we have a case where memory",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "usage is increasing, mailboxes are growing, and latency is high. This is a compounding effect. Messages start piling up, consuming memory. As memory grows, garbage collection becomes more frequent, which adds even more latency, making the backlog even worse.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "So, the system begins to degrade progressively. Now, we can identify different types of saturation. The next question is, what do we do about it? And the answer is, like almost everything in technology, it depends. It depends on the kind of problem we're",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "dealing with. So, for this example, let's say case one, when we have a local bottleneck. If the issue is localized, like our pricing server, then we need to break that single single point of contention. We can do this by introducing multiple",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "workers and partitioning the workload. Instead of a single process handling everything, we distribute the work across several processes, allowing the system to leverage the beam concurrency model. The case two, when we have a system-wide saturation,",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "if the problem is global, adding more processes won't necessarily help. At that point, the system is already using all available CPUs. So, the focus shifts to reducing the amount of work we're doing. Optimizing expensive operation, caching",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "results, or applying back pressure to control incoming load. And for the case three, memories and queues. When we see growing memory in large queues, we need to be careful. Because letting queues grow indefinitely can make the system unstable. So, we may",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "need to introduce limits like drop stale requests and add timeouts. The idea is this, different signals require different responses. There is no one-size-fit- all solution. We need to understand how the system behaves before deciding how to scale it.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "And now, let's go back to the beginning. When I first started learning Elixir, one of the things I heard was that thanks to the beam, you could run millions of processes. And that's true. That's one of the things that makes the",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "platform so powerful. But over the time, you start to realize that the interesting question is not how many processes you can create. It's how many you can actually run sustainably. We can expand thousands, even millions of processes, and the system handles",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "them efficiently. But cheap doesn't mean free. Every process is still consuming CPU, memory, and scheduling time. And at the end of the day, the system has finite capacity. So, when we design systems, the goal is not just to add more concurrency. Is to",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "understand how that concurrency translates into real work, and whether the system can actually sustain it. The beam let us do everything at once. But great systems know when not to. The beam give us the illusion of infinite capacity, but every system has",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "limits. And the difference between a system that survives and one that fails is whether we understand those limits. So, I hope that this talk was helpful and encourage you to keep exploring the beam and ecosystem. Keep exploring, keep",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "learning, and keep building not just system that is killed, but system that lasts. Thank you so much. And finally, I just like to give a special thanks to Carlo Hilmar for the custom design of all the visual components used in this presentation. Thanks.",
+      "start": 384,
+      "duration": 6
+    }
+  ]
+}

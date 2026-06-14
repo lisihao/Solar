@@ -1,0 +1,329 @@
+{
+  "videoId": "qUvom_WiKc4",
+  "title": "SREcon26 Americas - Unlock High-Frequency Deployments without Blowing Up Prometheus",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 15364,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "I'm going to talk about unlocking high\nfrequency deployments. If you have used\nPrometheus or any metric system for\nlong, uh series churn is a problem, and\nit has been a problem for many years. In\nthis talk, we are going to spend most of\nthe time looking at uh what's the\nproblem, why does it happen, because the\nsolution is simple in theory.\na little about me. Uh as Joe already\nmentioned, I'm a staff engineer at\nReddit. I work on the observability\nteam. We manage all the observability\ndatabase at Reddit. I'm also a\nPrometheus team member. I maintain\nmainly its TSDB. I also worked on Mimir\nand Cortex uh in my previous job at\nGrafana Labs. Both of those are\ndistributed time series database based\nout of Prometheus.\nSo, let's start with a little bit of\nbasics.\nUh since you chose to be in this talk,\nI'm I'm confident that you know what\nPrometheus is and a few basics around\nit. So, I'm going to go quick quickly\nover this. Prometheus is a metrics\nmonitoring system. It has its own time\nseries database in it, and it does\nalerting, scrape It's a pull-based\nsystem. It scrapes all the metrics from\nyour different targets and stuff around\nthat. It's a single-node reliable\nmetrics monitoring system.\nUh what I'm interested here is in the\ndata model. In a metric system, a time\nseries, it has an identifier and a bunch\nof timestamp and values. That's why it's\na time series.\nAnd in Prometheus, the identifier is a\nbunch of label values.\nAnd the interesting thing here is\na unique set of label values consists of\na single time series.\nIn In this example, it's HTTP request\ntotal. So, it's going to tell you the\ntotal request for that given job, for\nthat given instance, for that given\nstatus.\nIf I change a label, say status equals\nto 500,\nthere's no correlation between these two\ntime series. They are unique. This is\nimportant to understand the problem.\nThis is how Prometheus works. Every\nseries is unique in itself. It's\nflexible. You don't need to define any\nschema. You can add add as many labels\nthat you as you want, as many values\nthat you want. And it's just the total\nnumber of these unique combinations you\nhave active determines how many time\nseries you have right now.\nUh and couple of terminologies, when I\nsay active series, these are the time\nseries that Prometheus is actively\nscraping from some target. It's getting\nmore timestamp, more values as the time\ngoes. Stale series are the ones that\nwere active at some point of time. It\nwas getting some data,\nuh but\nsomething happened and the target is\naway, or there are many reasons a series\ngoes stale. It stops getting any form of\ndata.\nSo, let's see what are the causes of\nthese stale series that I'm talking\nabout, and what problem does it cause.\nA couple of very uh\nsimple ways that a series can go stale\nis a target. It's just a process. A\nprocess goes down, you don't no longer\nneed it. So, all the metrics that are\nexposed that by that process is now\nstale. It's no longer getting data. Or\nyou decided to add uh an additional\nlabel to your metrics. It's not going to\nmodify the existing time series. When\nyou deploy these new labels, the old\nseries goes stale. They're not getting\nany data, and you added new labels, it's\nnew time series technically for\nPrometheus. So, that's how series goes\nstale. But, one\nsubtle way the series goes stale is roll\nout.\nYou're running a software, you're\ndeveloping it continuously. So, you're\nobviously going to roll it out multiple\ntimes. I'm going to take example of\nKubernetes deployment and stateful set.\nIn Kubernetes deployment, it's a\nstateless pod. Um\nmore than likely you are going to have\nthe pod label attached to the metrics.\nEvery time you roll out, for example, uh\nthe pod name changes. So, all the\nmetrics attached to that pod gets a new\nlabel. So, the old one goes stale and\nyou have new set of metrics. Uh\nand in stateful set, it's a choice, I\nwould say. At Reddit, we attach the\ninstance label, which means every time\nyou roll out or uh restart a stateful\npod,\nalthough the pod name remains same,\nthe IP will likely change, in which case\nall the time series related to that pod\nis going to come up new. So, it's like\nyou Let's say you have 100 metrics for a\nsingle pod. You restart the pod, you\nhave new 100 metrics, so Prometheus is\nstoring 200 metrics in the memory right\nnow. To visualize how it looks like, uh\nthe head is the in-memory part of the\nPrometheus TSDB, and all the different\ncolor boxes are individual time series\nhere. And on the disk, you have the\nwrite-ahead log. There is a block\nformat, which is just a dump of the\nin-memory data to query. And\nas and when the time go And this box,\nassume it's the limit of how much you\ncan store in the head, because that's\nthe limit of the memory. If you try to\nstore anything beyond the box, it's\ngoing to crash with out of memory error.\nAnd time series can start at any point\nof time. It can end at any point of\ntime. The two cross marks that I did are\nthe series that stopped getting data. It\nbecame stale. And over time,\nyou will just collect a lot of stale\nseries. In this example, I have like 12\ntime series, six of them went stale. Uh\nand Prometheus flushes this in memory\ndata to disk every 2 hours.\nSo,\nif you are holding on to all these tail\nseries in the memory, it's possible\nyou're going to run out of space in the\nmemory. And\nwe'll look at a practical example how\nthis looks like.\nSo,\nthese are actual data from the systems\nthat were running. I created the slides\ntoo late, so I didn't have time to take\napproval on the screenshots to include\nit in the slides. So,\nI have normalized the memory request\nhere. The top chart is the memory used\nby the Prometheus pod.\nThis bottom left panel is the stale\nseries ratio, which is basically the\npercentage of time series that are stale\nin Prometheus right now.\nAnd this is the total series. I have\nnormalized all the values.\nWe'll go over four phases in this\ndiagram. First one is the blue arrow\nmark that you see on all the charts.\nUh,\nthe memory suddenly increased, and the\nreason is not because suddenly there are\nmore time series. If you look at uh,\nthe bottom two charts, the stale series\nratio suddenly went up. So, there are\nlike 70% of series that are not active\nanymore because suddenly someone decided\nto roll out something quickly. A lot of\nseries went stale, and only a few set of\nseries that are actually getting data.\nBut Prometheus holds on to everything in\nthe memory for some time. But luckily,\nafter some time, the timely flush of\nPrometheus happened. The memory went\ndown, the stale series went down, and\nthe total series went down. Good. But\nnext time they decided to do even more\nrollouts in a short period of time. So,\ninstead of the series growing up to\nhere, to the previous level,\nit jumped more. The stale series ratio\nkind of remained flat, but that's just\nthe ratio, right? The total number of\nseries grew. So, the memory also grew\nover time. And over time,\nuh, it It not get to the usual\ntimely compaction of Prometheus to flush\nthe data to disk. So, it eventually went\nout of memory. And this was a simple\nexample where there were like two or\nthree rollouts, but it ultimately puts a\ncap on how how many rollouts you can do\nbecause at the end of the day you're\ngoing to run out of the node size even\nif you give a 1 TB memory of Prometheus,\nbut you have thousands of pods. Uh it\nwill put a limit on how many times you\ncan roll out within an hour or within 2\nhours because it's just going to blow\nyour Prometheus and alerting is\nimportant. Uh\nyou can shard Prometheus in multiple uh\nlike run 10 Prometheus with subset of\ntargets, but that brings whole sort of\ndifferent challenges to have data\ndistributed among multiple Prometheus.\nSo, the goal here is how can we solve it\nwithin uh Prometheus?\nYeah, the OOM memory happened there.\nAnd one interesting thing to note here\nis the gap between the total number of\nseries and total number the stale series\nis what is actually getting the data. I\nused the same size for these four arrow\nmarks, and you can see that at any point\nof time the active series is actually\npretty uh consistently same. So, if you\ndidn't have so many stale series in the\nmemory, we probably won't crash\nPrometheus and the alerting would be\nstable. The solution, it's actually what\nyou think. As I said, it's uh simple in\ntheory. Why are you keeping all the\nstale series in memory until the next\ncompaction? Why not just do stale series\ncompaction and put it in block on disk?\nSo,\nuh this was not done till now uh because\nuh there are a lot of optimizations that\nare there in the TSDB to make the\nexist like the happy path work very\nefficiently. When you're trying to take\nseries out of band and put it on disk,\nyou have to do a lot of\nrisky uh bets like you not crash crash\nthese to be. So, just because of the\nrisk, it had it had not been done, but\nwith\nuh Prometheus being adopted for big and\nbig uh instances,\nuh it was needed now. So, it's simple in\ntheory. You take the stale series and\nput it on disk,\nbut\nas it's uh practically a little\ncomplicated, it's an experimental\nfeature and it has a known bug. It was\njust released last month. It has a known\nbug. So, it's not for using in\nuh production right now, but it'll be\nsoon. So, let's see how would you\nactually configure this and see it in\naction that it really works. It's good\nin theory, but it should also work and\nwhat are the trade-offs?\nthe configuration is simple. Uh the\nstale series ratio, which is the\npercentage of stale series that are in\nthe TSDB, is going to be between zero\nand one. So, you decide when do you want\nto trigger the stale series compaction?\nIs it when stale series hits 50%, 20%,\nor 75%? That's just the config, but it's\nnot straightforward to choose one number\nfor this.\nI'll give an example of real world where\nit worked.\nSo, in this example, the stale series\nratio I chose 0.4. I'll come to it later\nhow I chose 0.4.\nUh the blue line, which is indicated by\nnew, is the one that where the stale\nseries compaction was enabled. Uh\nThis is the point the red arrow mark is\nthe point where the stale series\ncompaction took place. The stale series\nratio had gone beyond uh 0.4. Uh there\nare other small things that TSDB has to\ntake care, so the compaction was not\nimmediate,\nbut as soon as the stale series\ncompaction hit, the\nstale series ratio went down, the total\nseries went down, and the memory usage\nwent down. The important part here is\nnot using less memory, it's hitting\nlower peak memory. This is just one\nexample where the peak memory hit uh\nroughly 20 to 30% higher without stale\nseries compaction. So, if your memory\nlimit was somewhere here, maybe it would\ncrash.\nand if there were more old alerts during\nthis period, it's very likely with stale\nseries compaction the memory will remain\nflat here. Because as soon as you get\nmore stale series,\nit uh flushes it down to disk, but\nwithout stale series it can keep growing\nup.\nBut, it's not free.\nBecause you saw the memory going down,\nbut on the other side, whenever the\nstale series compaction happens, the CPU\ncan go up. Uh it's not like it will\nalways go up but the but the CPU can go\nup. In here it was like up to 40% more\nCPU at certain point. Even if it does go\nup, sometimes it's not a problem because\nif you want Prometheus to run\nefficiently uh for queries and scraping\nat high uh big scale, you will most\nlikely have some headroom in the CPU\nbecause without headroom things can uh\ngo pretty inefficient because of how\nLinux schedules your process.\nSo, why does it take more CPU? So,\nbefore stale series compaction when all\nthe data is in the in the memory,\nuh when you're running a lot of\nrecording rules, rules are something\nwhich just runs in the background, some\nqueries and stores the result of that.\nIt's like materialized views.\nmore often than not, like almost always,\nyour recording rules are touching recent\ndata. The old data is on the disk, the\nrecent data is on the memory.\nSo, when the stale series compaction is\nnot enabled,\nit has to read everything from memory.\nIt's simple, but when you\ncompact the stale series, put it on\ndisk, it now has to load the data from\nthe memory, load from the disk, but the\nexpensive part is merging them and\nrunning\nuh queries on that. So,\nthere there is more CPU usage if you\nhave a lot of rules running. If you\ndon't have a lot of rules, then probably\nit's not a overhead a lot of overhead\nand you can avoid the peak memory usage.\nit is very hit and trial how you choose\nthe\nuh stale series ratio. It depends on\nyour rule load, how much you want to\ntrade off with CPU, and how much is the\nsize of your Prometheus in the first\nplace. If you can go bigger, maybe it's\nbetter to go bigger in Prometheus. But,\nthis feature is only to protect your\nPrometheus and not to save memory\nbecause we saw that it comes with a\ntrade-off. So, you should use this only\nif you are about to blow up your\nPrometheus.\nAnd there are two metrics from version\n3.6 onwards. You can run this prompt\nkill to see what is the ratio.\nAnd these are just some guidelines. The\nslides will be available later if you\nwant to just\ngo through this table because I have\nvery less time. I'm going to go through\nnext two slides.\nUh in the real world example that I\nshowed earlier where it worked well, uh\nthis was the stale series ratio. It was\nalways above 0.4 and a lot of time stuck\n0.6 and 0.7.\nSo, I just took a judgment call. Let's\ntry 0.4. Because I'll show one more\nslide where the lower number didn't work\nwell. But, it's possible 0.5 could have\nworked better. 0.3 could have worked\nbetter.\nBut, you need to plot the stale series\nratio, see where your peak is, say where\nthe bottom is, and maybe somewhere along\nthe midline is what you want to use.\nThere is a problem with choosing too\nsmall of a stale series ratio. In this\ncase, the orange line is the original\none, and after compaction, uh this with\nthe blue line is the one where stale\nseries compaction was enabled. Because\nthe Prometheus was small, the stale\nseries peak data around 0.3, there was\nnot enough stale series.\nThe overhead of running stale series\ncompaction\nand running queries on top of that was\nmore like the memory the memory usage\nwas more so CPU usage was more. So if\nthere are not enough series and you\nchoose to enable this with a lower\nthreshold for series compaction it's\ngoing to perform worse. So\nI would like to end the talk with like\ntry this out help to mature this\nfeature. Give your tell us your\nexperience of how you went about\nchoosing your series ratio like how what\nkind of config you use because it can\nvary based on workload. The same config\nis not going to work in every case. And\nyou can give feedback in Prometheus or\nPrometheus dev channels in CNCF slack\nand I mentioned there is a bug fix fix\nwhich so that's why you should not use\nin production right now but you can try\nit out. So hopefully in the next two\nreleases the bug will be fixed.\nAnd thank you. I guess I'm over time.",
+  "segments": [
+    {
+      "text": "I'm going to talk about unlocking high frequency deployments. If you have used Prometheus or any metric system for long, uh series churn is a problem, and it has been a problem for many years. In this talk, we are going to spend most of",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "the time looking at uh what's the problem, why does it happen, because the solution is simple in theory. a little about me. Uh as Joe already mentioned, I'm a staff engineer at Reddit. I work on the observability team. We manage all the observability",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "database at Reddit. I'm also a Prometheus team member. I maintain mainly its TSDB. I also worked on Mimir and Cortex uh in my previous job at Grafana Labs. Both of those are distributed time series database based out of Prometheus.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "So, let's start with a little bit of basics. Uh since you chose to be in this talk, I'm I'm confident that you know what Prometheus is and a few basics around it. So, I'm going to go quick quickly over this. Prometheus is a metrics",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "monitoring system. It has its own time series database in it, and it does alerting, scrape It's a pull-based system. It scrapes all the metrics from your different targets and stuff around that. It's a single-node reliable metrics monitoring system.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "Uh what I'm interested here is in the data model. In a metric system, a time series, it has an identifier and a bunch of timestamp and values. That's why it's a time series. And in Prometheus, the identifier is a bunch of label values.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "And the interesting thing here is a unique set of label values consists of a single time series. In In this example, it's HTTP request total. So, it's going to tell you the total request for that given job, for that given instance, for that given status.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "If I change a label, say status equals to 500, there's no correlation between these two time series. They are unique. This is important to understand the problem. This is how Prometheus works. Every series is unique in itself. It's",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "flexible. You don't need to define any schema. You can add add as many labels that you as you want, as many values that you want. And it's just the total number of these unique combinations you have active determines how many time series you have right now.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "Uh and couple of terminologies, when I say active series, these are the time series that Prometheus is actively scraping from some target. It's getting more timestamp, more values as the time goes. Stale series are the ones that",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "were active at some point of time. It was getting some data, uh but something happened and the target is away, or there are many reasons a series goes stale. It stops getting any form of data. So, let's see what are the causes of",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "these stale series that I'm talking about, and what problem does it cause. A couple of very uh simple ways that a series can go stale is a target. It's just a process. A process goes down, you don't no longer need it. So, all the metrics that are",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "exposed that by that process is now stale. It's no longer getting data. Or you decided to add uh an additional label to your metrics. It's not going to modify the existing time series. When you deploy these new labels, the old",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "series goes stale. They're not getting any data, and you added new labels, it's new time series technically for Prometheus. So, that's how series goes stale. But, one subtle way the series goes stale is roll out. You're running a software, you're",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "developing it continuously. So, you're obviously going to roll it out multiple times. I'm going to take example of Kubernetes deployment and stateful set. In Kubernetes deployment, it's a stateless pod. Um more than likely you are going to have",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "the pod label attached to the metrics. Every time you roll out, for example, uh the pod name changes. So, all the metrics attached to that pod gets a new label. So, the old one goes stale and you have new set of metrics. Uh",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "and in stateful set, it's a choice, I would say. At Reddit, we attach the instance label, which means every time you roll out or uh restart a stateful pod, although the pod name remains same, the IP will likely change, in which case",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "all the time series related to that pod is going to come up new. So, it's like you Let's say you have 100 metrics for a single pod. You restart the pod, you have new 100 metrics, so Prometheus is storing 200 metrics in the memory right",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "now. To visualize how it looks like, uh the head is the in-memory part of the Prometheus TSDB, and all the different color boxes are individual time series here. And on the disk, you have the write-ahead log. There is a block",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "format, which is just a dump of the in-memory data to query. And as and when the time go And this box, assume it's the limit of how much you can store in the head, because that's the limit of the memory. If you try to store anything beyond the box, it's",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "going to crash with out of memory error. And time series can start at any point of time. It can end at any point of time. The two cross marks that I did are the series that stopped getting data. It became stale. And over time,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "you will just collect a lot of stale series. In this example, I have like 12 time series, six of them went stale. Uh and Prometheus flushes this in memory data to disk every 2 hours. So, if you are holding on to all these tail",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "series in the memory, it's possible you're going to run out of space in the memory. And we'll look at a practical example how this looks like. So, these are actual data from the systems that were running. I created the slides",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "too late, so I didn't have time to take approval on the screenshots to include it in the slides. So, I have normalized the memory request here. The top chart is the memory used by the Prometheus pod. This bottom left panel is the stale",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "series ratio, which is basically the percentage of time series that are stale in Prometheus right now. And this is the total series. I have normalized all the values. We'll go over four phases in this diagram. First one is the blue arrow",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "mark that you see on all the charts. Uh, the memory suddenly increased, and the reason is not because suddenly there are more time series. If you look at uh, the bottom two charts, the stale series ratio suddenly went up. So, there are",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "like 70% of series that are not active anymore because suddenly someone decided to roll out something quickly. A lot of series went stale, and only a few set of series that are actually getting data. But Prometheus holds on to everything in",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "the memory for some time. But luckily, after some time, the timely flush of Prometheus happened. The memory went down, the stale series went down, and the total series went down. Good. But next time they decided to do even more",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "rollouts in a short period of time. So, instead of the series growing up to here, to the previous level, it jumped more. The stale series ratio kind of remained flat, but that's just the ratio, right? The total number of series grew. So, the memory also grew",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "over time. And over time, uh, it It not get to the usual timely compaction of Prometheus to flush the data to disk. So, it eventually went out of memory. And this was a simple example where there were like two or three rollouts, but it ultimately puts a",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "cap on how how many rollouts you can do because at the end of the day you're going to run out of the node size even if you give a 1 TB memory of Prometheus, but you have thousands of pods. Uh it will put a limit on how many times you",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "can roll out within an hour or within 2 hours because it's just going to blow your Prometheus and alerting is important. Uh you can shard Prometheus in multiple uh like run 10 Prometheus with subset of targets, but that brings whole sort of",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "different challenges to have data distributed among multiple Prometheus. So, the goal here is how can we solve it within uh Prometheus? Yeah, the OOM memory happened there. And one interesting thing to note here is the gap between the total number of",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "series and total number the stale series is what is actually getting the data. I used the same size for these four arrow marks, and you can see that at any point of time the active series is actually pretty uh consistently same. So, if you",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "didn't have so many stale series in the memory, we probably won't crash Prometheus and the alerting would be stable. The solution, it's actually what you think. As I said, it's uh simple in theory. Why are you keeping all the",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "stale series in memory until the next compaction? Why not just do stale series compaction and put it in block on disk? So, uh this was not done till now uh because uh there are a lot of optimizations that are there in the TSDB to make the",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "exist like the happy path work very efficiently. When you're trying to take series out of band and put it on disk, you have to do a lot of risky uh bets like you not crash crash these to be. So, just because of the risk, it had it had not been done, but with",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "uh Prometheus being adopted for big and big uh instances, uh it was needed now. So, it's simple in theory. You take the stale series and put it on disk, but as it's uh practically a little complicated, it's an experimental",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "feature and it has a known bug. It was just released last month. It has a known bug. So, it's not for using in uh production right now, but it'll be soon. So, let's see how would you actually configure this and see it in action that it really works. It's good",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "in theory, but it should also work and what are the trade-offs? the configuration is simple. Uh the stale series ratio, which is the percentage of stale series that are in the TSDB, is going to be between zero and one. So, you decide when do you want",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "to trigger the stale series compaction? Is it when stale series hits 50%, 20%, or 75%? That's just the config, but it's not straightforward to choose one number for this. I'll give an example of real world where it worked. So, in this example, the stale series",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "ratio I chose 0.4. I'll come to it later how I chose 0.4. Uh the blue line, which is indicated by new, is the one that where the stale series compaction was enabled. Uh This is the point the red arrow mark is the point where the stale series",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "compaction took place. The stale series ratio had gone beyond uh 0.4. Uh there are other small things that TSDB has to take care, so the compaction was not immediate, but as soon as the stale series compaction hit, the stale series ratio went down, the total",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "series went down, and the memory usage went down. The important part here is not using less memory, it's hitting lower peak memory. This is just one example where the peak memory hit uh roughly 20 to 30% higher without stale",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "series compaction. So, if your memory limit was somewhere here, maybe it would crash. and if there were more old alerts during this period, it's very likely with stale series compaction the memory will remain flat here. Because as soon as you get",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "more stale series, it uh flushes it down to disk, but without stale series it can keep growing up. But, it's not free. Because you saw the memory going down, but on the other side, whenever the stale series compaction happens, the CPU",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "can go up. Uh it's not like it will always go up but the but the CPU can go up. In here it was like up to 40% more CPU at certain point. Even if it does go up, sometimes it's not a problem because if you want Prometheus to run",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "efficiently uh for queries and scraping at high uh big scale, you will most likely have some headroom in the CPU because without headroom things can uh go pretty inefficient because of how Linux schedules your process. So, why does it take more CPU? So,",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "before stale series compaction when all the data is in the in the memory, uh when you're running a lot of recording rules, rules are something which just runs in the background, some queries and stores the result of that. It's like materialized views.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "more often than not, like almost always, your recording rules are touching recent data. The old data is on the disk, the recent data is on the memory. So, when the stale series compaction is not enabled, it has to read everything from memory.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "It's simple, but when you compact the stale series, put it on disk, it now has to load the data from the memory, load from the disk, but the expensive part is merging them and running uh queries on that. So, there there is more CPU usage if you",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "have a lot of rules running. If you don't have a lot of rules, then probably it's not a overhead a lot of overhead and you can avoid the peak memory usage. it is very hit and trial how you choose the uh stale series ratio. It depends on",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "your rule load, how much you want to trade off with CPU, and how much is the size of your Prometheus in the first place. If you can go bigger, maybe it's better to go bigger in Prometheus. But, this feature is only to protect your",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "Prometheus and not to save memory because we saw that it comes with a trade-off. So, you should use this only if you are about to blow up your Prometheus. And there are two metrics from version 3.6 onwards. You can run this prompt",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "kill to see what is the ratio. And these are just some guidelines. The slides will be available later if you want to just go through this table because I have very less time. I'm going to go through next two slides. Uh in the real world example that I",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "showed earlier where it worked well, uh this was the stale series ratio. It was always above 0.4 and a lot of time stuck 0.6 and 0.7. So, I just took a judgment call. Let's try 0.4. Because I'll show one more slide where the lower number didn't work",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "well. But, it's possible 0.5 could have worked better. 0.3 could have worked better. But, you need to plot the stale series ratio, see where your peak is, say where the bottom is, and maybe somewhere along the midline is what you want to use.",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "There is a problem with choosing too small of a stale series ratio. In this case, the orange line is the original one, and after compaction, uh this with the blue line is the one where stale series compaction was enabled. Because",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "the Prometheus was small, the stale series peak data around 0.3, there was not enough stale series. The overhead of running stale series compaction and running queries on top of that was more like the memory the memory usage",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "was more so CPU usage was more. So if there are not enough series and you choose to enable this with a lower threshold for series compaction it's going to perform worse. So I would like to end the talk with like try this out help to mature this",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "feature. Give your tell us your experience of how you went about choosing your series ratio like how what kind of config you use because it can vary based on workload. The same config is not going to work in every case. And",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "you can give feedback in Prometheus or Prometheus dev channels in CNCF slack and I mentioned there is a bug fix fix which so that's why you should not use in production right now but you can try it out. So hopefully in the next two",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "releases the bug will be fixed. And thank you. I guess I'm over time.",
+      "start": 372,
+      "duration": 6
+    }
+  ]
+}

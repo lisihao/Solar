@@ -1,0 +1,69 @@
+# GenesisPod - Docker Compose (PostgreSQL Only)
+# 已迁移到统一 PostgreSQL 架构，移除了 Neo4j、MongoDB、Qdrant
+# 知识图谱: PostgreSQL 递归 CTE (GraphService)
+# 原始数据: PostgreSQL JSONB (RawDataService)
+
+services:
+  # FlareSolverr - Cloudflare 绕过代理服务
+  # 用于绕过 Cloudflare 等反爬虫保护
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: genesis-flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - TZ=Asia/Shanghai
+    ports:
+      - "8191:8191"
+    restart: unless-stopped
+
+  # PostgreSQL - 主数据库 (唯一数据库)
+  postgres:
+    image: postgres:16-alpine
+    container_name: genesis-postgres
+    environment:
+      POSTGRES_USER: genesis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-genesis_dev_password}
+      POSTGRES_DB: genesis
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genesis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - 缓存 (可选，用于会话和缓存)
+  redis:
+    image: redis:7-alpine
+    container_name: genesis-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-genesis_redis_dev_password}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-genesis_redis_dev_password}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "-a",
+          "${REDIS_PASSWORD:-genesis_redis_dev_password}",
+          "ping",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: genesis-network

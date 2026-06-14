@@ -1,0 +1,485 @@
+# UI Patrol Configuration
+# Base URL for all patrol routes
+baseUrl: https://genesis-ai.up.railway.app
+
+# Authentication
+auth:
+  type: session
+  # The patrol uses the browser's existing session (login manually first)
+
+# Global settings
+settings:
+  language: en
+  screenshotDir: .ui-patrol/screenshots
+  reportDir: .ui-patrol/reports
+  timeout: 15000
+  waitAfterNavigation: 3000
+  viewport:
+    width: 1920
+    height: 1080
+
+# Global forbidden patterns (applied to all pages)
+forbidden:
+  - "[object Object]"
+  - "undefined"
+  - "NaN"
+  - "Error:"
+  - "Cannot read properties"
+  - "is not a function"
+
+# ============================================================
+# Content Quality Assessment (7 Levels)
+# ============================================================
+quality:
+  # Level 1 - 内容完整性
+  completeness:
+    enabled: true
+    checks:
+      - no_empty_pages: "页面不能为空白或仅有骨架屏"
+      - no_broken_images: "图片不能 broken (src 404 / alt 文字裸露)"
+      - data_rendered: "列表/卡片/表格有实际数据渲染，非仅占位符"
+      - empty_state_friendly: "空数据时显示友好空状态提示，非空白"
+
+  # Level 2 - 内容准确性
+  accuracy:
+    enabled: true
+    checks:
+      - timestamp_format: "时间戳格式正确 (非 Invalid Date / NaN / Unix 毫秒原始值)"
+      - numbers_reasonable: "数字合理显示 (非 NaN / Infinity / -1 / 异常大数)"
+      - status_labels_match: "状态标签与实际状态匹配 (active/completed/failed)"
+      - links_valid: "内部链接可点击且不指向 404"
+
+  # Level 3 - 视觉/美学质量
+  aesthetics:
+    enabled: true
+    checks:
+      - alignment_consistent: "元素对齐一致，无明显错位"
+      - spacing_uniform: "间距均匀，无拥挤或过度留白"
+      - color_scheme: "颜色符合设计规范，无刺眼配色"
+      - dark_mode: "暗色模式下文字可读、背景正确、无白色闪烁"
+      - icon_text_align: "图标与文字垂直居中对齐"
+      - card_height_consistent: "同一行卡片高度一致"
+      - font_consistency: "字体大小/粗细层级合理 (h1 > h2 > body)"
+      - no_text_overflow: "文字不溢出容器、不被截断（除非有 tooltip）"
+      - no_horizontal_scroll: "页面无意外水平滚动条"
+
+  # Level 4 - 交互体验
+  interaction:
+    enabled: true
+    checks:
+      - loading_state: "异步操作有 loading 状态 (spinner / skeleton / progress)"
+      - empty_state: "空数据有引导性空状态 (图标 + 文案 + 操作按钮)"
+      - error_state: "错误有友好提示，非原始错误堆栈"
+      - button_feedback: "按钮点击后有视觉反馈 (disabled / loading / 颜色变化)"
+      - form_validation: "表单校验有即时提示，错误字段高亮"
+      - toast_notification: "操作成功/失败有 toast 通知"
+      - confirm_destructive: "删除等破坏性操作有确认弹窗"
+      - keyboard_shortcuts: "常用操作支持键盘快捷键（如 Esc 关闭弹窗）"
+
+  # Level 5 - 可访问性 (a11y)
+  accessibility:
+    enabled: true
+    checks:
+      - color_contrast: "文字与背景对比度 >= 4.5:1 (WCAG AA)"
+      - keyboard_navigation: "所有交互元素可通过 Tab 键到达"
+      - focus_visible: "键盘聚焦元素有可见焦点环"
+      - aria_labels: "图标按钮、图片有 aria-label 或 alt 文本"
+      - semantic_html: "使用语义化标签 (nav/main/section/button 非 div click)"
+      - screen_reader: "关键内容对屏幕阅读器友好"
+
+  # Level 6 - 响应式 & 兼容性
+  responsive:
+    enabled: true
+    viewports:
+      - { name: mobile, width: 375, height: 812 }
+      - { name: tablet, width: 768, height: 1024 }
+      - { name: desktop, width: 1920, height: 1080 }
+    checks:
+      - layout_adapts: "布局在不同分辨率下合理适配，无重叠"
+      - touch_targets: "移动端点击目标 >= 44x44px"
+      - no_overflow: "内容不超出视口，无意外滚动"
+      - navigation_accessible: "移动端导航可达 (hamburger menu / bottom nav)"
+      - images_responsive: "图片自适应容器，不变形不溢出"
+
+  # Level 7 - 性能体验
+  performance:
+    enabled: true
+    thresholds:
+      first_contentful_paint: 2000 # ms
+      largest_contentful_paint: 4000 # ms
+      cumulative_layout_shift: 0.1
+      time_to_interactive: 5000 # ms
+    checks:
+      - no_layout_shift: "页面加载无明显布局抖动 (CLS < 0.1)"
+      - scroll_smooth: "长列表滚动流畅，无卡顿 (60fps)"
+      - lazy_load: "图片/长列表支持懒加载，非一次性全量渲染"
+      - no_memory_leak: "重复操作无明显内存增长"
+
+# ============================================================
+# Security Assessment (Level 8)
+# Maps to: DFX-SEC-001~015 from comprehensive-test-suite-2026-02-17.md
+# ============================================================
+security:
+  enabled: true
+  checks:
+    - xss_prevention: "User input escaped in rendered HTML (DFX-SEC-001)"
+    - sql_injection_safe: "All queries use Prisma parameterized queries (DFX-SEC-002)"
+    - prompt_injection_filtered: "PromptSanitizer active on all AI inputs (DFX-SEC-003)"
+    - csrf_protection: "State-changing APIs protected against CSRF (DFX-SEC-004)"
+    - authorization_enforced: "Users cannot access other users' data (DFX-SEC-005)"
+    - jwt_validation: "Invalid/expired tokens return 401 (DFX-SEC-006)"
+    - file_upload_restricted: "Executable files (.exe, .bat, .sh) rejected (DFX-SEC-007)"
+    - file_size_limited: "Uploads > configured max rejected (DFX-SEC-008)"
+    - rate_limiting: "API rate limits enforced per user (DFX-SEC-009)"
+    - sensitive_data_hidden: "Passwords/secrets not in API responses (DFX-SEC-010)"
+    - https_enforced: "HTTP redirects to HTTPS (DFX-SEC-011)"
+    - error_stack_hidden: "500 errors don't expose internal stack traces (DFX-SEC-012)"
+    - dependencies_audited: "No high/critical npm audit vulnerabilities (DFX-SEC-013)"
+    - ssrf_prevention: "URL fetcher blocks internal/private addresses (DFX-SEC-014)"
+    - path_traversal_blocked: "File paths sanitized against traversal (DFX-SEC-015)"
+
+# ============================================================
+# Reliability Assessment (Level 9)
+# Maps to: DFX-REL-001~012 from comprehensive-test-suite-2026-02-17.md
+# ============================================================
+reliability:
+  enabled: true
+  checks:
+    - page_refresh_recovery: "State preserved after F5 refresh (DFX-REL-001)"
+    - browser_back_recovery: "Correct state on browser back (DFX-REL-002)"
+    - network_disconnect_graceful: "No white screen on network loss (DFX-REL-003)"
+    - api_error_friendly: "500 errors show retry option (DFX-REL-004)"
+    - timeout_recovery: "Timeouts show clear message with retry (DFX-REL-005)"
+    - session_persistence: "Session survives long idle (DFX-REL-006)"
+    - data_persistence: "Conversations/projects not lost (DFX-REL-007)"
+    - websocket_reconnect: "Auto-reconnect after disconnect (DFX-REL-008)"
+    - stream_interrupt_recovery: "SSE interruption recoverable (DFX-REL-009)"
+    - concurrent_write_safety: "No data corruption on concurrent edits (DFX-REL-010)"
+    - idempotent_operations: "Duplicate submissions don't create duplicates (DFX-REL-011)"
+    - graceful_degradation: "External API failure doesn't crash app (DFX-REL-012)"
+
+# ============================================================
+# Maintainability Assessment (Level 10)
+# Maps to: DFX-M-001~008 from comprehensive-test-suite-2026-02-17.md
+# ============================================================
+maintainability:
+  enabled: true
+  checks:
+    - code_coverage_threshold: "Overall coverage >= 50% Phase1 (DFX-M-001)"
+    - typescript_strict: "No 'any' types, strict mode (DFX-M-002)"
+    - lint_clean: "0 errors, <10 warnings (DFX-M-003)"
+    - build_success: "Full build without errors (DFX-M-004)"
+    - no_circular_deps: "No circular module dependencies (DFX-M-005)"
+    - clean_module_boundaries: "No cross-layer direct calls (DFX-M-006)"
+    - logger_standard: "NestJS Logger only, no console.log (DFX-M-007)"
+    - no_hardcoded_config: "No hardcoded model/temperature values (DFX-M-008)"
+
+# ============================================================
+# Observability Assessment (Level 11)
+# Maps to: DFX-O-001~006 from comprehensive-test-suite-2026-02-17.md
+# ============================================================
+observability:
+  enabled: true
+  checks:
+    - request_tracing: "AI calls have traceId for debugging (DFX-O-001)"
+    - structured_logging: "JSON logs with timestamp/level fields (DFX-O-002)"
+    - error_logging: "Errors include stack trace + context (DFX-O-003)"
+    - ai_call_metering: "Model/token/cost data queryable (DFX-O-004)"
+    - health_endpoint: "/health returns service status (DFX-O-005)"
+    - task_progress_visible: "Research/Writing progress real-time (DFX-O-006)"
+
+# ============================================================
+# Usability Assessment (Level 12)
+# Maps to: DFX-USE-001~010 from comprehensive-test-suite-2026-02-17.md
+# ============================================================
+usability:
+  enabled: true
+  checks:
+    - first_use_guidance: "New user completes first Ask within 3 minutes (DFX-USE-001)"
+    - navigation_clarity: "Any feature reachable in ≤2 clicks from main nav (DFX-USE-002)"
+    - three_state_feedback: "Loading/Success/Error states clearly visible (DFX-USE-003)"
+    - error_recovery: "Error states provide retry/return action (DFX-USE-004)"
+    - keyboard_shortcuts: "Enter sends, Esc cancels, Ctrl+K searches (DFX-USE-005)"
+    - help_documentation: "Key features have tooltip/help explanation (DFX-USE-006)"
+    - interaction_consistency: "Same-type operations use consistent patterns (DFX-USE-007)"
+    - accessible_forms: "Form fields have labels, required fields marked (DFX-USE-008)"
+
+# ============================================================
+# Browser Compatibility (Level 13)
+# Maps to: DFX-CMP-001~005 from comprehensive-test-suite-2026-02-17.md
+# ============================================================
+compatibility:
+  enabled: true
+  browsers:
+    - {
+        name: "Chrome Desktop",
+        id: "DFX-CMP-001",
+        priority: P0,
+        coverage: "100% functionality",
+      }
+    - {
+        name: "Firefox Desktop",
+        id: "DFX-CMP-002",
+        priority: P1,
+        coverage: "Core features",
+      }
+    - {
+        name: "Safari macOS",
+        id: "DFX-CMP-003",
+        priority: P1,
+        coverage: "Core features",
+      }
+    - {
+        name: "Edge Desktop",
+        id: "DFX-CMP-004",
+        priority: P1,
+        coverage: "Core features",
+      }
+    - {
+        name: "Chrome Mobile",
+        id: "DFX-CMP-005",
+        priority: P2,
+        coverage: "Basic usability",
+      }
+    - {
+        name: "Safari Mobile",
+        id: "DFX-CMP-006",
+        priority: P2,
+        coverage: "Basic usability",
+      }
+
+# ============================================================
+# Performance Baselines
+# Maps to: PERF-RT-001~020 from comprehensive-test-suite-2026-02-17.md
+# ============================================================
+performance_baselines:
+  api_response_ms:
+    ask_ttfb: { p50: 2000, p90: 3000, p99: 5000 } # PERF-RT-001
+    ask_stream_complete: { p50: 10000, p90: 15000, p99: 20000 } # PERF-RT-002
+    mixture_ttfb: { p50: 3000, p90: 5000, p99: 8000 } # PERF-RT-003
+    web_search: { p50: 5000, p90: 8000, p99: 12000 } # PERF-RT-004
+    rag_search_10doc: { p50: 3000, p90: 5000, p99: 8000 } # PERF-RT-005
+    rag_search_100doc: { p50: 5000, p90: 8000, p99: 12000 } # PERF-RT-006
+    file_upload_1mb: { p50: 5000, p90: 10000, p99: 15000 } # PERF-RT-007
+    teams_task_start: { p50: 3000, p90: 5000, p99: 8000 } # PERF-RT-009
+    research_plan: { p50: 8000, p90: 12000, p99: 18000 } # PERF-RT-010
+    history_list: { p50: 1000, p90: 2000, p99: 3000 } # PERF-RT-012
+  page_load_ms:
+    fcp: 2000 # PERF-RT-013
+    tti: 3000 # PERF-RT-014
+  concurrent:
+    max_simultaneous_ask: 3 # PERF-CC-001
+    max_websocket_connections: 20 # PERF-CC-007
+
+# ============================================================
+# Boundary Test Config
+# Maps to: BND-INP-001~010, BND-FIL-001~008 from comprehensive-test-suite-2026-02-17.md
+# ============================================================
+boundary:
+  input:
+    max_message_length: 10000 # BND-002
+    forbidden_inputs: # BND-003
+      - "<script>alert(1)</script>"
+      - "'; DROP TABLE users; --"
+      - "<img src=x onerror=alert(1)>"
+  files:
+    max_size_mb: 10 # BND-F-002
+    blocked_extensions: # BND-F-003
+      - .exe
+      - .bat
+      - .sh
+      - .cmd
+      - .com
+      - .msi
+    max_upload_count: 10 # BND-F-005
+
+# ============================================================
+# Test Plan Reference
+# Master test suite: comprehensive-test-suite-2026-02-17.md (~735 cases)
+# ============================================================
+test_plan:
+  reference: "docs/guides/testing/test-cases/comprehensive-test-suite-2026-02-17.md"
+  total_cases: 735
+  scenarios_dir: ".ui-patrol/scenarios/"
+  journeys_dir: ".ui-patrol/journeys/"
+  scenario_files:
+    - ask-combinations.scenarios.yaml # CMB-ASK-001~010
+    - boundary-conditions.scenarios.yaml # BND-INP, BND-FIL, BND-CCR, BND-NET
+    - security-checks.scenarios.yaml # DFX-SEC-001~015
+    - performance-benchmarks.scenarios.yaml # PERF-RT-001~020, PERF-CC-001~007
+    - cross-module-integration.scenarios.yaml # INT-LIB-ASK, INT-EXP-LIB, INT-RES-LIB, INT-TMS-RES, E2E
+    - usability-walkthrough.scenarios.yaml # DFX-USE-001~010
+    - compatibility-browser.scenarios.yaml # DFX-CMP-001~005, DFX-RES-007
+    - throughput-resource.scenarios.yaml # PERF-BD-001~008, PERF-LR-001~005
+    - ai-insights.scenarios.yaml # Insights report rendering, export, controls, regression
+    - ai-research.scenarios.yaml # Research page scenarios
+    - ai-teams.scenarios.yaml # Teams page scenarios
+    - library.scenarios.yaml # Library page scenarios
+  journey_files:
+    - ai-ask-conversation.journey.yaml
+    - ai-ask-combination-matrix.journey.yaml
+    - ai-ask-mixture.journey.yaml
+    - create-research-topic.journey.yaml
+    - ai-teams-collaboration.journey.yaml
+    - ai-writing-workflow.journey.yaml
+    - ai-office-slides.journey.yaml
+    - ai-image-generation.journey.yaml
+    - ai-social-content.journey.yaml
+    - ai-rag-knowledge.journey.yaml
+    - knowledge-base-to-ask.journey.yaml
+    - explore-to-library-to-ask.journey.yaml
+    - cross-module-data-flow.journey.yaml
+    - e2e-new-user-onboarding.journey.yaml
+    - e2e-image-writing-workflow.journey.yaml
+    - search-library.journey.yaml
+    - research-topic-all-tabs.journey.yaml
+    - ai-insights-all-tabs.journey.yaml
+    - ai-insights-report-rendering.journey.yaml
+    - ai-insights-report-export.journey.yaml
+    - ai-insights-create-topic.journey.yaml
+    - admin-monitoring-check.journey.yaml
+    - full-site-i18n-check.journey.yaml
+
+# i18n patrol: check for untranslated Chinese when in English mode
+i18n:
+  enabled: true
+  sourceLocale: zh
+  targetLocale: en
+  # Elements that may contain Chinese from database (not i18n issues)
+  allowChinese:
+    - "[data-user-content]" # User-generated content
+    - ".topic-title" # Research topic names (from DB)
+    - ".dimension-name" # Dimension names (from DB)
+    - ".task-name" # Task names (from DB)
+    - ".agent-name" # Agent names
+    - "td" # Table cells may contain DB data
+    - ".chat-message" # Chat messages
+
+# Page groups for organized patrol runs
+# Total: 73 routes across 7 groups
+groups:
+  # ============ Homepage ============
+  homepage:
+    description: "Landing page"
+    routes:
+      - /
+
+  # ============ Core AI Apps (list pages) ============
+  core:
+    description: "Core AI application list pages"
+    routes:
+      - /ai-ask
+      - /ai-insights
+      - /ai-research
+      - /ai-writing
+      - /ai-image
+      - /ai-simulation
+      - /ai-office
+      - /ai-office/slides
+      - /ai-social
+      - /ai-skills
+
+  # ============ Core AI Apps (detail/sub pages) ============
+  core-detail:
+    description: "AI application detail and action pages (need sample IDs)"
+    routes:
+      # Insights (Topic Research)
+      - /ai-insights/topic/:topicId # sample: 8a5a6aeb-b2dd-4673-80cd-73687db4f96c
+      - /ai-insights/topic-research
+      # Research (legacy)
+      - /ai-research/topic/:topicId # sample: 475fea3c-bd61-4c99-9498-4e09edc11eed
+      - /ai-research/:projectId
+      - /ai-research/topic-research
+      # Writing
+      - /ai-writing/:id
+      - /ai-writing/report/:missionId
+      # Simulation
+      - /ai-simulation/:id
+      - /ai-simulation/edit/:id
+      - /ai-simulation/run/:id
+      # Image
+      - /ai-image/create
+      # Social
+      - /ai-social/create
+      - /ai-social/edit/:id
+
+  # ============ Teams & Store ============
+  teams:
+    description: "AI Teams and collaboration"
+    routes:
+      - /ai-teams
+      - /ai-teams/:topicId
+      - /ai-store
+
+  # ============ Content & Library ============
+  content:
+    description: "Content, library, and exploration"
+    routes:
+      - /library
+      - /library/rag
+      - /library/knowledge-graph
+      - /explore
+      - /explore/youtube
+      - /explore/report/:id
+      - /explore/resource/:id
+      - /knowledge-graph
+      - /rag
+
+  # ============ User Account ============
+  user:
+    description: "User account and settings pages"
+    routes:
+      - /profile
+      - /credits
+      - /notifications
+      - /changelog
+      - /feedback
+      - /feedback/history
+
+  # ============ Public / Share ============
+  share:
+    description: "Public sharing pages (no auth required)"
+    routes:
+      - /share/topic/:id
+      - /share/writing/:id
+      - /share/image/:id
+      - /report/:missionId
+      - /notion/:pageId
+
+  # ============ Admin ============
+  admin:
+    description: "Admin dashboard and management (22 sub-pages)"
+    routes:
+      # Overview
+      - /admin
+      - /admin/overview
+      - /admin/workspace
+      # System
+      - /admin/system
+      - /admin/system/monitoring
+      - /admin/system/logs
+      - /admin/system/email
+      - /admin/system/notifications
+      - /admin/system/site
+      - /admin/storage
+      # AI
+      - /admin/ai/models
+      - /admin/ai/tools
+      - /admin/ai/skills
+      - /admin/ai/teams
+      # Access
+      - /admin/access/users
+      - /admin/access/permissions
+      - /admin/access/security
+      - /admin/access/billing
+      - /admin/access/credits
+      - /admin/access/secrets
+      # Data
+      - /admin/data/collection
+      - /admin/data/quality
+      - /admin/data/whitelists
+      - /admin/data-management
+      # Other
+      - /admin/secrets
+      - /admin/feedback
+      - /admin/thumbnails

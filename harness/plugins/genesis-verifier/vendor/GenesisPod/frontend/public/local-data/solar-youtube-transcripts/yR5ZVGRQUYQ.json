@@ -1,0 +1,259 @@
+{
+  "videoId": "yR5ZVGRQUYQ",
+  "title": "FAST '26 - AdaCheck: An Adaptive Checkpointing System for Efficient LLM Training with Redundancy...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 12044,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Hello everyone. I'm Jihong Zhang. I will\npresent the work at the track an\nadaptive checkpointing system for\nefficient large language model training\nwith redundancy utilization on behalf of\nthe authors.\nLarge language models have demonstrated\nimpressive performance across various\nintelligence tasks due to their\nextensive parameter and data size large\nlanguage\nlarge scale distributed training has\nbecome the standard training recipe of\nlarge language models. In this in this\nin this mode models are iteratively\ntrained on hundreds or even thousands of\nworkers.\nDuring training model states are\ndistributed to worker according to the\nadopted parallelism. We show the\ndistribution of model states when\ntraining with data\nparallelism and model parallelism on two\nworkers respectively. In training these\ntwo parallelisms are combined for use.\nThis combination introduces complex\nstate redundancy.\nState redundancy defined as the\nduplication model states resulting from\nparallelism model architecture and\ntraining iterations impacts the volume\nof data processed and the number of\ncommunication\noperations required per iteration during\ntraining thereby affecting the\nperformance of distributed training.\nLarge scale and lengthy training is\ncoupled with failures. For instance the\n54-day training of llama 3.1 on 16,000\nGPU encounters 419 failures with\ntraining failing on average every 3\nhours.\nAs the Opti model training reports a\nfailure frequency of twice a day,\nthe core of failure recovery is\ncheckpointing, uh which periodically uh\nsaves model state checkpoints, enabling\nthe resumption of training progress from\nthe latest checkpoint.\nHowever, checkpointing techniques uh\nused during\nlarge language model training uh lead to\na note lead to a notable waste of\ntraining resources. According to the\nrelevant technical reports about uh 2\nmillion GPU hours are wasted during the\ntraining of Llama 3.1, and about 178,000\nGPU hours are wasted during the training\nof Opti\nuh 175\nuh billion model.\nTo reduce the waste of training\nresources caused by checkpointing,\nexisting checkpointing system are uh\nhave optimized the checkpoint storage\nprocess. For example, Check Freeing uh\ndecouples a checkpoint of loading\nprocess uh to remote storage uh from the\ntraining loop and restricts the\ncheckpoint saving to only rank zero\nworkers, uh enhancing checkpointing uh\nperformance under data parallelism.\nMeanwhile, Gemini improves uh network\nbandwidth during checkpoint storage by\noffloading checkpoints to uh CPU memory,\nuh thereby enabling higher uh\ncheckpointing frequency and achieving uh\nperformance gains under zero uh 3D\nparallelism. However, these offline\napproaches are uh limited to specific uh\nparallelism or model architectures.\nUh moreover, we observe that uh state\nredundancy also exists uh during model\ntraining iterations. Existing\ncheckpointing system overlook this\nredundancy, uh thereby missing the\nopportunity to leverage it for\ncheckpointing performance improvement.\nAnd based on the limitations of existing\ncheckpointing systems, we propose\nAdaCheck, whose primary goal is to build\nan adaptive checkpointing system that\nachieves a minimized checkpointing\ncheckpoint size by correctly rising\nstate redundancy across various\nvarious parallelism model architecture\nand training iterations.\nTo achieve this goal, AdaCheck must\naddress several key challenges. The\nfirst of which is complexity\nredundancy. This complexity arise from\nthe diverse combinations of parallelism\nand model architectures. Model states\nare typically composed of model uh\nparameter and their corresponding\noptimizer states. During checkpointing,\nboth must be uh saved to ensure\nrecoverability. As shown in the figure\nunder the same parallelism, the state\nredundancy of a given model parameter\nand its optimizer state may be identical\nor uh differ under different\nparallelism.\nUh the state redundancy of a given model\nparameter and its optimizer state can\nvary significantly.\nTo analyze this intricate state\nredundancy, we propose an offline\nredundancy utilization method. This\nmethod holistically\nconsiders the state redundancy of model\nparameter and their optimizer states\nwhen constructing a checkpoint. Besides,\nthis method effectively reduces the\ncheckpoint size by leveraging the state\nredundancy in parallelism and model\narchitectures.\nIt is first necessary to obtain\nfine-grained state redundancy. However,\nexisting checkpoint systems are unable\nto capture such fine-grained state\nredundancy. This figure shows the\ncheckpoint storage behavior of current\ncheckpointing system when using 01 for\nparallel training. A lazy executed\ncheckpointing method generate uh\ncheckpoints only after failure occur. Uh\nthis approach neglects um\nmodel states without redundancy in the\nfaulted uh worker resulting in\nunsuccessful training reception. A\nremote storage checkpointing method need\nto uh save at least one complete model\nto remote storage incurring significant\noverhead uh and and remote memory\ncheckpointing organized works into\ngroups\nallowing each worker to save its\ncheckpoint in the CPU memory of all\nother worker in the same group. Uh this\ndecentralized design enables\ncheckpointing over uh faster intro group\nuh connections but results in the\nunnecessary necessary saving of\nredundant model states among workers. Uh\nto address this, uh we introduce the\nconcept of tensor redundancy and aim to\nanalyze model state redundancy at the\ntensor level.\nUh based on the offline redundancy\nutilization\nmethod, we can reduce checkpoint size.\nUh however, tests show that relying\nsolely on this method is insufficient to\nachieve one step one checkpoint or one S\none C uh which is the optimal uh\ncheckpoint frequency for checkpointing.\nUh in the figure, we present uh the\nnetwork bandwidth required by uh\ndifferent methods to enable one S one C\nwhen training GPT uh 8\n18.4 billion and uh\nLlama 7 billion on 32 GPUs under various\nuh parallelism. Uh here uh AdaCheck\nemploy\nemploys only the offline redundancy\nutilization method. We observe two key\nfindings. Our first a training system\ncan improve performance by utilizing a\nmore GPU memory. And for example,\nswitching from 03 to 01\nor enhanced downstream task performance\nthrough a specification techniques.\nHowever, both strategies increase the\nnetwork bandwidth demand for achieving 1\nSWC.\nA second, the network bandwidth required\nexisting checkpointing system to support\n1 SWC is often\nunattainable\nin practice.\nThe persistent storage bandwidth used by\nPyTorch naive checkpointing and the\nCheckFree\nis typically under 100 100 gigabits per\nsecond, while the worker interconnect\nbandwidth used by Gemini and AdaCheck\nis generally below 400 gigabits per\nsecond.\nTo address this limitation, we propose a\nmethod that reduces checkpoint size by\nleveraging\nby leveraging state redundancy across\ntraining iterations.\nAnd based on the opportunity identified\nabove, we propose AdaCheck, which\nconsists of three components. First, an\noffline redundancy utilization method\nthat introduced the concept of tensor\nredundancy. But\nand it models the state redundancy\ninherent in parallel demand model\narchitectures and selected appropriate\nmodel states to generate reduced\ncheckpoints. To\nto efficiently identify\ntensor redundancy, we design tensor\nredundancy detector. Finally, we propose\nan online redundancy utilization method\nthat reduces checkpoint size by\nleveraging by leveraging a state a\nredundancy across training iterations.\nUh we first introduce the offline\nredundancy utilization method uh to\ncapture the state redundancy introduced\nby parallel model architecture. We\npropose a concept of tensor redundancy\nuh which formula\nwhich formula uh describes the dis-\ndistribution of redundancy. A redundant\ntensor uh replicas uh across devices uh\nduring parallel parallel training.\nUh since model states consist of one or\nmore tensors, uh we can derive the state\nredundancy based on tensor uh\nredundancy. In AdaCheck, we classify\nstate redundancy into three types: uh\nfull redundancy, par- partial\nredundancy, and no redundancy.\nAnd considering that the state\nredundancy model parameter and their\ncorresponding optimizer states may\ndiffer and given that both uh must be\npreserved to ensure uh checkpoint\nusability, we compute the intersection\nof state redundancy between uh par-\nparameter and their optimizer states. Uh\nthis intersection determines uh whether\na parameter and uh optimizer state pair\nshould be included in the checkpoint.\nFor example, if the intersection has no\nredundancy, uh both the parameter and\nits optimizer state are stored in the\ncheckpoint.\nUh to efficiently obtain tensor\nredundancy, uh we propose a tensor\nredundancy detector. Uh this detector uh\nfor first hashes the value of each\ntensor, then ag- aggregates all hash\nvalues from a device into a packed\ntensor.\nUh this tensor is exchanged among\ndevices to determine tensor redundancy.\nTo accelerate this comparison process,\nwe implement two optimizations. First,\nuh comparisons are uh performed only\namong devices with the same\ncommunication group. Second, uh\nring-based communication algorithm is uh\napplied to reduce redundant comparisons.\nAs shown in the figure below, uh when\ncomparing using the ring-based uh\nalgorithm in the right half with a\ncommunication group size of four, all\nparallel tensor redundancy results are\ncomputed in the first half of steps.\nIn the second half, uh instead of uh\ntransmitting the packed tensor devices\ndirectly, uh\npropagate the already computed tensor\nredundancy results, eliminating\nredundant uh comparison and accelerating\nthe overall process.\nUh next is the online redundancy\nutilization method. We observe\nthat change change in model states\nacross training iteration are uh driven\nby gradients. Uh this insight leads us\nto the idea of storing only uh gradients\nin mixed uh\nprecision training, storing and half\nprecision gradient instead of model uh\nparameter and their optimizer states uh\ndramatically uh reduces checkpoint size.\nUh built on this, we propose a\ngradient-based uh incremental\ncheckpointing method. Uh in this method,\nuh gradients are offloaded to remote CPU\nmemory, and a CPU-based uh optimizer of\nthis model parameter remotely uh\nremotely, uh thereby reducing the data\ntransfer overhead uh during recovery.\nUh in the experimental setup, uh we use\nboth a data center uh data center GPU\ncluster and a commodity GPU cluster. We\nevaluate state-of-the-art models uh\ncovering both dense and sparse\narchitecture. We select uh CheckFree and\nthe Gemini as our baseline methods.\nExperimental results uh show that\ncompared to other methods, uh AdaCheck\nreduces checkpoint size by 6 to 896\ntimes.\nUh and\nand AdaCheck enables 1S1C checkpointing\nfrequency,\nuh significantly improving improving the\nperformance of checkpointing systems.\nAnd for more details, uh including time\ncomplexity and analysis of redundancy\ndetector state redundancy with uh\nauto-generated parallelism and proof of\nthe recovery\nprobability, please refer to the paper.\nUh in summary, this work addresses two\nkey limitations of existing uh\ncheckpointing system. Uh based on these\nlimitations, uh the key idea of this\nwork is utilizing state redundancy\nacross parallelism model architectures\nand training iterations to reduce\ncheckpoint size and improve a\ncheckpointing frequency. To achieve this\ntarget, we develop AdaCheck, which uh\ncomprise\nthis uh three core components: an\noffline redundancy utilization method,\na tensor redundancy detector, and an\noffline redundancy utilization method.\nExperiment demonstrate that AdaCheck\nsignificantly reduces uh checkpoint\nsize.\nOkay, thanks for your attention. Please\nuh feel free to contact uh Weijie Liu\nvia email if you have any questions.\nThank you.",
+  "segments": [
+    {
+      "text": "Hello everyone. I'm Jihong Zhang. I will present the work at the track an adaptive checkpointing system for efficient large language model training with redundancy utilization on behalf of the authors. Large language models have demonstrated",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "impressive performance across various intelligence tasks due to their extensive parameter and data size large language large scale distributed training has become the standard training recipe of large language models. In this in this",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "in this mode models are iteratively trained on hundreds or even thousands of workers. During training model states are distributed to worker according to the adopted parallelism. We show the distribution of model states when training with data",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "parallelism and model parallelism on two workers respectively. In training these two parallelisms are combined for use. This combination introduces complex state redundancy. State redundancy defined as the duplication model states resulting from",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "parallelism model architecture and training iterations impacts the volume of data processed and the number of communication operations required per iteration during training thereby affecting the performance of distributed training.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "Large scale and lengthy training is coupled with failures. For instance the 54-day training of llama 3.1 on 16,000 GPU encounters 419 failures with training failing on average every 3 hours. As the Opti model training reports a",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "failure frequency of twice a day, the core of failure recovery is checkpointing, uh which periodically uh saves model state checkpoints, enabling the resumption of training progress from the latest checkpoint. However, checkpointing techniques uh used during",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "large language model training uh lead to a note lead to a notable waste of training resources. According to the relevant technical reports about uh 2 million GPU hours are wasted during the training of Llama 3.1, and about 178,000",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "GPU hours are wasted during the training of Opti uh 175 uh billion model. To reduce the waste of training resources caused by checkpointing, existing checkpointing system are uh have optimized the checkpoint storage process. For example, Check Freeing uh",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "decouples a checkpoint of loading process uh to remote storage uh from the training loop and restricts the checkpoint saving to only rank zero workers, uh enhancing checkpointing uh performance under data parallelism. Meanwhile, Gemini improves uh network",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "bandwidth during checkpoint storage by offloading checkpoints to uh CPU memory, uh thereby enabling higher uh checkpointing frequency and achieving uh performance gains under zero uh 3D parallelism. However, these offline",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "approaches are uh limited to specific uh parallelism or model architectures. Uh moreover, we observe that uh state redundancy also exists uh during model training iterations. Existing checkpointing system overlook this redundancy, uh thereby missing the",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "opportunity to leverage it for checkpointing performance improvement. And based on the limitations of existing checkpointing systems, we propose AdaCheck, whose primary goal is to build an adaptive checkpointing system that achieves a minimized checkpointing",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "checkpoint size by correctly rising state redundancy across various various parallelism model architecture and training iterations. To achieve this goal, AdaCheck must address several key challenges. The first of which is complexity",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "redundancy. This complexity arise from the diverse combinations of parallelism and model architectures. Model states are typically composed of model uh parameter and their corresponding optimizer states. During checkpointing, both must be uh saved to ensure",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "recoverability. As shown in the figure under the same parallelism, the state redundancy of a given model parameter and its optimizer state may be identical or uh differ under different parallelism. Uh the state redundancy of a given model",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "parameter and its optimizer state can vary significantly. To analyze this intricate state redundancy, we propose an offline redundancy utilization method. This method holistically considers the state redundancy of model parameter and their optimizer states",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "when constructing a checkpoint. Besides, this method effectively reduces the checkpoint size by leveraging the state redundancy in parallelism and model architectures. It is first necessary to obtain fine-grained state redundancy. However,",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "existing checkpoint systems are unable to capture such fine-grained state redundancy. This figure shows the checkpoint storage behavior of current checkpointing system when using 01 for parallel training. A lazy executed checkpointing method generate uh",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "checkpoints only after failure occur. Uh this approach neglects um model states without redundancy in the faulted uh worker resulting in unsuccessful training reception. A remote storage checkpointing method need to uh save at least one complete model",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "to remote storage incurring significant overhead uh and and remote memory checkpointing organized works into groups allowing each worker to save its checkpoint in the CPU memory of all other worker in the same group. Uh this decentralized design enables",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "checkpointing over uh faster intro group uh connections but results in the unnecessary necessary saving of redundant model states among workers. Uh to address this, uh we introduce the concept of tensor redundancy and aim to",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "analyze model state redundancy at the tensor level. Uh based on the offline redundancy utilization method, we can reduce checkpoint size. Uh however, tests show that relying solely on this method is insufficient to achieve one step one checkpoint or one S",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "one C uh which is the optimal uh checkpoint frequency for checkpointing. Uh in the figure, we present uh the network bandwidth required by uh different methods to enable one S one C when training GPT uh 8 18.4 billion and uh",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Llama 7 billion on 32 GPUs under various uh parallelism. Uh here uh AdaCheck employ employs only the offline redundancy utilization method. We observe two key findings. Our first a training system can improve performance by utilizing a",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "more GPU memory. And for example, switching from 03 to 01 or enhanced downstream task performance through a specification techniques. However, both strategies increase the network bandwidth demand for achieving 1 SWC. A second, the network bandwidth required",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "existing checkpointing system to support 1 SWC is often unattainable in practice. The persistent storage bandwidth used by PyTorch naive checkpointing and the CheckFree is typically under 100 100 gigabits per second, while the worker interconnect",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "bandwidth used by Gemini and AdaCheck is generally below 400 gigabits per second. To address this limitation, we propose a method that reduces checkpoint size by leveraging by leveraging state redundancy across training iterations.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "And based on the opportunity identified above, we propose AdaCheck, which consists of three components. First, an offline redundancy utilization method that introduced the concept of tensor redundancy. But and it models the state redundancy",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "inherent in parallel demand model architectures and selected appropriate model states to generate reduced checkpoints. To to efficiently identify tensor redundancy, we design tensor redundancy detector. Finally, we propose",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "an online redundancy utilization method that reduces checkpoint size by leveraging by leveraging a state a redundancy across training iterations. Uh we first introduce the offline redundancy utilization method uh to capture the state redundancy introduced",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "by parallel model architecture. We propose a concept of tensor redundancy uh which formula which formula uh describes the dis- distribution of redundancy. A redundant tensor uh replicas uh across devices uh during parallel parallel training.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "Uh since model states consist of one or more tensors, uh we can derive the state redundancy based on tensor uh redundancy. In AdaCheck, we classify state redundancy into three types: uh full redundancy, par- partial redundancy, and no redundancy.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "And considering that the state redundancy model parameter and their corresponding optimizer states may differ and given that both uh must be preserved to ensure uh checkpoint usability, we compute the intersection of state redundancy between uh par-",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "parameter and their optimizer states. Uh this intersection determines uh whether a parameter and uh optimizer state pair should be included in the checkpoint. For example, if the intersection has no redundancy, uh both the parameter and",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "its optimizer state are stored in the checkpoint. Uh to efficiently obtain tensor redundancy, uh we propose a tensor redundancy detector. Uh this detector uh for first hashes the value of each tensor, then ag- aggregates all hash",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "values from a device into a packed tensor. Uh this tensor is exchanged among devices to determine tensor redundancy. To accelerate this comparison process, we implement two optimizations. First, uh comparisons are uh performed only among devices with the same",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "communication group. Second, uh ring-based communication algorithm is uh applied to reduce redundant comparisons. As shown in the figure below, uh when comparing using the ring-based uh algorithm in the right half with a communication group size of four, all",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "parallel tensor redundancy results are computed in the first half of steps. In the second half, uh instead of uh transmitting the packed tensor devices directly, uh propagate the already computed tensor redundancy results, eliminating",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "redundant uh comparison and accelerating the overall process. Uh next is the online redundancy utilization method. We observe that change change in model states across training iteration are uh driven by gradients. Uh this insight leads us",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "to the idea of storing only uh gradients in mixed uh precision training, storing and half precision gradient instead of model uh parameter and their optimizer states uh dramatically uh reduces checkpoint size. Uh built on this, we propose a",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "gradient-based uh incremental checkpointing method. Uh in this method, uh gradients are offloaded to remote CPU memory, and a CPU-based uh optimizer of this model parameter remotely uh remotely, uh thereby reducing the data",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "transfer overhead uh during recovery. Uh in the experimental setup, uh we use both a data center uh data center GPU cluster and a commodity GPU cluster. We evaluate state-of-the-art models uh covering both dense and sparse",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "architecture. We select uh CheckFree and the Gemini as our baseline methods. Experimental results uh show that compared to other methods, uh AdaCheck reduces checkpoint size by 6 to 896 times. Uh and and AdaCheck enables 1S1C checkpointing frequency,",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "uh significantly improving improving the performance of checkpointing systems. And for more details, uh including time complexity and analysis of redundancy detector state redundancy with uh auto-generated parallelism and proof of the recovery",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "probability, please refer to the paper. Uh in summary, this work addresses two key limitations of existing uh checkpointing system. Uh based on these limitations, uh the key idea of this work is utilizing state redundancy across parallelism model architectures",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "and training iterations to reduce checkpoint size and improve a checkpointing frequency. To achieve this target, we develop AdaCheck, which uh comprise this uh three core components: an offline redundancy utilization method,",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "a tensor redundancy detector, and an offline redundancy utilization method. Experiment demonstrate that AdaCheck significantly reduces uh checkpoint size. Okay, thanks for your attention. Please uh feel free to contact uh Weijie Liu",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "via email if you have any questions. Thank you.",
+      "start": 288,
+      "duration": 6
+    }
+  ]
+}

@@ -189,3 +189,55 @@ def pre_dispatch_json(sid: str, action: str) -> str:
     """JSON-serializable wrapper for shell integration."""
     d = pre_dispatch(sid, action)
     return json.dumps(d.to_dict())
+
+
+def _append_event(event: Dict[str, Any]) -> None:
+    events_path = os.path.join(HARNESS_DIR, "events.jsonl")
+    os.makedirs(os.path.dirname(events_path), exist_ok=True)
+    payload = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        **event,
+    }
+    try:
+        with open(events_path, "a") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logger.warning("events.jsonl write failed: %s", e)
+
+
+def gate_status_transition(sid: str, from_status: str, to_status: str) -> Decision:
+    """Block reviewing->passed when the sprint handoff lacks machine evidence."""
+    if from_status != "reviewing" or to_status != "passed":
+        return Decision(action="allow", reason="not_evidence_gate_transition")
+    if os.environ.get("EVIDENCE_GATE", "1") == "0":
+        return Decision(action="allow", reason="evidence_gate_disabled")
+
+    try:
+        sys.path.insert(0, os.path.join(HARNESS_DIR, "tools"))
+        sys.path.insert(0, os.path.join(HARNESS_DIR, "lib"))
+        from pane_handoff.evidence_validator import validate_sprint_handoff
+
+        result = validate_sprint_handoff(sid)
+        if result.ok:
+            return Decision(action="allow", reason=result.verdict)
+        _append_event({
+            "event": "handoff_evidence_blocked",
+            "sprint_id": sid,
+            "verdict": result.verdict,
+            "missing": result.missing,
+        })
+        return Decision(
+            action="abort",
+            reason=result.verdict,
+            advisory="handoff lacks machine-readable evidence",
+            pattern="handoff_evidence_blocked",
+            confidence=0.95,
+        )
+    except Exception as e:
+        return Decision(
+            action="abort",
+            reason=f"evidence_gate_error: {type(e).__name__}",
+            advisory=str(e),
+            pattern="handoff_evidence_blocked",
+            confidence=0.5,
+        )

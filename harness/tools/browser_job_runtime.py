@@ -23,11 +23,16 @@ from capability_token import CapabilityToken
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
+HARNESS_STATE_DIR = Path(
+    os.environ.get("SOLAR_HARNESS_STATE_DIR")
+    or os.environ.get("BROWSER_AGENT_STATE_DIR")
+    or (HOME / ".solar" / "harness")
+)
 BROWSER_JOBS_DIR = HARNESS_DIR / "run" / "browser-jobs"
 OPERATOR_RESULTS_DIR = HARNESS_DIR / "run" / "operator-results"
 BROWSER_USE_ROOT = HOME / ".claude" / "mcp-servers" / "browser-use"
 BROWSER_USE_PYTHON = BROWSER_USE_ROOT / ".venv" / "bin" / "python"
-PROFILE_CACHE_ROOT = HARNESS_DIR / "state" / "browser-profile-cache"
+PROFILE_CACHE_ROOT = HARNESS_STATE_DIR / "state" / "browser-profile-cache"
 _STAGED_PROFILE_PREFIX = "browser-use-user-data-dir-"
 _RESTORE_ARTIFACTS = {
     "Current Session",
@@ -119,10 +124,9 @@ def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Opti
     if secrets_requested:
         if not capability_token:
             raise PermissionError("Denying browser job submission: secrets/credentials access requested but no capability token provided")
-        token_dict = capability_token.to_dict()
-        secrets_allowed = token_dict.get("secrets", {}).get("allowed", False) or \
-                          token_dict.get("file_scope", {}).get("secret_paths_allowed", False)
-        if not secrets_allowed:
+        secret_ref = str(envelope.get("secret_ref") or envelope.get("secret_form") or "*")
+        decision = capability_token.check_secrets(secret_ref)
+        if not decision.allowed:
             raise PermissionError("Denying browser job submission: secrets/credentials access requested but capability token denies it")
 
     # 3. Deny destructive actions unless explicitly allowed by token
@@ -137,10 +141,14 @@ def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Opti
     if destructive_requested:
         if not capability_token:
             raise PermissionError("Denying browser job submission: destructive action requested but no capability token provided")
-        token_dict = capability_token.to_dict()
-        destructive_allowed = token_dict.get("file_scope", {}).get("destructive_allowed", False) or \
-                              token_dict.get("shell_scope", {}).get("destructive_commands_allowed", False)
-        if not destructive_allowed:
+        target_path = str(
+            envelope.get("destructive_path")
+            or envelope.get("path")
+            or envelope.get("target_path")
+            or "/"
+        )
+        decision = capability_token.check_file("destructive", target_path)
+        if not decision.allowed:
             raise PermissionError("Denying browser job submission: destructive action requested but capability token denies it")
 
 

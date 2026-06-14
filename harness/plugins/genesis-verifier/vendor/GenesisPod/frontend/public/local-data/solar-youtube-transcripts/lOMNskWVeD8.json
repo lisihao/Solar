@@ -1,0 +1,1044 @@
+{
+  "videoId": "lOMNskWVeD8",
+  "title": "Stanford CS221 | Autumn 2025 | Lecture 9: Policy Gradient",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 53118,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T0",
+  "transcriptText": "So we're in the midst of talking\nabout reinforcement learning.\nLast time we introduced\nthe basic reinforcement\nlearning algorithms.\nAnd this is going to be the\nsecond lecture on reinforcement\nlearning where we generalize\nto larger state space models\nand we explore\npolicy-based algorithms\nthat will allow you to\nlearn the policy directly.\nSo this is going\nto bring us closer\nto the state of the art of\nwhat people are actually doing\nin reinforcement learning.\nWe started with MDPs.\nWe understood what they are.\nWe looked at Q-learning and\nSARSA and all these things.\nAnd now we're building\nup to hopefully\nby the end of this\nlecture, you'll\nhave the key ingredients\nto understand basically\nany cutting edge RL algorithm.\nSo let's start by reviewing\nreinforcement learning.\nSo remember\nreinforcement learning\nis more of a setting\nthan necessarily\na particular algorithm.\nAnd the setting is very elegant.\nIt's in some sense, the most\ngeneral way to I think about AI.\nYou have an agent.\nAgent takes actions\nin environment.\nAnd environment gives\nrewards and observations back\nto the agent.\nAnd along the way,\nthe agent is meant\nto make sense of the\nreward and observations\nand choose better actions\nfor subsequent iterations.\nSo what we'll study,\nthe environment\nis defined by a Markov\ndecision process.\nRemember the flaky\ntram, MDP problem\nwhere the goal is to\ngo from location one\nto location six in this\ncase where the tram can\nfail with probability 0.1.\nWalking goes you\nfrom I to I plus 1,\ntram goes from I to 2 times I.\nAnd the agent in this setting\nis going to be an RL algorithm.\nAnd we looked at multiple\nRL algorithms last lecture,\nin particular, we\nlooked at Q-learning\nwhere you define some\nexploration policy which\nmight walk or tram randomly.\nAnd then we looked\nat epsilon-greedy\nwhere the exploration\nthe get action function\nwould either choose to explore\naccording to this policy\nor exploit the policy that\nit's learning along the way.\nAnd then the learning\nrate governs how quickly\nthe RL algorithm is taking\nsteps to estimate its Q values.\nSo the RL algorithm, and here's\none in example interaction looks\nlike.\nThis is from the\nagent's perspective.\nSo remember last time there\nwas a simulate function which\ncalled the environment\nand called the agent,\nbut I'm inlining this\ntrace to see what\nthe agent would be called with.\nSo initially you\nstart in state 1.\nSo the environment says give\nme the action at state 1.\nAnd then the action goes\ninto the environment.\nAnd then the\nenvironment comes back\nwith says, OK,\nhere's what happened.\nYou were in state 1.\nYou walked to state 2.\nYou got a minus 1 reward\nand you haven't ended yet.\nSo now the environment\ncalls the agent\nwith get action at state 2.\nAnd then the agent\nmight go and let's\nsay returns walk and ignore\nthis tram that's out of date.\nAnd the environment\nwould say, OK, agent.\nHere's what happened.\nYou were in state 2.\nYou got into state\n3 reward minus 1.\nYou still haven't ended.\nAnd then it will call the\nagent again and say, agent,\nin state 3 what would you do?\nAnd the agent might say, I'm\ngoing to take the tram now,\nand then the\nenvironmental update\nand say, OK, agent,\nin state 3, you\ntook the tram, you\nend up in state 6,\nand you got a reward of\nminus 2, and now you're done.\nSo this is a particular rollout.\nAnd each rollout\ngenerates a utility\nwhich is a number which\nrepresents the discounted\nsum of rewards.\nSo you take these three rewards.\nAnd if the discount is 1, then\nthe utility is minus 1, minus 1,\nminus 2.\nSo in particular, it's important\nto remember the isolation here.\nThe RL algorithm\ndoesn't see the MDP.\nWe're not passing the MDP\ninto the RL algorithm.\nIt just sees--\neverything it sees\nis through get action\nand incorporate feedback,\nin particular,\nincorporate feedback.\nThat's the glimpse\nof the world it sees.\nAnd it's using that\nfeedback to try\nto figure out what to do next.\nSo if you generate a ton of\nrollouts, let's say 20 rollouts,\nand you average the utilities\nof all those rollouts, that\ndefines the value of this RL\nalgorithm against this MDP.\nSo remember, a policy is a fixed\nmapping from states to actions.\nOur RL algorithm is\nthat dynamic object\nthat will update\nits internal policy\nas it learns from interacting\nwith the environment.\nSo that's the RL setting.\nIn order to define\nalgorithms, RL algorithms,\nit's useful to define a bunch\nof different types of values.\nWe saw all four values.\nLet me just put them here just\nso we have a reference here.\nAnd a value is synonymous\nwith expected utility.\nSo we first saw v pi of s.\nThis is a number that represents\nthe value of following policy pi\nfrom state s.\nIf I got dropped\ninto state s and I\nfollow policy pi, infinite\nnumber of rollouts,\nwhat would be the\nexpected utility, that's\nwhat that number represents.\nq pi s a is the\nvalue of, in state\ns of first taking state action\na, and then following policy pi.\nRemember these are the Q's\nare on the chance node.\nThese are on the state nodes.\nAnd now if you replace\nthe pi with stars,\nwe're basically saying take\nthe optimal policy and do that.\nSo v star is the value of\nfollowing the optimal policy\nfrom state s.\nAnd q star is first taking an\naction a and then following\nthe optimal policy.\nSo now we define\nall these values--\nthere's a question\nof how do you--\nwhat is your RL algorithm?\nTo model or not to model?\nSo if your model\nbased that means\nyou first estimate the MDP.\nAnd we saw how to\ndo that last time.\nYou just count the\nnumber of transitions\nand record the rewards\nthat you see along the way.\nAnd then you compute the optimal\npolicy using value iteration.\nAnd then what we saw was the\nfirst type of model free method,\nwhich is a value-based\napproach where we don't bother\nto estimate the transitions\nand rewards directly,\nwe don't estimate\nthe MDP, instead\nwe estimate the\nQ-values directly.\nAnd then once you\nhave the Q-values,\nif you have this\nQ-value, you basically\nlook at the action that\ngives you the highest Q,\nand that's your policy.\nSo going from Q to policy is\nrelatively straightforward.\nGoing from reward\nor MDP to Q-values\nis not as straightforward.\nSo for the value-based\nmethods, the general form\nof the algorithms, and this\napplies to model-free Monte\nCarlo, SARSA, and Q-learning,\nis we're estimating some--\nwe're estimating Q(s, a).\nAnd when we get a\npiece of feedback,\nwe have some new point of view\non what Q of s a should be.\nNo one tells us\nQ(s, a) directly,\nbut we have some noisy estimate.\nAnd we're going to\ncall that a target.\nAnd the target is an\nestimate of the utility.\nAnd then when we do the update,\nwe basically simply take our old\nQ(s, a) and we move it in\nthe direction of the target\nby an amount that depends\non the learning rate.\nSo if the target\nis already Q(s, a),\nthen this doesn't do anything.\nBut if the target\nis above Q(s, a),\nthen we're going to nudge\nit towards target in that\ndirection.\nSo a few more things.\nSo there's a question\non-policy or off-policy.\nSo what does this mean?\nSo in general in\nRL algorithm, you\nare following some policy,\nlet's call that the exploration\npolicy, to generate rollouts.\nThis is a policy that's\ngiving rise to the feedback.\nNow using that\nfeedback, the algorithm\nis going to estimate the Q\nvalues of a policy, which\nwe call the estimation policy.\nSo in on-policy, all it means\nis that the exploration policy\nand the estimation\npolicy are the same.\nSo the data that you get\ncomes from the policy\nthat you're trying to estimate.\nAnd off-policy just means that\nthe data that you generate\nis from a policy that's\nnot the estimation policy.\nSo when we looked at SARSA,\nthat is an on policy algorithm,\nbecause SARSA tries to\nestimate q pi, which\nis the Q-values of the\npolicy that you're following.\nAnd Q-learning was\noff-policy because you're\ntrying to estimate q star.\nSo in Q-learning, the\nreally interesting thing\nis that you could be\nfollowing a random policy,\nbut you're estimating the\nQ-values corresponding\nto the optimal policy.\nSo off-policy algorithms\nare very, very nice\nbecause then in\nsome sense, you can\ntake data that comes\nfrom some source,\nand then use it to estimate\na policy that you want,\nwhich is often going to\nbe the optimal policy.\nSo what to use as targets?\nSo remember the general\nform of the algorithm\nis that you're\ngoing to estimate q\nand you're going to\nupdate towards the target.\nSo there's two\nthings we looked at.\nOne is full rollouts, which\njust means that from state s,\nyou actually roll out all\nthe way to an end state.\nAnd then you take the\ndiscounted sum of rewards,\nand that's a utility.\nAnd that number is what you use.\nBut the problem with\nthat is that you\nhave to wait until the end\nto get a number that you\ncan estimate earlier on.\nAnd bootstrapping says,\nlet's not wait until the end.\nI'm just going to\nget initial reward.\nAnd then instead of\nrolling out to the end,\nI'm just going to use\nmy current estimate\nto estimate what future\nutility I'm going to get.\nSo I'm bootstrapping my\nutility from a model estimate.\nSo in light of all\nthese concepts,\nwe can now think about\nthe four algorithms\nthat we looked at last time.\nWe first looked at\nmodel-based value iteration\nwhere we estimate the\nMDP first and then\ncompute the optimal policy\nusing value iteration.\nWe then looked at\nmodel-free Monte Carlo.\nAnd this says basically\nyou follow some policy pi.\nWe're going to just look\nat the full rollouts\nfrom a particular state and\ntaking a particular action,\nand set target\nequal that utility.\nSo there's no bootstrapping.\nI'm just using the Monte\nCarlo estimate of the utility.\nSARSA says, I'm going to\nstill try to estimate q pi,\nso I'm on-policy, but I'm going\nto use bootstrapping where\ninstead of using a\nutility, I'm going\nto take the initial reward\nand then a discounted\nand I substitute here the\nQ-value of the successor state.\nSo I don't bother to\nroll out and figure out\nwhat happened at the end.\nI'm just going to\nuse the Q-value.\nAnd then Q-learning is\nalmost the same thing,\nbut with one small\nchange, now I'm\nestimating the value\nof the optimal policy.\nSo this is an\noff-policy algorithm.\nIt's still using\nbootstrapping which\nis why it looks like SARSA.\nAnd the only\ndifference is I stick\na max over a here instead of\nletting a prime be pi of s a--\npi of s prime.\nSo I know that was a lot.\nHopefully what I'm\ntrying to do is\ntry to break it down\ninto essentially\nthe principal components--\noff-policy versus on-policy.\nModel-based versus\nnon-model based.\nBootstrapping versus not\nbootstrapping and so on.\nSo that you can see\neach of these algorithms\nnot as an isolated thing, but\nsee the rich interconnections\nbetween them.\nYeah, so the question\nis, when would you\nchoose SARSA, let's\nsay, versus Q-learning?\nSo the difference between them\nis on-policy versus off-policy.\nI think the short\nanswer is it depends\non your particular application.\nBut the nice thing\nabout off-policy\nis that you can explore\nmore aggressively\nand still be\nguaranteed that you're\nestimating the optimal policy.\nWhereas if you use SARSA\nas you run the algorithm,\nyou essentially have\nto play much closer\nto the optimal policy,\nbecause otherwise,\nyou would be estimating\nthe q pi of the wrong, not\nthe optimal pi.\nSo the question is,\nwhat's the difference\nbetween SARSA and Q-learning,\nand what does this really mean?\nSo remember this target\nis what is computed when\nyou do incorporate feedback.\nAnd incorporate feedback,\nyou compute the target\nand you update the Q-values.\nThe get action is actually the\nsame for SARSA and Q-learning.\nIf you do epsilon greedy,\nyou either explore\nor you take the current Q-value\nand choose the best action\nfrom there.\nSo now if you look at\nthis, in some sense,\nit's the same\ndifference as if you\nremember when we looked at\npolicy evaluation and value\niteration.\nIn policy evaluation,\nthe recurrence\nis essentially taking\nthe single action\nthat is given by the policy.\nAnd in value iteration,\nyou're taking\na max over possible actions.\nAnd this reflects\nthe objective here.\nSo if you're interested in--\nwhat is the target\nsupposed to represent?\nThe target represents, OK,\nI'm at a particular point.\nI get some reward.\nAnd then I'm going\nto-- q pi means\nI'm following the policy pi.\nSo that's why a prime has\nto come from policy pi.\nWhereas q star means I'm going\nto follow the optimal policy.\nAnd that's why there's\na max over a prime.\nBecause if this were the really\ntrue q star, max over a prime\nwould be the best\naction, and that\nwould be the action taken\nby the optimal policy.\nSo Q-learning is trying to\nestimate the optimal q star\nQ-values.\nAnd the actions\nit takes, well, it\ndepends on the\nexploration policy\nbut it need not be optimal.\nLet me move on.\nSo far we're estimating a\nQ-value for every state action\npair.\nSo this is called\nthe tabular setting\nin reinforcement learning.\nAnd the reason it's called a\ntabular setting is essentially\nyou have a lookup\ntable, literally\na dictionary, how we\nimplemented last time,\nfor every state action pair.\nBut now in real world\nsettings you can't do this.\nFor example, if you're trying\nto learn a robot policy,\nyour state might be an image\nof what the robot sees,\nand your action is\ngoing to be how you're\ngoing to move the robot arm.\nOr if you're doing things\nwith language models,\nyour state might be an entire\nsentence or a paragraph,\nlet's say, and then your action\nis to generate the next token.\nSo in each of these cases,\nthe state space is huge.\nIt's all possible images\nor all possible sentences.\nSo you certainly can't have a\nlookup table for that indexes\nby an image.\nIt just makes no sense.\nSo how should we deal with this?\nAny ideas?\nSo the suggestion is you have\nto reduce the state space.\nYeah, you definitely have\nto reduce the state space\nto maybe some smaller amount.\nAnd then you could do Q-learning\nor whatever on top of that.\nThat's certainly one\nthing you could do.\nI think what we're going to\ndo is to try to get even more\ndirectly at the problem.\nBut I think the intuition of\nstate space reduction is right.\nSo function approximation\nin the context\nof reinforcement\nlearning is used\nto contrast with\ntabular learning.\nSo nowadays with deep\nRL and all these things\nfunction approximation\nis already just a given,\nbecause you have-- whenever\nyou have a large state space,\nthere is no other choice.\nSo remember the tabular setting\nis you have a lookup table\nfor every s, a pair, you\nhave a number Q(s,a) that\nyou're storing.\nAnd function\napproximation says, wait\na minute, what do we learn\nfrom machine learning?\nWhat we learn from\nmachine learning\nis that you can actually learn\nvery complicated functions\nof very high-dimensional inputs.\nSo s and a, let's say they're\nan image or a sentence.\nThere are very large things.\nWe know how to map\nthat into a number.\nSo why don't we\njust parameterize\nthis function with\nsome parameters theta,\nand then try to estimate the\nparameters theta directly\ninstead of--\nestimate the parameters\ntheta instead of trying\nto estimate q directly?\nSo this is the idea behind\nfunction approximation.\nSo we'll see some examples.\nSo now recall the\nmachine learning lecture.\nSo what do we have\nto figure out?\nWe have to figure out what are\nthe possible functions, that's\na hypothesis space\nor hypothesis class.\nHow do we know\nwhether a particular q\ntheta is good or not in the\ncontext of reinforcement\nlearning now?\nAnd what algorithm do you\nuse to reduce the loss?\nSo this should\nall seem familiar.\nAnd essentially we'll be able\nto incorporate many of the ideas\nfrom machine learning\nnow into the RL context.\nSo if you can extrapolate,\ntake everything\nwe learned from\nRL and everything\nwe learned from\nmachine learning.\nAnd we're just going to\nput them together now.\nSo what possible functions\ncan you choose here?\ns and a can be sentences.\nThey could be images.\nSo typically what\nwe're going to do\nis we're going to map this\ninto a vector of features,\nbecause machine learning likes\ntaking vectors and matrices\nand tensors.\nAnd then we could use a\nlinear function, simply\na dot product between some\nparameter vector theta\nand a feature\nvector phi of s, a.\nOr we can use a multilayer\nperceptron, which we saw before.\nWe simply take this vector,\nwe multiply it by a matrix,\nand then we apply\nsome non-linearity.\nAnd then we multiply by\nanother vector or a matrix\nand keep on going.\nI'm not going to talk too much\nabout what are the choices here,\nbut just think about\nthis as a place\nwhere you drop in your\nfavorite model architecture.\nSo let's try to work\nan example of this.\nSo define the same environment\nas before with this MDP.\nAnd now we're going to define\nthe same exploration policy.\nAnd now we're going to do\nparameterize Q-learning.\nAnd for this, so what I'm going\nto do is just for simplicity,\nwe're going to assume that\nthe state action pair just\nmaps into indicator features.\nSo we have one feature for\nevery state action pair.\nSo this will allow us to use\nmachine learning to simulate\nthe tabular setting.\nSo we can just check that\neverything is working.\nBut just in hopefully you\ncan use your imagination\nto drop in other more powerful\nmachine learning models.\nSo here in the class, I'm going\nto have my linear model here,\nwhich maps from\nnumber of features\nto a single scalar\nrepresenting the Q-value.\nAnd then I'm going to\nhave my optimizer handy,\nIt's just going to be SGD.\nSo let's figure out what this\nfeature vector should look like.\nSo conceptually, I'm just\ngoing to map the state action\npair into essentially\na number between 0\nand the number of states times\nthe number of actions minus 1.\nSo that's all this is doing.\nStates are number 1 through 6.\nSo I'm going to make it\n0 through 5, times number\nof actions plus integer\nrepresentation of that action.\nSo in that case, this is 0.\nI create a one hot vector of\nlength number of features.\nSo this is going\nto be the feature\nrepresentation of one walk.\nThis is going to be the feature\nrepresentation of 1 tram,\n2 walk, 2 tram, and so\non until I get to 6 tram.\nSo every state action pair is\njust a different feature vector.\nSo this is all hand coded.\nNo learning here.\nAll right, so now I'm\ngoing to compute Q-values\nof a state and action pair.\nAnd to do that, I'm\nfirst going to map this\ninto a feature vector space.\nAnd then I'm just going to\npass it through the model\nand I get some number out.\nSo that's going to\nbe how I compute\nthe Q-value of a particular\nstate action pair.\nSo now given that I can and I\nknow how to compute Q-values,\nI can compute policies.\nAnd the policy that\nI get at state 1\nis going to be compute\nQ-values for all the actions.\nAnd then choose the action\nthat has the highest Q-value,\nand that's going to\ngive me pi action\nthat I return for my policy.\nI'm showing you essentially\nhow to compute the feature\nvector, the Q, and the pi given\na fixed set of parameters now.\nSo now we have the\nbuilding blocks.\nNow, we can implement get\naction and incorporate\nfeedback which is what every\nRL algorithm needs to do.\nWhat happens now in get_action?\nThis is the same as\nactually before where\nI run epsilon greedy with\nprobability epsilon I explore.\nAnd with 1 minus probability\nepsilon don't explore.\nAnd now let's\nincorporate the feedback.\nEnvironment says,\nI walk to state 2,\nwhat should I do with it?\nSo now I'm going to\ncompute the target.\nSo in order to\ncompute the target,\nI'm going to look at\nself.pi of next state.\nRemember, pie is going to take\nthe argmax over the Q-values,\nand that's going to give\nme the optimal action given\nmy current Q-estimates.\nAnd then I'm going\nto compute the target\nto be the immediate reward\nplus the discounted.\nAnd I'm using bootstrapping.\nSo I'm just plugging in the\nQ-value of the next_state\nand the next_action.\nSo now I have the target.\nI also have the predicted value.\nIf I'm in state and\naction and take action,\nwhat is the value that I expect?\nAnd I want this to\nbe close to target.\nAnd remembering\nregression, what do\nwe do when we want two things\nto be next to each other?\nWe define the loss to just be\nthe standard squared square\nloss, which penalizes deviations\nbetween the prediction\nvalue and the target.\nSo now that I've\ndefined the loss,\nI can just compute the gradients\nwith respect to that loss.\nThis is just standard PyTorch\nand I update the parameters.\nHopefully you can see now how\nthe machine learning enters\nthe reinforcement learning.\nBasically, all the skeleton of\nget_action incorporate feedback,\nand how to Q-learning is\nbasically specifying the target.\nNow given the target, now all\nthis loss calculation and model\narchitecture that's just within\nthe realm of machine learning.\nSo now I did this\nfor Q-learning.\nYou could imagine\ndoing this for SARSA\nor model-free Monte\nCarlo as well.\nAnd it would just plugs in.\nSo now maybe you go back\nand you say get_action.\nAnd now 1 minus\nepsilon probability,\nI'm just going to choose\nthe optimal action\nthat I have so far.\nAnd then I incorporate feedback.\nCompute the target.\nCompute the predicted reward.\nForm the loss.\nCompute the gradient.\nUpdate the parameters.\nAnd then get an action.\nThis time I'm also exploiting.\nAnd then incorporate feedback.\nI'm at the end, so there's no\nnext_state, no next_action.\nSo that's just the reward.\nBut nonetheless,\nthat's still the target\nthat I can update against.\nCompute the loss.\nCompute the gradient of the\nloss and update the parameters.\nAnd if you simulate this 100\ntimes, then you get some weights\nand you get some value.\nLet's look at the optimal\npolicy that has been computed.\nSo what I'm doing here\nis for every state,\nI'm going to call\nthe RL algorithms pi\nfunction to get me what is a\npolicy that has in store for me.\nAnd I guess this time it didn't.\nMaybe I got unlucky here.\nSo this is stochastic.\nSo it didn't actually end\nup with the right policy\nhere because it\nshould have walked,\nwalked, and then took the\ntram, but it didn't do that.\nBut if I ran it for longer, it\nshould do something reasonable.\nSo what I'm doing\nhere with this policy\nis I'm also looking at estimate\nof the optimal values, which\nis taking q state and pi state,\nand then I get these values.\nLet's compare it with the\ntrue values by solving MDP.\nSo remember I had\nthe original MDP,\nI just called value\niteration on it.\nAnd the original MDP is not\navailable to RL algorithm.\nSo I can't do this\nactually in RL algorithm,\nso by doing outside.\nAnd I get the result.\nAnd the result if you\nlook at the actual values,\nthese are the true\noptimal values of MDP.\nThis is what the RL\nalgorithm came up with.\nIt's doing something\nreasonable, but it's off.\nAnd this is the\nactual optimal policy.\nWell, I think I got\nunlucky here because\nin the previous iteration, it\ndid get the optimal policy.\nSo to summarize, what\nwe're talking about\nis function approximation.\nYou have large state\nor action spaces\nand you can't use\nthe tabular setting.\nYou can't just look up all\npossible images or sentences.\nSo what we're going to do is\nparameterize q func value.\nYou by some either linear or\nnon-linear mapping from state\nactions to some value number.\nWe're first going to\nmap a state action\npair into a vector of features.\nAnd then we're going to define\neither a linear function\nor an MLP to map that feature\nvector into a single number.\nWhen we do incorporate\nfeedback, we're\ngoing to define the squared loss\nbetween the predicted Q-value\nand a target, which is given\nto us by the virtue of doing\nQ-learning.\nAnd then we're going to take a\ngradient of this loss function\nwith respect to theta, and\ntake a step in that direction.\nSo the question\nis, why is the loss\nfunction the square difference\nbetween the prediction\nand the target?\nSo the intuition here\nis that the target if--\nso let's see.\nMaybe the easy way\nto explain this\nis that, suppose your target\nin model-free Monte Carlo\nis just a utility that you\nget from a full rollout.\nSo if you did that a million\ntimes and took the average,\nthat average would be\nthe value you would want.\nAnd now so target in some sense\nis representing a noisy version,\nin general, a noisy\nversion of what you want.\nSo when you form\nthe squared loss,\nit's saying like you're\ndoing regression.\nYou're saying I want the\nvalue to be close to target.\nSo now when you update the\nparameters of the model,\nafter you update the\nparameters, the loss goes down.\nAnd the only way\nthe loss can go down\nis value moves closer to target.\nSo the question is,\ndoes this method\nconverge to the optimal value?\nIn general, no.\nIn the tabular setting there\nare some conditions in which\nQ-learning will converge.\nUsually these things look\nlike your exploration policy\nneeds to just be everywhere.\nAnd if that's the case, then I\nthink generally it will be fine.\nBut now if you put it in\nfunction approximation\nin general, there's\nno guarantees.\nYou might be able to get show\nconvergence to a local optimum,\nbut that's maybe less exciting\nthan showing that it's\nfinding the optimal policy.\nSo now we're going to move on\nto a different way of doing RL.\nAnd this is the space\nof policy gradient\nor policy-based methods.\nSo if you remember\nwhere we started,\nwe started with\nmodel-based RL, which\nmeans we estimate the\nMDP first and then\nuse that MDP via value iteration\nto compute the optimal policy.\nAnd then we said, wait a\nminute, we don't need MDP.\nWhy don't we just compute the\nQ-values directly, and then\nusing the Q-values, we\ncan just get the policy\nby taking the action that gives\nus the largest Q-value given\na state.\nThese are called\nvalue-based methods.\nBut now if you're\npaying attention,\nyou said, wait a minute.\nActually, we don't\neven need the Q-values.\nWe can just directly\nestimate the policy.\nWhy don't we just do that?\nAm I just wasting\nyour time here?\nMy answer is short answer is no,\nbut the long answer hopefully\nwill become clear later.\nSo the way to think about a\npolicy is just a classifier.\nWhat is a classifier?\nIt maps inputs to outputs.\nSo everything's a\nclassifier in some sense.\nSo the input here is a state\nand the output is an action.\nSo if you remember the machine\nlearning linear classification\nlecture, we said that, well,\nclassifiers are actually\nreally hard to optimize because\nyou end up with 0, 1 loss\nand the gradient\nis 0 everywhere.\nYou can't do that.\nSo what do we do we made\nprobabilistic classifiers.\nSo we have a probabilistic\nclassifier that takes an s,\na state s, and then\ndefines a distribution\nover possible actions.\nAnd distributions are\ncontinuous and therefore, we\ncan optimize them.\nSo that's the prelude.\nNow, let's talk about imitation\nlearning for a little bit.\nSo if we had demonstrations\nof that policy,\nthis would be actually\nwe could just go home.\nAnd what is the demonstration?\nIt's basically having an expert\nthat gives you a rollout of--\nso this expert came along and\nsaid, OK, here's what you do.\nYou walk to state 2.\nYou walk to state 3.\nYou take the tram to six.\nAnd then if you have that\ndata, you could say, OK, well,\nI'm going to turn that\ninto a bunch of examples\nfor my training algorithm.\nI said, hmm, if the input\nis 1, I want to walk.\nIf the input is\n2, I want to walk.\nIf the input is 3,\nI take the tram--\nthree examples.\nAnd then you could say I'm going\nto define objection function\nj of theta, which is sums\nover all the examples\nand looks at the log\nprobability of an action given\nthe corresponding state.\nSo this is called\nimitation learning,\nbecause you're having an expert\nthat shows you what to do.\nAnd now you just train the\nclassifier to search policy\nto just do whatever\nthe expert said.\nSo for example, this\nis actually done\nin context of what would\notherwise be RL problems.\nSo in robotics, you have\npeople that tell or operate\na robot that says, OK, here's\nhow you pick up the cup\nand put it on the counter\nwithout breaking it.\nAnd in math, companies\nwill hire people\nwho know math to go and solve\na bunch of math problems\nand write nice solutions.\nAnd those are demonstrations\nof what an expert would\ndo in a given state.\nSo you already-- you\ndon't need RL algorithms\nfor imitation learning.\nIt's just supervised learning.\nWell, that was easy.\nBut the problem is,\nwhat happens if you\ndon't have demonstrations?\nRemember the RL framework.\nThe environment is not\nnice enough to give you.\nHere's what you should do.\nThe environment is cruel.\nIt'll just give you\nreward or no reward.\nSo all we have this\nreward function.\nSo what should we do?\nYeah, you can explore.\nGreat.\nSo all you can do essentially\nis, roll out your policy,\nget some data, but you don't\nwant to just roll out and then\njust clone that data.\nYou just don't want to do\nwhatever that data tells you.\nBut along with that data,\nit told you essentially\nhow good that outcome was.\nAnd so a crude thing\nyou might think about\nis, well, I'm going to roll out,\nand some of the trajectories\nare going to be good and some\nof them are going to be bad,\nand I'm just going\nto take the good ones\nand then do imitation learning.\nAnd you wouldn't be too far\noff from what actually happens.\nSo if you remember--\nif you just want\nto remember the zeroth order\nthing in policy gradient,\nyou basically just\nroll out your policy.\nYou collect a bunch of rollouts.\nAnd you take the ones\nthat have high reward\nand you do imitation\nlearning on them.\nIn the rest of the\nlecture, I'm going\nto give you something\na bit more nuanced\nthan that with more math,\nbut the intuition hopefully\nis clear.\nAll right, so let's\nget going here.\nSo we have this rollout.\nThere's going to be more\nmath in this section than\nin previous sections,\njust so you're aware.\nPut on your math thinking caps.\nSo we have this rollout\nI'm going to use tau.\nTau stands for trajectory.\nI'm using the term rollout.\nI think rollout trajectory\nepisode you can maybe\nthink interchangeably.\nSo a rollout says it's\nbasically state action\nreward, state action reward,\nstate action reward state.\nSo a concrete rollout\nlooks like the thing\nthat we've been\nlooking at before where\nyou have a walk, walk, tram.\nAnd remember each rollout\nproduces a utility.\nSo that's standard.\nNow, what is the\nprobability of a rollout?\nWhat I mean by this is,\nwhat is the probability\nthat this thing happened?\nAnd by the chain rule,\nwe can write this down\nas a set of conditional\nprobabilities.\nIt's the probability\nof starting s_0.\nIn our settings, it's\nbeen deterministic.\nSo this is just one assuming\nthe first element of tau is s_0.\nAnd then the first thing is\nthat there is a policy pi theta.\nWhat is the probability of\npicking the first action given\ns_0, and then times the\ntransition probability from s_\nand a_1 transitioning\ninto state s_1.\nAnd now it's agent's turn\nprobability of a_2 given s_1.\nAnd environments turn\nprobability of s_2 given s_1\nand a_1.\nAnd then this agent's\nturn and the environment's\nturn and so on.\nSo the probability\nof a trajectory\nis this interleaved\nsequence of probabilities\nof the agent policy, environment\ntransition, agent transition,\nagent transition.\nSo the components are\njust to say it again,\nthere's a policy term.\nAnd then there's the\ntransition distribution term.\nNow, if you just\nthink about what\nwe're trying to do in\nreinforcement learning,\nall we're doing\nis trying to find\na policy that maximizes the\nexpected utility of a rollout.\nSo I can just write\nthat down directly.\nSo v stands for value of\ntheta, and theta remember\nare the parameters\nof the policy, is\nequal to the expectation\nof the utility of tau,\nexpected utility.\nAnd if I write that down,\nit's basically thinking well,\nwhat is the expectation over\nall possible trajectories tau,\nand the probability of that\ntrajectory times the utility\nof that tau trajectory.\nSo there could not possibly\nbe a more direct statement\nof what RL should be doing.\nYou're literally saying,\nexpected utility,\nand we just want\nto optimize this.\nSo no MDPs.\nNo Q-values.\nThis is in some sense, the\nmost direct thing you can do.\nNow, how do you optimize this?\nWe've only learned one way to\noptimize a function basically,\ngradient descent.\nSo let's just take the gradient.\nThis expectation here, that\nmight be a little bit annoying,\nbut let's do it anyway.\nSo let's take the gradient of\nv theta with respect to theta.\nSo gradient v, I'm just\nwriting down the definition\nof v so far so good.\nI'm going to expand the\ndefinition of expectation\nto be this explicit sum over\np theta of-- let me just\nmake this larger.\nHelp the audience in the back.\nSo this is the expectation\nover all trajectories.\nSo this is sum over\nall trajectories.\nProbability of that\ntrajectory times utility\nof that trajectory.\nSo these are just definitions.\nI'm going to move the gradient\ninside the expectation\nor the sum because\nyour gradients are\na linear operation.\nSo now I'm going\nto do something.\nSo what is the\ngradient of p theta?\nAnd you're probably like, well,\nit did depends on what p theta.\nIt's just like sum it's\nthe gradient of p theta.\nBut what I'm going\nto do is something\nthat might look a little\nbit strange at first.\nI'm going to rewrite it as p\ntheta times the gradient of log\np theta.\nSo you're wondering, OK,\nwhere did that come from?\nIt comes from-- let's see.\nLet's do it this way.\nSo what is the\ngradient of log of--\nOK, let me just write it down.\nSo what's it's the gradient\nwith respect to this?\nSo remember the\ngradient of a log\nis one over that quantity\ntimes the gradient of whatever\nis inside.\nAnd then all I do is\nmove this over here.\nAnd that's how I write this in\nterms of p theta times this.\nAnd there's a reason\nto this madness.\nWhy am I doing it like this?\nIt's because now\nI have something\nthat's sum over\ntrajectories times p\ntheta of that trajectory.\nAnd I can neatly wrap that\nup back into an expectation.\nSo whenever you see\nthis expectation,\nyou should think about it as\nsummation over trajectory times\nprobability of that trajectory.\nSo now I have the\ngradient of this thing\nabove which wasn't maybe\nobvious how to differentiate.\nNow, I've written it into\nthis expectation where I have\nthe gradient of this quantity.\nAnd this identity is now called\nthe policy gradient theorem.\nBut it's elementary.\nSo I just call it the identity.\nIt's not really.\nIt doesn't deserve\nto be called theorem.\nSo this is actually\ngood because in general,\nwhenever you see an expectation\nand you want to compute it\nand you can't\nbecause it requires\nsumming over all possible\ntrajectories, you can think,\nmaybe I can just take a\nrandom sample from that.\nSo that's what we're\ngoing to do here.\nWe're going to replace this\nexpectation with just a sample.\nSo instead of summing over\nall possible trajectories\nand weighting by the\nprobability of that trajectory,\nI'm just going to\nsample a trajectory.\nAnd then I'm going to define\nan objective function j now,\nwhich is just this thing\non the inside log p theta\ntau times utility tau.\nAnd then can just\ntake update theta\nby taking a step in the\ndirection of this gradient.\nLet me just pause here.\nI'll just summarize.\nWe started with this\nundisputable goal\nof maximizing expected utility.\nI did some-- said\nOK, we only know\nhow to optimize things by\ntaking the gradient right now.\nSo let's just take the gradient.\nThe gradient is actually\nan expectation of stuff.\nAnd it said, hmm, you\ncan just take a sample\nto approximate the\nfull expectation.\nAnd now we're going to define\nthis objective function whose\ngradient is exactly\nthe thing inside.\nSo maybe just to\nforeshadow some stuff.\nWhat this is basically saying\nis that go ahead, explore,\ndo your rollouts.\nOnce you get a rollout, I'm\nlooking at basically this term\nand weighting it by\nthe utility of that.\nAnd then just updating it.\nSo if I didn't\nhave this utility,\nI would just be doing\nimitation learning.\nJust maximize the probability\nof the trajectories I saw.\nBut now with the utility,\nit's sensitive to essentially\nhow good this trajectory is.\nSo I think something got a bit\nmessed up in the formatting\nhere.\nBut if you think about\nunpacking this gradient term,\nthis is going to be\nutility times the summation\nover all time steps of the\nprobability of an action given\nthe preceding state of\nover all time steps.\nAnd this is known as the\nreinforcement learning--\nsorry, reinforce algorithm,\nwhich comes from Williams '92.\nIn an instance of this general\nclass of policy gradient\nalgorithms, but\nreinforces perhaps\nthe earliest and simplest one.\nAnd like I said before,\nthe intuition here\nis that we're essentially\nperforming imitation learning\non demonstrations, which\nwe know and understand,\nfrom demonstrations come\nfrom our own policy,\nbut they're weighted\nby the utility.\nAnd if the utility were just\n0 or 1 basically success\nor failure, then this\nis just imitation\nlearning on the\nsuccessful demonstrations.\nSo the intuition that\nI mentioned earlier,\nwhich is do a bunch of\nrollouts of your policy\nand then just take\nthe ones that are good\nand do imitation\nlearning is exactly what\nreinforce would do\nin the special case\nwhere all the\nutilities are 0 and 1.\nNow if they're not 0 and 1,\nthen you have a little bit more.\nIf it's utility is\n0.5, then it's saying,\nwell, I have a weight of 0.5\non that example a trajectory.\nAnd the volatility is minus 10,\nthen I'm running away from that.\nI'm saying don't do that.\nDon't do that.\nWhat is this utility?\nWhere is it defined?\nSo the utility of a\nrollout if you remember\nis the sum of the\ndiscounted rewards.\nSo when you have a rollout,\nit's just minus 1 times discount\ntimes minus 1 plus discount\nsquared times minus 2.\nSo hopefully, this should\nbe pretty intuitive policy\ngradient.\nJust to summarize.\nOptimize policy, directly to\nmaximize expected utility.\nDue to the policy gradient\ntheorem or identity,\nwe can compute an unbiased\nestimate of the gradient\nby sampling a single trajectory,\nand then just updating that.\nAnd the algorithm is you\nsample a rollout, which\nmeans that your on-policy.\nAnd then updating\neach state action\npair in the rollout\nweighted by the utility.\nSo now that we've gone\nthrough the math, let\nme try to implement it now.\nSo we start with the same MDP.\nAnd now I have reinforced.\nNote that, we don't need the--\nOK, so reinforce.\nNow I have a model that is going\nto essentially classify from map\nfrom states to actions.\nSo it's a probabilistic\nclassifier\nover number of actions.\nSo that's why it's a matrix\nnow because I'm multi-class.\nAnd I have the\noptimizer as before.\nNow, like in\nmodel-free Monte Carlo,\nwe're going to keep track\nof the current rollout\nas we get incorporate feedback.\nBecause in the current\nalgorithm as I defined,\nyou have to wait until\nyou get the utility.\nSo notice that we don't\nneed an explicit exploration\npolicy because we're defining\nthese probabilistic policies\nnow.\nAnd that should give\nus some exploration.\nNow, you could also add\nadditional exploration\nas you want, but we don't\nabsolutely need to here.\nSo let's define-- let's\npeek at what get_action\nand incorporate feedback do.\nSo get_action, I'm going to\ncompute feature representation\nof the state, which is going to\nbe a one hot vector representing\nto the state here.\nI'm going to pass this feature\nvector through my linear matrix,\nand that's going to\ngive me some logits.\nAnd then I'm going to\ntake the softmax, that's\ngoing to be giving me a\nprobability distribution\nover these actions.\nAnd then I'm going\nto sample according\nto those probabilities.\nAnd then I'm going to get\nthe action and return it.\nSo all get_action\nis doing is what\nyou would do in classification\nwhere you compute the logits,\nget the distribution.\nAnd now I'm sampling\nfrom that distribution.\nSo now what does\nincorporate feedback do?\nLike in model-free\nMonte Carlo, we're\njust going to remember\nthe rollout in general.\nSo remember the start state.\nKeep track of the utility.\nAdd to the rollout.\nIf I'm not at the end,\nI don't do any updates.\nI'm going to state get action,\nincorporate feedback, get\naction.\nAnd now the last time when\nI incorporate feedback,\nI'm at the end.\nSo here is my rollout.\nAnd now I want to\nupdate the parameters.\nSo I'm going to keep\ntrack of the loss.\nI'm going to go through\neach step of the rollout.\nEach step of the rollout\ngoes from some state\nto a particular action.\nSo the first time it will\nbe state 1 to taking walk.\nSo remember, this is\nthe input and this is\nthe output of the classifier.\nSo I'm going to now compute\nthe model's prediction\nof the action given the state.\nSo compute the feature vector.\nCompute the logits.\nAnd now remember in\nmulti-class classification,\nI compute the cross\nentropy between the logits\nand the target, which is just a\none hot encoding of the action\nin this case walk.\nAnd then I add that loss.\nSo I want these logits\nto match the target here.\nThe form of the\nalgorithm is the same.\nSo you go through\nthe second step.\nYou add your cross entropy\nterm for the second step.\nAnd then you go\nthrough the third step.\nAnd then you add the cross\nentropy term for the third step.\nI should be multiplying\nthe loss by the utility.\nSo now you update\nyour parameters.\nCompute the gradients of this\nloss and then take a step.\nAnd now these are the\nupdated parameters.\nSo let's see what\nhappens if I run it.\nSo I get some.\nHere the weights.\nGet some value.\nI think it seems to have\nworked even though I messed up\nthe algorithm.\nInteresting.\nSo it learned a distribution\nwhere in state 1 I should walk.\nState 2 I should walk.\nState 3 I should take the tram.\nState 4 walk.\nState 5 walk.\nStay 6 walk.\nAll right, I guess state\n6 is the end state.\nSo these values\nare just arbitrary.\nSo in summary, get action,\njust samples from the policy.\nAnd incorporate feedback\nupdates the parameters\nof state action in the rollout\nand weighting by utility\nwhich I didn't do,\nbut you should do.\nThis is online.\nAll RL algorithms are\ngenerally online unless it's\noffline RL algorithm.\nBecause whenever you're\ndoing this, it's online.\nYou're getting an action,\nyou incorporate the feedback.\nYou get action, you\nincorporate feedback and so on.\nAnd here this is\njust one rollout\nand I'm already\nupdating the parameters.\nSometimes you might want\nto have a bunch of rollouts\nand you batch them up.\nSo it looks a little\nbit more offline,\nbut the spirit is online.\nSo the question is, does the\ninitialization of theta matter?\nIn general, it does.\nEven in the standard\nsupervised learning case,\nif you're training a neural\nnetwork that is non-linear,\nthen initialization\nwill affect the outcome.\nI think in\nreinforcement learning\nit matters even more because\nas currently implemented,\nthe initial exploration\npolicy is given by pi theta.\nSo the data you\ncollect will also\nbe governed by the goodness\nof your initial policy.\nAnd in general, you\nwant theta to be\nset probably small so that\nyou get a uniform distribution\nof reactions.\nSo let me talk through a bunch\nof bells and whistles here.\nSo recall the objective--\nmaximize the expected utility.\nSo we can just write it down.\nAnd the policy gradient theorem\nsays, here is the gradient.\nAnd we can't compute\nthe gradient exactly\nbecause that would\ninvolve summing\nover all possible trajectories.\nBut what we've done is\nuse reinforce to say,\nI'm going to get an\nestimate of that gradient\nby just taking one sample and\ncomputing the gradient of that,\nthis one sample.\nBut can you get\nbetter estimates?\nSo to talk about\nwhat better means,\nI'm going to go through\nthis quick detour of talking\nabout variance reduction.\nSo let's consider\na simple setting\nwhere you're just\ntrying to estimate\nthe mean over a set of numbers.\nSo i is the index into the list.\nEvery number has a\nparticular probability.\nSo there's four numbers.\nThis should be 0.25, 0.25.\nProbabilities to sum to 1.\nAnd the points are minus\n4, minus 6, 6, and 8.\nAnd so you want the true\nmean to be basically the dot\nproduct between these vectors.\nAnd we'll just pretend\nthese sum to 1 for now.\nI'll fix that later.\nSo an estimate,\nestimator to be formal,\nis any random variable that\ntries to get close to mu.\nSo remember mu is this\nthing that, let's say, it's\nexpensive to calculate.\nHere it's easy to calculate\nbecause you sum over\n4 for things.\nIn general, you're\ntaking the mean\nover all possible\ntrajectories, which is hard.\nSo each estimator has some\nbias and variance and maybe\nsome also computational\ncost and computing it.\nSo the simple estimate of mu is\nyou just sample a single index\nand you return the\npoint at that position.\nSo you might sample an index.\nAnd then you get the point.\nAnd then you return it.\nSo every time you\ncompute the estimator,\nyou might get a different value.\nAnd then how do we know\nif estimator is good?\nWe have to compute\nits bias and variance.\nSo we're going to-- let's\njust try 1,000 times.\nWe're going to call\nthe estimator function.\nAnd then we look at\nits mean and variance.\nSo here for this\nparticular estimator,\nthe mean is 1, which\nis what it should be.\nSo I guess everything\nnormalizes.\nSo just imagine\nthis is 0.25, 0.25.\nAnd then the variance is\n36, which is not great\nif you think about it.\nSo normally if you're doing\nstochastic gradient descent,\nhigh variance means\nthat it's just\ngoing to take more iterations\nto get to the right answer.\nSo here's another estimator.\nWhy don't we just sample\ntwo points and then just\naverage them?\nSo if you look at\nthat estimator,\nthe mean is roughly the\nsame, but the variance\nis a lot smaller.\nSo in some sense, this is a\nbetter estimate of the mean.\nYou can also make it worse\nif you, let's say, you\nchoose a point and then you just\nadd some random noise to it.\nSo if you do that, then the mean\nwill still be roughly right.\nIt's unbiased, but the variance\nis going to be worse, even worse\nthan the original one.\nSo now here comes the fun part.\nSo now suppose I have this\nmagic function offset pi,\nand this is going to\nhave mean 0, which\nmeans that if I\nsubtract this offset,\nthis is the same as this by\nlinearity of expectation.\nAnd then this part is\n0 so that is the same--\nit has the same mean.\nSo let's suppose I just define\nthis offset to be minus 6,\nminus 6, 6, 6.\nSo I'm going to sample\na particular index.\nAnd instead of taking\njust that point,\nI'm just going to\nremove an offset.\nAnd I'm going to return it.\nSo if I do this one, you'll\nnotice that the mean is good\nand the variance\nsuddenly goes down a lot.\nSo this is magic.\nSo I managed to reduce the\nvariance by a huge amount\nwithout affecting the mean.\nIt's easy to make the\nvariance go down if you\ndon't care about the mean.\nYou just return 0.\nAnd then that's going to give\nyou not a correct answer.\nBut here as long as I pick\nsome function that where\nthe mean is 0, I can add\nit to my estimator and hope\nthat I can reduce the variance.\nSo this is called\ncontrol variance.\nThis is a general idea\nthat's quite powerful.\nSo let's see how-- so going\nback to reinforcement learning\nsetting, how do we find\nan offset that has 0 mean\nand hopefully can\nreduce the variance?\nJust to provide some\nintuition, why is this working?\nThis is working because if\nyou think about the mean is 1,\nso the ones over here\nare too far down.\nAnd the ones that are\nover here are too far up.\nSo what this is doing\nis it's pulling up\nthe ones that are too\nfar down and pulling down\nthe ones that are too far up.\nSo if I have some prior\nknowledge about where\nthe mean might be\nrelative to my points,\nthen I can hope to\nreduce the variance.\nSo here's the key identity.\nSo I'm going to claim that.\nI'm going to define\na function b of s.\nIt can be any function that\nonly depends on the state,\nbut not the action.\nThen I'm going to claim\nthat this quantity holds.\nSo what is this?\nThis is remember--\nthis is the expectation\nof the gradient of the log\npolicy times this baseline.\nAnd this holds for all s and a\nthat's drawn from this policy.\nI haven't proven\nthis, but I just\nwant you to stare at\nthis for a moment.\nAnd if you think about\nwhy this is helpful?\nIf you look here, the policy\ngradient theorem is this thing.\nSo that means if this is\n0, I can just add this\nor subtract this from that.\nAnd I don't affect the\nmean, but I have the chance\nof reducing the variance.\nSo if you remember a\nstar, there is this idea\nthat the heuristics in a star\nare using domain knowledge\nto improve the algorithm.\nAnd if I can estimate\nthe future cost,\nI can really get a\nvery fast algorithm.\nSo this is kind\nof an analogy here\nwhere if I can figure\nout the right baseline,\nthis is called-- this\nb is going to be called\nthe baseline function, I\ncan actually vastly reduce\nthe variance as well.\nSo the proof is fairly\nstraightforward.\nIt goes like this.\nSo let's just take the\nexpectation of b of s.\nThat is some constant\nthat doesn't depend on--\nin particular doesn't\ndepend on theta.\nAnd now I'm going to take\nthe gradient with respect\nto theta of this quantity.\nAnd the gradient is 0.\nActually in the\ninterest of time,\nI'm just going to skip this.\nAnd just trust me\nthat this works out.\nBasically, it's the same\nmath as used for the policy\ngradient theorem, but just\ngoing in the other direction.\nAnd so using this idea\nthere are a few things,\nI just want to highlight them.\nI'm not going to have time\nto go into them in detail.\nThe first is that\nusing baselines.\nSo I can just subtract a\nbaseline from the utility.\nAnd as long as that function\ndoesn't depend on the action,\nthen I'm free to\ndo whatever I want.\nAnd I can come up with\nit can be a model.\nIt can be some\nsort of heuristic,\nand that can reduce\nthe variance.\nAnother thing I\ncan do is instead\nof using the utility\nat each step,\nI can use only the rewards\nfrom that point on.\nAnd this is valid because\nthe past doesn't depend--\nit doesn't affect the future.\nAnd then finally, I can also\nplug-in a biased estimate\nof the value function.\nSo I'm going to estimate,\nI'm going to bring back Q's.\nI'm going to say I am\ndoing policy gradient.\nBut instead of using the\nactual utility, which\nis what I did in\nmodel-free Monte Carlo,\nI'm going to bring\nback the Q's which\nis what I did in these\nbootstrapping methods.\nAnd these methods are\ncalled actor critic methods\nbecause they allow you\nto estimate a value\nand also estimate the\npolicy at the same time.\nAnd in deep learning,\nyou can even\ntie the parameters together.\nTo summarize, the\ngame here is to find\nan estimate of the gradient\nof the expected utility that\nhas low bias and low variance.\nSo by using baselines, this is a\npretty general purpose strategy\nto reduce the variance, but it's\nstill unbiased which is good.\nBias is 0.\nAnd you can also\nuse bootstrapping\nto reduce the variance\nat the cost of some bias.\nAnd then finally, let me\nsummarize this whole lecture\non MDPs and RL.\nSo we looked at three\nclasses of methods\nfor doing\nreinforcement learning.\nModel-based, estimate the MDP,\ncompute the optimal policy.\nValue-based, directly\nestimate the Q-values,\nand derive the optimal policy.\nPolicy-based, just directly\nestimate the policy.\nThe form of the algorithm is\nsimilar in all three cases.\nYou roll out with some\nexploration policy.\nYou form some loss function.\nIt could be in terms of the\nparameters of MDP, Q-values,\nor the policy, and you\nupdate the parameters\nusing a gradient step.\nSo that concludes\nMDPs and RL where\nwe're trying to maximize\nthe expected utility.\nSo what we're going\nto look at is,\nwhat happens if there are\nadversaries in the environment.\nAnd you can't really\nuse expectation anymore.\nYou have to consider what\nhappens in the worst case.",
+  "segments": [
+    {
+      "text": "So we're in the midst of talking about reinforcement learning. Last time we introduced the basic reinforcement learning algorithms. And this is going to be the second lecture on reinforcement learning where we generalize to larger state space models",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "and we explore policy-based algorithms that will allow you to learn the policy directly. So this is going to bring us closer to the state of the art of what people are actually doing in reinforcement learning. We started with MDPs. We understood what they are.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "We looked at Q-learning and SARSA and all these things. And now we're building up to hopefully by the end of this lecture, you'll have the key ingredients to understand basically any cutting edge RL algorithm. So let's start by reviewing",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "reinforcement learning. So remember reinforcement learning is more of a setting than necessarily a particular algorithm. And the setting is very elegant. It's in some sense, the most general way to I think about AI. You have an agent. Agent takes actions",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "in environment. And environment gives rewards and observations back to the agent. And along the way, the agent is meant to make sense of the reward and observations and choose better actions for subsequent iterations. So what we'll study, the environment",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "is defined by a Markov decision process. Remember the flaky tram, MDP problem where the goal is to go from location one to location six in this case where the tram can fail with probability 0.1. Walking goes you from I to I plus 1,",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "tram goes from I to 2 times I. And the agent in this setting is going to be an RL algorithm. And we looked at multiple RL algorithms last lecture, in particular, we looked at Q-learning where you define some exploration policy which",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "might walk or tram randomly. And then we looked at epsilon-greedy where the exploration the get action function would either choose to explore according to this policy or exploit the policy that it's learning along the way. And then the learning",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "rate governs how quickly the RL algorithm is taking steps to estimate its Q values. So the RL algorithm, and here's one in example interaction looks like. This is from the agent's perspective. So remember last time there was a simulate function which",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "called the environment and called the agent, but I'm inlining this trace to see what the agent would be called with. So initially you start in state 1. So the environment says give me the action at state 1. And then the action goes into the environment.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "And then the environment comes back with says, OK, here's what happened. You were in state 1. You walked to state 2. You got a minus 1 reward and you haven't ended yet. So now the environment calls the agent with get action at state 2. And then the agent",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "might go and let's say returns walk and ignore this tram that's out of date. And the environment would say, OK, agent. Here's what happened. You were in state 2. You got into state 3 reward minus 1. You still haven't ended. And then it will call the",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "agent again and say, agent, in state 3 what would you do? And the agent might say, I'm going to take the tram now, and then the environmental update and say, OK, agent, in state 3, you took the tram, you end up in state 6, and you got a reward of",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "minus 2, and now you're done. So this is a particular rollout. And each rollout generates a utility which is a number which represents the discounted sum of rewards. So you take these three rewards. And if the discount is 1, then",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "the utility is minus 1, minus 1, minus 2. So in particular, it's important to remember the isolation here. The RL algorithm doesn't see the MDP. We're not passing the MDP into the RL algorithm. It just sees-- everything it sees is through get action",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "and incorporate feedback, in particular, incorporate feedback. That's the glimpse of the world it sees. And it's using that feedback to try to figure out what to do next. So if you generate a ton of rollouts, let's say 20 rollouts,",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "and you average the utilities of all those rollouts, that defines the value of this RL algorithm against this MDP. So remember, a policy is a fixed mapping from states to actions. Our RL algorithm is that dynamic object that will update its internal policy",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "as it learns from interacting with the environment. So that's the RL setting. In order to define algorithms, RL algorithms, it's useful to define a bunch of different types of values. We saw all four values. Let me just put them here just",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "so we have a reference here. And a value is synonymous with expected utility. So we first saw v pi of s. This is a number that represents the value of following policy pi from state s. If I got dropped into state s and I follow policy pi, infinite",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "number of rollouts, what would be the expected utility, that's what that number represents. q pi s a is the value of, in state s of first taking state action a, and then following policy pi. Remember these are the Q's are on the chance node.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "These are on the state nodes. And now if you replace the pi with stars, we're basically saying take the optimal policy and do that. So v star is the value of following the optimal policy from state s. And q star is first taking an action a and then following",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "the optimal policy. So now we define all these values-- there's a question of how do you-- what is your RL algorithm? To model or not to model? So if your model based that means you first estimate the MDP. And we saw how to do that last time.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "You just count the number of transitions and record the rewards that you see along the way. And then you compute the optimal policy using value iteration. And then what we saw was the first type of model free method, which is a value-based",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "approach where we don't bother to estimate the transitions and rewards directly, we don't estimate the MDP, instead we estimate the Q-values directly. And then once you have the Q-values, if you have this Q-value, you basically look at the action that",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "gives you the highest Q, and that's your policy. So going from Q to policy is relatively straightforward. Going from reward or MDP to Q-values is not as straightforward. So for the value-based methods, the general form of the algorithms, and this",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "applies to model-free Monte Carlo, SARSA, and Q-learning, is we're estimating some-- we're estimating Q(s, a). And when we get a piece of feedback, we have some new point of view on what Q of s a should be. No one tells us Q(s, a) directly,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "but we have some noisy estimate. And we're going to call that a target. And the target is an estimate of the utility. And then when we do the update, we basically simply take our old Q(s, a) and we move it in the direction of the target",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "by an amount that depends on the learning rate. So if the target is already Q(s, a), then this doesn't do anything. But if the target is above Q(s, a), then we're going to nudge it towards target in that direction. So a few more things. So there's a question",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "on-policy or off-policy. So what does this mean? So in general in RL algorithm, you are following some policy, let's call that the exploration policy, to generate rollouts. This is a policy that's giving rise to the feedback. Now using that",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "feedback, the algorithm is going to estimate the Q values of a policy, which we call the estimation policy. So in on-policy, all it means is that the exploration policy and the estimation policy are the same. So the data that you get comes from the policy",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "that you're trying to estimate. And off-policy just means that the data that you generate is from a policy that's not the estimation policy. So when we looked at SARSA, that is an on policy algorithm, because SARSA tries to estimate q pi, which",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "is the Q-values of the policy that you're following. And Q-learning was off-policy because you're trying to estimate q star. So in Q-learning, the really interesting thing is that you could be following a random policy, but you're estimating the",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "Q-values corresponding to the optimal policy. So off-policy algorithms are very, very nice because then in some sense, you can take data that comes from some source, and then use it to estimate a policy that you want, which is often going to",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "be the optimal policy. So what to use as targets? So remember the general form of the algorithm is that you're going to estimate q and you're going to update towards the target. So there's two things we looked at. One is full rollouts, which",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "just means that from state s, you actually roll out all the way to an end state. And then you take the discounted sum of rewards, and that's a utility. And that number is what you use. But the problem with that is that you have to wait until the end",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "to get a number that you can estimate earlier on. And bootstrapping says, let's not wait until the end. I'm just going to get initial reward. And then instead of rolling out to the end, I'm just going to use my current estimate to estimate what future",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "utility I'm going to get. So I'm bootstrapping my utility from a model estimate. So in light of all these concepts, we can now think about the four algorithms that we looked at last time. We first looked at model-based value iteration where we estimate the",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "MDP first and then compute the optimal policy using value iteration. We then looked at model-free Monte Carlo. And this says basically you follow some policy pi. We're going to just look at the full rollouts from a particular state and",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "taking a particular action, and set target equal that utility. So there's no bootstrapping. I'm just using the Monte Carlo estimate of the utility. SARSA says, I'm going to still try to estimate q pi, so I'm on-policy, but I'm going to use bootstrapping where",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "instead of using a utility, I'm going to take the initial reward and then a discounted and I substitute here the Q-value of the successor state. So I don't bother to roll out and figure out what happened at the end. I'm just going to use the Q-value.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "And then Q-learning is almost the same thing, but with one small change, now I'm estimating the value of the optimal policy. So this is an off-policy algorithm. It's still using bootstrapping which is why it looks like SARSA. And the only difference is I stick",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "a max over a here instead of letting a prime be pi of s a-- pi of s prime. So I know that was a lot. Hopefully what I'm trying to do is try to break it down into essentially the principal components-- off-policy versus on-policy. Model-based versus",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "non-model based. Bootstrapping versus not bootstrapping and so on. So that you can see each of these algorithms not as an isolated thing, but see the rich interconnections between them. Yeah, so the question is, when would you choose SARSA, let's",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "say, versus Q-learning? So the difference between them is on-policy versus off-policy. I think the short answer is it depends on your particular application. But the nice thing about off-policy is that you can explore more aggressively and still be",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "guaranteed that you're estimating the optimal policy. Whereas if you use SARSA as you run the algorithm, you essentially have to play much closer to the optimal policy, because otherwise, you would be estimating the q pi of the wrong, not the optimal pi.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "So the question is, what's the difference between SARSA and Q-learning, and what does this really mean? So remember this target is what is computed when you do incorporate feedback. And incorporate feedback, you compute the target and you update the Q-values.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "The get action is actually the same for SARSA and Q-learning. If you do epsilon greedy, you either explore or you take the current Q-value and choose the best action from there. So now if you look at this, in some sense, it's the same difference as if you",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "remember when we looked at policy evaluation and value iteration. In policy evaluation, the recurrence is essentially taking the single action that is given by the policy. And in value iteration, you're taking a max over possible actions. And this reflects",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "the objective here. So if you're interested in-- what is the target supposed to represent? The target represents, OK, I'm at a particular point. I get some reward. And then I'm going to-- q pi means I'm following the policy pi. So that's why a prime has",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "to come from policy pi. Whereas q star means I'm going to follow the optimal policy. And that's why there's a max over a prime. Because if this were the really true q star, max over a prime would be the best action, and that would be the action taken",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "by the optimal policy. So Q-learning is trying to estimate the optimal q star Q-values. And the actions it takes, well, it depends on the exploration policy but it need not be optimal. Let me move on. So far we're estimating a Q-value for every state action",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "pair. So this is called the tabular setting in reinforcement learning. And the reason it's called a tabular setting is essentially you have a lookup table, literally a dictionary, how we implemented last time, for every state action pair. But now in real world",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "settings you can't do this. For example, if you're trying to learn a robot policy, your state might be an image of what the robot sees, and your action is going to be how you're going to move the robot arm. Or if you're doing things with language models,",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "your state might be an entire sentence or a paragraph, let's say, and then your action is to generate the next token. So in each of these cases, the state space is huge. It's all possible images or all possible sentences. So you certainly can't have a",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "lookup table for that indexes by an image. It just makes no sense. So how should we deal with this? Any ideas? So the suggestion is you have to reduce the state space. Yeah, you definitely have to reduce the state space to maybe some smaller amount.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "And then you could do Q-learning or whatever on top of that. That's certainly one thing you could do. I think what we're going to do is to try to get even more directly at the problem. But I think the intuition of state space reduction is right.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "So function approximation in the context of reinforcement learning is used to contrast with tabular learning. So nowadays with deep RL and all these things function approximation is already just a given, because you have-- whenever",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "you have a large state space, there is no other choice. So remember the tabular setting is you have a lookup table for every s, a pair, you have a number Q(s,a) that you're storing. And function approximation says, wait a minute, what do we learn",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "from machine learning? What we learn from machine learning is that you can actually learn very complicated functions of very high-dimensional inputs. So s and a, let's say they're an image or a sentence. There are very large things. We know how to map",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "that into a number. So why don't we just parameterize this function with some parameters theta, and then try to estimate the parameters theta directly instead of-- estimate the parameters theta instead of trying to estimate q directly?",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "So this is the idea behind function approximation. So we'll see some examples. So now recall the machine learning lecture. So what do we have to figure out? We have to figure out what are the possible functions, that's a hypothesis space or hypothesis class.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "How do we know whether a particular q theta is good or not in the context of reinforcement learning now? And what algorithm do you use to reduce the loss? So this should all seem familiar. And essentially we'll be able to incorporate many of the ideas",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "from machine learning now into the RL context. So if you can extrapolate, take everything we learned from RL and everything we learned from machine learning. And we're just going to put them together now. So what possible functions can you choose here?",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "s and a can be sentences. They could be images. So typically what we're going to do is we're going to map this into a vector of features, because machine learning likes taking vectors and matrices and tensors. And then we could use a linear function, simply",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "a dot product between some parameter vector theta and a feature vector phi of s, a. Or we can use a multilayer perceptron, which we saw before. We simply take this vector, we multiply it by a matrix, and then we apply some non-linearity.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "And then we multiply by another vector or a matrix and keep on going. I'm not going to talk too much about what are the choices here, but just think about this as a place where you drop in your favorite model architecture. So let's try to work",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "an example of this. So define the same environment as before with this MDP. And now we're going to define the same exploration policy. And now we're going to do parameterize Q-learning. And for this, so what I'm going to do is just for simplicity,",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "we're going to assume that the state action pair just maps into indicator features. So we have one feature for every state action pair. So this will allow us to use machine learning to simulate the tabular setting. So we can just check that",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "everything is working. But just in hopefully you can use your imagination to drop in other more powerful machine learning models. So here in the class, I'm going to have my linear model here, which maps from number of features to a single scalar",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "representing the Q-value. And then I'm going to have my optimizer handy, It's just going to be SGD. So let's figure out what this feature vector should look like. So conceptually, I'm just going to map the state action pair into essentially a number between 0",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "and the number of states times the number of actions minus 1. So that's all this is doing. States are number 1 through 6. So I'm going to make it 0 through 5, times number of actions plus integer representation of that action. So in that case, this is 0.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "I create a one hot vector of length number of features. So this is going to be the feature representation of one walk. This is going to be the feature representation of 1 tram, 2 walk, 2 tram, and so on until I get to 6 tram. So every state action pair is",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "just a different feature vector. So this is all hand coded. No learning here. All right, so now I'm going to compute Q-values of a state and action pair. And to do that, I'm first going to map this into a feature vector space. And then I'm just going to",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "pass it through the model and I get some number out. So that's going to be how I compute the Q-value of a particular state action pair. So now given that I can and I know how to compute Q-values, I can compute policies. And the policy that I get at state 1",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "is going to be compute Q-values for all the actions. And then choose the action that has the highest Q-value, and that's going to give me pi action that I return for my policy. I'm showing you essentially how to compute the feature",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "vector, the Q, and the pi given a fixed set of parameters now. So now we have the building blocks. Now, we can implement get action and incorporate feedback which is what every RL algorithm needs to do. What happens now in get_action? This is the same as",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "actually before where I run epsilon greedy with probability epsilon I explore. And with 1 minus probability epsilon don't explore. And now let's incorporate the feedback. Environment says, I walk to state 2, what should I do with it? So now I'm going to",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "compute the target. So in order to compute the target, I'm going to look at self.pi of next state. Remember, pie is going to take the argmax over the Q-values, and that's going to give me the optimal action given my current Q-estimates. And then I'm going",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "to compute the target to be the immediate reward plus the discounted. And I'm using bootstrapping. So I'm just plugging in the Q-value of the next_state and the next_action. So now I have the target. I also have the predicted value. If I'm in state and",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "action and take action, what is the value that I expect? And I want this to be close to target. And remembering regression, what do we do when we want two things to be next to each other? We define the loss to just be the standard squared square",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "loss, which penalizes deviations between the prediction value and the target. So now that I've defined the loss, I can just compute the gradients with respect to that loss. This is just standard PyTorch and I update the parameters.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "Hopefully you can see now how the machine learning enters the reinforcement learning. Basically, all the skeleton of get_action incorporate feedback, and how to Q-learning is basically specifying the target. Now given the target, now all",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "this loss calculation and model architecture that's just within the realm of machine learning. So now I did this for Q-learning. You could imagine doing this for SARSA or model-free Monte Carlo as well. And it would just plugs in. So now maybe you go back",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "and you say get_action. And now 1 minus epsilon probability, I'm just going to choose the optimal action that I have so far. And then I incorporate feedback. Compute the target. Compute the predicted reward. Form the loss. Compute the gradient.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "Update the parameters. And then get an action. This time I'm also exploiting. And then incorporate feedback. I'm at the end, so there's no next_state, no next_action. So that's just the reward. But nonetheless, that's still the target",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "that I can update against. Compute the loss. Compute the gradient of the loss and update the parameters. And if you simulate this 100 times, then you get some weights and you get some value. Let's look at the optimal policy that has been computed.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "So what I'm doing here is for every state, I'm going to call the RL algorithms pi function to get me what is a policy that has in store for me. And I guess this time it didn't. Maybe I got unlucky here. So this is stochastic. So it didn't actually end",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "up with the right policy here because it should have walked, walked, and then took the tram, but it didn't do that. But if I ran it for longer, it should do something reasonable. So what I'm doing here with this policy is I'm also looking at estimate",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "of the optimal values, which is taking q state and pi state, and then I get these values. Let's compare it with the true values by solving MDP. So remember I had the original MDP, I just called value iteration on it. And the original MDP is not",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "available to RL algorithm. So I can't do this actually in RL algorithm, so by doing outside. And I get the result. And the result if you look at the actual values, these are the true optimal values of MDP. This is what the RL algorithm came up with.",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "It's doing something reasonable, but it's off. And this is the actual optimal policy. Well, I think I got unlucky here because in the previous iteration, it did get the optimal policy. So to summarize, what we're talking about is function approximation.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "You have large state or action spaces and you can't use the tabular setting. You can't just look up all possible images or sentences. So what we're going to do is parameterize q func value. You by some either linear or non-linear mapping from state",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "actions to some value number. We're first going to map a state action pair into a vector of features. And then we're going to define either a linear function or an MLP to map that feature vector into a single number. When we do incorporate feedback, we're",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "going to define the squared loss between the predicted Q-value and a target, which is given to us by the virtue of doing Q-learning. And then we're going to take a gradient of this loss function with respect to theta, and take a step in that direction.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "So the question is, why is the loss function the square difference between the prediction and the target? So the intuition here is that the target if-- so let's see. Maybe the easy way to explain this is that, suppose your target in model-free Monte Carlo",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "is just a utility that you get from a full rollout. So if you did that a million times and took the average, that average would be the value you would want. And now so target in some sense is representing a noisy version, in general, a noisy",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "version of what you want. So when you form the squared loss, it's saying like you're doing regression. You're saying I want the value to be close to target. So now when you update the parameters of the model, after you update the",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "parameters, the loss goes down. And the only way the loss can go down is value moves closer to target. So the question is, does this method converge to the optimal value? In general, no. In the tabular setting there are some conditions in which",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "Q-learning will converge. Usually these things look like your exploration policy needs to just be everywhere. And if that's the case, then I think generally it will be fine. But now if you put it in function approximation in general, there's no guarantees.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "You might be able to get show convergence to a local optimum, but that's maybe less exciting than showing that it's finding the optimal policy. So now we're going to move on to a different way of doing RL. And this is the space of policy gradient",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "or policy-based methods. So if you remember where we started, we started with model-based RL, which means we estimate the MDP first and then use that MDP via value iteration to compute the optimal policy. And then we said, wait a minute, we don't need MDP.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "Why don't we just compute the Q-values directly, and then using the Q-values, we can just get the policy by taking the action that gives us the largest Q-value given a state. These are called value-based methods. But now if you're paying attention,",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "you said, wait a minute. Actually, we don't even need the Q-values. We can just directly estimate the policy. Why don't we just do that? Am I just wasting your time here? My answer is short answer is no, but the long answer hopefully will become clear later.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "So the way to think about a policy is just a classifier. What is a classifier? It maps inputs to outputs. So everything's a classifier in some sense. So the input here is a state and the output is an action. So if you remember the machine",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "learning linear classification lecture, we said that, well, classifiers are actually really hard to optimize because you end up with 0, 1 loss and the gradient is 0 everywhere. You can't do that. So what do we do we made probabilistic classifiers.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "So we have a probabilistic classifier that takes an s, a state s, and then defines a distribution over possible actions. And distributions are continuous and therefore, we can optimize them. So that's the prelude. Now, let's talk about imitation",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "learning for a little bit. So if we had demonstrations of that policy, this would be actually we could just go home. And what is the demonstration? It's basically having an expert that gives you a rollout of-- so this expert came along and",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "said, OK, here's what you do. You walk to state 2. You walk to state 3. You take the tram to six. And then if you have that data, you could say, OK, well, I'm going to turn that into a bunch of examples for my training algorithm. I said, hmm, if the input",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "is 1, I want to walk. If the input is 2, I want to walk. If the input is 3, I take the tram-- three examples. And then you could say I'm going to define objection function j of theta, which is sums over all the examples and looks at the log",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "probability of an action given the corresponding state. So this is called imitation learning, because you're having an expert that shows you what to do. And now you just train the classifier to search policy to just do whatever the expert said.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "So for example, this is actually done in context of what would otherwise be RL problems. So in robotics, you have people that tell or operate a robot that says, OK, here's how you pick up the cup and put it on the counter without breaking it.",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "And in math, companies will hire people who know math to go and solve a bunch of math problems and write nice solutions. And those are demonstrations of what an expert would do in a given state. So you already-- you don't need RL algorithms",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "for imitation learning. It's just supervised learning. Well, that was easy. But the problem is, what happens if you don't have demonstrations? Remember the RL framework. The environment is not nice enough to give you. Here's what you should do.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "The environment is cruel. It'll just give you reward or no reward. So all we have this reward function. So what should we do? Yeah, you can explore. Great. So all you can do essentially is, roll out your policy, get some data, but you don't",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "want to just roll out and then just clone that data. You just don't want to do whatever that data tells you. But along with that data, it told you essentially how good that outcome was. And so a crude thing you might think about",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "is, well, I'm going to roll out, and some of the trajectories are going to be good and some of them are going to be bad, and I'm just going to take the good ones and then do imitation learning. And you wouldn't be too far off from what actually happens.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "So if you remember-- if you just want to remember the zeroth order thing in policy gradient, you basically just roll out your policy. You collect a bunch of rollouts. And you take the ones that have high reward and you do imitation learning on them.",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "In the rest of the lecture, I'm going to give you something a bit more nuanced than that with more math, but the intuition hopefully is clear. All right, so let's get going here. So we have this rollout. There's going to be more math in this section than",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "in previous sections, just so you're aware. Put on your math thinking caps. So we have this rollout I'm going to use tau. Tau stands for trajectory. I'm using the term rollout. I think rollout trajectory episode you can maybe think interchangeably.",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "So a rollout says it's basically state action reward, state action reward, state action reward state. So a concrete rollout looks like the thing that we've been looking at before where you have a walk, walk, tram. And remember each rollout produces a utility.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "So that's standard. Now, what is the probability of a rollout? What I mean by this is, what is the probability that this thing happened? And by the chain rule, we can write this down as a set of conditional probabilities. It's the probability of starting s_0.",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "In our settings, it's been deterministic. So this is just one assuming the first element of tau is s_0. And then the first thing is that there is a policy pi theta. What is the probability of picking the first action given s_0, and then times the",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "transition probability from s_ and a_1 transitioning into state s_1. And now it's agent's turn probability of a_2 given s_1. And environments turn probability of s_2 given s_1 and a_1. And then this agent's turn and the environment's turn and so on.",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "So the probability of a trajectory is this interleaved sequence of probabilities of the agent policy, environment transition, agent transition, agent transition. So the components are just to say it again, there's a policy term. And then there's the",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "transition distribution term. Now, if you just think about what we're trying to do in reinforcement learning, all we're doing is trying to find a policy that maximizes the expected utility of a rollout. So I can just write that down directly.",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "So v stands for value of theta, and theta remember are the parameters of the policy, is equal to the expectation of the utility of tau, expected utility. And if I write that down, it's basically thinking well, what is the expectation over",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "all possible trajectories tau, and the probability of that trajectory times the utility of that tau trajectory. So there could not possibly be a more direct statement of what RL should be doing. You're literally saying, expected utility, and we just want",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "to optimize this. So no MDPs. No Q-values. This is in some sense, the most direct thing you can do. Now, how do you optimize this? We've only learned one way to optimize a function basically, gradient descent. So let's just take the gradient.",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "This expectation here, that might be a little bit annoying, but let's do it anyway. So let's take the gradient of v theta with respect to theta. So gradient v, I'm just writing down the definition of v so far so good. I'm going to expand the",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "definition of expectation to be this explicit sum over p theta of-- let me just make this larger. Help the audience in the back. So this is the expectation over all trajectories. So this is sum over all trajectories. Probability of that",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "trajectory times utility of that trajectory. So these are just definitions. I'm going to move the gradient inside the expectation or the sum because your gradients are a linear operation. So now I'm going to do something. So what is the gradient of p theta?",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "And you're probably like, well, it did depends on what p theta. It's just like sum it's the gradient of p theta. But what I'm going to do is something that might look a little bit strange at first. I'm going to rewrite it as p theta times the gradient of log",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "p theta. So you're wondering, OK, where did that come from? It comes from-- let's see. Let's do it this way. So what is the gradient of log of-- OK, let me just write it down. So what's it's the gradient with respect to this? So remember the gradient of a log",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "is one over that quantity times the gradient of whatever is inside. And then all I do is move this over here. And that's how I write this in terms of p theta times this. And there's a reason to this madness. Why am I doing it like this? It's because now",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "I have something that's sum over trajectories times p theta of that trajectory. And I can neatly wrap that up back into an expectation. So whenever you see this expectation, you should think about it as summation over trajectory times",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "probability of that trajectory. So now I have the gradient of this thing above which wasn't maybe obvious how to differentiate. Now, I've written it into this expectation where I have the gradient of this quantity. And this identity is now called",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "the policy gradient theorem. But it's elementary. So I just call it the identity. It's not really. It doesn't deserve to be called theorem. So this is actually good because in general, whenever you see an expectation and you want to compute it and you can't",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "because it requires summing over all possible trajectories, you can think, maybe I can just take a random sample from that. So that's what we're going to do here. We're going to replace this expectation with just a sample. So instead of summing over",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "all possible trajectories and weighting by the probability of that trajectory, I'm just going to sample a trajectory. And then I'm going to define an objective function j now, which is just this thing on the inside log p theta tau times utility tau.",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "And then can just take update theta by taking a step in the direction of this gradient. Let me just pause here. I'll just summarize. We started with this undisputable goal of maximizing expected utility. I did some-- said OK, we only know",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "how to optimize things by taking the gradient right now. So let's just take the gradient. The gradient is actually an expectation of stuff. And it said, hmm, you can just take a sample to approximate the full expectation. And now we're going to define",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "this objective function whose gradient is exactly the thing inside. So maybe just to foreshadow some stuff. What this is basically saying is that go ahead, explore, do your rollouts. Once you get a rollout, I'm looking at basically this term",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "and weighting it by the utility of that. And then just updating it. So if I didn't have this utility, I would just be doing imitation learning. Just maximize the probability of the trajectories I saw. But now with the utility, it's sensitive to essentially",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "how good this trajectory is. So I think something got a bit messed up in the formatting here. But if you think about unpacking this gradient term, this is going to be utility times the summation over all time steps of the probability of an action given",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "the preceding state of over all time steps. And this is known as the reinforcement learning-- sorry, reinforce algorithm, which comes from Williams '92. In an instance of this general class of policy gradient algorithms, but reinforces perhaps",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "the earliest and simplest one. And like I said before, the intuition here is that we're essentially performing imitation learning on demonstrations, which we know and understand, from demonstrations come from our own policy, but they're weighted",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "by the utility. And if the utility were just 0 or 1 basically success or failure, then this is just imitation learning on the successful demonstrations. So the intuition that I mentioned earlier, which is do a bunch of rollouts of your policy",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "and then just take the ones that are good and do imitation learning is exactly what reinforce would do in the special case where all the utilities are 0 and 1. Now if they're not 0 and 1, then you have a little bit more. If it's utility is",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "0.5, then it's saying, well, I have a weight of 0.5 on that example a trajectory. And the volatility is minus 10, then I'm running away from that. I'm saying don't do that. Don't do that. What is this utility? Where is it defined? So the utility of a",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "rollout if you remember is the sum of the discounted rewards. So when you have a rollout, it's just minus 1 times discount times minus 1 plus discount squared times minus 2. So hopefully, this should be pretty intuitive policy gradient. Just to summarize.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "Optimize policy, directly to maximize expected utility. Due to the policy gradient theorem or identity, we can compute an unbiased estimate of the gradient by sampling a single trajectory, and then just updating that. And the algorithm is you",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "sample a rollout, which means that your on-policy. And then updating each state action pair in the rollout weighted by the utility. So now that we've gone through the math, let me try to implement it now. So we start with the same MDP.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "And now I have reinforced. Note that, we don't need the-- OK, so reinforce. Now I have a model that is going to essentially classify from map from states to actions. So it's a probabilistic classifier over number of actions. So that's why it's a matrix",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "now because I'm multi-class. And I have the optimizer as before. Now, like in model-free Monte Carlo, we're going to keep track of the current rollout as we get incorporate feedback. Because in the current algorithm as I defined, you have to wait until",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "you get the utility. So notice that we don't need an explicit exploration policy because we're defining these probabilistic policies now. And that should give us some exploration. Now, you could also add additional exploration as you want, but we don't",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "absolutely need to here. So let's define-- let's peek at what get_action and incorporate feedback do. So get_action, I'm going to compute feature representation of the state, which is going to be a one hot vector representing to the state here.",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to pass this feature vector through my linear matrix, and that's going to give me some logits. And then I'm going to take the softmax, that's going to be giving me a probability distribution over these actions. And then I'm going to sample according",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "to those probabilities. And then I'm going to get the action and return it. So all get_action is doing is what you would do in classification where you compute the logits, get the distribution. And now I'm sampling from that distribution. So now what does",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "incorporate feedback do? Like in model-free Monte Carlo, we're just going to remember the rollout in general. So remember the start state. Keep track of the utility. Add to the rollout. If I'm not at the end, I don't do any updates.",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to state get action, incorporate feedback, get action. And now the last time when I incorporate feedback, I'm at the end. So here is my rollout. And now I want to update the parameters. So I'm going to keep track of the loss. I'm going to go through",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "each step of the rollout. Each step of the rollout goes from some state to a particular action. So the first time it will be state 1 to taking walk. So remember, this is the input and this is the output of the classifier. So I'm going to now compute",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "the model's prediction of the action given the state. So compute the feature vector. Compute the logits. And now remember in multi-class classification, I compute the cross entropy between the logits and the target, which is just a",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "one hot encoding of the action in this case walk. And then I add that loss. So I want these logits to match the target here. The form of the algorithm is the same. So you go through the second step. You add your cross entropy term for the second step.",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "And then you go through the third step. And then you add the cross entropy term for the third step. I should be multiplying the loss by the utility. So now you update your parameters. Compute the gradients of this loss and then take a step.",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "And now these are the updated parameters. So let's see what happens if I run it. So I get some. Here the weights. Get some value. I think it seems to have worked even though I messed up the algorithm. Interesting. So it learned a distribution",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "where in state 1 I should walk. State 2 I should walk. State 3 I should take the tram. State 4 walk. State 5 walk. Stay 6 walk. All right, I guess state 6 is the end state. So these values are just arbitrary. So in summary, get action,",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "just samples from the policy. And incorporate feedback updates the parameters of state action in the rollout and weighting by utility which I didn't do, but you should do. This is online. All RL algorithms are generally online unless it's offline RL algorithm.",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "Because whenever you're doing this, it's online. You're getting an action, you incorporate the feedback. You get action, you incorporate feedback and so on. And here this is just one rollout and I'm already updating the parameters. Sometimes you might want",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "to have a bunch of rollouts and you batch them up. So it looks a little bit more offline, but the spirit is online. So the question is, does the initialization of theta matter? In general, it does. Even in the standard supervised learning case,",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "if you're training a neural network that is non-linear, then initialization will affect the outcome. I think in reinforcement learning it matters even more because as currently implemented, the initial exploration policy is given by pi theta. So the data you",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "collect will also be governed by the goodness of your initial policy. And in general, you want theta to be set probably small so that you get a uniform distribution of reactions. So let me talk through a bunch of bells and whistles here.",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "So recall the objective-- maximize the expected utility. So we can just write it down. And the policy gradient theorem says, here is the gradient. And we can't compute the gradient exactly because that would involve summing over all possible trajectories.",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "But what we've done is use reinforce to say, I'm going to get an estimate of that gradient by just taking one sample and computing the gradient of that, this one sample. But can you get better estimates? So to talk about what better means,",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to go through this quick detour of talking about variance reduction. So let's consider a simple setting where you're just trying to estimate the mean over a set of numbers. So i is the index into the list. Every number has a particular probability.",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "So there's four numbers. This should be 0.25, 0.25. Probabilities to sum to 1. And the points are minus 4, minus 6, 6, and 8. And so you want the true mean to be basically the dot product between these vectors. And we'll just pretend these sum to 1 for now.",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "I'll fix that later. So an estimate, estimator to be formal, is any random variable that tries to get close to mu. So remember mu is this thing that, let's say, it's expensive to calculate. Here it's easy to calculate because you sum over 4 for things.",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "In general, you're taking the mean over all possible trajectories, which is hard. So each estimator has some bias and variance and maybe some also computational cost and computing it. So the simple estimate of mu is you just sample a single index",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "and you return the point at that position. So you might sample an index. And then you get the point. And then you return it. So every time you compute the estimator, you might get a different value. And then how do we know if estimator is good?",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "We have to compute its bias and variance. So we're going to-- let's just try 1,000 times. We're going to call the estimator function. And then we look at its mean and variance. So here for this particular estimator, the mean is 1, which is what it should be.",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "So I guess everything normalizes. So just imagine this is 0.25, 0.25. And then the variance is 36, which is not great if you think about it. So normally if you're doing stochastic gradient descent, high variance means that it's just",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "going to take more iterations to get to the right answer. So here's another estimator. Why don't we just sample two points and then just average them? So if you look at that estimator, the mean is roughly the same, but the variance is a lot smaller.",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "So in some sense, this is a better estimate of the mean. You can also make it worse if you, let's say, you choose a point and then you just add some random noise to it. So if you do that, then the mean will still be roughly right.",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "It's unbiased, but the variance is going to be worse, even worse than the original one. So now here comes the fun part. So now suppose I have this magic function offset pi, and this is going to have mean 0, which means that if I subtract this offset,",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "this is the same as this by linearity of expectation. And then this part is 0 so that is the same-- it has the same mean. So let's suppose I just define this offset to be minus 6, minus 6, 6, 6. So I'm going to sample a particular index. And instead of taking",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "just that point, I'm just going to remove an offset. And I'm going to return it. So if I do this one, you'll notice that the mean is good and the variance suddenly goes down a lot. So this is magic. So I managed to reduce the variance by a huge amount",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "without affecting the mean. It's easy to make the variance go down if you don't care about the mean. You just return 0. And then that's going to give you not a correct answer. But here as long as I pick some function that where the mean is 0, I can add",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "it to my estimator and hope that I can reduce the variance. So this is called control variance. This is a general idea that's quite powerful. So let's see how-- so going back to reinforcement learning setting, how do we find an offset that has 0 mean",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "and hopefully can reduce the variance? Just to provide some intuition, why is this working? This is working because if you think about the mean is 1, so the ones over here are too far down. And the ones that are over here are too far up. So what this is doing",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "is it's pulling up the ones that are too far down and pulling down the ones that are too far up. So if I have some prior knowledge about where the mean might be relative to my points, then I can hope to reduce the variance. So here's the key identity.",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to claim that. I'm going to define a function b of s. It can be any function that only depends on the state, but not the action. Then I'm going to claim that this quantity holds. So what is this? This is remember-- this is the expectation",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "of the gradient of the log policy times this baseline. And this holds for all s and a that's drawn from this policy. I haven't proven this, but I just want you to stare at this for a moment. And if you think about why this is helpful?",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "If you look here, the policy gradient theorem is this thing. So that means if this is 0, I can just add this or subtract this from that. And I don't affect the mean, but I have the chance of reducing the variance. So if you remember a star, there is this idea",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "that the heuristics in a star are using domain knowledge to improve the algorithm. And if I can estimate the future cost, I can really get a very fast algorithm. So this is kind of an analogy here where if I can figure out the right baseline,",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "this is called-- this b is going to be called the baseline function, I can actually vastly reduce the variance as well. So the proof is fairly straightforward. It goes like this. So let's just take the expectation of b of s. That is some constant",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "that doesn't depend on-- in particular doesn't depend on theta. And now I'm going to take the gradient with respect to theta of this quantity. And the gradient is 0. Actually in the interest of time, I'm just going to skip this. And just trust me",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "that this works out. Basically, it's the same math as used for the policy gradient theorem, but just going in the other direction. And so using this idea there are a few things, I just want to highlight them. I'm not going to have time",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "to go into them in detail. The first is that using baselines. So I can just subtract a baseline from the utility. And as long as that function doesn't depend on the action, then I'm free to do whatever I want. And I can come up with it can be a model.",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "It can be some sort of heuristic, and that can reduce the variance. Another thing I can do is instead of using the utility at each step, I can use only the rewards from that point on. And this is valid because the past doesn't depend--",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "it doesn't affect the future. And then finally, I can also plug-in a biased estimate of the value function. So I'm going to estimate, I'm going to bring back Q's. I'm going to say I am doing policy gradient. But instead of using the actual utility, which",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "is what I did in model-free Monte Carlo, I'm going to bring back the Q's which is what I did in these bootstrapping methods. And these methods are called actor critic methods because they allow you to estimate a value and also estimate the",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "policy at the same time. And in deep learning, you can even tie the parameters together. To summarize, the game here is to find an estimate of the gradient of the expected utility that has low bias and low variance. So by using baselines, this is a",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "pretty general purpose strategy to reduce the variance, but it's still unbiased which is good. Bias is 0. And you can also use bootstrapping to reduce the variance at the cost of some bias. And then finally, let me summarize this whole lecture on MDPs and RL.",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "So we looked at three classes of methods for doing reinforcement learning. Model-based, estimate the MDP, compute the optimal policy. Value-based, directly estimate the Q-values, and derive the optimal policy. Policy-based, just directly estimate the policy.",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "The form of the algorithm is similar in all three cases. You roll out with some exploration policy. You form some loss function. It could be in terms of the parameters of MDP, Q-values, or the policy, and you update the parameters using a gradient step.",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "So that concludes MDPs and RL where we're trying to maximize the expected utility. So what we're going to look at is, what happens if there are adversaries in the environment. And you can't really use expectation anymore. You have to consider what",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "happens in the worst case.",
+      "start": 1230,
+      "duration": 6
+    }
+  ]
+}

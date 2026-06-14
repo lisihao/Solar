@@ -1,0 +1,359 @@
+{
+  "videoId": "auWNprSPRG4",
+  "title": "FAST '26 - Accelerating Model Loading in LLM Inference by Programmable Page Cache",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 16957,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "My name is Adam. I'm here actually\npresenting for my colleague who couldn't\nmake it. And we're going to be talking\nabout um strategies and techniques for\naccelerating LLM um execute well loading\num and inference using uh various\noptimization techniques.\nSo the um the background is largely with\nuh a lot of LLM uh inference especially\non the edge and in different devices we\nwe've found that it's quite challenging\nwith some of the model sizes to do\ninference on device. So because of that\nthe and the complexity of the software\nstacks and things like that um it\nrequires quite a bit of resources and\nthe current solutions that we've been\nexploring are things like model as a\nservice and in this case model as a\nservice if you're not familiar is a\ncloud-based delivery model system that\nallows like an elastic deployment of LLM\ninference across lots of different\nplatforms usually in the enterprise\nspace and it basically means is that we\ncan deploy a model on the fly with like\na a one-click action and examples like\nthis are OpenAI, Huawei Model Arts, uh\netc. But deploying um models as a\nservice comes with a very large downside\nand that is the loading of the model. Um\nso what we've found through our uh\nthrough our research is that a big\ncomponent of this time in terms of\nbringing up the service for inference is\nspent in just loading the model. There's\na certain amount of it in framework in\nit container bring up there's some of it\nin terms of the inference but a huge\namount of that latency is actually\nloading the model.\nSo you can see in the in the uh in the\ndiagram you know loading all the tensors\ninto the from storage into the different\naccelerators\num just parsing metadata loading it just\nright off the file system takes a huge\namount of time and resource.\nSo in addition to um seeing inference\nservices get started quite often. We\nhave a scaling factor where we have lots\nof different clients all asking for it\nat the same time. And for example, it\nmight even take in some cases like an\nhour to get like a deep seat model to\ncome up on enterprise level service from\nremote storage. So it's a big barrier.\nSo therefore it's important to to to\noptimize model loading and currently you\nknow from previous uh previous\nconferences like blit scale and serosm\nthese these types of techniques exist.\nUm a big disadvantage though from some\nof these techniques is like in Blitzcale\nthey leverage NVLink which is fantastic\nbut it's a you know it's a single soul\nsolution from one provider\nand serverless LLM\num while also quite quite cool is it\nrequires a model change format sorry a\nchange in the model format which in\nitself isn't a big deal but from from a\nproduction point of view This becomes a\nhuge barrier in terms of customers using\nyour infrastructure. Asking them to\nchange their model, asking them to\nconvert your model or dedicating\nresources to converting these models on\nthe fly isn't really in keeping with\nwhat we're after. And from a\ncompatibility point of view, we'd like\nto keep things where the model is mostly\na black box and we don't touch it. So in\nterms of deployment, we need a load\noptimization that's transparent to the\nOLM inference. um it can manage\ndifferent software stacks from different\nLLM providers and you know like if you\ngo to hugging face and things like that\nthey're all different all the formats\nare different and we'd like it so that\nalso any optimization we do to the OS or\nto a subsystem of the OS doesn't require\nan actual modification directly to the\nkernel code for instance because on the\nenterprise side deploying this fix or\ndeploying changes to to OS\ninfrastructure can be quite challenging\nin terms of keeping fixes, keeping\nupdates. We're talking thousands of\nserver blades. So, it can be quite\ndaunting. We don't want to have that.\nAnd then finally, as an optimization,\nwe'd prefer not to have a hardware\ndependency for obvious reasons.\nSo,\noh, I guess I spoke right through that.\nSo um yeah in general like any other\nprovider we want to keep our solutions\nas compatible as possible as as\naccessible as possible and as\ninteroperab interoperable with all our\nother vendors as possible. So to achieve\nlike state-of-the-art performance we\nhave to also maintain compatibility.\nSo here is an analysis of um the file\nsystem cache policy. This is largely\nLinux um while doing model loading. So\nyou can see Quinn and Llama.\nYou can see sort of like the different\nphases and the the bandwidth usage of\nthe SSDs essentially. It's not very high\nin terms of init.\nDuring model load, we're not anywhere\nclose to saturating SSD bandwidth usage,\nwhich means we're not being very\nefficient in terms of bandwidth\navailability while loading the model.\nAnd then finally, well, once inference\nstarts, we're not really interacting\nwith the IO system too much.\nUm, so you can sort of see we're not\nusing we're not effectively using our\nidle SSD bandwidth.\nThe other thing that isn't quite obvious\nto the graph, but we're also not we're\nnot really managing the affinity\nproperly as well when we're using the\nsort of the default caching strategies.\nWe need to make sure that different\naccelerators and different pieces of\ndata from the model are actually loaded\nproperly and in some cases we've seen\nincorrectly loaded to different num\nnodes.\nAnd then finally, the third observation\nthat we've noticed is the eviction\npolicy isn't just not optimal. It can be\nactually killer to us in terms of\nevicting recently loaded data because\nthe model doesn't work like a standard\nprocess. It doesn't load linearly in any\nway. We could have actually loaded a\ntensor in and then loaded another one\nand then evicted the one we just loaded\nbefore we actually managed to to preload\nthe uh the MPU with the data. So we can\nactually be thrashing the file system\ncache quite heavily.\nSo motivations and challenges you know\num what did we want to obviously we're\nmotivated\nwhat is it what we how are we going to\napproach this problem um so the first\nelement that we approached or sorry the\nfirst um the first element of our\nsolution essentially was designing a\npage cache um framework essentially that\nwould allow us both the flexibility we\nneed on a per model or even per vendor\nbasis but at the same time allow us to\nstill maintain that blackbox approach to\nmodels.\nSo the the authors of the paper um they\nbasically presented a somewhat unique\nprogrammable page cache concept. Um and\nessentially they deploy user space user\nspace defined profiles per model\nand they stack this and they intercept\nuh they basically create a routing based\nfile system which is effectively a\nunionized file system on top of existing\nVFS operations and they redirect certain\ntypes of events that they're interested\nin. They're not covering all file system\noperations but largely just read\ninterception and uh file attribute sort\nof metadata elements\nand they intercept these actions and\nthey basically use that to create a sort\nof highle eventing system and they\nredirect those events through a user\nspace procedure call into a um cache\npolicy runtime. So you can see sort of\nthe building blocks of we have an\neventing subsystem to expose some of the\nthe um the page cache events that we\nneed to be aware of such as misses in\nthe cash eviction things like that. We\nhave a high level user space policy that\nis exchangeable uh changeable as well as\ndefinable per model and then we have\nsort of the middle alley which actually\nthe policy executor and the driving\nsystem and the management of the cache\nin between.\nSo we can walk through a very basic um\nkey workflow element here. So you can\nsort of see you know initially the\napplication transparently just like\nthere's no customization of the model.\nIt does essentially a file access from a\nmap a read what have you that\nessentially goes through the routing FS\neither passes right through because it's\nnot of interest or it is of interest\nbecause it's the model\nand then the RFS hijacks that operation\nchecks to see if there's a cache miss\nessentially if there is it sends uh\nessentially that event back up which is\nbeing pulled on from the um the cache\npolicy runtime and then That runtime\nworks through its policy system, feeds\nback down and then directs the\nmanagement to either you know I need you\nto evict this block, this IO, I need you\nto cache this IO, this block, etc.\nAnd then it either loads or it reclaims.\nSo some of the details in terms of the\nwriting file system if you're interested\num essentially it's just it subsets the\nexisting file structure. It's nothing\ntoo complicated. It checks to see if the\np the page is in cache. If it's cached\njust copy it. There's no file system\ninteraction. But if it isn't essentially\nwe have to go down we have to read the\ndata and at the same time send up our\nevent so that the user policy can\nactually start doing its intelligence.\nOops. And then if the miss happens um\nthe underlying file system is also\nloading at the same time as the policy\nu execution.\nSo the policy itself is pretty\nstraightforward and simple. Effectively\nthe the so the shared object is\nessentially just init and exit. Those\nare handling essentially it's a kernel\nmodule that gets loaded in and out. So\nif we load the module in the init called\nif it loads out we're exiting. Prefetch\nand evict are essentially the main uh IO\nor sorry the main um the main operations\nin this. So so essentially prefetch is\ncalled every time there's a miss.\nNo surprise here. Um the type of\ninformation that's being pushed in is\nessentially uh pre-fetching policy. to\nthe IO list. You can tell from different\ngroupings in the IO sort of numa\ndifferent types of groups that we need\nto load to which XPU and then the\neviction side of it is just what you can\nimagine it's essentially called when\nmemory usage exceeds a certain level\nbecause we are still constrained by\ncertain memory realities and then um\nsome some other special essentially\nmissio policy\nlogic you know it's not straightforward\nprogram anymore. The inference engine\ndrives a little differently. So there\nare certain elements that we have to\nkeep going and then it returns an\naffiction IO list.\non top of the page cache subsystem which\nis fairly straightforward. Um we build a\nmodel accelerated IO system on top and\nthis is effectively where the the extra\nlogic builds up in terms of IO policy.\nSo here we're going to build an IO\npattern per model um whose job is\nessentially to accelerate and preload\nall the model elements as fast as\npossible. So we want to maximize our\nbandwidth usage for the storage. We want\nto minimize the amount of eviction that\nwe unnecess we we want to unnecessarily\navoid. And then we want to actually have\na preload numa friendly way of making\nsure the data is as close as possible to\nthe different execution engines.\nSo the IO based template um is\nessentially a sequence. It describes\ngrouped IO's in sequences, but it's not\nas straightforward as just prefetch\neverything and go. It could be, but it's\nnot. Um, there are elements where we may\nbe loading, we may be preloading, but\nduring during the actual boot or during\nthe actual startup sequence, we might\nactually have inference already going.\nThat inference might be preempting\nuh some of our loading. We need a\npreemptable IO load system.\nSo we have subsequent prefetches. They\ncan all be interrupted. Otherwise, we we\nend up in a really nasty circle where\neither the front end of the the\ninference engine is preventing us from\npreloading or the pre-loading prevents\nthe front end from making any meaningful\nforward progress. Um I mentioned the X u\nthe uh the accelerated affinity loading\nas well.\nWe need to make sure we minimize the\namount of wasted traffic moving data\nback and forth between numa nodes. And\nthen finally we have a a new s a new\ntype of eviction policy that is we call\nburn after reading which is what bar\nstands for. And what burn after reading\neffectively means is once we've\ntransferred the tensor or the data into\nthe accelerator we don't need it\nanymore. It doesn't need to be in the\ncache. it unfortunately has the distinct\nattribute that it is least it is most\nrecently used which is usually a\ncandidate for keeping it in the cache.\nSo we need a slightly you know a tweak\nto how we actually process the cache and\nLRU is actually kind of brutal for us.\nSo in terms of doing all these um\noptimizations, we our evaluation setup,\nthe authors put it up here. Uh\nessentially it's a 48 core system with\neight different SNS, one one terabyte of\nDRAM. Um and we tested a variety of\ndifferent compatible or comparable\noptimizations for file system cache. So\nwe did native just for comparison. we\nhave eager load precache\nuh and then this work which is myo.\nSo you can see from the results\nthe left is effectively uh you can think\nof it as\nno no memory constraint. You can have as\nmuch RAM as you want for this particular\ncontainer. And then the uh the one on\nthe right is um more restrained more\nrealistic you know 64 gig memory\nconstraint on the container. So you can\nsee when there's no memory constraint\nand the world is your oyster, you can go\nas fast as you can. There is not a huge\nelement in terms of optimization. But as\nsoon as we start constraining that RAM,\nas soon as the decision and the policy\nhas to be made to actually do something,\nyou can see our actual latency drops\nquite significantly compared against um\nyou know native pre-cache and uh and\nother approaches.\nSo in terms of bandwidth utilization,\nit might be a little hard to read on the\nscreen. I don't know if my pointer is\nactually going to make it, but\nyeah. So you can so you can see where\nsame setup unconstrained constrained. So\nin the constraint case which is the more\ninteresting one you can see overall\nlatency for Mayo is shorter which is the\ntop arrows at the top in terms of where\nwe actually can begin the inference\nengine executing compared to um you know\neager load native or in some cases uh\nyou can see prefetch sort of just keeps\npetering on and on and from what we\nfound in the analysis was that basically\nit its eviction policy was constantly\nkicking out valid data before it got a\nchance to use it. So it was almost\nslower loading in some cases.\nAnd then finally the um the overhead of\nthe actual subsystem that we've created.\nIt's overall the the introduced overhead\nis measured around three 4% in terms of\ntransactions. But as you can see the\nscale in terms of overall usage on these\nsystems is pretty pretty much in line\nwith native performance. So overall\nthere's no strong impact.\nUm but by gradually breaking down the\nperformance in various forms um so PA\nand E is basically prefetch um E is\neviction and uh and then A is the\naffinity element. You can see sort of\nthe breakdown in terms of where the\nmajor gains are being held. So basically\num the eviction policy pays off huge\namounts of dividends and then uh the\nprefetch is also a big component whereas\naffinity does does deliver a little bit\nbut stacking all the different elements\nin terms of P and A and E um yields the\nbest result.\nAnd then finally uh in terms of real\nworld deployment\nwe did uh an actual evaluation across um\nuh a real world uh server class system\nand we found that um Mayo delivers bas\nbasically about 13 28 to 28% compared to\nnative um but it performed the best when\nwe started like creating constraints on\nthe system which effectively tells\nvendors we can actually partition our\nsystems a little more flexibly and still\ngain the benefits from uh from our\noptimization and in fact the more work\nwe have to do the better we perform. So\nno resource constraints were about the\nsame major resource constraints we are\nconsiderably better which is what we\nwant to see on production.\nSo in conclusion um the the authors\nfound that the analysis of impact and\nthe impact of different cache policies\nplayed a huge role in terms of\nefficiency and load. Um they also found\nthat various policies essentially uh\ncreated an element where we had low\nbandwidth utilization of what we could\ndo e efficiently. We had very much a\nlack of affinity in terms of managing\nthe page cache and on top of that even\nwhen we're doing as mac we were doing\nfull full throttle we were experienced a\nhuge amount of cash thrashing.\nSo we built a an optimization that was a\npage cache system on top with Mayo on\ntop of that creating a non-intrusive\nflexible and lightweight optimization\nthat is vendor neutral.\nuh and then um created a new technique\nin terms of uh eviction policy called\nburn after reading. And that's it. Thank\nyou for your time.",
+  "segments": [
+    {
+      "text": "My name is Adam. I'm here actually presenting for my colleague who couldn't make it. And we're going to be talking about um strategies and techniques for accelerating LLM um execute well loading um and inference using uh various optimization techniques.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "So the um the background is largely with uh a lot of LLM uh inference especially on the edge and in different devices we we've found that it's quite challenging with some of the model sizes to do inference on device. So because of that",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "the and the complexity of the software stacks and things like that um it requires quite a bit of resources and the current solutions that we've been exploring are things like model as a service and in this case model as a service if you're not familiar is a",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "cloud-based delivery model system that allows like an elastic deployment of LLM inference across lots of different platforms usually in the enterprise space and it basically means is that we can deploy a model on the fly with like",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "a a one-click action and examples like this are OpenAI, Huawei Model Arts, uh etc. But deploying um models as a service comes with a very large downside and that is the loading of the model. Um so what we've found through our uh",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "through our research is that a big component of this time in terms of bringing up the service for inference is spent in just loading the model. There's a certain amount of it in framework in it container bring up there's some of it",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "in terms of the inference but a huge amount of that latency is actually loading the model. So you can see in the in the uh in the diagram you know loading all the tensors into the from storage into the different accelerators",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "um just parsing metadata loading it just right off the file system takes a huge amount of time and resource. So in addition to um seeing inference services get started quite often. We have a scaling factor where we have lots",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "of different clients all asking for it at the same time. And for example, it might even take in some cases like an hour to get like a deep seat model to come up on enterprise level service from remote storage. So it's a big barrier.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "So therefore it's important to to to optimize model loading and currently you know from previous uh previous conferences like blit scale and serosm these these types of techniques exist. Um a big disadvantage though from some",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "of these techniques is like in Blitzcale they leverage NVLink which is fantastic but it's a you know it's a single soul solution from one provider and serverless LLM um while also quite quite cool is it requires a model change format sorry a",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "change in the model format which in itself isn't a big deal but from from a production point of view This becomes a huge barrier in terms of customers using your infrastructure. Asking them to change their model, asking them to convert your model or dedicating",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "resources to converting these models on the fly isn't really in keeping with what we're after. And from a compatibility point of view, we'd like to keep things where the model is mostly a black box and we don't touch it. So in",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "terms of deployment, we need a load optimization that's transparent to the OLM inference. um it can manage different software stacks from different LLM providers and you know like if you go to hugging face and things like that",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "they're all different all the formats are different and we'd like it so that also any optimization we do to the OS or to a subsystem of the OS doesn't require an actual modification directly to the kernel code for instance because on the",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "enterprise side deploying this fix or deploying changes to to OS infrastructure can be quite challenging in terms of keeping fixes, keeping updates. We're talking thousands of server blades. So, it can be quite daunting. We don't want to have that.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And then finally, as an optimization, we'd prefer not to have a hardware dependency for obvious reasons. So, oh, I guess I spoke right through that. So um yeah in general like any other provider we want to keep our solutions as compatible as possible as as",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "accessible as possible and as interoperab interoperable with all our other vendors as possible. So to achieve like state-of-the-art performance we have to also maintain compatibility. So here is an analysis of um the file system cache policy. This is largely",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "Linux um while doing model loading. So you can see Quinn and Llama. You can see sort of like the different phases and the the bandwidth usage of the SSDs essentially. It's not very high in terms of init. During model load, we're not anywhere",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "close to saturating SSD bandwidth usage, which means we're not being very efficient in terms of bandwidth availability while loading the model. And then finally, well, once inference starts, we're not really interacting with the IO system too much.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "Um, so you can sort of see we're not using we're not effectively using our idle SSD bandwidth. The other thing that isn't quite obvious to the graph, but we're also not we're not really managing the affinity properly as well when we're using the",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "sort of the default caching strategies. We need to make sure that different accelerators and different pieces of data from the model are actually loaded properly and in some cases we've seen incorrectly loaded to different num nodes.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "And then finally, the third observation that we've noticed is the eviction policy isn't just not optimal. It can be actually killer to us in terms of evicting recently loaded data because the model doesn't work like a standard",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "process. It doesn't load linearly in any way. We could have actually loaded a tensor in and then loaded another one and then evicted the one we just loaded before we actually managed to to preload the uh the MPU with the data. So we can",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "actually be thrashing the file system cache quite heavily. So motivations and challenges you know um what did we want to obviously we're motivated what is it what we how are we going to approach this problem um so the first",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "element that we approached or sorry the first um the first element of our solution essentially was designing a page cache um framework essentially that would allow us both the flexibility we need on a per model or even per vendor",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "basis but at the same time allow us to still maintain that blackbox approach to models. So the the authors of the paper um they basically presented a somewhat unique programmable page cache concept. Um and essentially they deploy user space user",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "space defined profiles per model and they stack this and they intercept uh they basically create a routing based file system which is effectively a unionized file system on top of existing VFS operations and they redirect certain",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "types of events that they're interested in. They're not covering all file system operations but largely just read interception and uh file attribute sort of metadata elements and they intercept these actions and they basically use that to create a sort",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "of highle eventing system and they redirect those events through a user space procedure call into a um cache policy runtime. So you can see sort of the building blocks of we have an eventing subsystem to expose some of the the um the page cache events that we",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "need to be aware of such as misses in the cash eviction things like that. We have a high level user space policy that is exchangeable uh changeable as well as definable per model and then we have sort of the middle alley which actually",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "the policy executor and the driving system and the management of the cache in between. So we can walk through a very basic um key workflow element here. So you can sort of see you know initially the application transparently just like",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "there's no customization of the model. It does essentially a file access from a map a read what have you that essentially goes through the routing FS either passes right through because it's not of interest or it is of interest because it's the model",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "and then the RFS hijacks that operation checks to see if there's a cache miss essentially if there is it sends uh essentially that event back up which is being pulled on from the um the cache policy runtime and then That runtime",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "works through its policy system, feeds back down and then directs the management to either you know I need you to evict this block, this IO, I need you to cache this IO, this block, etc. And then it either loads or it reclaims.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "So some of the details in terms of the writing file system if you're interested um essentially it's just it subsets the existing file structure. It's nothing too complicated. It checks to see if the p the page is in cache. If it's cached",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "just copy it. There's no file system interaction. But if it isn't essentially we have to go down we have to read the data and at the same time send up our event so that the user policy can actually start doing its intelligence.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "Oops. And then if the miss happens um the underlying file system is also loading at the same time as the policy u execution. So the policy itself is pretty straightforward and simple. Effectively the the so the shared object is",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "essentially just init and exit. Those are handling essentially it's a kernel module that gets loaded in and out. So if we load the module in the init called if it loads out we're exiting. Prefetch and evict are essentially the main uh IO",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "or sorry the main um the main operations in this. So so essentially prefetch is called every time there's a miss. No surprise here. Um the type of information that's being pushed in is essentially uh pre-fetching policy. to",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "the IO list. You can tell from different groupings in the IO sort of numa different types of groups that we need to load to which XPU and then the eviction side of it is just what you can imagine it's essentially called when",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "memory usage exceeds a certain level because we are still constrained by certain memory realities and then um some some other special essentially missio policy logic you know it's not straightforward program anymore. The inference engine",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "drives a little differently. So there are certain elements that we have to keep going and then it returns an affiction IO list. on top of the page cache subsystem which is fairly straightforward. Um we build a model accelerated IO system on top and",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "this is effectively where the the extra logic builds up in terms of IO policy. So here we're going to build an IO pattern per model um whose job is essentially to accelerate and preload all the model elements as fast as possible. So we want to maximize our",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "bandwidth usage for the storage. We want to minimize the amount of eviction that we unnecess we we want to unnecessarily avoid. And then we want to actually have a preload numa friendly way of making sure the data is as close as possible to",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "the different execution engines. So the IO based template um is essentially a sequence. It describes grouped IO's in sequences, but it's not as straightforward as just prefetch everything and go. It could be, but it's not. Um, there are elements where we may",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "be loading, we may be preloading, but during during the actual boot or during the actual startup sequence, we might actually have inference already going. That inference might be preempting uh some of our loading. We need a preemptable IO load system.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "So we have subsequent prefetches. They can all be interrupted. Otherwise, we we end up in a really nasty circle where either the front end of the the inference engine is preventing us from preloading or the pre-loading prevents",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "the front end from making any meaningful forward progress. Um I mentioned the X u the uh the accelerated affinity loading as well. We need to make sure we minimize the amount of wasted traffic moving data back and forth between numa nodes. And",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "then finally we have a a new s a new type of eviction policy that is we call burn after reading which is what bar stands for. And what burn after reading effectively means is once we've transferred the tensor or the data into the accelerator we don't need it",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "anymore. It doesn't need to be in the cache. it unfortunately has the distinct attribute that it is least it is most recently used which is usually a candidate for keeping it in the cache. So we need a slightly you know a tweak",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "to how we actually process the cache and LRU is actually kind of brutal for us. So in terms of doing all these um optimizations, we our evaluation setup, the authors put it up here. Uh essentially it's a 48 core system with",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "eight different SNS, one one terabyte of DRAM. Um and we tested a variety of different compatible or comparable optimizations for file system cache. So we did native just for comparison. we have eager load precache uh and then this work which is myo.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "So you can see from the results the left is effectively uh you can think of it as no no memory constraint. You can have as much RAM as you want for this particular container. And then the uh the one on the right is um more restrained more",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "realistic you know 64 gig memory constraint on the container. So you can see when there's no memory constraint and the world is your oyster, you can go as fast as you can. There is not a huge element in terms of optimization. But as",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "soon as we start constraining that RAM, as soon as the decision and the policy has to be made to actually do something, you can see our actual latency drops quite significantly compared against um you know native pre-cache and uh and other approaches.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "So in terms of bandwidth utilization, it might be a little hard to read on the screen. I don't know if my pointer is actually going to make it, but yeah. So you can so you can see where same setup unconstrained constrained. So",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "in the constraint case which is the more interesting one you can see overall latency for Mayo is shorter which is the top arrows at the top in terms of where we actually can begin the inference engine executing compared to um you know",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "eager load native or in some cases uh you can see prefetch sort of just keeps petering on and on and from what we found in the analysis was that basically it its eviction policy was constantly kicking out valid data before it got a",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "chance to use it. So it was almost slower loading in some cases. And then finally the um the overhead of the actual subsystem that we've created. It's overall the the introduced overhead is measured around three 4% in terms of",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "transactions. But as you can see the scale in terms of overall usage on these systems is pretty pretty much in line with native performance. So overall there's no strong impact. Um but by gradually breaking down the performance in various forms um so PA",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "and E is basically prefetch um E is eviction and uh and then A is the affinity element. You can see sort of the breakdown in terms of where the major gains are being held. So basically um the eviction policy pays off huge amounts of dividends and then uh the",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "prefetch is also a big component whereas affinity does does deliver a little bit but stacking all the different elements in terms of P and A and E um yields the best result. And then finally uh in terms of real world deployment",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "we did uh an actual evaluation across um uh a real world uh server class system and we found that um Mayo delivers bas basically about 13 28 to 28% compared to native um but it performed the best when we started like creating constraints on",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "the system which effectively tells vendors we can actually partition our systems a little more flexibly and still gain the benefits from uh from our optimization and in fact the more work we have to do the better we perform. So",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "no resource constraints were about the same major resource constraints we are considerably better which is what we want to see on production. So in conclusion um the the authors found that the analysis of impact and the impact of different cache policies",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "played a huge role in terms of efficiency and load. Um they also found that various policies essentially uh created an element where we had low bandwidth utilization of what we could do e efficiently. We had very much a lack of affinity in terms of managing",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "the page cache and on top of that even when we're doing as mac we were doing full full throttle we were experienced a huge amount of cash thrashing. So we built a an optimization that was a page cache system on top with Mayo on",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "top of that creating a non-intrusive flexible and lightweight optimization that is vendor neutral. uh and then um created a new technique in terms of uh eviction policy called burn after reading. And that's it. Thank you for your time.",
+      "start": 408,
+      "duration": 6
+    }
+  ]
+}

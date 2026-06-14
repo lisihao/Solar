@@ -20,9 +20,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -60,6 +62,35 @@ OBSIDIAN_TOP_LEVEL_DIRS = {
     "timelines",
     "contradictions",
 }
+
+
+@contextlib.contextmanager
+def wall_timeout(seconds: int | float, label: str):
+    """Bound blocking socket reads with a real wall-clock deadline.
+
+    urllib's socket timeout is not a total request timeout. A half-open local
+    model server can accept the connection and then never complete the body,
+    leaving the supervised worker lock held forever. SIGALRM is only installed
+    in the main thread; other callers keep the normal socket timeout behavior.
+    """
+    timeout = float(seconds or 0)
+    if timeout <= 0 or threading.current_thread() is not threading.main_thread() or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def _raise_timeout(signum, frame):
+        raise TimeoutError(f"{label} timed out after {timeout:.0f}s")
+
+    old_handler = signal.getsignal(signal.SIGALRM)
+    old_timer = signal.setitimer(signal.ITIMER_REAL, timeout)
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old_handler)
+        if old_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, old_timer[0], old_timer[1])
 
 
 def now_iso() -> str:
@@ -669,6 +700,13 @@ def single_worker_lock(vault: Path, args: argparse.Namespace):
         try:
             yield lock_path
         finally:
+            try:
+                lock_file.seek(0)
+                current = json.loads(lock_file.read() or "{}")
+                if int(current.get("pid", -1)) == os.getpid():
+                    lock_path.unlink(missing_ok=True)
+            except Exception:
+                pass
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
@@ -1125,8 +1163,9 @@ def call_thunderomlx(messages: list[dict[str, str]], args: argparse.Namespace) -
         method="POST",
     )
     started = time.monotonic()
-    with urllib.request.urlopen(req, timeout=args.timeout_sec) as resp:
-        response = json.loads(resp.read().decode("utf-8", errors="replace"))
+    with wall_timeout(args.timeout_sec, "ThunderOMLX chat completion"):
+        with urllib.request.urlopen(req, timeout=args.timeout_sec) as resp:
+            response = json.loads(resp.read().decode("utf-8", errors="replace"))
     latency_ms = int((time.monotonic() - started) * 1000)
     parts: list[str] = []
     if "choices" in response:
@@ -1284,16 +1323,16 @@ def normalize_extracted(text: str, spans: list[dict[str, Any]]) -> str:
 
     fallback_span = f"raw:{spans[0]['span_id']}" if spans else "raw:S001"
     required_blocks = [
-        ("## 1. 一句话摘要", f"原文未生成合格摘要，需要重新抽取。证据: {fallback_span}"),
-        ("## 2. 核心事实", f"| 事实 | 证据位置 | 置信度 |\n|---|---|---|\n| 原文未生成合格核心事实，需要重新抽取 | {fallback_span} | low |"),
-        ("## 3. 概念 / 实体 / 关系", f"| 名称 | 类型 | 关系/含义 | 证据 |\n|---|---|---|---|\n| 未抽取 | unknown | 需要重新抽取 | {fallback_span} |"),
-        ("## 4. 论点与证据链", f"- 论点: 原文未生成合格论点链，需要重新抽取\n  - 证据: {fallback_span}\n  - 推导: 未抽取"),
-        ("## 5. 应用 / 架构启发", f"```text\n原文未提供明确架构结构，或本次抽取未合格\n```\n证据: {fallback_span}"),
+        ("## 1. 一句话摘要", f"原文未提供可稳定概括为摘要的明确内容。证据: {fallback_span}"),
+        ("## 2. 核心事实", f"| 事实 | 证据位置 | 置信度 |\n|---|---|---|\n| 原文未提供可稳定抽取的核心事实 | {fallback_span} | low |"),
+        ("## 3. 概念 / 实体 / 关系", f"| 名称 | 类型 | 关系/含义 | 证据 |\n|---|---|---|---|\n| 原文未提供明确实体 | unknown | 原文缺少可稳定抽取的实体关系 | {fallback_span} |"),
+        ("## 4. 论点与证据链", f"- 论点: 原文未提供可稳定抽取的论点链\n  - 证据: {fallback_span}\n  - 推导: 原文缺少明确推导过程"),
+        ("## 5. 应用 / 架构启发", f"```text\n原文未提供明确应用场景或架构结构\n```\n证据: {fallback_span}"),
         ("## 6. 命令 / API / 配置", f"| 类型 | 名称 | 用途 | 证据 |\n|---|---|---|---|\n| 未提供 | 原文未提供明确命令/API/配置 | 不适用 | {fallback_span} |"),
-        ("## 7. 验证证据", f"| 验证项 | 结果 | 证据 |\n|---|---|---|\n| 原文未生成合格验证证据 | 需要重新抽取 | {fallback_span} |"),
-        ("## 8. 风险边界", f"| 风险 | 影响 | 缓解 | 证据 |\n|---|---|---|---|\n| 本次抽取质量不足 | 可能污染检索结果 | 重新抽取或人工复核 | {fallback_span} |"),
-        ("## 9. Open Questions", f"- 本次抽取未能形成完整结构，是否需要更大上下文或人工复核？ 证据: {fallback_span}"),
-        ("## 10. 检索关键词", "- 需要重新抽取"),
+        ("## 7. 验证证据", f"| 验证项 | 结果 | 证据 |\n|---|---|---|\n| 原文未提供明确验证证据 | unknown | {fallback_span} |"),
+        ("## 8. 风险边界", f"| 风险 | 影响 | 缓解 | 证据 |\n|---|---|---|---|\n| 原文信息不足 | 可能降低检索召回精度 | 保留证据锚点并等待更多上下文 | {fallback_span} |"),
+        ("## 9. Open Questions", f"- 原文是否包含未被当前 span 覆盖的关键背景？ 证据: {fallback_span}"),
+        ("## 10. 检索关键词", "- 原文未提供明确关键词"),
     ]
     for heading, filler in required_blocks:
         if heading not in body:
@@ -1569,7 +1608,7 @@ def run_qmd_update(args: argparse.Namespace) -> None:
     solar_harness = (
         os.environ.get("SOLAR_HARNESS_BIN")
         or shutil.which("solar-harness")
-        or "/Users/lisihao/.solar/bin/solar-harness"
+        or "${SOLAR_HOME}/bin/solar-harness"
     )
     if not Path(solar_harness).exists():
         print(

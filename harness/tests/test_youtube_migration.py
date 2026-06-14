@@ -85,7 +85,7 @@ def test_different_track_kind_allowed(conn):
     conn.execute(
         """INSERT INTO youtube_subtitle_tracks
            (track_id, video_id, source_backend, language, track_kind, discovered_at)
-           VALUES ('t2', 'v1', 'yt_dlp', 'en', 'asr', '2026-05-27T00:00:01Z')"""
+           VALUES ('t2', 'v1', 'yt_dlp', 'en', 'auto', '2026-05-27T00:00:01Z')"""
     )
     rows = conn.execute("SELECT COUNT(*) FROM youtube_subtitle_tracks").fetchone()
     assert rows[0] == 2

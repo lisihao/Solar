@@ -24,7 +24,12 @@ ANTIGRAVITY_PROBE_PROMPT = "Reply with exactly: SOLAR_AGY_OK"
 RATE_LIMIT_RE = re.compile(
     r"RESOURCE_EXHAUSTED|\bquota(?:\s+exhausted)?\b|monthly usage limit|"
     r"rate[- ]?limit|\b429\b|too many requests|resets?\s+in|"
-    r"Upgrade your plan|You've hit .*limit|Individual quota reached|\bcapacity\b",
+    r"Upgrade your plan|You've hit .*limit|Individual quota reached|\bcapacity\b|"
+    r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
+    re.I,
+)
+BROWSER_HISTORY_THROTTLE_RE = re.compile(
+    r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
     re.I,
 )
 # NOTE: \bquota\b requires a word boundary after "quota", so "quotaProject=" is
@@ -53,9 +58,47 @@ RESET_RELATIVE_RE = re.compile(
 )
 RESET_COLON_RE = re.compile(r"resets?\s+in\s+(?P<hours>\d{1,2}):(?P<minutes>\d{2})(?::(?P<seconds>\d{2}))?", re.I)
 RESET_AT_RE = re.compile(
-    r"resets?(?:\s+(?:at|on))?\s+(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<ampm>am|pm)?",
+    r"(?:resets?|try again)(?:\s+(?:at|on))?\s+"
+    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<ampm>am|pm)?",
     re.I,
 )
+RESET_DATE_AT_RE = re.compile(
+    r"(?:resets?|try again)(?:\s+(?:at|on))?\s+"
+    r"(?P<month>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    r"\.?\s+"
+    r"(?P<day>\d{1,2})(?:st|nd|rd|th)?"
+    r"(?:,\s*(?P<year>\d{4}))?"
+    r"(?:\s+at)?\s+"
+    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<ampm>am|pm)?",
+    re.I,
+)
+MONTH_NUMBERS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
 
 
 class FlowControlBlocked(RuntimeError):
@@ -120,6 +163,7 @@ def parse_rate_limit_reset_at(text: str, *, now: dt.datetime | None = None) -> d
     - "You've hit your limit · resets 1:40pm (America/Toronto)"
     - "rate limit resets in 2h 15m"
     - "resets in 01:30:00"
+    - "try again at 9:25 PM"
     """
     raw = text or ""
     tz = _timezone_from_text(raw)
@@ -142,6 +186,28 @@ def parse_rate_limit_reset_at(text: str, *, now: dt.datetime | None = None) -> d
         )
         if delta.total_seconds() > 0:
             return (base + delta).astimezone(dt.timezone.utc)
+
+    match = RESET_DATE_AT_RE.search(raw)
+    if match:
+        month = MONTH_NUMBERS.get(str(match.group("month") or "").lower().rstrip("."))
+        day = int(match.group("day") or 0)
+        year = int(match.group("year") or base.year)
+        hour = int(match.group("hour"))
+        minute = int(match.group("minute") or 0)
+        ampm = str(match.group("ampm") or "").lower()
+        if ampm == "pm" and hour < 12:
+            hour += 12
+        elif ampm == "am" and hour == 12:
+            hour = 0
+        if month and 1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59:
+            try:
+                candidate = dt.datetime(year, month, day, hour, minute, tzinfo=tz)
+            except ValueError:
+                candidate = None
+            if candidate is not None:
+                if not match.group("year") and candidate <= base:
+                    candidate = candidate.replace(year=year + 1)
+                return candidate.astimezone(dt.timezone.utc)
 
     match = RESET_AT_RE.search(raw)
     if match:
@@ -195,6 +261,21 @@ def _is_antigravity_operator(operator_id: str, op: dict[str, Any]) -> bool:
         "antigravity" in operator_id.lower()
         or "antigravity" in backend
         or (provider in {"google", "antigravity"} and auth_mode == "oauth" and "gemini" in model)
+    )
+
+
+def _is_claude_code_operator(operator_id: str, op: dict[str, Any]) -> bool:
+    provider = str(op.get("provider") or "").strip().lower()
+    backend = str(op.get("backend") or op.get("runtime") or op.get("command_backend") or "").strip().lower()
+    model = str(op.get("model") or "").strip().lower()
+    surface = op.get("surface") if isinstance(op.get("surface"), dict) else {}
+    surface_type = str(surface.get("type") or "").strip().lower()
+    return (
+        "claude" in operator_id.lower()
+        or provider in {"anthropic", "claude", "claude-code"}
+        or backend in {"claude-cli", "claude-sdk"}
+        or surface_type.startswith("claude_")
+        or model in {"opus", "sonnet", "haiku"}
     )
 
 
@@ -297,6 +378,22 @@ def classify_failure_state(text: str) -> str:
     if NO_ACTIVE_CONVERSATION_RE.search(text or ""):
         return "bootstrap_failed"
     return ""
+
+
+def browser_history_throttle_cooldown_seconds(text: str, fallback: int) -> int:
+    """Return the cooldown for ChatGPT/browser history temporary throttles.
+
+    ChatGPT sometimes shows a recoverable page-level throttle in Chinese:
+    "你的请求过于频繁...暂时限制你访问对话记录...请稍等几分钟后再重试".
+    This is not a full quota exhaustion, so the scheduler should defer briefly
+    instead of hammering the web app or blocking the operator for an hour.
+    """
+    if not BROWSER_HISTORY_THROTTLE_RE.search(text or ""):
+        return max(0, int(fallback or 0))
+    return int_value(
+        os.environ.get("SOLAR_BROWSER_AGENT_HISTORY_THROTTLE_COOLDOWN_SECONDS"),
+        600,
+    )
 
 
 def format_auth_blocker_message(
@@ -452,6 +549,33 @@ def _clear_registry_block(
     op["flow_control"] = flow
 
 
+def _live_heartbeat_clears_claude_block(status: dict[str, Any], *, block_started_at: str = "") -> bool:
+    """Return whether a newer Claude runtime heartbeat supersedes a stale quota block.
+
+    Claude Code quota can be restored out-of-band by the user. A blocked status
+    file produced before that recovery should not keep the harness asleep once
+    the interactive operator has emitted a newer usable heartbeat.
+    """
+    runtime_state = str(status.get("runtime_state") or "").strip()
+    live_state = str(status.get("state") or "").strip()
+    if runtime_state not in {"cooldown", "quota_exhausted"}:
+        return False
+    if live_state not in {"idle", "running"}:
+        return False
+    heartbeat_at = _parse_time(status.get("heartbeat_at"))
+    if heartbeat_at is None:
+        return False
+    block_at = _parse_time(
+        block_started_at
+        or status.get("updated_at")
+        or status.get("last_error_at")
+        or status.get("expires_at")
+    )
+    if block_at is None:
+        return False
+    return heartbeat_at > block_at
+
+
 def prune_expired_operator_config_blocks() -> dict[str, Any]:
     """Clear all expired rate-limit/auth blocks persisted in physical operators.
 
@@ -527,6 +651,28 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
             )
         )
         if expires is not None and expires > now:
+            if _is_claude_code_operator(str(operator_id), op):
+                try:
+                    runtime = _operator_runtime_module()
+                    live_status = runtime.get_operator_status(str(operator_id)) or {}
+                except Exception:
+                    live_status = {}
+                if isinstance(live_status, dict) and _live_heartbeat_clears_claude_block(
+                    live_status,
+                    block_started_at=str(
+                        flow.get("last_block_detected_at")
+                        or state.get("last_error_at")
+                        or op.get("quota_refresh_at")
+                        or ""
+                    ),
+                ):
+                    _clear_registry_block(op, now=now, reason="claude_live_heartbeat_after_block")
+                    pruned.append({
+                        "operator_id": str(operator_id),
+                        "runtime_state": runtime_state,
+                        "expired_at": "claude_live_heartbeat_after_block",
+                    })
+                    continue
             if weak_pane_cooldown:
                 pass
             else:
@@ -568,6 +714,8 @@ def _prune_dynamic_operator_status_blocks(
     evidence; keeping it blocks the fleet even when provider quota is available.
     """
     runtime = _operator_runtime_module()
+    registry = _load_operator_registry()
+    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
     status_dir = Path(getattr(runtime, "OPERATOR_STATUS_DIR", HARNESS_DIR / "run" / "operator-status"))
     health_dir = HARNESS_DIR / "run" / "operator-health"
     pruned: list[dict[str, str]] = []
@@ -596,6 +744,12 @@ def _prune_dynamic_operator_status_blocks(
         reason = str(status.get("reason") or status.get("last_error") or status.get("source") or "").strip()
         evidence = str(status.get("evidence") or status.get("evidence_text") or status.get("last_output_excerpt") or "").strip()
         weak_cooldown = runtime_state == "cooldown" and not reason and not evidence
+        op = operators.get(operator_id) if isinstance(operators.get(operator_id), dict) else {}
+        status_provider = str(status.get("effective_provider") or "").strip().lower()
+        claude_live_heartbeat = (
+            (status_provider in {"anthropic", "claude", "claude-code"} or _is_claude_code_operator(operator_id, op))
+            and _live_heartbeat_clears_claude_block(status)
+        )
         health_ok = False
         health_path = health_dir / f"{operator_id}.json"
         if health_path.exists():
@@ -611,6 +765,10 @@ def _prune_dynamic_operator_status_blocks(
         if weak_cooldown and health_ok:
             runtime.clear_operator_status(operator_id)
             pruned.append({"operator_id": operator_id, "runtime_state": runtime_state, "expired_at": "weak_no_evidence_health_ok"})
+            continue
+        if claude_live_heartbeat:
+            runtime.clear_operator_status(operator_id)
+            pruned.append({"operator_id": operator_id, "runtime_state": runtime_state, "expired_at": "claude_live_heartbeat_after_block"})
             continue
         kept.append({"operator_id": operator_id, "runtime_state": runtime_state, "expires_at": expires_raw or "N/A"})
     return pruned, kept
@@ -758,8 +916,13 @@ def apply_failure_flow_control(
     result = {"runtime_state": runtime_state, "task_control": None, "expires_at": "", "config_block": None}
     if runtime_state == "cooldown":
         reset_at = parse_rate_limit_reset_at(failure_text)
-        cooldown = _seconds_until(reset_at, int(rate_limit_cooldown_seconds or 0))
+        fallback_cooldown = browser_history_throttle_cooldown_seconds(
+            failure_text,
+            int(rate_limit_cooldown_seconds or 0),
+        )
+        cooldown = _seconds_until(reset_at, fallback_cooldown)
         expires_iso = _iso_z(reset_at) if reset_at else ""
+        reason = "browser_history_throttle" if BROWSER_HISTORY_THROTTLE_RE.search(failure_text or "") else "rate_limit"
         if cooldown > 0:
             set_operator_state(operator_id, "cooldown", ttl_seconds=cooldown)
             result["expires_at"] = expires_iso or _iso_z(_now() + dt.timedelta(seconds=cooldown))
@@ -767,7 +930,7 @@ def apply_failure_flow_control(
                 operator_id,
                 "cooldown",
                 expires_at=str(result["expires_at"]),
-                reason="rate_limit",
+                reason=reason,
                 source="failure_flow_control",
                 evidence_text=failure_text,
             )
@@ -777,7 +940,7 @@ def apply_failure_flow_control(
                 operator_id=operator_id,
                 action="defer",
                 runtime_state="cooldown",
-                reason="rate_limit",
+                reason=reason,
                 delay_seconds=cooldown,
             )
         return result

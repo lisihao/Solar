@@ -18,6 +18,7 @@ except ImportError:
     sys.exit(1)
 
 SCRIPTS_DIR = Path(__file__).parent
+DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "cmux-workspace-sample.yaml"
 CMUX_BIN_CANDIDATES = [
     "/Applications/cmux.app/Contents/Resources/bin/cmux",
     "/usr/local/bin/cmux",
@@ -131,7 +132,10 @@ def run_doctor(config_path: Path) -> dict:
         for pane in tab.get("panes", []):
             src = pane.get("source", "local")
             mode = pane.get("mode", "capture")
-            target = pane.get("tmux_target")
+            targets = list(pane.get("tmux_targets") or [])
+            single_target = pane.get("tmux_target") or pane.get("tmux_session")
+            if single_target:
+                targets.append(single_target)
 
             remote_dest = ""
             if src == "remote":
@@ -141,7 +145,7 @@ def run_doctor(config_path: Path) -> dict:
                 user = prof_cfg.get("user", "")
                 remote_dest = f"{user}@{host}" if user else host
 
-            if target:
+            for target in targets:
                 checks.append(check_tmux_target(target, remote_dest))
 
             if mode == "tail":
@@ -155,7 +159,7 @@ def run_doctor(config_path: Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="cmux workspace doctor — health check")
-    parser.add_argument("config", help="Path to workspace.yaml")
+    parser.add_argument("config", nargs="?", default=str(DEFAULT_CONFIG), help="Path to workspace.yaml")
     parser.add_argument("--pretty", action="store_true", default=True,
                         help="Pretty-print JSON output (default)")
     parser.add_argument("--compact", action="store_true", help="Compact JSON output")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -141,3 +142,34 @@ def test_build_deep_search_fallback_prompt_is_source_first():
     assert "source-first research engine" in prompt
     assert "categorized literature and link registry" in prompt.lower()
     assert "working URL" in prompt
+
+
+def test_resolve_target_account_email_prefers_explicit_env():
+    assert MODULE._resolve_target_account_email({
+        "BROWSER_AGENT_GEMINI_ACCOUNT_EMAIL": "gemini@example.invalid",
+        "BROWSER_AGENT_TARGET_ACCOUNT_EMAIL": "target@example.invalid",
+    }) == "gemini@example.invalid"
+
+
+def test_resolve_target_account_email_reads_profile_policy(tmp_path: Path):
+    policy = tmp_path / "gemini-policy.json"
+    policy.write_text(
+        json.dumps({
+            "policies": {
+                "gemini_deep_research": {
+                    "expected_account_email": "research@example.invalid",
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    assert MODULE._resolve_target_account_email({
+        "BROWSER_AGENT_GEMINI_PROFILE_POLICY_FILE": str(policy),
+    }) == "research@example.invalid"
+
+
+def test_resolve_target_account_email_without_config_is_empty(tmp_path: Path):
+    assert MODULE._resolve_target_account_email({
+        "BROWSER_AGENT_GEMINI_PROFILE_POLICY_FILE": str(tmp_path / "missing.json"),
+    }) == ""

@@ -27,6 +27,9 @@ DOCTOR_BIN="$HARNESS_DIR/solar-harness.sh"
 # SOLAR_REG_SMOKE_INSTALL_OVERRIDE escape hatch.
 SMOKE_TEST_PRIMARY="$HARNESS_DIR/tests/installer/test-smoke-install.sh"
 SMOKE_TEST_OVERRIDE="${SOLAR_REG_SMOKE_INSTALL_OVERRIDE:-}"
+VNEXT_EPIC_PREFIX="${SOLAR_REG_VNEXT_EPIC_PREFIX:-sprint-20260531-请为-solar-harness-开一个新的-p0-p1-架构升级单-主题是-把-task-graph-从现网单文件主读}"
+VNEXT_S03_GRAPH="${S03_GRAPH:-$HARNESS_DIR/sprints/${VNEXT_EPIC_PREFIX}-s03-core-runtime.task_graph.json}"
+VNEXT_S04_GRAPH="${S04_GRAPH:-$HARNESS_DIR/sprints/${VNEXT_EPIC_PREFIX}-s04-orchestration-ui.task_graph.json}"
 
 declare -a STEP_NAMES=()
 declare -a STEP_STATUS=()
@@ -131,7 +134,7 @@ fi
 # (e) no-side-effect
 NSE_LOG="$LOGDIR/05-no-side-effect.log"
 if [[ -f "$REG_DIR/test-vnext-no-side-effect.sh" ]]; then
-  run_step "no-side-effect" "$NSE_LOG" bash "$REG_DIR/test-vnext-no-side-effect.sh"
+  run_step "no-side-effect" "$NSE_LOG" env S03_GRAPH="$VNEXT_S03_GRAPH" S04_GRAPH="$VNEXT_S04_GRAPH" bash "$REG_DIR/test-vnext-no-side-effect.sh"
 else
   record "no-side-effect" "FAIL" "test-vnext-no-side-effect.sh missing"
 fi

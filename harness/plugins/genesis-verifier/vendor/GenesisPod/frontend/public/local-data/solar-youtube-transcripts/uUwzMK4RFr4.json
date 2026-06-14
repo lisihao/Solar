@@ -1,0 +1,229 @@
+{
+  "videoId": "uUwzMK4RFr4",
+  "title": "FAST '26 - Rearchitecting Buffered I/O in the Era of High-Bandwidth SSDs",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 10576,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "I'm Chong Tao coming from the Huazhong\nUniversity of Science and Technology.\nThe first author was unable to attend\nthe conference due to emerging events\nlast week. We replaced him to present\nour work. The topic is re-architecting\nbuffered IO in the era of the high\nbandwidth SSD.\nOver the past 15 years, we have\nwitnessed the explosion in the SSD\nbandwidth. We have moved from the data\nof SATA SSD with about 500 MB per second\nbandwidth to now PCIe 6 SSD with the 28\nGB per second bandwidth.\nGet a 56 times higher bandwidth\nincreasing within a decade, thus\ndelivering the storage\nsoftware state\nprepared for the high bandwidth SSD.\nThe buffered IO as the default file\naccess interface has been widely used\nall by all kinds of storage systems and\napplications. Buffered IO follows the\ncluster hierarchy architecture. Used the\nbuffer cache in the DRAM to absorb all\nthe write and\naccelerate readers.\nFurthermore, buffered IO offered\ntransparent IO alignment and\nmerging before performing device IOs.\nHowever, in the era of the\nhigh bandwidth SSDs, the dominance of\nthe buffered IO is now being challenged.\nIt is unable to maximize the SSD\nbandwidth and is write inefficient.\nNow, let's explore the limitation of the\nbuffered IO. We first use the file to\ncompare the ideal performance of the\nbuffered IO and the direct IO with the\nlarge layer IO request.\nFor the buffered IO, we utilized eight\nDDR4 DRAM with the sufficient free\nmemory and disabled page flash. For the\ndirect IO, we exploited eight PCIe 4\nSSD. The memory bandwidth is\napproximately four times that of storage\nbandwidth. However, the throughput of\nthe direct IO outperformed the buffered\nIO by 1.10 times or 2 4.46 times. The\nlimited maximal\nwrite\nbandwidth of the buffered IO is caused\nby the high cost of the\npage cache management such as\npage allocation, looking up, page state\nmaintenance, and IO list management for\naging and reclaim. In the slow storage\nera, the management cost of the page\ncache generally was ignored. Nowadays,\nit has been a performance bottleneck.\nFurther, we examined the performance of\nthe buffered IO in memory constrained\nscenarios. We used the 16 user series to\nrepresent a write intensive scenarios\nand let each series exclusive access a\ndedicated file to avoid lock contention\ncaused by concurrent file access.\nThe results show that except for Btrfs,\nwhich is limited by its own concurrent\nissue, the write throughput of the file\nsystem while buffered IO is a higher\ndependent on the available memory\ndespite enabled page flash throughout\nthe entire process.\nThis indicates that buffered IO require\nsufficient free memory to sustain the\nhigh write throughput. Even a slight\nreduce in the memory supplies can\nsignificantly\ndecrease the performance.\nBuffered IO can transparently use the\npage cache to handle IO alignment for\npartial page write at the cost of SSD\nread before write penalty for filling\npage.\nTo better understand the penalty, we\ncompared the write latency of the full\npage write and partial page write. The\nresult shows that the latency of partial\npage writes is 1.15\ntimes to 6.4\ntimes that of the full page write. This\nis because the long access latency of\nSSD compared to the memory, even for\nhigh bandwidth SSD.\nLet's take a look at the exact solution\nto address the\nperformance of the buffered IO. Some\nwork continued to use the buffered IO\nand optimize the page cache. However,\nthis still followed the hierarchy\narchitecture. Used the page cache to\nabsorb all the write. Therefore, such\neffort has limited the potential due to\nthe inability to direct benefit from the\nSSD bandwidth\nand the narrowing\nbandwidth gap between the memory and the\nSSD. Another studies bypass page cache\npartially or completely. However, they\npotentially sacrifice applicability\nand portability offered by the buffered\nIO.\nWe want buffered IO with both\nuser-friendly and high performance.\nTherefore, we actively exploit the high\nbandwidth SSD to enhance buffered IO\nrather than compelling them to passively\npassively passively handle dirty page\nflash. We aim to retain all the\nadvantage of the buffered IO while\nadjusting the shortcomings.\nSpecifically, we allow buffered\nbuffered IO to scale with SSD bandwidth,\nminimize its memory\nusage, and remove its read before write\npenalty penalty from the critical path.\nSo, we proposed the WS buffer, a lower\nthe write buffering architecture to\nre-architect the buffered IO. WS buffer\nallowed SSD strategically and the user\nwrite direct while retaining all the\nadvantage advantage of the buffered IO.\nNext, we introduce the four key design\nand scratch buffer structure, buffer\nminimize data access, opportu-\nopportunistic two-stage flash,\nconcurrent page management,\nrespectively.\nFirst, we introduce lower buffer page\nstructure, scratch buffer. It consists\nuh 128\n8-byte header for page metadata and a\n256\nKB data zone for page data to management\nsmall and discrete partial page write.\nScratch buffer is used to absorb the\npartial page part of a write and take\nout the write handling responsibility\nfrom the page cache and allow the page\ncache to focus on its task in the read\ncache. Moreover, scratch buffer can\nfaster handle partial page write by\nuh cyclically performing the read before\nwrite while our third design, OT flash.\nWe further design a buffer minimized\ndata access to\ncollaboratively\nutilize the scratch buffer, page cache,\nand SSD to handle various user access.\nWS buffer directly sent large SSD block\naligned part of the writes to the SSD.\nThereby, leveraging SSD high bandwidth\nand used\nscratch buffer to keep residual partial\npage\npart write to the saved memory.\nPage cache only handle reads and the\nmemory saved by write can be used to\nfurther accelerate read.\nMoreover, this design also\nsimplifies and issue data consistency by\nseparating the dirty scratch pages from\nthe clear memory pages.\nWe design an opportunistic two-stage\nflash, OT flash, for scratch buffer. OT\nflash is used to dynamically use the\nidle SSDs to perform fluent\nbuffer page filling and read back in the\nbackground. In the stage one, OT flash\nread SSD to fill an unfilled buffer\npage. In stage two, OT flash write a\nfull buffer page to SSD. Moreover, since\nSSD can strategically handle foreground\nwrite directly,\nOT flash design can\nSSD load\nwirelessly to avoid sending flash IO to\nbusiness SSD.\nFinally,\nWS buffer design a concurrent page\nmanagement to minimize the lock\ncontention between concurrent page\noperations. For scratch buffer, WS\nbuffer implement a slight modified\nX-array, SX-array, to manage the scratch\npage insertion and deletions and\nintroduce the per\npage locks to maintain scratch buffer\npage state for OT flash.\nSX array\nperform normal X array insertion\noperations while adopting a delay and\nopportunistic deletions.\nFor page cache, due to its read-only\ndesign, it continue to use X array\nwithout serious lock contention.\nNow, let's evaluation WS buffer. We used\n8 PCI-4\nSamsung 250 lighting pro compared to\nthem as the reader zero. WS buffer is a\nimplemented on XFS at the Linux kernel\n6.8 because XFS XFS boasted the best\nbenefit IO performance in the neutral\nLinux file systems, make it performance\norganization both challenging and\ncompelling.\nWe compared WS buffer with the four\npopular Linux file system, EXT4, F2FS,\nBTRFS, and XFS.\nAnd the SATA buffered IO organization\nscale cache and the SATA hybrid high\nbuffered and direct scale larger out IO.\nFirst, we examined the write\nperformance. This finger shows that\naverage write latency for the full page\nwrite, WS buffer achieve up to 6. uh 29\ntimes higher performance than base the\nfile systems file systems due to\nefficiently scale patch page management\nand SSD performance utilization.\nFor the partial page write, WS buffer\nachieve up to N2.\n18 high\nperformance than base the file system.\nBecause WS buffer removed read before\nwrite policy of the partial page write.\nTo answer the national question of what\nthe effect of the user direct IO only or\nthe hybrid direct buffer IO is, we\ncompared WS buffer with direct IO and\nthe hybrid IO.\nThe result shows that WS buffer achieve\n59 times two uh time high performance\nthan base line.\nThis is because XFS well buffered IO\nsurface from the slow read before write\nof the partial write partial page write.\nXFS well buffered IO surface from the\nslow read modify modify write for IO\nalignment. XFS well out IO surface from\nthe\nread before write for small write and\nread modify write for large write.\nWS buffer come overcome these issues.\nWe further evaluation the overall\nperformance WS buffer in the micro micro\nenvironment of file bench.\nWe evaluation WS buffer on the unlimited\nmemory and limited available memory\nscenarios respectively, including write\nheavy light and read heavy light.\nOn the limited memory, WS buffer\nachieves up to 2.84 times higher\nthroughput than base line.\nThis demonstrate that WS buffer improve\ndata access performance without\ncompromised\nmetadata access performance.\nOn the limited available\nmemory, the advantages of the WS buffer\nbecome even more pronounced, achieve up\nto 4.48 times performance improvement.\nThis demonstrate that WS buffer has a\nhigher memory efficiency.\nLast, we demonstrate other benefit\noffered by the WS buffer.\nWS buffer saved up to the 99.66%\nmemory usage on the right heavy real\nworld applications and the saves up to\n28.4%\nCPU utilization.\nIts performance is independent of the\nread stress and can\nscale well with the SSD bandwidth.\nIn summary,\nin our work, we explored identified the\nefficiencies of the buffered IO for high\nbandwidth SSD.\nAnd we analyzed and report in the root\ncause such as buffer all the right in\nthe current\npass but with the high software overhead\nor overhead.\nHigh memory dependency caused by limited\ncoherence of the page management and the\nslow partial page write due to high read\nbefore write uh\npolicy.\nWe present WS buffer a lower the write\nbuffering architecture to utilize the\nhigh bandwidth SSD to enhance\nbuffered IO.\nThe improvements include throughput,\nlatency, memory utilization, CPU\nutilization, and SSD bandwidth\nutilization.\nThank you for your time and attention.\nIf you have any technical questions, you\ncan send an email to the address of\nYekong, my student, my first uh\nI am the first author. Thank you.\n>> [applause]",
+  "segments": [
+    {
+      "text": "I'm Chong Tao coming from the Huazhong University of Science and Technology. The first author was unable to attend the conference due to emerging events last week. We replaced him to present our work. The topic is re-architecting",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "buffered IO in the era of the high bandwidth SSD. Over the past 15 years, we have witnessed the explosion in the SSD bandwidth. We have moved from the data of SATA SSD with about 500 MB per second bandwidth to now PCIe 6 SSD with the 28",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "GB per second bandwidth. Get a 56 times higher bandwidth increasing within a decade, thus delivering the storage software state prepared for the high bandwidth SSD. The buffered IO as the default file access interface has been widely used",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "all by all kinds of storage systems and applications. Buffered IO follows the cluster hierarchy architecture. Used the buffer cache in the DRAM to absorb all the write and accelerate readers. Furthermore, buffered IO offered transparent IO alignment and",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "merging before performing device IOs. However, in the era of the high bandwidth SSDs, the dominance of the buffered IO is now being challenged. It is unable to maximize the SSD bandwidth and is write inefficient. Now, let's explore the limitation of the",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "buffered IO. We first use the file to compare the ideal performance of the buffered IO and the direct IO with the large layer IO request. For the buffered IO, we utilized eight DDR4 DRAM with the sufficient free memory and disabled page flash. For the",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "direct IO, we exploited eight PCIe 4 SSD. The memory bandwidth is approximately four times that of storage bandwidth. However, the throughput of the direct IO outperformed the buffered IO by 1.10 times or 2 4.46 times. The limited maximal write",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "bandwidth of the buffered IO is caused by the high cost of the page cache management such as page allocation, looking up, page state maintenance, and IO list management for aging and reclaim. In the slow storage era, the management cost of the page",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "cache generally was ignored. Nowadays, it has been a performance bottleneck. Further, we examined the performance of the buffered IO in memory constrained scenarios. We used the 16 user series to represent a write intensive scenarios",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "and let each series exclusive access a dedicated file to avoid lock contention caused by concurrent file access. The results show that except for Btrfs, which is limited by its own concurrent issue, the write throughput of the file",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "system while buffered IO is a higher dependent on the available memory despite enabled page flash throughout the entire process. This indicates that buffered IO require sufficient free memory to sustain the high write throughput. Even a slight",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "reduce in the memory supplies can significantly decrease the performance. Buffered IO can transparently use the page cache to handle IO alignment for partial page write at the cost of SSD read before write penalty for filling page.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "To better understand the penalty, we compared the write latency of the full page write and partial page write. The result shows that the latency of partial page writes is 1.15 times to 6.4 times that of the full page write. This",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "is because the long access latency of SSD compared to the memory, even for high bandwidth SSD. Let's take a look at the exact solution to address the performance of the buffered IO. Some work continued to use the buffered IO",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "and optimize the page cache. However, this still followed the hierarchy architecture. Used the page cache to absorb all the write. Therefore, such effort has limited the potential due to the inability to direct benefit from the SSD bandwidth and the narrowing",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "bandwidth gap between the memory and the SSD. Another studies bypass page cache partially or completely. However, they potentially sacrifice applicability and portability offered by the buffered IO. We want buffered IO with both",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "user-friendly and high performance. Therefore, we actively exploit the high bandwidth SSD to enhance buffered IO rather than compelling them to passively passively passively handle dirty page flash. We aim to retain all the advantage of the buffered IO while",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "adjusting the shortcomings. Specifically, we allow buffered buffered IO to scale with SSD bandwidth, minimize its memory usage, and remove its read before write penalty penalty from the critical path. So, we proposed the WS buffer, a lower",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "the write buffering architecture to re-architect the buffered IO. WS buffer allowed SSD strategically and the user write direct while retaining all the advantage advantage of the buffered IO. Next, we introduce the four key design",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "and scratch buffer structure, buffer minimize data access, opportu- opportunistic two-stage flash, concurrent page management, respectively. First, we introduce lower buffer page structure, scratch buffer. It consists uh 128",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "8-byte header for page metadata and a 256 KB data zone for page data to management small and discrete partial page write. Scratch buffer is used to absorb the partial page part of a write and take out the write handling responsibility",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "from the page cache and allow the page cache to focus on its task in the read cache. Moreover, scratch buffer can faster handle partial page write by uh cyclically performing the read before write while our third design, OT flash.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "We further design a buffer minimized data access to collaboratively utilize the scratch buffer, page cache, and SSD to handle various user access. WS buffer directly sent large SSD block aligned part of the writes to the SSD.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "Thereby, leveraging SSD high bandwidth and used scratch buffer to keep residual partial page part write to the saved memory. Page cache only handle reads and the memory saved by write can be used to further accelerate read. Moreover, this design also",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "simplifies and issue data consistency by separating the dirty scratch pages from the clear memory pages. We design an opportunistic two-stage flash, OT flash, for scratch buffer. OT flash is used to dynamically use the idle SSDs to perform fluent",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "buffer page filling and read back in the background. In the stage one, OT flash read SSD to fill an unfilled buffer page. In stage two, OT flash write a full buffer page to SSD. Moreover, since SSD can strategically handle foreground write directly,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "OT flash design can SSD load wirelessly to avoid sending flash IO to business SSD. Finally, WS buffer design a concurrent page management to minimize the lock contention between concurrent page operations. For scratch buffer, WS",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "buffer implement a slight modified X-array, SX-array, to manage the scratch page insertion and deletions and introduce the per page locks to maintain scratch buffer page state for OT flash. SX array perform normal X array insertion",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "operations while adopting a delay and opportunistic deletions. For page cache, due to its read-only design, it continue to use X array without serious lock contention. Now, let's evaluation WS buffer. We used 8 PCI-4 Samsung 250 lighting pro compared to",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "them as the reader zero. WS buffer is a implemented on XFS at the Linux kernel 6.8 because XFS XFS boasted the best benefit IO performance in the neutral Linux file systems, make it performance organization both challenging and compelling.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "We compared WS buffer with the four popular Linux file system, EXT4, F2FS, BTRFS, and XFS. And the SATA buffered IO organization scale cache and the SATA hybrid high buffered and direct scale larger out IO. First, we examined the write",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "performance. This finger shows that average write latency for the full page write, WS buffer achieve up to 6. uh 29 times higher performance than base the file systems file systems due to efficiently scale patch page management and SSD performance utilization.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "For the partial page write, WS buffer achieve up to N2. 18 high performance than base the file system. Because WS buffer removed read before write policy of the partial page write. To answer the national question of what",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "the effect of the user direct IO only or the hybrid direct buffer IO is, we compared WS buffer with direct IO and the hybrid IO. The result shows that WS buffer achieve 59 times two uh time high performance than base line. This is because XFS well buffered IO",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "surface from the slow read before write of the partial write partial page write. XFS well buffered IO surface from the slow read modify modify write for IO alignment. XFS well out IO surface from the read before write for small write and",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "read modify write for large write. WS buffer come overcome these issues. We further evaluation the overall performance WS buffer in the micro micro environment of file bench. We evaluation WS buffer on the unlimited memory and limited available memory",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "scenarios respectively, including write heavy light and read heavy light. On the limited memory, WS buffer achieves up to 2.84 times higher throughput than base line. This demonstrate that WS buffer improve data access performance without compromised",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "metadata access performance. On the limited available memory, the advantages of the WS buffer become even more pronounced, achieve up to 4.48 times performance improvement. This demonstrate that WS buffer has a higher memory efficiency.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "Last, we demonstrate other benefit offered by the WS buffer. WS buffer saved up to the 99.66% memory usage on the right heavy real world applications and the saves up to 28.4% CPU utilization. Its performance is independent of the read stress and can",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "scale well with the SSD bandwidth. In summary, in our work, we explored identified the efficiencies of the buffered IO for high bandwidth SSD. And we analyzed and report in the root cause such as buffer all the right in the current",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "pass but with the high software overhead or overhead. High memory dependency caused by limited coherence of the page management and the slow partial page write due to high read before write uh policy. We present WS buffer a lower the write",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "buffering architecture to utilize the high bandwidth SSD to enhance buffered IO. The improvements include throughput, latency, memory utilization, CPU utilization, and SSD bandwidth utilization. Thank you for your time and attention.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "If you have any technical questions, you can send an email to the address of Yekong, my student, my first uh I am the first author. Thank you. >> [applause]",
+      "start": 252,
+      "duration": 6
+    }
+  ]
+}

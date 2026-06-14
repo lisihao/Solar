@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+import html as html_lib
 import json
+import os
 import re
+import shlex
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 from research.report_metrics import append_execution_metrics_section, write_execution_metrics
 
-from .schemas import ChapterEditorialReview, SectionReview, to_dict
+from .schemas import (
+    ChapterEditorialReview,
+    SectionReview,
+    to_dict,
+    validate_figure_spec,
+    write_figure_spec,
+    write_section_render_card,
+)
 from .writing_loop import run_section_revision_loop
 
 
@@ -78,6 +91,13 @@ def _evidence_lookup(root: Path) -> dict[str, dict[str, Any]]:
     return {str(row.get("id") or row.get("evidence_id") or ""): row for row in _read_jsonl(root / "evidence.jsonl")}
 
 
+def _is_insight_ast(root: Path, ast: dict) -> bool:
+    plan = _read_json(root / "survey_plan.json")
+    planner_mode = str(plan.get("planner_mode") or ast.get("planner_mode") or "").lower()
+    title = str(ast.get("title") or "").lower()
+    return planner_mode in {"insight", "conference_insight"} or "deepdive 洞察报告" in title or "insight" in title
+
+
 def _section_final(root: Path, section_id: str) -> str:
     path = root / "sections" / section_id / "final.md"
     return path.read_text(encoding="utf-8", errors="ignore") if path.exists() else ""
@@ -85,12 +105,18 @@ def _section_final(root: Path, section_id: str) -> str:
 
 def _build_contribution_matrix(root: Path, ast: dict) -> dict:
     rows = []
+    insight_mode = _is_insight_ast(root, ast)
     for section in ast.get("sections", []):
         section_id = str(section.get("section_id") or "")
         text = _section_final(root, section_id)
         claims = sorted(set(_extract_tags(text, "claim")))
         evidence = sorted(set(_extract_tags(text, "evidence")))
         headings = [line.strip("# ").strip() for line in text.splitlines() if line.startswith("## ")]
+        has_insight_thesis = "## 本节判断" in text
+        has_insight_evidence = "## 证据链" in text
+        has_insight_action = "## 影响与行动" in text
+        has_insight_counter = "## 反证和观察" in text
+        has_insight_figure = "## Figure Spec" in text or "SectionRender JSON" in text
         rows.append({
             "section_id": section_id,
             "chapter_id": str(section.get("chapter_id") or ""),
@@ -102,14 +128,14 @@ def _build_contribution_matrix(root: Path, ast: dict) -> dict:
             "evidence_count": len(evidence),
             "has_literature_lineage": "Literature Lineage" in text,
             "has_method_taxonomy": "Method Taxonomy" in text,
-            "has_architecture_synthesis": "Architecture Synthesis" in text,
-            "has_comparative_positioning": "Comparative Positioning" in text,
+            "has_architecture_synthesis": "Architecture Synthesis" in text or (insight_mode and has_insight_action and has_insight_figure),
+            "has_comparative_positioning": "Comparative Positioning" in text or (insight_mode and has_insight_thesis and has_insight_counter),
             "has_terminology_evolution": "Terminology Evolution" in text,
             "has_evaluation_protocol_matrix": "Evaluation Protocol Matrix" in text,
-            "has_evaluation_boundary": "Evaluation And Risk Boundary" in text,
-            "has_limitations_failure_modes": "Limitations And Failure Modes" in text,
+            "has_evaluation_boundary": "Evaluation And Risk Boundary" in text or (insight_mode and has_insight_evidence and has_insight_counter),
+            "has_limitations_failure_modes": "Limitations And Failure Modes" in text or (insight_mode and has_insight_counter),
             "has_controversy_matrix": "Controversy Matrix" in text,
-            "has_contradiction_slots": "Contradiction Slots" in text,
+            "has_contradiction_slots": "Contradiction Slots" in text or (insight_mode and has_insight_counter),
             "headings": headings[:20],
         })
     finalized = [row for row in rows if row["status"] == "finalized"]
@@ -297,6 +323,8 @@ def _clean_human_text(text: str, evidence_numbers: dict[str, int]) -> str:
             lambda match: f"[^{evidence_numbers.setdefault(match.group(1), len(evidence_numbers) + 1)}]",
             line,
         )
+        line = re.sub(r"\bch\d{1,3}(?:#\d+)?::\s*", "", line)
+        line = re.sub(r"\bch\d{1,3}/sec\d{1,3}\b", "该小节", line)
         line = re.sub(r"\s+", " ", line).strip()
         if line:
             cleaned_lines.append(line)
@@ -326,6 +354,16 @@ def _first_units(text: str, limit: int = 2, max_chars: int = 700) -> list[str]:
     return units
 
 
+def _fallback_units(text: str, *, limit: int = 2) -> list[str]:
+    units = _first_units(text, limit=limit)
+    if units:
+        return units
+    compact = re.sub(r"\s+", " ", text or "").strip()
+    if not compact:
+        return []
+    return [compact[:260]]
+
+
 def _append_unique(items: list[str], candidates: list[str], *, max_items: int) -> None:
     seen = {re.sub(r"\s+", " ", item).strip() for item in items}
     for candidate in candidates:
@@ -336,6 +374,317 @@ def _append_unique(items: list[str], candidates: list[str], *, max_items: int) -
         seen.add(key)
         if len(items) >= max_items:
             break
+
+
+def _evidence_callouts(root: Path, evidence_ids: list[str], *, max_items: int = 4) -> list[dict[str, str]]:
+    evidence_rows = _evidence_lookup(root)
+    source_rows = _source_lookup(root)
+    callouts: list[dict[str, str]] = []
+    for evidence_id in evidence_ids[:max_items]:
+        evidence = evidence_rows.get(evidence_id, {})
+        source = source_rows.get(str(evidence.get("source_id") or ""), {})
+        title = str(source.get("title") or evidence.get("title") or evidence_id)
+        source_type = str(source.get("source_type") or "unknown")
+        content = str(evidence.get("content") or evidence.get("summary") or "").strip()
+        callouts.append({
+            "evidence_id": evidence_id,
+            "source_title": title,
+            "source_type": source_type,
+            "summary": content[:360] if content else title,
+            "url": str(source.get("url") or ""),
+        })
+    return callouts
+
+
+def _short_text(value: str, *, max_chars: int = 120) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
+
+
+def _figure_nodes(thesis: list[str], evidence_callouts: list[dict[str, str]], takeaways: list[str]) -> list[dict[str, str]]:
+    nodes: list[dict[str, str]] = []
+    for index, item in enumerate(thesis[:2], start=1):
+        nodes.append({"node_id": f"thesis_{index}", "kind": "thesis", "label": _short_text(item)})
+    for index, callout in enumerate(evidence_callouts[:3], start=1):
+        summary = str(callout.get("summary") or callout.get("source_title") or "")
+        nodes.append({"node_id": f"evidence_{index}", "kind": "evidence", "label": _short_text(summary)})
+    for index, item in enumerate(takeaways[:2], start=1):
+        nodes.append({"node_id": f"takeaway_{index}", "kind": "takeaway", "label": _short_text(item)})
+    return nodes
+
+
+def _figure_edges(nodes: list[dict[str, str]]) -> list[dict[str, str]]:
+    thesis_nodes = [node for node in nodes if node.get("kind") == "thesis"]
+    evidence_nodes = [node for node in nodes if node.get("kind") == "evidence"]
+    takeaway_nodes = [node for node in nodes if node.get("kind") == "takeaway"]
+    edges: list[dict[str, str]] = []
+    for thesis in thesis_nodes[:1]:
+        for evidence in evidence_nodes:
+            edges.append({"from": thesis["node_id"], "to": evidence["node_id"], "relation": "supported_by"})
+        for takeaway in takeaway_nodes:
+            edges.append({"from": thesis["node_id"], "to": takeaway["node_id"], "relation": "leads_to"})
+    return edges
+
+
+SUPPORTED_FIGURE_TYPES = {
+    "architecture_map": "架构图",
+    "roadmap_timeline": "路线图",
+    "process_flow": "流程图",
+    "comparison_matrix": "对比图",
+    "evidence_map": "证据图",
+    "risk_map": "风险图",
+    "insight_argument_map": "论证图",
+}
+
+PREMIUM_FIGURE_TYPES = {"architecture_map", "roadmap_timeline", "process_flow"}
+
+FIGURE_SPEC_TYPE_MAP = {
+    "architecture_map": "architecture_diagram",
+    "roadmap_timeline": "roadmap",
+    "process_flow": "architecture_diagram",
+    "comparison_matrix": "matrix",
+    "evidence_map": "evidence_map",
+    "risk_map": "causal_map",
+    "insight_argument_map": "causal_map",
+}
+
+
+def _typed_figure_from_legacy(figure: dict[str, Any], *, section_id: str, title: str) -> dict[str, Any]:
+    content_sources = figure.get("content_sources") if isinstance(figure.get("content_sources"), dict) else {}
+    grounding_ids = [
+        str(item)
+        for item in [
+            *(figure.get("claim_ids") if isinstance(figure.get("claim_ids"), list) else []),
+            *(figure.get("evidence_ids") if isinstance(figure.get("evidence_ids"), list) else []),
+            *(content_sources.get("claim_ids") if isinstance(content_sources.get("claim_ids"), list) else []),
+            *(content_sources.get("evidence_ids") if isinstance(content_sources.get("evidence_ids"), list) else []),
+            *(content_sources.get("evidence_callout_ids") if isinstance(content_sources.get("evidence_callout_ids"), list) else []),
+        ]
+        if str(item)
+    ]
+    if not grounding_ids:
+        grounding_ids = [section_id or str(figure.get("figure_id") or "section")]
+    legacy_type = str(figure.get("type") or "insight_argument_map")
+    return {
+        "figure_id": str(figure.get("figure_id") or re.sub(r"[^a-zA-Z0-9_-]+", "_", section_id).strip("_") or "figure"),
+        "title": str(figure.get("title") or title or section_id or "Figure"),
+        "figure_type": FIGURE_SPEC_TYPE_MAP.get(legacy_type, "causal_map"),
+        "grounding_ids": grounding_ids,
+        "spec_data": figure,
+        "renderer": "section_render_svg_renderer",
+        "caption": str(figure.get("label") or SUPPORTED_FIGURE_TYPES.get(legacy_type, "图示")),
+        "artifact_path": str(figure.get("asset_path") or "") or None,
+    }
+
+
+def _typed_section_card_from_legacy(card: dict[str, Any]) -> dict[str, Any]:
+    section_id = str(card.get("section_id") or "section")
+    title = str(card.get("title") or section_id)
+    figure = card.get("figure_spec") if isinstance(card.get("figure_spec"), dict) else {}
+    thesis = card.get("thesis") if isinstance(card.get("thesis"), list) else []
+    if isinstance(card.get("body_blocks"), list) and card.get("body_blocks"):
+        body_blocks = [item for item in card["body_blocks"] if isinstance(item, dict)]
+    else:
+        body_blocks = [
+            {"type": "thesis", "text": str(item)}
+            for item in thesis
+            if str(item).strip()
+        ] or [{"type": "summary", "text": title}]
+    callouts = card.get("evidence_callouts") if isinstance(card.get("evidence_callouts"), list) else []
+    if not callouts:
+        callouts = [{"evidence_id": section_id, "summary": title}]
+    takeaways = card.get("takeaways") if isinstance(card.get("takeaways"), list) else []
+    if not takeaways:
+        takeaways = [title]
+    explicit_solar = card.get("solar_absorption") if isinstance(card.get("solar_absorption"), list) else []
+    solar_absorption = [str(item) for item in explicit_solar if str(item).strip()]
+    if not solar_absorption:
+        claim_count = len([item for item in (card.get("claim_ids") if isinstance(card.get("claim_ids"), list) else []) if str(item)])
+        solar_absorption = [
+            f"Solar operator/schema/gate mapping anchored to {claim_count or 1} supported claim group(s) for this section."
+        ]
+    explicit_predictions = card.get("prediction_packet_refs") if isinstance(card.get("prediction_packet_refs"), list) else []
+    prediction_packet_refs = [str(item) for item in explicit_predictions if str(item).strip()] or [
+        "Forecast packet with drivers, leading indicators, counter-scenarios, and falsification checks."
+    ]
+    citations = [
+        {
+            "evidence_id": str(item.get("evidence_id") or item.get("id") or f"{section_id}:evidence"),
+            "marker": str(item.get("marker") or item.get("evidence_id") or item.get("id") or section_id),
+        }
+        for item in callouts
+        if isinstance(item, dict)
+    ] or [{"evidence_id": section_id, "marker": section_id}]
+    return {
+        **card,
+        "evidence_callouts": callouts,
+        "takeaways": takeaways,
+        "figure": _typed_figure_from_legacy(figure, section_id=section_id, title=title),
+        "title_claim_type": str(card.get("title_claim_type") or "thesis"),
+        "body_blocks": body_blocks,
+        "citations": citations,
+        "solar_absorption": solar_absorption,
+        "prediction_packet_refs": prediction_packet_refs,
+        "artifact_path": str(card.get("artifact_path") or f"section_render_cards/{re.sub(r'[^a-zA-Z0-9_-]+', '__', section_id).strip('_') or 'section'}.json"),
+    }
+
+
+def _explicit_figure_type(text: str) -> str:
+    match = re.search(r"figure_type\s*:\s*([a-zA-Z0-9_-]+)", text or "", flags=re.I)
+    if match and match.group(1) in SUPPORTED_FIGURE_TYPES:
+        return match.group(1)
+    try:
+        json_match = re.search(r"```json\s*(\{.*?\})\s*```", text or "", flags=re.S)
+        if json_match:
+            payload = json.loads(json_match.group(1))
+            figure = payload.get("figure_spec") if isinstance(payload, dict) else {}
+            figure_type = str(figure.get("type") or "")
+            if figure_type in SUPPORTED_FIGURE_TYPES:
+                return figure_type
+    except Exception:
+        return ""
+    return ""
+
+
+def _infer_figure_type(section: dict, text: str, takeaways: list[str]) -> str:
+    explicit = _explicit_figure_type(text)
+    if explicit:
+        return explicit
+    suggested = str(section.get("suggested_figure_type") or "")
+    if suggested in SUPPORTED_FIGURE_TYPES:
+        return suggested
+    corpus = " ".join([
+        str(section.get("title") or ""),
+        str(section.get("research_question") or ""),
+        str(text or ""),
+        " ".join(takeaways),
+    ]).lower()
+    if re.search(r"风险|反证|边界|缺口|失败|risk|gap|limit|falsification", corpus):
+        return "risk_map"
+    if re.search(r"路线图|下一步|roadmap|预测|forecast|观察指标|watchlist|priority|p0|p1", corpus):
+        return "roadmap_timeline"
+    if re.search(r"架构|runtime|系统|operator|schema|gate|规格|协议|组件|architecture", corpus):
+        return "architecture_map"
+    if re.search(r"流程|pipeline|process|工作流|阶段|步骤", corpus):
+        return "process_flow"
+    if re.search(r"分歧|比较|对比|取舍|矩阵|matrix|tradeoff|versus|vs", corpus):
+        return "comparison_matrix"
+    if re.search(r"证据|来源|强度|coverage|source|evidence|signal", corpus):
+        return "evidence_map"
+    return "insight_argument_map"
+
+
+def _build_section_render_card(root: Path, section: dict, row: dict) -> dict[str, Any]:
+    section_id = str(section.get("section_id") or row.get("section_id") or "")
+    text = _section_final(root, section_id)
+    blocks = _split_markdown_sections(text)
+    evidence_ids = list(row.get("evidence_ids") or [])
+    claim_ids = list(row.get("claim_ids") or [])
+
+    thesis_candidates: list[str] = []
+    for heading in ("本节判断", "position", "architecture synthesis", "comparative positioning"):
+        thesis_candidates.extend(_fallback_units(_clean_human_text(blocks.get(heading, ""), {}), limit=2))
+    if not thesis_candidates:
+        thesis_candidates = _fallback_units(_clean_human_text(text, {}), limit=2)
+
+    takeaways: list[str] = []
+    for heading in (
+        "影响与行动",
+        "architecture synthesis",
+        "comparative positioning",
+        "evaluation and risk boundary",
+        "limitations and failure modes",
+        "反证和观察",
+        "open problems",
+    ):
+        _append_unique(takeaways, _fallback_units(_clean_human_text(blocks.get(heading, ""), {}), limit=1), max_items=5)
+
+    body_blocks: list[dict[str, str]] = []
+    for block_type, heading in (
+        ("thesis", "本节判断"),
+        ("evidence", "证据链"),
+        ("action", "影响与行动"),
+        ("forecast", "预测和观察"),
+        ("risk", "反证和观察"),
+        ("architecture", "architecture synthesis"),
+        ("evaluation", "evaluation and risk boundary"),
+    ):
+        key = heading.lower()
+        text_block = _clean_human_text(blocks.get(key, ""), {})
+        if text_block.strip():
+            body_blocks.append({"type": block_type, "title": heading, "text": text_block})
+    if not body_blocks:
+        body_blocks = [{"type": "thesis", "title": "本节判断", "text": item} for item in thesis_candidates[:2]]
+
+    evidence_callouts = _evidence_callouts(root, evidence_ids, max_items=4)
+    title = str(section.get("title") or row.get("title") or section_id)
+    figure_nodes = _figure_nodes(thesis_candidates, evidence_callouts, takeaways)
+    figure_type = _infer_figure_type(section, text, takeaways)
+    figure_spec = {
+        "figure_id": re.sub(r"[^a-zA-Z0-9_-]+", "_", section_id).strip("_"),
+        "type": figure_type,
+        "label": SUPPORTED_FIGURE_TYPES.get(figure_type, "论证图"),
+        "title": title,
+        "render_rule": f"draw_{figure_type}_from_section_card",
+        "content_sources": {
+            "thesis": thesis_candidates[:3],
+            "evidence_callout_ids": [str(callout.get("evidence_id") or "") for callout in evidence_callouts[:4]],
+            "takeaways": takeaways[:5],
+            "claim_ids": claim_ids[:5],
+            "evidence_ids": evidence_ids[:5],
+        },
+        "nodes": figure_nodes,
+        "edges": _figure_edges(figure_nodes),
+        "claim_ids": claim_ids[:5],
+        "evidence_ids": evidence_ids[:5],
+    }
+    return {
+        "schema_version": "solar.deepdive.section_render_card.v1",
+        "section_id": section_id,
+        "chapter_id": str(section.get("chapter_id") or row.get("chapter_id") or ""),
+        "title": title,
+        "status": row.get("status") or "pending",
+        "thesis": thesis_candidates[:3],
+        "body_blocks": body_blocks[:6],
+        "evidence_callouts": evidence_callouts,
+        "takeaways": takeaways[:5],
+        "figure_spec": figure_spec,
+        "claim_ids": claim_ids,
+        "evidence_ids": evidence_ids,
+    }
+
+
+def _build_section_render_cards(root: Path, ast: dict, contribution: dict) -> dict[str, Any]:
+    rows_by_section = {str(row.get("section_id") or ""): row for row in contribution.get("rows", []) if isinstance(row, dict)}
+    cards: list[dict[str, Any]] = []
+    card_dir = root / "section_render_cards"
+    card_dir.mkdir(parents=True, exist_ok=True)
+    for section in ast.get("sections", []) if isinstance(ast.get("sections"), list) else []:
+        section_id = str(section.get("section_id") or "")
+        row = rows_by_section.get(section_id, {"section_id": section_id, "status": "pending"})
+        card = _build_section_render_card(root, section, row)
+        card = _typed_section_card_from_legacy(card)
+        cards.append(card)
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "__", section_id).strip("_") or "section"
+        write_section_render_card(card, card_dir / f"{safe_name}.json")
+    payload = {
+        "ok": True,
+        "schema_version": "solar.deepdive.section_render_cards.v1",
+        "card_count": len(cards),
+        "cards": cards,
+    }
+    (root / "section_render_cards.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    typed_figures = [card["figure"] for card in cards if isinstance(card.get("figure"), dict)]
+    for index, figure in enumerate(typed_figures, start=1):
+        write_figure_spec(figure, root / "figure_specs" / f"{index:03d}_{figure.get('figure_id') or 'figure'}.json")
+    figures = {
+        "figures": typed_figures,
+        "legacy_figures": [card["figure_spec"] for card in cards if card.get("figure_spec")],
+    }
+    (root / "figures.json").write_text(json.dumps(figures, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return payload
 
 
 def _human_chapter_block(root: Path, chapter: dict, sections: list[dict], evidence_numbers: dict[str, int]) -> tuple[str, dict[str, int]]:
@@ -385,6 +734,848 @@ def _human_chapter_block(root: Path, chapter: dict, sections: list[dict], eviden
     if open_problems:
         lines.extend(["### 未解问题", "", *[f"- {item}" for item in open_problems[:3]], ""])
     return "\n".join(lines).strip() + "\n", metrics
+
+
+def _build_insight_human_final(root: Path, ast: dict, contribution: dict, section_render: dict[str, Any]) -> dict:
+    cards = section_render.get("cards", []) if isinstance(section_render.get("cards"), list) else []
+    cards_by_chapter: dict[str, list[dict[str, Any]]] = {}
+    for card in cards:
+        cards_by_chapter.setdefault(str(card.get("chapter_id") or ""), []).append(card)
+
+    chapters = ast.get("chapters", []) if isinstance(ast.get("chapters"), list) else []
+    source_counts = contribution.get("source_type_counts") if isinstance(contribution.get("source_type_counts"), dict) else {}
+    source_summary = "、".join(
+        f"{_source_type_label(key)} {value}" for key, value in sorted(source_counts.items())
+    ) or "N/A"
+    title = str(ast.get("title") or "DeepDive 洞察报告")
+
+    thesis_lines: list[str] = []
+    for card in cards[:4]:
+        _append_unique(thesis_lines, [str(item) for item in card.get("thesis", [])], max_items=5)
+    if not thesis_lines:
+        thesis_lines.append(f"本报告围绕“{title}”建立中心论点、证据链、行动映射和后续观察指标。")
+
+    evidence_lines: list[str] = []
+    for card in cards:
+        for callout in card.get("evidence_callouts", [])[:2]:
+            summary = str(callout.get("summary") or callout.get("source_title") or "").strip()
+            if summary:
+                _append_unique(evidence_lines, [summary], max_items=8)
+    visible_sources = _visible_source_rows(root, max_items=8)
+
+    lines = [
+        f"# {title}",
+        "",
+        "## 核心判断",
+        "",
+        *[f"- {item}" for item in thesis_lines[:5]],
+        "",
+        "## 信号地图与证据强度",
+        "",
+        f"本报告基于 {int(contribution.get('finalized_sections') or 0)}/{int(contribution.get('section_count') or 0)} 个已审阅 section，来源类型覆盖：{source_summary}。",
+        "",
+    ]
+    if evidence_lines:
+        lines.extend([*[f"- {item}" for item in evidence_lines[:8]], ""])
+    if visible_sources:
+        lines.extend(["## 可见来源索引", ""])
+        for source in visible_sources:
+            lines.append(f"- {source['label']}：[ {source['title']} ]({source['url']})")
+        lines.append("")
+
+    for chapter in chapters:
+        chapter_id = str(chapter.get("chapter_id") or "")
+        chapter_cards = cards_by_chapter.get(chapter_id, [])
+        lines.extend([f"## {chapter.get('title')}", ""])
+        if not chapter_cards:
+            lines.extend(["该章尚无可发布的 SectionRender 卡片。", ""])
+            continue
+        for card in chapter_cards:
+            lines.extend([f"### {card.get('title')}", ""])
+            thesis = [str(item) for item in card.get("thesis", []) if str(item).strip()]
+            if thesis:
+                lines.extend(["#### 本节判断", "", *[f"- {item}" for item in thesis[:2]], ""])
+            callouts = card.get("evidence_callouts", []) if isinstance(card.get("evidence_callouts"), list) else []
+            if callouts:
+                lines.extend(["#### 证据链", ""])
+                for callout in callouts[:3]:
+                    source = str(callout.get("source_title") or "N/A")
+                    summary = str(callout.get("summary") or "").strip()
+                    lines.append(f"- {source}: {summary}")
+                lines.append("")
+            takeaways = [str(item) for item in card.get("takeaways", []) if str(item).strip()]
+            if takeaways:
+                lines.extend(["#### 影响与行动", "", *[f"- {item}" for item in takeaways[:3]], ""])
+            lines.extend(["#### 反证和观察", "", "- 保留反向证据、风险边界和后续领先指标；若证据不足，应降级为 watchlist，而不是强推结论。", ""])
+
+    text = _public_report_text("\n".join(lines).strip()) + "\n"
+    # Insight-mode human output is a publication preview. Keep run/token metrics
+    # in JSON sidecars only; final.md remains the machine-audit artifact.
+    execution_metrics = append_execution_metrics_section(text, root)[1]
+    human_path = root / "human_final.md"
+    human_path.write_text(text, encoding="utf-8")
+    metrics_path = root / "survey_human_execution_metrics.json"
+    write_execution_metrics(metrics_path, execution_metrics)
+    summary = {
+        "ok": True,
+        "human_final_md": str(human_path),
+        "char_count": len(text),
+        "chapter_count": len(chapters),
+        "section_render_card_count": len(cards),
+        "template_heading_count": sum(text.count(f"## {heading}") for heading in _HUMAN_SECTION_HEADINGS),
+        "execution_metrics": execution_metrics,
+        "execution_metrics_path": str(metrics_path),
+    }
+    (root / "survey_human_final_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return summary
+
+
+def _h(value: Any) -> str:
+    return html_lib.escape(str(value or ""), quote=True)
+
+
+def _source_type_label(value: str) -> str:
+    return {
+        "paper": "论文",
+        "official_doc": "官方材料",
+        "code": "代码",
+        "benchmark": "评测",
+        "web": "网页",
+        "youtube": "视频",
+        "social": "社交",
+        "unknown": "来源",
+    }.get(str(value or "unknown"), "来源")
+
+
+def _visible_source_rows(root: Path, max_items: int = 8) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    priority = {
+        "paper": 0,
+        "official_doc": 1,
+        "code": 2,
+        "benchmark": 3,
+    }
+    sources = sorted(
+        _read_jsonl(root / "sources.jsonl"),
+        key=lambda row: (priority.get(str(row.get("source_type") or "unknown"), 9), str(row.get("title") or "")),
+    )
+    for source in sources:
+        url = str(source.get("url") or "").strip()
+        title = _public_report_text(str(source.get("title") or source.get("id") or "未命名来源").strip())
+        if not url or not title or url in seen:
+            continue
+        seen.add(url)
+        rows.append({
+            "title": _short_text(title, max_chars=72),
+            "url": url,
+            "label": _source_type_label(str(source.get("source_type") or "unknown")),
+        })
+        if len(rows) >= max_items:
+            break
+    return rows
+
+
+def _public_report_text(value: str) -> str:
+    replacements = {
+        "official_doc": "官方材料",
+        "Execution Metrics": "执行指标",
+        "estimated_from_report_artifacts": "由报告产物估算",
+        "claim_id": "判断编号",
+        "evidence_id": "证据编号",
+        "source type": "来源类型",
+    }
+    text = str(value or "")
+    for needle, replacement in replacements.items():
+        text = re.sub(rf"\b{re.escape(needle)}\b", replacement, text)
+    text = re.sub(r"\bev_\d+\b", "证据条目", text)
+    text = re.sub(r"\bcl_\d+\b", "判断条目", text)
+    return text
+
+
+def _html_paragraphs(items: list[Any], *, empty: str = "暂无可发布内容。") -> str:
+    cleaned = [str(item).strip() for item in items if str(item).strip()]
+    if not cleaned:
+        return f"<p>{_h(empty)}</p>"
+    return "\n".join(f"<p>{_h(item)}</p>" for item in cleaned)
+
+
+def _render_evidence_sidebar(callouts: list[dict[str, Any]]) -> str:
+    if not callouts:
+        return """
+        <aside class="evidence-sidebar">
+          <div class="eyebrow">证据侧栏</div>
+          <p class="muted">本节尚无可展示证据。</p>
+        </aside>
+        """
+    items: list[str] = []
+    for callout in callouts[:4]:
+        title = str(callout.get("source_title") or "未命名来源")
+        summary = str(callout.get("summary") or title)
+        label = _source_type_label(str(callout.get("source_type") or "unknown"))
+        url = str(callout.get("url") or "")
+        source_html = f'<a href="{_h(url)}" target="_blank" rel="noreferrer">{_h(title)}</a>' if url else _h(title)
+        items.append(
+            "\n".join([
+                '<li class="evidence-item">',
+                f'  <span class="source-badge">{_h(label)}</span>',
+                f'  <strong>{source_html}</strong>',
+                f'  <p>{_h(_short_text(summary, max_chars=240))}</p>',
+                "</li>",
+            ])
+        )
+    return "\n".join([
+        '<aside class="evidence-sidebar">',
+        '  <div class="eyebrow">证据侧栏</div>',
+        '  <ul class="evidence-list">',
+        *items,
+        "  </ul>",
+        "</aside>",
+    ])
+
+
+def _render_takeaway_box(takeaways: list[Any]) -> str:
+    cleaned = [str(item).strip() for item in takeaways if str(item).strip()]
+    if not cleaned:
+        return ""
+    items = "\n".join(f"<li>{_h(item)}</li>" for item in cleaned[:5])
+    return "\n".join([
+        '<div class="takeaway-box">',
+        '  <div class="eyebrow">影响与行动</div>',
+        f"  <ul>{items}</ul>",
+        "</div>",
+    ])
+
+
+def _figure_lane_labels(figure_type: str) -> dict[str, str]:
+    if figure_type == "architecture_map":
+        return {"thesis": "组件/机制", "evidence": "支撑材料", "takeaway": "设计动作"}
+    if figure_type == "roadmap_timeline":
+        return {"thesis": "当前判断", "evidence": "驱动因素", "takeaway": "下一步"}
+    if figure_type == "process_flow":
+        return {"thesis": "输入", "evidence": "处理依据", "takeaway": "输出"}
+    if figure_type == "comparison_matrix":
+        return {"thesis": "比较对象", "evidence": "证据差异", "takeaway": "取舍判断"}
+    if figure_type == "risk_map":
+        return {"thesis": "待检验判断", "evidence": "风险证据", "takeaway": "降级条件"}
+    if figure_type == "evidence_map":
+        return {"thesis": "核心判断", "evidence": "证据来源", "takeaway": "证据边界"}
+    return {"thesis": "中心判断", "evidence": "支撑证据", "takeaway": "行动/观察"}
+
+
+def _svg_lines(text: str, *, max_chars: int = 30, max_lines: int = 4) -> list[str]:
+    compact = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not compact:
+        return [""]
+    lines: list[str] = []
+    current = ""
+    for char in compact:
+        current += char
+        if len(current) >= max_chars:
+            lines.append(current)
+            current = ""
+            if len(lines) >= max_lines:
+                break
+    if current and len(lines) < max_lines:
+        lines.append(current)
+    if len(lines) == max_lines and len("".join(lines)) < len(compact):
+        lines[-1] = lines[-1].rstrip("…") + "…"
+    return lines or [compact[:max_chars]]
+
+
+def _render_figure_svg(figure: dict[str, Any]) -> str:
+    figure_type = str(figure.get("type") or "insight_argument_map")
+    labels = _figure_lane_labels(figure_type)
+    nodes = figure.get("nodes") if isinstance(figure.get("nodes"), list) else []
+    lanes = [
+        ("thesis", labels["thesis"], [node for node in nodes if node.get("kind") == "thesis"]),
+        ("evidence", labels["evidence"], [node for node in nodes if node.get("kind") == "evidence"]),
+        ("takeaway", labels["takeaway"], [node for node in nodes if node.get("kind") == "takeaway"]),
+    ]
+    lane_width = 280
+    lane_gap = 28
+    margin = 36
+    node_h = 88
+    node_gap = 16
+    max_nodes = max((len(items) for _, _, items in lanes), default=1)
+    width = margin * 2 + lane_width * 3 + lane_gap * 2
+    height = 118 + max_nodes * node_h + max(max_nodes - 1, 0) * node_gap + 42
+    title = _short_text(str(figure.get("title") or "图示"), max_chars=58)
+    label = str(figure.get("label") or SUPPORTED_FIGURE_TYPES.get(figure_type, "图示"))
+
+    palette = {
+        "thesis": ("#fff8e8", "#b7532a"),
+        "evidence": ("#eef8f3", "#286358"),
+        "takeaway": ("#fff4d7", "#c1841f"),
+    }
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-label="{_h(label + ": " + title)}">',
+        "<defs>",
+        '<filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#3b2a14" flood-opacity="0.13"/></filter>',
+        "</defs>",
+        '<rect width="100%" height="100%" rx="28" fill="#fffaf0"/>',
+        f'<text x="{margin}" y="42" fill="#174c43" font-family="Avenir Next, PingFang SC, sans-serif" font-size="18" font-weight="800">{_h(label)}</text>',
+        f'<text x="{margin}" y="72" fill="#17211a" font-family="Avenir Next, PingFang SC, sans-serif" font-size="24" font-weight="800">{_h(title)}</text>',
+    ]
+    y0 = 104
+    for lane_index, (kind, lane_label, lane_nodes) in enumerate(lanes):
+        x = margin + lane_index * (lane_width + lane_gap)
+        fill, stroke = palette.get(kind, ("#ffffff", "#b7532a"))
+        parts.append(f'<rect x="{x}" y="{y0}" width="{lane_width}" height="{height - y0 - 28}" rx="20" fill="{fill}" stroke="#ead6bd"/>')
+        parts.append(f'<text x="{x + 18}" y="{y0 + 30}" fill="{stroke}" font-family="Avenir Next, PingFang SC, sans-serif" font-size="15" font-weight="800">{_h(lane_label)}</text>')
+        for node_index, node in enumerate(lane_nodes):
+            node_y = y0 + 52 + node_index * (node_h + node_gap)
+            parts.append(f'<rect x="{x + 16}" y="{node_y}" width="{lane_width - 32}" height="{node_h}" rx="16" fill="#ffffff" stroke="{stroke}" filter="url(#shadow)"/>')
+            for line_index, line in enumerate(_svg_lines(str(node.get("label") or ""), max_chars=24, max_lines=4)):
+                parts.append(
+                    f'<text x="{x + 32}" y="{node_y + 28 + line_index * 17}" fill="#17211a" '
+                    f'font-family="Avenir Next, PingFang SC, sans-serif" font-size="13">{_h(line)}</text>'
+                )
+        if lane_index < 2:
+            arrow_y = y0 + 72
+            arrow_x = x + lane_width + 6
+            parts.append(f'<path d="M {arrow_x} {arrow_y} L {arrow_x + lane_gap - 12} {arrow_y}" stroke="#9b7b5c" stroke-width="2" marker-end="url(#arrow)"/>')
+    parts.insert(3, '<marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#9b7b5c"/></marker>')
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def _boolish(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def _profile_premium_figures(root: Path) -> bool:
+    for path in (root / "survey_plan.json", root / "deepdive_requirement_contract.json"):
+        payload = _read_json(path)
+        if not payload:
+            continue
+        for container_key in ("rendering", "publication", "output", "profile"):
+            container = payload.get(container_key)
+            if isinstance(container, dict) and _boolish(container.get("premium_figures")):
+                return True
+        if _boolish(payload.get("premium_figures")):
+            return True
+    return False
+
+
+def _resolve_premium_figures(root: Path, enabled: bool | None) -> bool:
+    if enabled is not None:
+        return bool(enabled)
+    if _boolish(os.environ.get("SOLAR_DEEPDIVE_PREMIUM_FIGURES")):
+        return True
+    return _profile_premium_figures(root)
+
+
+def _premium_figure_prompt(figure: dict[str, Any]) -> str:
+    nodes = figure.get("nodes") if isinstance(figure.get("nodes"), list) else []
+    lines = [
+        f"Figure type: {figure.get('type') or 'insight_argument_map'}",
+        f"Title: {figure.get('title') or 'N/A'}",
+        f"Label: {figure.get('label') or 'N/A'}",
+        "",
+        "Nodes:",
+    ]
+    for node in nodes:
+        lines.append(f"- {node.get('kind')}: {node.get('label')}")
+    lines.extend([
+        "",
+        "Render requirements:",
+        "- 技术白皮书风格，克制、清晰、可发布。",
+        "- 只使用上述节点内容，不新增事实。",
+        "- 根据 figure type 选择架构图、路线图、流程图或论证图布局。",
+    ])
+    return "\n".join(lines)
+
+
+def _copy_premium_asset(source: str, target: Path) -> str:
+    source_path = Path(source).expanduser()
+    if not source_path.exists() or not source_path.is_file():
+        raise FileNotFoundError(f"premium figure asset missing: {source}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_path, target)
+    return str(target)
+
+
+def _run_premium_figure_command(
+    *,
+    root: Path,
+    figure: dict[str, Any],
+    task_dir: Path,
+    command: str,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    request = {
+        "input_text": _premium_figure_prompt(figure),
+        "figure_spec": figure,
+        "timeout_seconds": timeout_seconds,
+        "max_retries": 1,
+        "request_dir": str((task_dir / "request").resolve()),
+    }
+    if command:
+        proc = subprocess.run(
+            shlex.split(command),
+            input=json.dumps(request, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+            cwd=str(root),
+        )
+        (task_dir / "premium-command.stdout.txt").write_text(proc.stdout or "", encoding="utf-8")
+        (task_dir / "premium-command.stderr.txt").write_text(proc.stderr or "", encoding="utf-8")
+        if proc.returncode != 0:
+            raise RuntimeError(f"premium figure command failed:{proc.returncode}:{(proc.stderr or proc.stdout)[-800:]}")
+        return json.loads(proc.stdout or "{}")
+
+    harness_root = Path(__file__).resolve().parents[3]
+    operator = harness_root / "tools" / "technology_diagram_painter_operator.py"
+    envelope_path = task_dir / "operator-envelope.json"
+    envelope = {
+        "operator_id": "technology-diagram-painter",
+        "technology_diagram_request": request,
+        "timeout_seconds": timeout_seconds,
+        "max_retries": 1,
+        "defer_on_auth": True,
+        "defer_on_cooldown": True,
+    }
+    envelope_path.write_text(json.dumps(envelope, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    env = os.environ.copy()
+    env["SOLAR_OPERATOR_ENVELOPE_JSON"] = str(envelope_path)
+    env["TASK_DIR"] = str(task_dir)
+    proc = subprocess.run(
+        [sys.executable, str(operator)],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=timeout_seconds + 120,
+        cwd=str(harness_root),
+    )
+    (task_dir / "technology-diagram.stdout.txt").write_text(proc.stdout or "", encoding="utf-8")
+    (task_dir / "technology-diagram.stderr.txt").write_text(proc.stderr or "", encoding="utf-8")
+    result_path = task_dir / "operator-results" / "result.json"
+    if not result_path.exists():
+        result_path = task_dir / "tech-diagram-result.json"
+    if not result_path.exists() or proc.returncode != 0:
+        raise RuntimeError(f"technology diagram painter failed:{proc.returncode}:{(proc.stderr or proc.stdout)[-800:]}")
+    return _read_json(result_path)
+
+
+def _write_figure_assets(
+    root: Path,
+    cards: list[dict[str, Any]],
+    *,
+    premium_figures: bool = False,
+    premium_figure_command: str = "",
+    premium_figure_limit: int = 3,
+    premium_timeout_seconds: int = 600,
+) -> list[dict[str, Any]]:
+    figure_dir = root / "assets" / "figures"
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    assets: list[dict[str, Any]] = []
+    premium_attempts = 0
+    for index, card in enumerate(cards, start=1):
+        figure = card.get("figure_spec") if isinstance(card.get("figure_spec"), dict) else {}
+        nodes = figure.get("nodes") if isinstance(figure.get("nodes"), list) else []
+        if not figure or not nodes:
+            continue
+        figure_id = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(figure.get("figure_id") or f"figure_{index:03d}")).strip("_") or f"figure_{index:03d}"
+        figure_type = str(figure.get("type") or "insight_argument_map")
+        filename = f"{index:03d}_{figure_id}_{figure_type}.svg"
+        path = figure_dir / filename
+        path.write_text(_render_figure_svg(figure), encoding="utf-8")
+        rel = f"assets/figures/{filename}"
+        figure["asset_path"] = rel
+        figure["asset_format"] = "svg"
+        if isinstance(card.get("figure"), dict):
+            card["figure"]["artifact_path"] = rel
+        asset = {
+            "figure_id": figure_id,
+            "figure_type": figure_type,
+            "asset_path": rel,
+            "node_count": len(nodes),
+            "status": "rendered",
+            "renderer": "svg",
+        }
+        if premium_figures and premium_attempts < max(premium_figure_limit, 0) and (
+            figure_type in PREMIUM_FIGURE_TYPES or _boolish(figure.get("premium_required"))
+        ):
+            premium_attempts += 1
+            task_dir = root / "premium_figures" / figure_id
+            task_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                result = _run_premium_figure_command(
+                    root=root,
+                    figure=figure,
+                    task_dir=task_dir,
+                    command=premium_figure_command,
+                    timeout_seconds=premium_timeout_seconds,
+                )
+                image_path = str(result.get("image_path") or result.get("asset_path") or "").strip()
+                suffix = Path(image_path).suffix or ".png"
+                premium_filename = f"{index:03d}_{figure_id}_{figure_type}_premium{suffix}"
+                premium_rel = f"assets/figures/{premium_filename}"
+                _copy_premium_asset(image_path, root / premium_rel)
+                figure["fallback_asset_path"] = rel
+                figure["asset_path"] = premium_rel
+                figure["asset_format"] = suffix.lstrip(".").lower()
+                if isinstance(card.get("figure"), dict):
+                    card["figure"]["artifact_path"] = premium_rel
+                figure["premium_status"] = "rendered"
+                asset.update({
+                    "asset_path": premium_rel,
+                    "fallback_asset_path": rel,
+                    "status": "premium_rendered",
+                    "renderer": "technology_diagram_painter" if not premium_figure_command else "custom_premium_command",
+                    "operator_result": result,
+                })
+            except Exception as exc:
+                figure["premium_status"] = "fallback_svg"
+                figure["premium_error"] = f"{type(exc).__name__}: {exc}"
+                asset.update({
+                    "status": "premium_failed_fallback_svg",
+                    "premium_error": figure["premium_error"],
+                })
+        assets.append(asset)
+    return assets
+
+
+def _persist_section_render_assets(root: Path, section_render: dict[str, Any], visual_audit: dict[str, Any]) -> None:
+    cards = section_render.get("cards", []) if isinstance(section_render.get("cards"), list) else []
+    card_dir = root / "section_render_cards"
+    card_dir.mkdir(parents=True, exist_ok=True)
+    for card in cards:
+        section_id = str(card.get("section_id") or "section")
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "__", section_id).strip("_") or "section"
+        write_section_render_card(card, card_dir / f"{safe_name}.json")
+    (root / "section_render_cards.json").write_text(json.dumps(section_render, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    typed_figures = [card["figure"] for card in cards if isinstance(card.get("figure"), dict)]
+    figure_spec_dir = root / "figure_specs"
+    figure_spec_dir.mkdir(parents=True, exist_ok=True)
+    for index, figure in enumerate(typed_figures, start=1):
+        validate_figure_spec(figure, str(figure_spec_dir / f"{index:03d}_{figure.get('figure_id') or 'figure'}.json"))
+        write_figure_spec(figure, figure_spec_dir / f"{index:03d}_{figure.get('figure_id') or 'figure'}.json")
+    figures = {
+        "figures": typed_figures,
+        "legacy_figures": [card["figure_spec"] for card in cards if card.get("figure_spec")],
+    }
+    (root / "figures.json").write_text(json.dumps(figures, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (root / "visual_audit.json").write_text(json.dumps(visual_audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _render_figure_block(card: dict[str, Any]) -> str:
+    figure = card.get("figure_spec") if isinstance(card.get("figure_spec"), dict) else {}
+    nodes = figure.get("nodes") if isinstance(figure.get("nodes"), list) else []
+    if not figure or not nodes:
+        return ""
+    figure_type = str(figure.get("type") or "insight_argument_map")
+    labels = _figure_lane_labels(figure_type)
+    lanes = {
+        "thesis": (labels["thesis"], [node for node in nodes if node.get("kind") == "thesis"]),
+        "evidence": (labels["evidence"], [node for node in nodes if node.get("kind") == "evidence"]),
+        "takeaway": (labels["takeaway"], [node for node in nodes if node.get("kind") == "takeaway"]),
+    }
+    lane_html: list[str] = []
+    for kind, (label, lane_nodes) in lanes.items():
+        if not lane_nodes:
+            continue
+        cards = "\n".join(f'<div class="figure-node {kind}">{_h(node.get("label"))}</div>' for node in lane_nodes)
+        lane_html.append(f'<div class="figure-lane"><span>{_h(label)}</span>{cards}</div>')
+    asset_path = str(figure.get("asset_path") or "")
+    asset_html = f'<img class="figure-svg" src="{_h(asset_path)}" alt="{_h(figure.get("label") or SUPPORTED_FIGURE_TYPES.get(figure_type, "图示"))}：{_h(figure.get("title") or card.get("title") or "图示")}">' if asset_path else ""
+    return "\n".join([
+        f'<div class="figure-block" data-figure-type="{_h(figure_type)}">',
+        f'  <div class="figure-title"><span>{_h(figure.get("label") or SUPPORTED_FIGURE_TYPES.get(figure_type, "图示"))}</span>{_h(figure.get("title") or card.get("title") or "图示")}</div>',
+        f"  {asset_html}",
+        '  <div class="figure-flow">',
+        *lane_html,
+        "  </div>",
+        '  <p class="figure-note">图由本节材料生成：中心判断 → 证据 → 行动/观察，不引入本节之外的信息。</p>',
+        "</div>",
+    ])
+
+
+def _render_body_blocks(blocks: list[dict[str, Any]]) -> str:
+    """Render typed body blocks from SectionRenderCard, excluding raw machine labels."""
+    if not blocks:
+        return "<p>本节尚无明确判断。</p>"
+    parts: list[str] = []
+    for block in blocks:
+        block_type = str(block.get("type") or "summary")
+        text = _public_report_text(_clean_human_text(str(block.get("text") or ""), {}))
+        if not text.strip():
+            continue
+        css = "body-block body-block--thesis" if block_type == "thesis" else "body-block"
+        parts.append(f'<p class="{css}">{_h(text)}</p>')
+    return "\n".join(parts) if parts else "<p>本节尚无明确判断。</p>"
+
+
+def _render_solar_absorption_mapping(refs: list[str]) -> str:
+    """Render Solar operator/schema/gate mapping count without exposing raw machine label IDs."""
+    if not refs:
+        return ""
+    items = "\n".join(f"<li>{_h(_public_report_text(str(item)))}</li>" for item in refs[:5] if str(item).strip())
+    return "\n".join([
+        '<div class="solar-mapping">',
+        '  <span class="solar-mapping-label">Solar 关联 (Solar operator/schema/gate mapping)</span>',
+        f'  <span class="solar-mapping-count">{len(refs)} 个算子 / Schema / Gate 映射点</span>',
+        f"  <ul>{items}</ul>",
+        "</div>",
+    ])
+
+
+def _render_prediction_packet_refs(refs: list[str]) -> str:
+    """Render prediction packet reference count without exposing raw machine IDs."""
+    if not refs:
+        return ""
+    items = "\n".join(f"<li>{_h(_public_report_text(str(item)))}</li>" for item in refs[:5] if str(item).strip())
+    return "\n".join([
+        '<div class="prediction-refs">',
+        '  <span class="prediction-refs-label">预测包 (Forecast packet)</span>',
+        f'  <span class="prediction-refs-count">{len(refs)} 个预测指标</span>',
+        f"  <ul>{items}</ul>",
+        "</div>",
+    ])
+
+
+def _render_card_citations(callouts: list[dict[str, Any]]) -> str:
+    """Render visible citations from evidence callouts. Shows source titles/URLs; excludes raw machine evidence_id labels."""
+    if not callouts:
+        return ""
+    items: list[str] = []
+    for callout in callouts:
+        title = str(callout.get("source_title") or "").strip()
+        if not title:
+            continue
+        url = str(callout.get("url") or "").strip()
+        label = _source_type_label(str(callout.get("source_type") or "unknown"))
+        link = (
+            f'<a href="{_h(url)}" target="_blank" rel="noreferrer">{_h(_short_text(title, max_chars=64))}</a>'
+            if url
+            else _h(_short_text(title, max_chars=64))
+        )
+        items.append(f'<li><span class="source-badge">{_h(label)}</span> {link}</li>')
+    if not items:
+        return ""
+    return "\n".join([
+        '<div class="card-citations">',
+        '  <div class="eyebrow">引用</div>',
+        "  <ul>" + "".join(items) + "</ul>",
+        "</div>",
+    ])
+
+
+def _render_section_card_html(card: dict[str, Any]) -> str:
+    title = str(card.get("title") or "未命名小节")
+    title_claim_type = str(card.get("title_claim_type") or "thesis")
+    body_blocks = card.get("body_blocks") if isinstance(card.get("body_blocks"), list) else []
+    callouts = card.get("evidence_callouts") if isinstance(card.get("evidence_callouts"), list) else []
+    takeaways = card.get("takeaways") if isinstance(card.get("takeaways"), list) else []
+    solar_refs = card.get("solar_absorption") if isinstance(card.get("solar_absorption"), list) else []
+    prediction_refs = card.get("prediction_packet_refs") if isinstance(card.get("prediction_packet_refs"), list) else []
+    return "\n".join([
+        '<article class="section-card">',
+        '  <div class="section-main">',
+        f'    <h3 data-claim-type="{_h(title_claim_type)}">{_h(title)}</h3>',
+        '    <div class="section-block">',
+        '      <h4>本节判断</h4>',
+        f"      {_render_body_blocks(body_blocks)}",
+        "    </div>",
+        f"    {_render_figure_block(card)}",
+        f"    {_render_takeaway_box(takeaways)}",
+        f"    {_render_solar_absorption_mapping(solar_refs)}",
+        f"    {_render_prediction_packet_refs(prediction_refs)}",
+        f"    {_render_card_citations(callouts)}",
+        "  </div>",
+        f"  {_render_evidence_sidebar(callouts)}",
+        "</article>",
+    ])
+
+
+def _render_insight_html(
+    root: Path,
+    ast: dict,
+    contribution: dict,
+    section_render: dict[str, Any],
+    *,
+    premium_figures: bool | None = None,
+    premium_figure_command: str = "",
+    premium_figure_limit: int = 3,
+    premium_timeout_seconds: int = 600,
+) -> dict:
+    cards = section_render.get("cards", []) if isinstance(section_render.get("cards"), list) else []
+    resolved_premium_figures = _resolve_premium_figures(root, premium_figures)
+    figure_assets = _write_figure_assets(
+        root,
+        cards,
+        premium_figures=resolved_premium_figures,
+        premium_figure_command=premium_figure_command,
+        premium_figure_limit=premium_figure_limit,
+        premium_timeout_seconds=premium_timeout_seconds,
+    )
+    visible_sources = _visible_source_rows(root, max_items=8)
+    visible_sources_html = ""
+    if visible_sources:
+        source_items = "\n".join(
+            f'<li><span class="source-badge">{_h(source["label"])}</span> '
+            f'<a href="{_h(source["url"])}" target="_blank" rel="noreferrer">{_h(source["title"])}</a></li>'
+            for source in visible_sources
+        )
+        visible_sources_html = "\n".join([
+            '<section class="source-index">',
+            '  <div class="eyebrow">可见来源索引</div>',
+            "  <ul>",
+            source_items,
+            "  </ul>",
+            "</section>",
+        ])
+    visual_audit = {
+        "ok": True,
+        "schema_version": "solar.deepdive.visual_audit.v1",
+        "figure_count": len(figure_assets),
+        "svg_asset_count": len([asset for asset in figure_assets if asset.get("asset_path", "").endswith(".svg")]),
+        "premium_figures_enabled": resolved_premium_figures,
+        "premium_rendered_count": len([asset for asset in figure_assets if asset.get("status") == "premium_rendered"]),
+        "premium_failed_count": len([asset for asset in figure_assets if asset.get("status") == "premium_failed_fallback_svg"]),
+        "assets": figure_assets,
+        "renderer": "section_render_svg_renderer",
+    }
+    _persist_section_render_assets(root, section_render, visual_audit)
+    cards_by_chapter: dict[str, list[dict[str, Any]]] = {}
+    for card in cards:
+        cards_by_chapter.setdefault(str(card.get("chapter_id") or ""), []).append(card)
+
+    chapters = ast.get("chapters", []) if isinstance(ast.get("chapters"), list) else []
+    source_counts = contribution.get("source_type_counts") if isinstance(contribution.get("source_type_counts"), dict) else {}
+    source_summary = "、".join(f"{_source_type_label(key)} {value}" for key, value in sorted(source_counts.items())) or "N/A"
+    figure_count = sum(1 for card in cards if card.get("figure_spec"))
+    title = str(ast.get("title") or "DeepDive 洞察报告")
+
+    chapter_html: list[str] = []
+    for chapter in chapters:
+        chapter_id = str(chapter.get("chapter_id") or "")
+        chapter_cards = cards_by_chapter.get(chapter_id, [])
+        card_html = "\n".join(_render_section_card_html(card) for card in chapter_cards)
+        if not card_html:
+            card_html = '<p class="muted">该章尚无可发布卡片。</p>'
+        chapter_html.append("\n".join([
+            '<section class="chapter-section">',
+            f"  <h2>{_h(chapter.get('title') or '未命名章节')}</h2>",
+            f"  <p class=\"chapter-objective\">{_h(chapter.get('objective') or '')}</p>",
+            card_html,
+            "</section>",
+        ]))
+
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{_h(title)}</title>
+  <style>
+    :root {{
+      --bg: #f3efe6;
+      --paper: #fffaf0;
+      --ink: #17211a;
+      --muted: #667064;
+      --line: #d7cbb7;
+      --accent: #b7532a;
+      --accent-2: #174c43;
+      --soft: #efe2cc;
+    }}
+    body {{
+      margin: 0;
+      background: radial-gradient(circle at 15% 0%, #fff5d6 0, transparent 34%), linear-gradient(135deg, #f7f0df 0%, #e8eee6 100%);
+      color: var(--ink);
+      font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      line-height: 1.72;
+    }}
+    .page {{ max-width: 1180px; margin: 0 auto; padding: 44px 24px 72px; }}
+    .hero {{ border: 1px solid var(--line); background: rgba(255, 250, 240, .92); border-radius: 28px; padding: 34px; box-shadow: 0 24px 70px rgba(61, 45, 22, .12); }}
+    h1 {{ margin: 0 0 16px; font-size: clamp(34px, 5vw, 64px); line-height: 1.05; letter-spacing: -.04em; }}
+    h2 {{ margin: 46px 0 18px; font-size: clamp(25px, 3vw, 38px); letter-spacing: -.025em; color: var(--accent-2); }}
+    h3 {{ margin: 0 0 18px; font-size: 24px; line-height: 1.28; }}
+    h4 {{ margin: 0 0 10px; color: var(--accent); font-size: 17px; }}
+    .stats {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }}
+    .pill {{ padding: 9px 13px; border-radius: 999px; background: var(--soft); border: 1px solid var(--line); color: #42382b; font-size: 14px; }}
+    .chapter-objective {{ color: var(--muted); max-width: 860px; }}
+    .section-card {{ display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 22px; margin: 22px 0; padding: 24px; background: rgba(255, 250, 240, .96); border: 1px solid var(--line); border-radius: 24px; box-shadow: 0 16px 48px rgba(55, 39, 18, .08); }}
+    .section-block p {{ margin: 0 0 12px; text-indent: 1.4em; }}
+    .evidence-sidebar {{ background: #f7ead6; border: 1px solid #e1c8a6; border-radius: 20px; padding: 18px; align-self: start; }}
+    .eyebrow {{ font-size: 13px; font-weight: 800; color: var(--accent); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 10px; }}
+    .evidence-list {{ list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }}
+    .evidence-item strong {{ display: block; margin: 8px 0 5px; line-height: 1.35; }}
+    .evidence-item p {{ margin: 0; color: #554a3c; font-size: 14px; line-height: 1.55; }}
+    .source-badge {{ display: inline-flex; padding: 3px 8px; border-radius: 999px; background: #153f38; color: #fff9ee; font-size: 12px; }}
+    .takeaway-box {{ margin-top: 18px; padding: 18px 20px; border-radius: 20px; background: #173f38; color: #fff9ee; }}
+    .takeaway-box ul {{ margin: 0; padding-left: 20px; }}
+    .figure-block {{ margin: 18px 0; padding: 18px; border-radius: 22px; border: 1px dashed #bc855e; background: #fff3df; }}
+    .figure-title {{ font-weight: 800; margin-bottom: 14px; color: var(--accent-2); }}
+    .figure-title span {{ display: inline-flex; margin-right: 10px; padding: 3px 9px; border-radius: 999px; background: #153f38; color: #fff9ee; font-size: 12px; vertical-align: middle; }}
+    .figure-svg {{ display: block; width: 100%; max-width: 100%; height: auto; margin: 12px 0 14px; border-radius: 18px; border: 1px solid #ead6bd; background: #fffaf0; }}
+    .figure-flow {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
+    .figure-lane {{ min-height: 120px; padding: 12px; border-radius: 18px; background: rgba(255,255,255,.62); border: 1px solid #ead6bd; }}
+    .figure-lane span {{ display: block; font-size: 13px; font-weight: 800; color: var(--accent); margin-bottom: 8px; }}
+    .figure-node {{ margin: 8px 0; padding: 10px; border-radius: 14px; font-size: 13px; line-height: 1.45; background: #fffaf0; border-left: 4px solid var(--accent); }}
+    .figure-node.evidence {{ border-left-color: #316a5f; }}
+    .figure-node.takeaway {{ border-left-color: #d59a2f; }}
+    .body-block {{ margin: 0 0 12px; text-indent: 1.4em; }}
+    .body-block--thesis {{ font-style: italic; }}
+    .solar-mapping {{ display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; padding: 10px 14px; border-radius: 12px; background: rgba(23,76,67,.08); border: 1px solid rgba(23,76,67,.18); }}
+    .solar-mapping-label {{ font-size: 12px; font-weight: 800; color: var(--accent-2); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }}
+    .solar-mapping-count {{ font-size: 14px; color: var(--accent-2); }}
+    .prediction-refs {{ display: flex; align-items: center; gap: 10px; margin: 10px 0; padding: 10px 14px; border-radius: 12px; background: rgba(183,83,42,.07); border: 1px solid rgba(183,83,42,.18); }}
+    .prediction-refs-label {{ font-size: 12px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }}
+    .prediction-refs-count {{ font-size: 14px; color: var(--accent); }}
+    .card-citations {{ margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }}
+    .card-citations ul {{ list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }}
+    .card-citations li {{ display: flex; gap: 6px; align-items: baseline; font-size: 14px; min-width: 0; }}
+    .figure-note, .muted {{ color: var(--muted); font-size: 14px; }}
+    .source-index {{ margin: 22px 0 10px; padding: 20px; border-radius: 22px; background: rgba(255,250,240,.82); border: 1px solid var(--line); }}
+    .source-index ul {{ margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px 18px; }}
+    .source-index li {{ display: flex; gap: 8px; align-items: baseline; min-width: 0; }}
+    a {{ color: #94451f; text-decoration-thickness: 1px; text-underline-offset: 3px; }}
+    @media (max-width: 860px) {{
+      .section-card {{ grid-template-columns: 1fr; }}
+      .figure-flow {{ grid-template-columns: 1fr; }}
+      .page {{ padding: 24px 14px 52px; }}
+    }}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="eyebrow">深度洞察报告</div>
+      <h1>{_h(title)}</h1>
+      <p>本报告按章节组织：每个小节都保留中心判断、证据侧栏、行动框和图示块。图示只来自本节材料中的判断、证据和行动项。</p>
+      <div class="stats">
+        <span class="pill">章节小节 {len(cards)}</span>
+        <span class="pill">图示块 {figure_count}</span>
+        <span class="pill">已审阅 section {int(contribution.get('finalized_sections') or 0)}/{int(contribution.get('section_count') or 0)}</span>
+        <span class="pill">来源覆盖 { _h(source_summary) }</span>
+      </div>
+    </header>
+    {visible_sources_html}
+    {''.join(chapter_html)}
+  </main>
+</body>
+</html>
+"""
+    html = _public_report_text(html)
+    html_path = root / "final.html"
+    html_path.write_text(html, encoding="utf-8")
+    summary = {
+        "ok": True,
+        "final_html": str(html_path),
+        "section_render_card_count": len(cards),
+        "figure_count": figure_count,
+        "svg_asset_count": len(figure_assets),
+        "premium_figures_enabled": resolved_premium_figures,
+        "premium_rendered_count": visual_audit["premium_rendered_count"],
+        "premium_failed_count": visual_audit["premium_failed_count"],
+        "visual_audit": str(root / "visual_audit.json"),
+        "publisher": "section_render_card_html",
+    }
+    (root / "survey_insight_html_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return summary
 
 
 def _build_human_readable_final(root: Path, ast: dict, contribution: dict) -> dict:
@@ -457,10 +1648,19 @@ def _build_human_readable_final(root: Path, ast: dict, contribution: dict) -> di
     return summary
 
 
-def compile_survey(output_dir: str | Path) -> dict:
+def compile_survey(
+    output_dir: str | Path,
+    *,
+    premium_figures: bool | None = None,
+    premium_figure_command: str = "",
+    premium_figure_limit: int = 3,
+    premium_timeout_seconds: int = 600,
+) -> dict:
     root = Path(output_dir).expanduser()
     ast = _read_json(root / "survey_report_ast.json")
     contribution = _build_contribution_matrix(root, ast)
+    insight_mode = _is_insight_ast(root, ast)
+    section_render = _build_section_render_cards(root, ast, contribution) if insight_mode else {}
     matrix_rows = contribution.get("rows", []) if isinstance(contribution.get("rows"), list) else []
     chapter_reviews: list[dict] = []
     chapter_blocks: list[str] = []
@@ -537,11 +1737,32 @@ def compile_survey(output_dir: str | Path) -> dict:
     final_path.write_text(final_text, encoding="utf-8")
     metrics_path = root / "survey_execution_metrics.json"
     write_execution_metrics(metrics_path, execution_metrics)
-    human_summary = _build_human_readable_final(root, ast, contribution)
+    human_summary = (
+        _build_insight_human_final(root, ast, contribution, section_render)
+        if insight_mode
+        else _build_human_readable_final(root, ast, contribution)
+    )
+    html_summary = (
+        _render_insight_html(
+            root,
+            ast,
+            contribution,
+            section_render,
+            premium_figures=premium_figures,
+            premium_figure_command=premium_figure_command,
+            premium_figure_limit=premium_figure_limit,
+            premium_timeout_seconds=premium_timeout_seconds,
+        )
+        if insight_mode
+        else {}
+    )
     return {
         "ok": True,
         "final_md": str(final_path),
+        "final_html": html_summary.get("final_html", "") if insight_mode else "",
         "human_final_md": human_summary.get("human_final_md"),
+        "section_render_cards": str(root / "section_render_cards.json") if insight_mode else "",
+        "insight_html_summary": str(root / "survey_insight_html_summary.json") if insight_mode else "",
         "finalized_sections": finalized,
         "total_sections": len(ast.get("sections", [])),
         "contribution_matrix": str(root / "survey_contribution_matrix.json"),

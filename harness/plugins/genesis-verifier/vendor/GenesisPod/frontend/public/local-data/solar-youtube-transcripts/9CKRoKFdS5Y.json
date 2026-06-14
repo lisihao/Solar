@@ -1,0 +1,1029 @@
+{
+  "videoId": "9CKRoKFdS5Y",
+  "title": "Stanford CS221 | Autumn 2025 | Lecture 11: Games II",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 52863,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So welcome back, everyone.\nLast lecture, we talked about\ntwo-player zero-sum games.\nSo we're going to review\nthat a little bit.\nAnd this time we're going\nto start bringing together\nreinforcement\nlearning and games.\nAnd then we're going to actually\nplay a few games in this class.\nSo hopefully, that'll be fun.\nSo just as a review,\nlast time, we\ntalked about the\nminimax principle.\nAnd this is the way\nthat we solve games.\nSo remember, in a game,\nyou have different players\nbeing controlled at\ndifferent states, which\nmeans that you can't\njust max over everything\nor take expectations.\nYou actually have\nto max and min.\nSo this was a game tree\nthat we looked at last time\nwhere at the root node,\nthe agent is trying\nto maximize its a utility.\nAnd at the next\nlevel, the opponent\nis trying to\nminimize the utility.\nSo at these min nodes, you take\nthe minimum over the outcomes\nof each of these subtrees.\nAnd then at the max\nnode, you take the max.\nSo the minimax\nvalue of this game\nis one, which corresponds to\nthe agent choosing the action\nB here, and then the\nagent choosing action one.\nWe talked about ways of\nspeeding up minimax search.\nIf you want to keep it exact,\nyou can use alpha-beta pruning.\nIn alpha-beta\npruning, remember, you\nkeep track of lower\nand upper bounds\non the possible values\nof each of the states\nin your ancestral tree.\nAnd for example,\nhere, after you've\nexplored this part\nof the tree, you\nknow that this is at least one.\nAnd you come over here,\nthis is, at most, minus 5.\nThese don't overlap.\nSo then you don't even\nneed to look at the 15.\nSo we also looked at\nevaluation functions.\nAnd this is if you want to\nbring in domain knowledge\nand you don't mind\nbeing approximate.\nSo then you can just define\nan evaluation function\nto assess whether a state of\nthe game is good for the agent\nor not.\nSo we looked at\nthis one in chess,\nwhich combines a variety of\ndifferent factors related\nto how many pieces\nyou have and how\nmuch mobility and control of the\ncenter you have, and so forth.\nSo this was very much\nabout manual heuristics.\nSo now, the question\nI want to pose\nis, can we learn the\nevaluation function?\nBecause if we can\nlearn it, then maybe\nwe can do better than\na hand-coded system.\nSo indeed, that's what\nwe're going to do today.\nWe're going to use reinforcement\nlearning, in particular, TD\nlearning to learn the\nevaluation function.\nSo you have to bring in back\nyour memories of reinforcement\nlearning.\nAnd let's dive in.\nSo just as a refresher in\nreinforcement learning,\nthere are two\nquantities of interest.\nSo this is value-based\nreinforcement learning.\nSo you have v pi of S, which\nis the value or the expected\nutility that you would\nobtain if you followed\npolicy pi from state s.\nSo we're in a state s, you\nfollow some fixed policy.\nAnd this is how much\nvalue you would pick up.\nAnd there's also Q values, which\nhave an extra argument, which\ntakes the action here.\nAnd this is the value of\na utility when you first\ntake action a, when\nyou're in state s.\nAnd then you continue\nto follow policy pi.\nSo these are the\ntwo quantities that\nshow up over and over again.\nWe saw them first for\npolicy evaluation, in MDPs.\nAnd then we saw them in SARSA.\nAnd now, they're going\nto come back again.\nSo remember the SARSA algorithm\nfrom reinforcement learning?\nSo this was an\non-policy algorithm,\nwhich means that it's\nestimating the Q-values\nof the current policy that\nyou're following as opposed\nto the optimal\npolicy, which might be\nnot the one you're following.\nAnd SARSA was also\nthe main insight\nwas bootstrapping,\nremember, where\nyou're updating the Q-values\ntowards a target and the target\nrather being just an empirical\nutility of the full rollout.\nIt's an immediate reward, plus\nan estimated future reward.\nSo here's the SARSA algorithm.\nAs you run the reinforcement\nlearning algorithm,\nevery time you see a state\nand you took an action\nand you got a reward.\nAnd then you ended\nup in state s prime,\nand then you took\nanother action.\nThen, you perform\nthe following update.\nFirst, you look at the\nreward, that immediate reward\nthat you just got,\nand then you form\nan estimate of how much reward\nyou would get after that.\nSo after this reward, you\nended up in state s prime.\nAnd now, you're\ntaking action a prime.\nSo that estimate of packages up\nyour belief of how much reward\nyou're going to get.\nAnd then what you're\ngoing to do is\nyou're going to\nnudge a Q pi of s,\na, which is your current Q\nvalue estimate in this direction\nby some learning rate eta.\nAnd you keep on doing\nthis over and over again.\nSo in code, it looks\nsomething like this.\nSo I instantiate an\nrl algorithm SARSA.\nRemember, the rl algorithm,\nit implements two functions--\nget action.\nSo I'm in state one.\nAnd I get an action.\nAnd then the environment does\nsomething with that action.\nAnd then I incorporate\nfeedback, which is\ntells the agent what happened.\nSo incorporate\nfeedback state one.\nI walked.\nI got a reward of minus 1.\nAnd I ended up in state two.\nAnd I haven't finished,\nand so on, and so forth.\nSo get action incorporate\nfeedback, get action,\nincorporate feedback.\nSo one thing that's interesting.\nI want to emphasize is\nthat the strong connection\nbetween Q-values and policies.\nSo SARSA computes Q pi,\nwhich is the Q-value\nof the particular policy pi.\nBut given this Q value,\nI can read out a policy.\nAnd the policy I read out\nis simply, well, I just\ntake the best action here.\nSo argmax of a\nover Q pi of s, a.\nAnd that gives me a\nparticular action to follow.\nSo you can think about this as\none step of policy improvement,\nwhere here is the value\nof this particular policy.\nAnd a new policy\nis simply, well,\nI'm just going to myopically\noptimize over the next action.\nAnd then I think about\nfollowing the best whatever\nvalues I get after that.\nSo the whole point of this\nis that given a Q-value,\nyou can read out a policy\njust by argmaxing it over a.\nNow, I'm going to\ninvoke another thing.\nWe looked at policy\nevaluation from MDP.\nSo remember in MDPs, you get\nthe transition and the rewards.\nAnd how the world works\nin reinforcement learning.\nYou don't.\nSo in MDPs, we had\nthese set of equations.\nSo we defined a\nvalue of a policy\nto be simply the Q-value of the\ns action given by that policy.\nAnd then separately, you\ncan also define a recurrence\nfor Q pi of s, a.\nAnd that just corresponds\nto summing over\nall possible successor states,\nwhen you take action a,\nweighted by the probability\nof that transition,\nand then immediate reward plus\nan estimate of the future.\nJust as a recap, SARSA\nis a reinforcement\nlearning algorithm.\nIt computes Q values.\nQ, which is a function of s, a.\nI can get a policy\nout very easily.\nNow, the question is let's\nsay I just gave you V pi.\nCould you compute a\npolicy from that directly?\nCan you read out the policy?\nI only told you essentially\nhow good various states are.\nCan I get a policy out?\nWell, I guess the\nquestion is, what do you\nneed to get a policy out?\nAnd in some sense,\nwell, you look at this\nand you say, well,\nif I'm given V pi S,\nI can just compute Q pi\ns, a using this formula.\nAnd then I take\nthe argmax over a.\nAnd then that's my policy.\nSo I'm only given V. So I\ndon't have Q but I can--\nThe Q is, in some sense, a\none-step transition from V.\nBut here's the catch\nis that computing this\nrequires knowledge of the MDP.\nSo this is why, in\ngeneral, you can't just\nestimate a value of states.\nBecause if I don't know\nhow the world works,\nyou can tell me this state\nis great, this state is bad,\nthis state is great.\nBut that doesn't\ntell me what actions.\nHow does that\nconnect with actions?\nAnd the thing that connects\nactions and states are things\nlike are the transitions.\nBut I assume I don't\nknow the transition,\nso that doesn't help me act.\nWhereas, if I have a Q\nvalue, this binds the action\ninto the value.\nSo I know that in this\nstate, not only is it good,\nbut I take a particular action,\nand that gives me some value.\nSo that's why when we started\nwith reinforcement learning\nand its full generality, we\nonly looked at SARSA and Q\nlearning, because\nwe need policies.\nNow, however, for games, we\nactually do know the transition\nand rewards, unless\nyou're in a cruel game\nwhere you don't know the rules.\nMost of the time\nyou're playing a game,\nyou know perfectly the rules.\nActually, things might\nbe even deterministic\nas we've defined it.\nFor example, chess go,\neverything is deterministic.\nEverything is fully observed.\nSo there's no uncertainty.\nGiven the V value, it's\nactually pretty trivial\nto compute the best policy.\nYou simply look at the action.\nYou're in a state s.\nYou look at the action.\nYou basically\nconsider all actions.\nYou see where they go.\nSo remember, there's a\ndeterministic successor\nfunction that takes\na state and action\nand tells you what\nsuccessor state you end up,\nand you just evaluate how\ngood the resulting state is.\nOK.\nWell, wait a minute.\nBut if we already\nknow the MDP, then\nwhy are we using\nreinforcement learning?\nI thought the whole point\nof reinforcement learning\nis that you don't know the MDP.\nIf you know the MDP, you\njust do value iteration.\nSo in principle, you could also\ndo value iteration for games,\nbecause there's\nsometimes in some sense,\nno need to learn anything.\nYou already have\neverything in front of you.\nBut the problem is\nusually for games\nbesides tic-tac-toe or\nsomething, the number of states\nis just vast.\nIt's going to be\nexponential, and you\nwon't be able to do value\niteration, which grows\nwith the number of states.\nTherefore, we're going to\nuse reinforcement learning.\nAnd it's important\nto know why we're\nusing reinforcement learning.\nIt's not because we\ndon't know the MDP.\nWe actually know\nthe MDP quite well.\nBut it's because the number\nof states is exponential,\nand reinforcement\nlearning allows\nyou to use function\napproximation\nand effectively reduce\nthe number of states.\nLet me pause there.\nWe did a bit of review of\nq values, v values, policy\nevaluation, and SARSA and\nsome motivation for are MDPs\nin reinforcement learning.\nHow does the first policy\nupdate simplify to this one?\nIs that the question?\nIn a game, the\ntransition probability\nis 1 for one particular s prime.\nAnd that particular s\nprime is Succ, s, a.\nThat's a function.\nSo the summation goes away.\nAnd then in a game all\nthe reward is at the end.\nSo this is zero for,\nessentially, all transitions.\nAnd then discount is one.\nSo then you end\nup with just V pi.\nYeah.\nSo now, let's actually\ntalk about turning this\ninto an algorithm.\nSo TD learning-- the way\nto think about it, if you\nhad to just remember one thing\nis TD learning is as to V pi\nas SARSA is to Q pi So\nSARSA estimates Q pi.\nTD learning estimates V\npi, And basically, that's\nthe only difference.\nSo in SARSA, Q pi tells\nyou how good each action\nis from a given state.\nAnd in TD learning,\nV pi is going\nto tell you is how\ngood each state is.\nAnd since we know the action\nto next state mapping,\nthat's all we need\nbecause we just need\nto know how good states are.\nSo this is good.\nAnd it simplifies\nthings, because we\nhave a function\nof just the state\nrather than a state\nand the action.\nSo a minor point, but it\ndoes make some things easier.\nSo now, we're going to assume\nwe do function approximation.\nSo remember, in\nfunction approximation\nin reinforcement\nlearning, we take--\ninstead of keeping a\ntabular representation.\nMeaning for every state,\nwe have a separate value\nthat has nothing to do\nwith any other value.\nWe're going to\ndefine a function,\na parameterized\nfunction, also written\nv, which takes as input s, and\nthen depends on some weights w.\nSo these are the parameters\nof that function,\nas you vary w you get\ndifferent functions.\nSo in deep reinforcement\nlearning typically V pi of s\nis called a value network.\nSo here's the nutshell, a\nTD learning in a nutshell.\nSo you get a piece\nof experience.\nSo you are in state s.\nYou took action a.\nYou got reward r.\nAnd then you ended\nup in state s prime.\nSo the model predicts that this\nstate has this particular value.\nV of s given some parameters.\nSo based on this new\npiece of information,\nhow can we compute a refined\nestimate of that value?\nSo we define the target,\nwhich incorporates\nthis piece of experience by\nthis bootstrapping, where\nyou have the immediate\nreward plus some discount\ngamma times the value of\nthe successor state given\nthe same set of weights.\nThis is very similar q-learning.\nIt's just you have\nV's instead of Q's.\nAnd now, I don't need an A prime\nbecause this is just a value\nfunction not a Q function.\nSo now, to move the model's\nprediction towards the target,\nI'm going to define\na loss function.\nIn the loss function,\nI'm just going\nto use the squared\nloss here to be\nthe squared difference\nbetween the model's\nprediction and the target.\nAnd then if getting\nthat loss function,\nI can just take a gradient\nstep by moving the weights\nin the opposite of the\ngradient of this loss function.\nTo put that in more,\nI guess, summarize\nthat in equation, so on\neach piece of experience,\nI'm going to look at the model\nprediction, look at the target.\nAnd I guess I've--\nyeah.\nSo if you differentiate\nthis, you'll\nfind that there is\na natural form where\nyou have the difference times\nthe gradient of what's inside,\nwhich is just the gradient\nof the value function at w.\nSo actually, one important\npoint is that this term also\ndepends on w, but I'm going\nto treat it as a constant.\nSo remember in the\nsecond lecture,\nor so, I had this-- we were\ndoing computation graphs\nand you could detach.\nSo this is where you\nwould detach this\nbecause this is when I\nbackprop through this,\nI only want to backprop\nthrough this first w.\nSo let me explain that again.\nSo you can think about\nthe target as just a value\na constant.\nAnd then all you're\ndoing is you're saying,\nyour model prediction move\nit towards the target.\nThe target effect,\nyou don't change it.\nAnd that corresponds\nto this gradient.\nBut however, the\ntarget also depends\non w, implicitly or\nactually explicitly.\nBut for the purposes of\ncomputing the gradient,\nI'm not going to\ndifferentiate through that.\nSo let's see a code\nimplementation.\nSo we're going to do TD\nlearning for this tram problem.\nSo I'm going to define the\nMDP exploration policy which\neither walks or takes the tram.\nAnd then TD learning, I'm\ngoing to pass in the MDP now.\nSo if I just want to\nevaluate a value of a policy,\nI don't need this.\nBut I need the MDP\nto be able to compute\nthe policy as I argued earlier.\nSo this is for a general\nMDP, not just games.\nThe rl algorithm implements\ntwo things as usual--\nget action and\nincorporate feedback.\nSo when I get action,\na TD learning,\nif I'm doing epsilon\ngreedy exploration,\nwith probability epsilon\nexplore or with probability 1\nminus epsilon return pi.\nAnd what is pi?\nPi corresponds to\nthe policy given\nby V pi, which are the\nvalues I'm estimating.\nSo what I'm going\nto do is I'm going\nto compute the Q-values\nbecause I only have V.\nSo I compute the Q-values\nfor every action.\nSo for every action,\nI'm going to sum over\nall the possible successors\nof that action weighting\nby the probability\nof that transition\ntimes the immediate reward plus\nthe discounted future reward.\nSo this is where V comes in.\nSo if I take V, I combine\nit with my knowledge\nof how the world\nworks, the transitions.\nAnd then I'm going to get\na Q-value as a result.\nAnd then that is going to\ngive me a set of Q-values.\nAnd then I'm just going to take\nthe action with the highest\nQ-value.\nAnd then in this\ncase, this is walk.\nSo given these V values,\nI can compute a policy.\nThat's going to allow me to act.\nAnd now, when I act and the\nenvironment sends me feedback,\nthis is what I'm going to do.\nI'm going to look at the\npredicted value of a given\nstate.\nI'm going to look at the target,\nwhich is reward plus discounted\nof the next state.\nAnd then I'm going to\njust perform this update.\nSo notice, I'm not doing any\nfunction approximation here\nfor simplicity.\nIf there were function\napproximation,\nI would form a loss function\nand take the gradient.\nBut I'm just keeping\nit simple for now.\nAnd in the tabular setting, this\nhas a simple interpretation,\nwhich is, I'm just moving\nit towards the target away\nfrom predicted at\nsome learning rate.\nAnd in this example,\nI predicted zero.\nThe target was minus 1.\nSo I'm going to nudge the\nvalue of state one to be minus.\n0.1, which is in this direction.\nSo then I do this\nover and over again.\nAnd that is essentially\nTD learning.\nTo summarize, TD learning\nestimates V pi from experience.\nSo remember, V pi is the\nvalue of a particular state\nunder some policy pi.\nSo this tells me,\nbasically, if I'm\nfollowing a policy, how\ngood are various states?\nAnd it is on-policy.\nNotice that we're only rolling\nout with the policy pi,\nand we're not considering\nany other actions.\nWhenever you see a\nmax over actions,\nthat usually means something\nlike off-policy or Q-learning.\nIf you don't see that,\nit's probably on-policy.\nThat's a good rule of thumb.\nAnd then we're\nusing bootstrapping,\nwhere we're looking at the\ntarget consists of the model.\nThat's a sign that\nit's bootstrapping.\nNow, let's specialize\nTD learning for games.\nWhat we did is TD learning,\nin general, for any MDP.\nNow, we're going to\nadapt it to games.\nSo what's special\nabout our game?\nWell, as we discussed\nearlier, transitions\nare deterministic, at\nleast, in the games\nthat we've looked at so far.\nSo when you make a move, it\ndoes one particular thing.\nAnd there's no utility\nuntil the end of the game.\nAnd then there's two\nplayers-- agent and opponent.\nSo in some sense, maybe\nI lied a little bit.\nIt's not necessarily a\nspecial case, but it is--\nthe fact that you have\ndeterministic transition,\nthat's a special case.\nNo utility at the end,\nthat's a special case.\nBut this idea of two players,\nthe agent and opponent,\nremember, that is\nthe thing that's\nactually special about games.\nSo how do you deal with that?\nAnd the way you deal with that\nin the context of adapting\nreinforcement\nlearning is actually\nquite simple and elegant.\nYou just let the agent and\nopponent use the same value\nfunction.\nSo this is known as self-play,\nwhere you're essentially\nsaying, agent and opponent,\nyour minds are, I guess,\nwired in some sense.\nAnd you're just going\nto use the value\nthat I'm going to estimate\nto drive your decisions.\nBut of course, the\nagent and opponent\nare not doing the same thing.\nThe agent is trying to\nmaximize, and the opponent\nis trying to minimize, which\nmeans that there's a small tweak\nthat we need to do.\nSo this we saw earlier that\ngiven an estimate of V pi,\nwe can read out a\npolicy for the agent\nby just choosing the\naction that leads\nto the best state under V pi.\nBut what is the\nopponent trying to do?\nIt's trying to do the opposite.\nIt's trying to minimize.\nSo you just replace\nthe argmax with argmin\nand you say that's\nthe opponent policy.\nIt's actually pretty nice that\nall you are focusing on in TD\nlearning is\nestimating this V pi.\nAnd once you have V pi, you\ncan play either the agent\nor the opponent.\nAnd this is generally true.\nIf you know what's\ngood and what's bad,\nyou can choose to\ndo the good thing,\nor you can do the bad thing.\nSo let me instantiate\nthis just as a fun example\nfor the game of Backgammon.\nSo here's the way\nBackgammon works.\nSo you have this board it\nconsists of these triangles\ncalled points.\nThere's two players\nin this picture.\nThere's the red player\nand the white player.\nEach player has a set of pieces.\nAnd the goal is to move\nyour pieces off the board.\nSo if I'm the red player,\nI have my pieces here.\nI'm trying to basically\nmove all these pieces\naround clockwise to my\nhome board and then off.\nAnd the white is going\nto take all these pieces\nand try to move it\ncounterclockwise\nand off the board.\nSo how do I move pieces?\nThere is dice involved.\nSo I roll two die.\nAnd let's say,\nit's white's turn.\nI roll two die, and the\ndice determine the number\nof spaces I can move.\nSo if I roll a three and a five,\nI could say, take this piece.\nAnd I can move it three,\nand then another five.\nOr I could take, let's say,\nthis piece, I move it five\nand take this piece\nand move it three.\nSo what makes this\ngame interesting\nis that if you land on a\npoint with one opponent piece,\nI guess, there's\nno examples here,\nthen you move that\npiece to the bar.\nYou crush the piece, and\nthat goes to the bar,\nand it has to start over.\nSo that's bad for your\nopponent, good for you.\nBut if you have--\nbut you can't land on a point\nwith more than one opponent\npieces.\nSo generally, the\nstrategy is that you're\ntrying to put your\npieces in tall stacks\nso that they're safe\nfrom your opponents.\nBut at the same time, you\nhave to move everyone across.\nSo this is probably\na better move\nbecause this allows\nyou to have two.\nSo you don't have any exposed\nsingletons, essentially.\nI think there might--\nI'm not sure if there\nmight be another rule.\nBut that's basically the gist.\nSo notice that this game\nhas randomness in it.\nSo it's a little bit different\nthan MDP or a classic game.\nBut remember, we\nshouldn't be afraid\nwhen there's a sort\nof slight variations,\nbecause as long as we\nunderstand the principles,\nwe can write down\nthese recurrences\nand then everything makes sense.\nThe first thing is to think\nabout the dynamics of the game\nhere.\nWe're going to use pi dice to\ndenote the dice as, I guess,\na player in some sense,\nwhich is a fixed policy\nand just generates the\nvalues of the two die.\nSo the pi dice is\ngoing to move first,\nand then it's going to\nbe the agent's turn.\nAnd then when the\nopponent rolls,\nthat's going to be\nanother pi dice.\nAnd the opponent\nis going to move.\nAnd then the agent\nis going to roll\nand then agent moves and so on.\nAnd the reason that the dice\nhas to be before the pi agent\nis because the agents\nmove depends on what\nthe outcomes of the dice were.\nSo when we do TD\nlearning for Backgammon,\nwe are trying to learn pi agent\nand pi op at the same time.\nRemember, this is self-play.\nBut pi dice is fixed.\nIf you were in a\ncruel world, then you\ncould also play against\nadversarial dice,\nbut I imagine that would be\na much harder game to win.\nSo one example of how\nyou could proceed then\nis if you want to\napply TD learning,\nyou have to define what\nthe value function,\nhow the value function\nis parameterized?\nSo typically, you have a game.\nIt has a game state.\nAnd you have to turn it\ninto a vector for machine\nlearning to work.\nSo here is an example of how you\ndefine a vector for each state.\nSo we remember, we did\nthis in the machine\nlearning section of the class.\nSo you have a state, let's\nsay, this simplified state.\nTypically, you can\ndefine a set of features\nthat capture the state.\nSo, for example, a feature\nmight be the number\nof O's in column zero.\nIs that number equal to 1?\nThat's true.\nSo that's a 1.\nNumber the-- O's on the bar.\nThat's a 1.\nThe fraction of O's\nthat are removed.\nSo two out of four,\nthat's one-half.\nNumber of X's in\ncolumn 1 equals 1.\nNow x is in column 3 equals 3.\nThat's a one.\nAnd is it O's turn.\nAnd it's one here.\nSo every state of the board gets\nmapped into a feature vector.\nSo now, if you have a feature\nvector, you can do many things.\nYou can define a linear value\nfunction, which we talked about.\nSo this is basically\nlinear regression here.\nOr you can do something fancier.\nYou can define a\nmultilayer perceptron\nand have multiple layers\nYou can do number of things.\nAnd then you just\napply TD learning.\nSo next, I'm just\ngoing to go through--\nthis part isn't technical.\nBut I think it's\ninteresting to reflect\non some historical examples,\nwhere machine learning\nand reinforcement learning have\nbeen useful in game playing.\nSo I think I may\nhave mentioned this\non the first day of lecture.\nCheckers was a\nvery early example\nof where learning was helpful.\nSo Arthur Samuel in 1959\ntrained a chess program.\nAnd it learned by playing\nitself repeatedly.\nSo this is perhaps one\nof the earliest examples\nof self-play in action.\nAt that time,\ncompute was limited,\nso you can't really do\nthat much deep learning.\nSo you have to invest\ntime in getting features.\nSo the type of--\nI gave you a very simple set\nof features for Backgammon,\nbut you can define much\nmore complicated features.\nThey use a linear evaluation\nfunction, linear value function,\nand then also define some\nintermediate rewards.\nRemember, in games,\nthe true reward\nis only if you win or lose.\nBut that is a very hard thing\nto learn from because it's\na delayed reward problem.\nSo they essentially added\nsome intermediate rewards\nto make the problem easier.\nThey also did alpha beta pruning\nwith some additional heuristics,\nwhich are domain-specific,\nwhich we--\nalpha-beta pruning,\nwe talked about.\nAnd this reached an\namateur level of play.\nSo it could probably\nbeat me, probably.\nYou got to remember, 1959.\nSo this is on nine\nkilobytes of memory.\nSo pretty good.\nSo backgammon, which\nwe just talked about.\nSo the big result\nin backgammon was\nthis program called TD-Gammon\nmade by Gerald Tesauro in '92.\nAnd this was an agent that\nalso learned by self-play,\nexcept for his 1992\ninstead of 1959.\nSo they could do\nit a million times.\nAnd because the compute\nwas more plentiful,\nand you could get more\ndata, they actually\nused fairly simple features.\nAnd they used a neural network\nand had no intermediate rewards.\nSo you could see the\ndirection as you get more data\nand more compute, you don't have\nto engineer features quite as\nmuch.\nAnd now, this reached a human\nexpert level of play, not just\nan amateur level.\nAnd one of the earliest\nexamples of providing\nnew insights into the game.\nSo it provided new\ninsights into how\nthe first move should play out.\nAnd then there's\ngoal, which I think\nis more of in recent memory.\nSo in 2016, there was AlphaGo.\nI want to highlight\nAlphaGo Zero,\nbecause it's much more bullish\non reinforcement learning.\nThis learned by\nself-play as well.\nSo they played about\nfive million games.\nHere at this point, it\nwas also dumb features.\nAnd you just had\nthe stone positions.\nSo in go, there's\na lot of complexity\nabout what pieces are live\nand how everything's connected\nand how many degrees\nof freedom there is?\nAnd previous programs,\nyou would try\nto encode all of that\nknowledge into features.\nBut here, we're just saying,\nmachine learning algorithm.\nThese are where the pieces are.\nGo figure it out.\nAnd this was, obviously,\nusing a deep neural network.\nNo intermediate rewards.\nThey did have to use Monte\nCarlo tree search, which I'm not\ngoing to talk about, but it's a\nsearch algorithm that allows you\nto, essentially, get a\nbetter policy, rather\nthan just taking the action\nthat gives you the next reward.\nSo you can think about this\nas a less greedy version\nof the types of policies\nthat we've been looking at.\nThis actually beat AlphaGo,\nthe version from 2016,\nwhich beat Le Sedol In 2016.\nSo of course, at this\npoint, go playing systems\nare much better than humans.\nAnd similarly, this also\nprovided new insights\ninto the game.\nSo these are three\nexamples of just ground out\nhow these techniques that\nwe've been seeing in the class\nmap onto real world\nexamples of gameplay.\nSo that's all I'm going to talk\nabout in terms of TD learning\nSo next, we're going to\nlook at two generalizations\nor extensions, if you\nwill, of the types\nof games that we\nwere looking at.\nSo we've been looking\nat turn-based games.\nWe're going to look\nat simultaneous games.\nAnd we're going to also go\nbeyond the zero-sum assumption.\nSo far, we've been talking\nabout turn-based games.\nAnd now we're going to\ntalk about something\ncalled simultaneous games.\nAnd simultaneous games\nis a famous example\nis rock, paper, scissors.\nTwo players have to\nplay at the same time.\nSo here's a question\nfor you to think about?\nCan you still play optimally,\nif you reveal your strategy\nto the other player?\nOK.\nSo obviously, if I am\nplaying rock, paper,\nscissors, and I say\nI'm going to play\nrock, that is not very smart.\nBut is there a way to play\noptimally, if you still-- reveal\nand still reveal your strategy?\nAnd the answer turns out to\nbe what kind of strategies\nyou're allowed to do.\nSo in turn-based games,\nwe have that nailed.\nWe just compute the minimax\npolicies using a game tree.\nSo the game tree naturally\nmodels the turn taking,\nwhere each node, only\none player is moving.\nBut in simultaneous\ngames, two players\nhave to move at the same time.\nSo we can't use a\ngame tree anymore.\nYou can't have this.\nIf two players are trying to\nmove here, then it's confusing.\nAre you maxing?\nOr are you mining?\nAnd that doesn't work.\nSo we're going to focus\nfirst on zero-sum games,\nzero-sum simultaneous\ngames, and then we're\ngoing to do the\nnon-zero setting.\nSo we're going to start\nwith a few definitions.\nAnd then there's a theorem\nthat, essentially, solves it.\nSo I'm going to present\nto you another game, which\nis, hopefully, more obscure\nthan rock, paper, scissors.\nSo here's how the game works.\nSo if two players, A and B, and\neach is going to show either one\nor two fingers/ if both\nshow one, then B gives a $2.\nIf both show 2,\nthen B gives a $4.\nOtherwise, A gives B $3.\nSo intuitively, A\nwants both people\nto play the same\nnumber of fingers\nbecause that's where A can win.\nReally wants it to\nbe more two than one.\nBut if A always plays two,\nthen B is going to play one,\nand then a is going\nto lose money.\nSo there's this\nbalancing act here.\nSo while I'm going through this,\nmaybe in the back of your mind,\nyou could just think, how do\nI-- what's the strategy here?\nSo let me introduce\nsome formal notation.\nSo this is called a\nsingle-move simultaneous game.\nSo it involves just\nplaying the game.\nSingle move, you're done.\nThere's no state.\nThere's two players,\nA and B. We're\ngoing to define\nthis payoff matrix,\nwhich is essentially going to\nbe the equivalent of the value\nfunction or the reward function.\nAnd it takes two arguments, A\nand B. And for each action pair,\nI'm going to give you a value.\nAnd that value is A's utility.\nAnd because it's\nzero-sum, B's utility\nis just the minus of that.\nAnd again, there's no state.\nThere's only one action.\nSo this is what it looks\nlike for two-finger Morra.\nLet me just write this on the\nboard as a handy reference.\nSo I have--\nSo A can play either one\nfinger or two fingers.\nB can play one finger\nor two fingers.\nAnd then if they both\nplay one, then A gets 2.\nIf they both play 2, A gets 4.\nOtherwise, a minus-- it loses 3.\nSo that's the payoff matrix.\nJust to round things out a\nbit, so there's two actions--\n1 and 2.\nAnd this is the payoff matrix.\nSo V of 1 and 1, gives you\n2, and so on, and so forth.\nSo that's a game.\nNow, what is the equivalent\nof a policy here.\nIn game theory, it's\nknown as a strategy.\nAnd a pure strategy is\na deterministic policy.\nAnd a deterministic\npolicy is a single action.\nAnd a mixed strategy, also\nknown as a stochastic policy,\nis a distribution over actions.\nSo for example in two-finger\nMorra, always 1 is a strategy.\nAnd this means for\nthe action one finger.\nI'm going to have\nprobability one.\nAnother way I'm going to\nwrite that in math is pi,\nthe policy is a vector of\nprobabilities of each action,\nso for one, I have\nprobability 1.\nFor 2, I have probability zero.\nAnd for always 2,\nthat is the strategy,\nwhere all my probability\nmass is on two fingers.\nSo written in math is\npi equals zero comma 1.\nAnd if I were playing\nuniformly at random,\nthen I put 50/50\nprobability on each action.\nSo I've defined the payoff\nmatrix, the policies.\nAnd now, I can define the value\nof the game which combines them.\nAnd in math, the\nvalue of the game,\naccording to two mixed\nstrategies, pi A and pi B,\nis, I'm going to consider each\nof every pair of actions, A\nand B. The probability\nof a plane this action,\nand B plane this action, notice\nthat they're independent.\nAnd times, the payoff matrix\nvalue of action A and B.\nIn code, if I have\nthis payoff matrix,\nV, then I'm going to\npass in with let's say\nthe uniform policy\nfor both players.\nThis is what I'm going to get.\nSo I have this payoff matrix.\nI have two policies.\nAnd then this is\nfairly straightforward.\nFor every possible action\nwith probability A,\nfor every action B\nwith probability B.\nI'm just going to sum up the\nvalues probability a times\nprobability B, times\nthe corresponding entry\nin the payoff matrix.\nSo if I do that, then\nI get a value of zero.\nAnd this makes sense.\nIf I take the average over\nall these four values,\nI should get zero.\nSo everyone's playing uniformly.\nThe value of this is zero.\nSo now, what happens if\nplayer A plays always 1,\nand player B plays uniformly.\nSo that the value\nis going to be -0.5.\nSo you can think\nabout in this case.\nOn player B is uniform\nbetween these two,\nand player A only plays one.\nSo that means it's going to be\naverage of these two values.\nAnd that's going to be -0.5.\nAlways two means I'm\nalways two down here.\nBut uniform over these, 1 and 2.\nAnd that's going to give me the\naverage of minus 3 and 4, which\nis 0.5.\nAnd then you can look at if A\nis playing uniformly and B is\nplaying one, then it's going\nto be the average of these two.\nAnd that's going to be -0.5.\nAnd the fourth case is uniform A\nis playing uniform over 1 and 2\nand B is playing only two.\nAnd that's going to be\nthe average of these two.\nAnd that's going to be 0.5.\nHopefully, game\nevaluation is clear.\nAnd just to build\nsome intuition,\nit makes sense\nthat, for example,\nplayer 1 wants to play two more.\nAnd if B is playing\nuniform, which\nis a sort of generic\nstrategy, you\ncan get away with playing\n2 and getting some value.\nSo in some sense,\nit's much simpler\nthan having states and actions\nand transitions and rewards\nand discount factors.\nBut the solution is\nactually more subtle\nhere because of the\nsimultaneous nature.\nSo how do you come up with\nthe optimal strategy here?\nSo just to have a bit\nof fun, why don't you--\nI want everyone\nto find a partner\nand try playing\nlike a few rounds\nand see if you get any insights.\nAll right.\nHow did people do?\nAnyone figure out a good\nstrategy that worked for them?\nIt shouldn't be that,\nthis is fairly subtle.\nSo I'd be very impressed\nif you guys came up\nwith the optimal strategy.\nAnd one other caveat\nis that this is\nmeant to be a single move game.\nSo you play once\nand you're done.\nWhat's happening, obviously,\nwhen you play iterated game\nnow their state,\nbecause now you have\nthe history of what the\nother person's doing.\nAnd that changes the dynamic.\nSo it's not quite the\nsame game anymore.\nBut anyway, OK.\nSo let's try to solve the game.\nSo probably you're\nthinking now you're\ndying to know what's\nthe optimal strategy.\nSo the game-- remember\nthe game value.\nIt's very simply defined\nas V of pi A and pi B.\nBut the problem\nis I pay a player\na wants to maximize\nthis quantity,\nand player B wants\nto minimize, and they\nwant to do at the same time.\nSo you get into this\njam, where you don't--\nhow do you move forward?\nHow do you break out of jam?\nWell, you just have to\nlet someone go first.\nSo we're going to see\nwhat we can do here.\nLet someone go first.\nSo first, let's consider\npure strategies.\nSo when players are just playing\na pure strategy, what happens?\nBecause this case, we\nknow how to do right.\nThis is just normal minimax.\nSo let's say player\nA goes first.\nSo player A is\ntrying to maximize.\nPlayer B is trying to minimize.\nSo if player A goes first,\nthen whatever happens,\nplayer B can just play the\nopposite and get you, minus 3.\nSo player, the minimax value\nof this game is minus 3.\nSo it's pretty bad for player A.\nBut if player B goes\nfirst, then player A\ncan just match the number,\nSo if player B goes with one,\nthen a is going to play one.\nIf player B goes with\n2, A is going to sorry.\nA is going to play two.\nAnd then B knowing this\nis going to play one,\nbecause 2 is players, B\nis trying to minimize 2\nis less than 4.\nSo we solve this.\nBut for these weird games that\nwe don't really care about.\nBut this process, hopefully,\ngives us some insight,\nand there's something\nthat's worth commenting on,\nwhich has in this setting,\nand in general, going second\nis no worse and often better.\nSo in particular, this value\nis smaller or equal to.\nThis value minus 3 is\nless than or equal to 2.\nSo in more generality,\nmax over a min over B\nis less than or equal to\nmin B, max A. So going\nsecond is going to give you\na higher result for player A.\nThis intuitively makes sense\nbecause if you're going second,\nyou see what your opponent\ndoes, and you can react.\nAnd since there's\nno state, it's not\nlike the player A takes\nthe card from you.\nAnd now you can't\ntake the action.\nYou can take the same set\nof actions and its payoff.\nThe matrix is the same.\nSo all you're doing is\ngetting more information,\nif you go second.\nSo that's for pure strategies.\nLet's see what happens\nfor mixed strategies now.\nSo suppose player A\nplays a mixed strategy.\nSo this is a little\nbit of a strange thing.\nBut you say play it.\nBy what this means\nis that player\nA announces their strategy.\nI'm going to flip a coin.\nAnd with heads.\nIf it's heads, I'm\ngoing to play one.\nIf it's tails, I'm\ngoing to play two.\nThat is what is meant by player\nA playing mixed strategy.\nHe's not revealing.\nHe's not flipping the\ncoin yet, but they're\nannouncing the strategy.\nNow, player B--\nsuppose player B knows\nplayer A is going to do this.\nWhat is the best\nthing for player B?\nSo now, I'm going to do\nsome very simple algebra\nto figure out the answer here.\nSo just expand the\ndefinition of the game value\ninto four terms, where\neach of the four terms\ncorresponds to a different\ncombination of actions.\nSo each term has probability\nof under A, probably under B,\nand then the payoff\nmatrix entry century.\nAnd then I'm going to\nstart simplifying this.\nSo actually, let me actually\ndo this on the board\nhere, since I'll\nthink I'll be easier.\nSo in this case,\nplayer A is half, half.\nPlayer A is uniform.\nAnd so the question is like what\nis the best thing for player B?\nSo player A is half over\nthese two, which means that--\nif I play one, I'm just\ngoing to get the average.\nAnd that's going to\nbe minus one-half.\nIf I'm playing too,\nI get the average.\nAnd I'm going to play half.\nSo what should the\noptimal pi V, b.\nYeah.\nYou should always play two.\nSo it should be zero or one.\nBecause 1/2 is greater\nthan minus 1/2.\nSo this points out\nanother important fact\nis that the second player can\nalways play a pure strategy,\nin this case.\nSo if the first player\nplays either a pure strategy\nor a mixed strategy, if\nthe second player is trying\nto minimize this, it can always\nbe attained by a pure strategy.\nAnd the reason here is that\nsuppose this were not half,\nbut anything, then I\ncan do the same math.\ntake the weighted average,\nI get some number,\ntake the weighted average,\nget some other number.\nAnd I look at\nwhich one's bigger.\nAnd I'm going to put all\nmy eggs in that one basket.\nSure.\nYeah.\nYou're right.\nI got a bit confused.\nSo player B wants to minimize.\nSo this is the preferred choice.\nSo no matter what the\nfirst player does,\nthe second player can\nalways play a pure strategy.\nSo hopefully, we're\nmaking progress.\nWe've made two observations.\nOne is that going\nsecond is no worse.\nAnd if you go second, you\ncan just choose one item.\nYou don't have to randomize.\nSo now, let's try to\ndo this more generally.\nSo I'm going to do minimax, but\nwhere the actions are actually\nmixed strategies.\nSo player A is going to\nplay go first now and play\na strategy which is p with\nprobability p, play one finger.\nWith probability one\nminus p, play two fingers.\nSo the way to\nthink about this is\nyou have a uncountably infinite\nnumber of possible actions\nthat player A can take.\nAnd then at this node, player B,\nremember from this observation,\nthe optimal thing is just\nto play a pure strategy.\nSo there's only two\npossible values, 1 or 2.\nSo now, we just have to compute\nwhat the value of the leaves\nare.\nSo if player A plays p minus\n1 p, and player B plays one,\nthen the game value is,\nbasically, p times 2,\nplus 1 minus p times minus 3.\nSo just to write this\nout here, so now,\nI'm going to assume that\nthis is a p, 1 minus p.\nSo I have p, 1 minus p here.\nAnd so now, this quantity\nis 2p minus 3, 1 minus p,\nwhich is 5p minus 3, I believe.\nAnd this is going to be\nminus 3p plus 4, 1 minus p.\nThat is-- what is that?\nThat is minus 7p plus 4.\nHopefully, that\nmatches what I have.\nSo I have the game values here.\nAnd then I'm going\nto choose which\none is I'm going to take\nthe max over these two.\nThat is going to be the\nminimax value of the game.\nSo it's exactly what we did\nbefore now with p instead\nof plugging in half and half.\n[INAUDIBLE]\nSorry.\nYou're right.\nI should be taking the min.\nMaybe we'll consult\nthis equation now.\nSo the minimax value of\nthe game is I take a max\nover p, the continuous value.\nAnd then I take a min\nover these two values.\nIt's a bit weird because I have\nthis infinite number of actions\nhere.\nBut hopefully, if you can\ngeneralize our intuitions\nfor minimax into this setting.\nJust jumping ahead here.\nThe way you solve\none of these things\nis this minimum is obtained when\nthese two quantities are equal.\nLet's see if I can\ntry to draw it.\nMaybe I'll draw it.\nI don't think I can get\nexact lead to scale,\nbut basically,\nyou're taking the--\nwhat am I taking in?\nThe min over two things.\nSo 5p minus 3.\nSo looks like this.\nSo this is p.\nAnd this is-- let me try to\nuse a different color here.\nLooks something like this.\nThis is definitely\nnot the scale.\nBut I'm taking the\nmin, which means\nthat I erase these two pieces.\nSo this is like 5p minus 3.\nAnd then this is\nminus 7p plus 4.\nAnd if you set\nthem to equal, you\nget basically this max value.\nSo when you set them equal, if\nyou have 5p minus 3 equals minus\n7p plus 4, then you find\nthat p equals 7 over 12.\nAnd then if you\nplug in the actual p\ninto either one\nof these, then you\nget that the minimax value of\nthe game is minus 1 over 12.\nSo a bit of algebra,\nbut the upshot\nhere is that we are\nstill doing making\nthis turn-based, where\nplayer A goes first\nwith a mixed strategy.\nAnd player B goes second\nwith a mixed strategy,\nwhich can also be a pure\nstrategy because they're\ngoing second.\nAnd then we compute the\nminimax value of the game,\nwhich is minus 1 over 12, where\nthe player A is playing 7/12.\nSo this favors player B,\nbecause player B goes second.\nSo now, just to be\nfair, let's give player\na chance to go second.\nSo now, let's let\nplayer B go first\nand do the same calculation.\nAnd if you do it, which\nI'm not going to do again,\nyou're going to notice something\nremarkable that happens,\nwhich is that the minimax value\nof the game is exactly the same,\nminus 1/12.\nAnd the probability\nis 7 over 12.\nSo you might think, OK, I\nrigged all these numbers.\nSo we just got lucky here.\nBut this is actually\nnot a coincidence.\nIt turns out that there is\na very important theorem\nin game theory called\nthe minimax theorem.\nThis comes from John\nvon Neumann from 1928,\nwhich says that for every\nsimultaneous two-player zero-sum\ngame, as long as you have\na finite number of actions,\nwe have two actions here,\nso that definitely counts,\ngoing first and going\nsecond is the same.\nIn other words, max\nover pi a, min over pi B\nis the same as min over\npi B max over pi a.\nAnd it's important here\nthat pi A and pi B has\nto be over mixed strategies.\nAs we saw in the first\nexample, if pi A and pi\nB are pure strategies,\nthis is definitely false.\nGoing second, if\nwith a pure strategy\nis going to be always favorable.\nThe proof of this is actually\nlinear programming duality.\nIt turns out this\nis a linear program.\nAnd there's some\nreally nice math that\nshows you that this is true.\nAnd furthermore, you can compute\nthe optimal mixed strategies\nvery efficiently using\nlinear programming as well.\nSo we just solved the\nlinear programming manually\nfor this example.\nBut you can solve this for\nany number-- any payoff matrix\nand any number of actions.\nBut the upshot of all of\nthis is that revealing\nyour optimal mixed\nstrategy doesn't hurt you.\nSo answering the poll\nquestion from before,\nyou can go ahead and\nannounce to all your friends\nthat you're for two-finger\nMorra, this is the strategy.\nYou're going to play 7/12 on 1,\n5/12 on 2, and you won't suffer.\nSo it's bizarre that it\nworks out but it's math.\nSo you can check the math.\nBut then once you've checked\nit, you have to trust it.\nI'll skip that part.\nIf you go back to the\nminimax principles, which\nwe covered before\nfor turn-based games,\nthe same thing applies here.\nIf you're at a minimax,\nthese are minimax strategies,\nwhich means that if\nyour opponent deviates\nfrom that strategy, it\ncan only be good for you.\nAnd furthermore, if you\ndeviate from your own strategy,\nyou can only make it worse.\nSo minimax is this\nreally nice setting\nwhere you want to be playing\nminimax so that your opponent--\nthere's-- nothing\nyour opponent can do.\nAnd you can't do any better.\nAnd of course, the\nsame idea of minimax\nbeing optimal against a\nperfect player makes sense.\nIf you, for example, knew that\nyour player was all your player\nA, and you're always going\nto play two fingers, then,\nof course, I can do better.\nI can just play two\nfingers as well.\nSo remember, expectimax is the\nbest thing if you know what\nyour opponent's going to do.\nBut if you don't know\nwhat your opponent's going\nto do, doing the\nminimax thing guards you\nagainst any sort of\npotential huge downside.\nSo let me cover\nnon-zero-sum games.\nSo this is going to be\njust a brief overview,\njust to get you some exposure.\nWe're not going to have\ntime to go through it.\nSo the idea with non-zero-sum\ngames is that it's not zero sum.\nSo the utilities of the\nplayers are arbitrary.\nBefore, we had always--\nso far in this class,\nwe have assumed the\nutility of player A\nplus the utility of\nplayer B is zero.\nIn other words, utility of A\nis minus utility of player B.\nSo there are many possible\nsettings you could be in.\nIf you're playing competitive\ngames, that's zero-sum.\nIf you win, I lose.\nIf I win, you lose.\nThere are cooperative\ngames, where\nthe utility of all the\nplayers are the same.\nThere's nothing really to\nbe said there because there,\nit's just pure maximization.\nIt's a search because\neverything is a max.\nAnd real life is\nsomewhere in between.\nSo here is an example.\nHow many of you know\nabout prisoner's dilemma?\nSo this is more popular.\nSo the idea here is that\nyou have two players,\nthe prosecutors\nasked both of them\nto testify against each other.\nBoth are accused of\ndoing something bad.\nIf both testify, then they're\nsentenced to five years\nin jail, both of them.\nIf they both refuse to\ntestify, then they're\nboth sentenced to one\nyear in jail, which is,\nI guess, better than\nfive years in jail.\nAnd if only one testifies,\nthen they get out for free,\nand the other one gets a 10-year\nsentence, which really sucks.\nSo this is going to be captured\nby a payoff matrix, where, now,\nI have to have a\nsubscript p to denote\nthe utility of a\nparticular player.\nSo if the utility is minus\nthe number of years in jail,\nthis is what the payoff matrix\nlooks like for the prisoner's\ndilemma.\nIf they both testify\nminus 5, minus 5.\nIf they both refuse,\nminus 1, minus 1.\nAnd then on the diagonals,\nif a testifies and b refuses,\nA gets off and B\ngets thrown in jail\nfor 10 years and vice-versa.\nSo we don't have time to let you\nguys play this, but that's fine.\nSo how do you solve\nnon-zero-sum games?\nSo we can't apply von Neumann's\nminimax theorem anymore\nbecause it's not zero-sum.\nBut it turns out we\ncan get something.\nAnd that's called\na Nash equilibrium.\nSo a Nash equilibrium is a pair\nof strategies pi A star and pi\nstar B, such that no player\nA or B has an incentive\nto change his or her strategy.\nSo in other words, if\npi A tries to change,\nthat's going to\nonly make it worse.\nAnd if pi B tries\nto change, that's\nalso going to make it worse.\nThis is a Nash equilibrium.\nAnd in 1950, Nash proved this\nreally beautiful theorem,\nthe existence\ntheorem, which says\nthat for any, if you--\nas long as you have\na finite number of players\nand finite number of actions,\nthere exists at least\none Nash equilibrium.\nSo there is at\nleast one solution.\nSo here are some\nexamples, just to give you\nsome intuition about Nash\nequilibria look like.\nSo we looked at\ntwo-finger Morra before.\nAnd the minimax strategy\nis also a Nash equilibrium,\nbecause no player\nhas an incentive\nto move off what they're doing.\nIf you consider a fully\ncollaborative version\nof this where both and\nB have the same reward,\nthen the Nash-- there's\ntwo Nash equilibria,\neither both play one\nor both play two.\nAnd that's stable\nbecause, if you're here,\neven though it's not optimal,\nif B tries to move off, then\nit's just going to make\nit worse for everyone.\nSo this is a local optimum.\nSo local optimum are also Nash\nequilibrium in search problems.\nAnd then finally,\nthe Nash equilibrium\nfor prisoner's dilemma\nis both players\ntestify, because no one has\nan incentive to move off.\nSo the point here is\nthat both refusing is not\na Nash equilibrium.\nBecause if you're in\nthis state, someone's\ngoing to-- if I'm\nhere, then, both and B\nare going to want to testify\nand get out for free.\nSo this is not stable.\nAnd of course, if\nyou're here, then,\nthat's also not stable because\nB is going to try to move here.\nSo this is only stable point.\nAnd the whole point\nof prisoner's dilemma\nis that sometimes,\nunfortunately.\nIf you have agents that are\nonly after their own selfish\ninterest, you can get into\nsituations which are suboptimal.\nClearly this is better\nfor both of them,\nbut it is not a\nNash equilibrium.\nSo just to contrast,\nsimultaneous zero-sum games--\nhere, we have a von\nNeumann minimax theorem.\nWe can produce a\nsingle game value.\nAnd in non-zero-sum games, we\nhave Nash's existence theorem.\nAnd that can lead to multiple\nNash equilibrium multiple game\nvalues.\nSo the way to think\nabout Nash equilibria\nthat they're just stable.\nThey're locally stable.\nSo no one can change.\nNo individual agent\ncan change something.\nIt's not really about\noptimality in the same way\nthat we've been pursuing\nin the rest of this class.\nAnd it makes sense\nbecause everyone\nhas different utilities.\nWhat is optimal with\nmulti-objective even mean?\nAnd fortunately, they do\nexist for non-zero-sum games.\nTo summarize, we looked\nat simultaneous games.\nTwo players move\nat the same time.\nIn general, second\nplayer has an advantage\nand play a pure strategy.\nBut the minimax theorem says, if\nyou allow for mixed strategies,\nthen second player doesn't\nactually have an advantage.\nBoth players can be optimal.\nAnd then we look\nat Nash equilibria\nexist for a non-zero sum\ngames, but it's not unique.\nAnd in general, there's\na huge literature\nin game theory and economics.\nSo if you like this, second\nhalf of this lecture,\nyou should go take a game\ntheory course and learn more.\nSo that concludes the\ngame unit and all our work\non state space models.\nI'm going to start a brand\nnew unit on Bayesian networks.\nSee you next time.",
+  "segments": [
+    {
+      "text": "So welcome back, everyone. Last lecture, we talked about two-player zero-sum games. So we're going to review that a little bit. And this time we're going to start bringing together reinforcement learning and games. And then we're going to actually",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "play a few games in this class. So hopefully, that'll be fun. So just as a review, last time, we talked about the minimax principle. And this is the way that we solve games. So remember, in a game, you have different players being controlled at",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "different states, which means that you can't just max over everything or take expectations. You actually have to max and min. So this was a game tree that we looked at last time where at the root node, the agent is trying to maximize its a utility.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "And at the next level, the opponent is trying to minimize the utility. So at these min nodes, you take the minimum over the outcomes of each of these subtrees. And then at the max node, you take the max. So the minimax value of this game",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "is one, which corresponds to the agent choosing the action B here, and then the agent choosing action one. We talked about ways of speeding up minimax search. If you want to keep it exact, you can use alpha-beta pruning. In alpha-beta pruning, remember, you",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "keep track of lower and upper bounds on the possible values of each of the states in your ancestral tree. And for example, here, after you've explored this part of the tree, you know that this is at least one. And you come over here, this is, at most, minus 5.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "These don't overlap. So then you don't even need to look at the 15. So we also looked at evaluation functions. And this is if you want to bring in domain knowledge and you don't mind being approximate. So then you can just define an evaluation function",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "to assess whether a state of the game is good for the agent or not. So we looked at this one in chess, which combines a variety of different factors related to how many pieces you have and how much mobility and control of the center you have, and so forth.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "So this was very much about manual heuristics. So now, the question I want to pose is, can we learn the evaluation function? Because if we can learn it, then maybe we can do better than a hand-coded system. So indeed, that's what we're going to do today.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "We're going to use reinforcement learning, in particular, TD learning to learn the evaluation function. So you have to bring in back your memories of reinforcement learning. And let's dive in. So just as a refresher in reinforcement learning, there are two",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "quantities of interest. So this is value-based reinforcement learning. So you have v pi of S, which is the value or the expected utility that you would obtain if you followed policy pi from state s. So we're in a state s, you follow some fixed policy.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "And this is how much value you would pick up. And there's also Q values, which have an extra argument, which takes the action here. And this is the value of a utility when you first take action a, when you're in state s. And then you continue",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "to follow policy pi. So these are the two quantities that show up over and over again. We saw them first for policy evaluation, in MDPs. And then we saw them in SARSA. And now, they're going to come back again. So remember the SARSA algorithm",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "from reinforcement learning? So this was an on-policy algorithm, which means that it's estimating the Q-values of the current policy that you're following as opposed to the optimal policy, which might be not the one you're following. And SARSA was also",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "the main insight was bootstrapping, remember, where you're updating the Q-values towards a target and the target rather being just an empirical utility of the full rollout. It's an immediate reward, plus an estimated future reward.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "So here's the SARSA algorithm. As you run the reinforcement learning algorithm, every time you see a state and you took an action and you got a reward. And then you ended up in state s prime, and then you took another action. Then, you perform",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "the following update. First, you look at the reward, that immediate reward that you just got, and then you form an estimate of how much reward you would get after that. So after this reward, you ended up in state s prime. And now, you're taking action a prime.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "So that estimate of packages up your belief of how much reward you're going to get. And then what you're going to do is you're going to nudge a Q pi of s, a, which is your current Q value estimate in this direction by some learning rate eta.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "And you keep on doing this over and over again. So in code, it looks something like this. So I instantiate an rl algorithm SARSA. Remember, the rl algorithm, it implements two functions-- get action. So I'm in state one. And I get an action.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "And then the environment does something with that action. And then I incorporate feedback, which is tells the agent what happened. So incorporate feedback state one. I walked. I got a reward of minus 1. And I ended up in state two. And I haven't finished,",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "and so on, and so forth. So get action incorporate feedback, get action, incorporate feedback. So one thing that's interesting. I want to emphasize is that the strong connection between Q-values and policies. So SARSA computes Q pi, which is the Q-value",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "of the particular policy pi. But given this Q value, I can read out a policy. And the policy I read out is simply, well, I just take the best action here. So argmax of a over Q pi of s, a. And that gives me a particular action to follow.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "So you can think about this as one step of policy improvement, where here is the value of this particular policy. And a new policy is simply, well, I'm just going to myopically optimize over the next action. And then I think about following the best whatever",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "values I get after that. So the whole point of this is that given a Q-value, you can read out a policy just by argmaxing it over a. Now, I'm going to invoke another thing. We looked at policy evaluation from MDP. So remember in MDPs, you get",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "the transition and the rewards. And how the world works in reinforcement learning. You don't. So in MDPs, we had these set of equations. So we defined a value of a policy to be simply the Q-value of the s action given by that policy. And then separately, you",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "can also define a recurrence for Q pi of s, a. And that just corresponds to summing over all possible successor states, when you take action a, weighted by the probability of that transition, and then immediate reward plus an estimate of the future.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "Just as a recap, SARSA is a reinforcement learning algorithm. It computes Q values. Q, which is a function of s, a. I can get a policy out very easily. Now, the question is let's say I just gave you V pi. Could you compute a policy from that directly?",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "Can you read out the policy? I only told you essentially how good various states are. Can I get a policy out? Well, I guess the question is, what do you need to get a policy out? And in some sense, well, you look at this and you say, well, if I'm given V pi S,",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "I can just compute Q pi s, a using this formula. And then I take the argmax over a. And then that's my policy. So I'm only given V. So I don't have Q but I can-- The Q is, in some sense, a one-step transition from V. But here's the catch is that computing this",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "requires knowledge of the MDP. So this is why, in general, you can't just estimate a value of states. Because if I don't know how the world works, you can tell me this state is great, this state is bad, this state is great. But that doesn't",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "tell me what actions. How does that connect with actions? And the thing that connects actions and states are things like are the transitions. But I assume I don't know the transition, so that doesn't help me act. Whereas, if I have a Q",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "value, this binds the action into the value. So I know that in this state, not only is it good, but I take a particular action, and that gives me some value. So that's why when we started with reinforcement learning and its full generality, we",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "only looked at SARSA and Q learning, because we need policies. Now, however, for games, we actually do know the transition and rewards, unless you're in a cruel game where you don't know the rules. Most of the time you're playing a game,",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "you know perfectly the rules. Actually, things might be even deterministic as we've defined it. For example, chess go, everything is deterministic. Everything is fully observed. So there's no uncertainty. Given the V value, it's actually pretty trivial",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "to compute the best policy. You simply look at the action. You're in a state s. You look at the action. You basically consider all actions. You see where they go. So remember, there's a deterministic successor function that takes a state and action",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "and tells you what successor state you end up, and you just evaluate how good the resulting state is. OK. Well, wait a minute. But if we already know the MDP, then why are we using reinforcement learning? I thought the whole point of reinforcement learning",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "is that you don't know the MDP. If you know the MDP, you just do value iteration. So in principle, you could also do value iteration for games, because there's sometimes in some sense, no need to learn anything. You already have everything in front of you.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "But the problem is usually for games besides tic-tac-toe or something, the number of states is just vast. It's going to be exponential, and you won't be able to do value iteration, which grows with the number of states. Therefore, we're going to",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "use reinforcement learning. And it's important to know why we're using reinforcement learning. It's not because we don't know the MDP. We actually know the MDP quite well. But it's because the number of states is exponential, and reinforcement learning allows",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "you to use function approximation and effectively reduce the number of states. Let me pause there. We did a bit of review of q values, v values, policy evaluation, and SARSA and some motivation for are MDPs in reinforcement learning. How does the first policy",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "update simplify to this one? Is that the question? In a game, the transition probability is 1 for one particular s prime. And that particular s prime is Succ, s, a. That's a function. So the summation goes away. And then in a game all the reward is at the end.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "So this is zero for, essentially, all transitions. And then discount is one. So then you end up with just V pi. Yeah. So now, let's actually talk about turning this into an algorithm. So TD learning-- the way to think about it, if you",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "had to just remember one thing is TD learning is as to V pi as SARSA is to Q pi So SARSA estimates Q pi. TD learning estimates V pi, And basically, that's the only difference. So in SARSA, Q pi tells you how good each action is from a given state.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "And in TD learning, V pi is going to tell you is how good each state is. And since we know the action to next state mapping, that's all we need because we just need to know how good states are. So this is good. And it simplifies things, because we",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "have a function of just the state rather than a state and the action. So a minor point, but it does make some things easier. So now, we're going to assume we do function approximation. So remember, in function approximation in reinforcement learning, we take--",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "instead of keeping a tabular representation. Meaning for every state, we have a separate value that has nothing to do with any other value. We're going to define a function, a parameterized function, also written v, which takes as input s, and",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "then depends on some weights w. So these are the parameters of that function, as you vary w you get different functions. So in deep reinforcement learning typically V pi of s is called a value network. So here's the nutshell, a TD learning in a nutshell.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "So you get a piece of experience. So you are in state s. You took action a. You got reward r. And then you ended up in state s prime. So the model predicts that this state has this particular value. V of s given some parameters. So based on this new",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "piece of information, how can we compute a refined estimate of that value? So we define the target, which incorporates this piece of experience by this bootstrapping, where you have the immediate reward plus some discount gamma times the value of",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "the successor state given the same set of weights. This is very similar q-learning. It's just you have V's instead of Q's. And now, I don't need an A prime because this is just a value function not a Q function. So now, to move the model's",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "prediction towards the target, I'm going to define a loss function. In the loss function, I'm just going to use the squared loss here to be the squared difference between the model's prediction and the target. And then if getting that loss function,",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "I can just take a gradient step by moving the weights in the opposite of the gradient of this loss function. To put that in more, I guess, summarize that in equation, so on each piece of experience, I'm going to look at the model",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "prediction, look at the target. And I guess I've-- yeah. So if you differentiate this, you'll find that there is a natural form where you have the difference times the gradient of what's inside, which is just the gradient of the value function at w.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "So actually, one important point is that this term also depends on w, but I'm going to treat it as a constant. So remember in the second lecture, or so, I had this-- we were doing computation graphs and you could detach. So this is where you would detach this",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "because this is when I backprop through this, I only want to backprop through this first w. So let me explain that again. So you can think about the target as just a value a constant. And then all you're doing is you're saying, your model prediction move",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "it towards the target. The target effect, you don't change it. And that corresponds to this gradient. But however, the target also depends on w, implicitly or actually explicitly. But for the purposes of computing the gradient, I'm not going to",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "differentiate through that. So let's see a code implementation. So we're going to do TD learning for this tram problem. So I'm going to define the MDP exploration policy which either walks or takes the tram. And then TD learning, I'm",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "going to pass in the MDP now. So if I just want to evaluate a value of a policy, I don't need this. But I need the MDP to be able to compute the policy as I argued earlier. So this is for a general MDP, not just games. The rl algorithm implements",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "two things as usual-- get action and incorporate feedback. So when I get action, a TD learning, if I'm doing epsilon greedy exploration, with probability epsilon explore or with probability 1 minus epsilon return pi. And what is pi? Pi corresponds to",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "the policy given by V pi, which are the values I'm estimating. So what I'm going to do is I'm going to compute the Q-values because I only have V. So I compute the Q-values for every action. So for every action, I'm going to sum over",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "all the possible successors of that action weighting by the probability of that transition times the immediate reward plus the discounted future reward. So this is where V comes in. So if I take V, I combine it with my knowledge of how the world",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "works, the transitions. And then I'm going to get a Q-value as a result. And then that is going to give me a set of Q-values. And then I'm just going to take the action with the highest Q-value. And then in this case, this is walk. So given these V values,",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "I can compute a policy. That's going to allow me to act. And now, when I act and the environment sends me feedback, this is what I'm going to do. I'm going to look at the predicted value of a given state. I'm going to look at the target,",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "which is reward plus discounted of the next state. And then I'm going to just perform this update. So notice, I'm not doing any function approximation here for simplicity. If there were function approximation, I would form a loss function",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "and take the gradient. But I'm just keeping it simple for now. And in the tabular setting, this has a simple interpretation, which is, I'm just moving it towards the target away from predicted at some learning rate. And in this example, I predicted zero.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "The target was minus 1. So I'm going to nudge the value of state one to be minus. 0.1, which is in this direction. So then I do this over and over again. And that is essentially TD learning. To summarize, TD learning estimates V pi from experience.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "So remember, V pi is the value of a particular state under some policy pi. So this tells me, basically, if I'm following a policy, how good are various states? And it is on-policy. Notice that we're only rolling out with the policy pi,",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "and we're not considering any other actions. Whenever you see a max over actions, that usually means something like off-policy or Q-learning. If you don't see that, it's probably on-policy. That's a good rule of thumb. And then we're using bootstrapping,",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "where we're looking at the target consists of the model. That's a sign that it's bootstrapping. Now, let's specialize TD learning for games. What we did is TD learning, in general, for any MDP. Now, we're going to adapt it to games. So what's special",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "about our game? Well, as we discussed earlier, transitions are deterministic, at least, in the games that we've looked at so far. So when you make a move, it does one particular thing. And there's no utility until the end of the game. And then there's two",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "players-- agent and opponent. So in some sense, maybe I lied a little bit. It's not necessarily a special case, but it is-- the fact that you have deterministic transition, that's a special case. No utility at the end, that's a special case.",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "But this idea of two players, the agent and opponent, remember, that is the thing that's actually special about games. So how do you deal with that? And the way you deal with that in the context of adapting reinforcement learning is actually",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "quite simple and elegant. You just let the agent and opponent use the same value function. So this is known as self-play, where you're essentially saying, agent and opponent, your minds are, I guess, wired in some sense. And you're just going to use the value",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "that I'm going to estimate to drive your decisions. But of course, the agent and opponent are not doing the same thing. The agent is trying to maximize, and the opponent is trying to minimize, which means that there's a small tweak that we need to do.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So this we saw earlier that given an estimate of V pi, we can read out a policy for the agent by just choosing the action that leads to the best state under V pi. But what is the opponent trying to do? It's trying to do the opposite. It's trying to minimize.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "So you just replace the argmax with argmin and you say that's the opponent policy. It's actually pretty nice that all you are focusing on in TD learning is estimating this V pi. And once you have V pi, you can play either the agent or the opponent.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "And this is generally true. If you know what's good and what's bad, you can choose to do the good thing, or you can do the bad thing. So let me instantiate this just as a fun example for the game of Backgammon. So here's the way Backgammon works.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "So you have this board it consists of these triangles called points. There's two players in this picture. There's the red player and the white player. Each player has a set of pieces. And the goal is to move your pieces off the board. So if I'm the red player,",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "I have my pieces here. I'm trying to basically move all these pieces around clockwise to my home board and then off. And the white is going to take all these pieces and try to move it counterclockwise and off the board. So how do I move pieces?",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "There is dice involved. So I roll two die. And let's say, it's white's turn. I roll two die, and the dice determine the number of spaces I can move. So if I roll a three and a five, I could say, take this piece. And I can move it three, and then another five.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "Or I could take, let's say, this piece, I move it five and take this piece and move it three. So what makes this game interesting is that if you land on a point with one opponent piece, I guess, there's no examples here, then you move that piece to the bar.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "You crush the piece, and that goes to the bar, and it has to start over. So that's bad for your opponent, good for you. But if you have-- but you can't land on a point with more than one opponent pieces. So generally, the strategy is that you're",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "trying to put your pieces in tall stacks so that they're safe from your opponents. But at the same time, you have to move everyone across. So this is probably a better move because this allows you to have two. So you don't have any exposed",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "singletons, essentially. I think there might-- I'm not sure if there might be another rule. But that's basically the gist. So notice that this game has randomness in it. So it's a little bit different than MDP or a classic game. But remember, we",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "shouldn't be afraid when there's a sort of slight variations, because as long as we understand the principles, we can write down these recurrences and then everything makes sense. The first thing is to think about the dynamics of the game here.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "We're going to use pi dice to denote the dice as, I guess, a player in some sense, which is a fixed policy and just generates the values of the two die. So the pi dice is going to move first, and then it's going to be the agent's turn. And then when the",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "opponent rolls, that's going to be another pi dice. And the opponent is going to move. And then the agent is going to roll and then agent moves and so on. And the reason that the dice has to be before the pi agent is because the agents move depends on what",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "the outcomes of the dice were. So when we do TD learning for Backgammon, we are trying to learn pi agent and pi op at the same time. Remember, this is self-play. But pi dice is fixed. If you were in a cruel world, then you could also play against",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "adversarial dice, but I imagine that would be a much harder game to win. So one example of how you could proceed then is if you want to apply TD learning, you have to define what the value function, how the value function is parameterized?",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "So typically, you have a game. It has a game state. And you have to turn it into a vector for machine learning to work. So here is an example of how you define a vector for each state. So we remember, we did this in the machine learning section of the class.",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "So you have a state, let's say, this simplified state. Typically, you can define a set of features that capture the state. So, for example, a feature might be the number of O's in column zero. Is that number equal to 1? That's true. So that's a 1.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "Number the-- O's on the bar. That's a 1. The fraction of O's that are removed. So two out of four, that's one-half. Number of X's in column 1 equals 1. Now x is in column 3 equals 3. That's a one. And is it O's turn. And it's one here.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "So every state of the board gets mapped into a feature vector. So now, if you have a feature vector, you can do many things. You can define a linear value function, which we talked about. So this is basically linear regression here.",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "Or you can do something fancier. You can define a multilayer perceptron and have multiple layers You can do number of things. And then you just apply TD learning. So next, I'm just going to go through-- this part isn't technical. But I think it's",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "interesting to reflect on some historical examples, where machine learning and reinforcement learning have been useful in game playing. So I think I may have mentioned this on the first day of lecture. Checkers was a very early example",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "of where learning was helpful. So Arthur Samuel in 1959 trained a chess program. And it learned by playing itself repeatedly. So this is perhaps one of the earliest examples of self-play in action. At that time, compute was limited, so you can't really do",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "that much deep learning. So you have to invest time in getting features. So the type of-- I gave you a very simple set of features for Backgammon, but you can define much more complicated features. They use a linear evaluation function, linear value function,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "and then also define some intermediate rewards. Remember, in games, the true reward is only if you win or lose. But that is a very hard thing to learn from because it's a delayed reward problem. So they essentially added some intermediate rewards",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "to make the problem easier. They also did alpha beta pruning with some additional heuristics, which are domain-specific, which we-- alpha-beta pruning, we talked about. And this reached an amateur level of play. So it could probably beat me, probably.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "You got to remember, 1959. So this is on nine kilobytes of memory. So pretty good. So backgammon, which we just talked about. So the big result in backgammon was this program called TD-Gammon made by Gerald Tesauro in '92. And this was an agent that",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "also learned by self-play, except for his 1992 instead of 1959. So they could do it a million times. And because the compute was more plentiful, and you could get more data, they actually used fairly simple features. And they used a neural network",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "and had no intermediate rewards. So you could see the direction as you get more data and more compute, you don't have to engineer features quite as much. And now, this reached a human expert level of play, not just an amateur level. And one of the earliest",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "examples of providing new insights into the game. So it provided new insights into how the first move should play out. And then there's goal, which I think is more of in recent memory. So in 2016, there was AlphaGo. I want to highlight AlphaGo Zero,",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "because it's much more bullish on reinforcement learning. This learned by self-play as well. So they played about five million games. Here at this point, it was also dumb features. And you just had the stone positions. So in go, there's a lot of complexity",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "about what pieces are live and how everything's connected and how many degrees of freedom there is? And previous programs, you would try to encode all of that knowledge into features. But here, we're just saying, machine learning algorithm.",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "These are where the pieces are. Go figure it out. And this was, obviously, using a deep neural network. No intermediate rewards. They did have to use Monte Carlo tree search, which I'm not going to talk about, but it's a search algorithm that allows you",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "to, essentially, get a better policy, rather than just taking the action that gives you the next reward. So you can think about this as a less greedy version of the types of policies that we've been looking at. This actually beat AlphaGo,",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "the version from 2016, which beat Le Sedol In 2016. So of course, at this point, go playing systems are much better than humans. And similarly, this also provided new insights into the game. So these are three examples of just ground out",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "how these techniques that we've been seeing in the class map onto real world examples of gameplay. So that's all I'm going to talk about in terms of TD learning So next, we're going to look at two generalizations or extensions, if you will, of the types",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "of games that we were looking at. So we've been looking at turn-based games. We're going to look at simultaneous games. And we're going to also go beyond the zero-sum assumption. So far, we've been talking about turn-based games. And now we're going to",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "talk about something called simultaneous games. And simultaneous games is a famous example is rock, paper, scissors. Two players have to play at the same time. So here's a question for you to think about? Can you still play optimally,",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "if you reveal your strategy to the other player? OK. So obviously, if I am playing rock, paper, scissors, and I say I'm going to play rock, that is not very smart. But is there a way to play optimally, if you still-- reveal and still reveal your strategy?",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "And the answer turns out to be what kind of strategies you're allowed to do. So in turn-based games, we have that nailed. We just compute the minimax policies using a game tree. So the game tree naturally models the turn taking, where each node, only",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "one player is moving. But in simultaneous games, two players have to move at the same time. So we can't use a game tree anymore. You can't have this. If two players are trying to move here, then it's confusing. Are you maxing? Or are you mining?",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "And that doesn't work. So we're going to focus first on zero-sum games, zero-sum simultaneous games, and then we're going to do the non-zero setting. So we're going to start with a few definitions. And then there's a theorem that, essentially, solves it.",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to present to you another game, which is, hopefully, more obscure than rock, paper, scissors. So here's how the game works. So if two players, A and B, and each is going to show either one or two fingers/ if both show one, then B gives a $2.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "If both show 2, then B gives a $4. Otherwise, A gives B $3. So intuitively, A wants both people to play the same number of fingers because that's where A can win. Really wants it to be more two than one. But if A always plays two, then B is going to play one,",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "and then a is going to lose money. So there's this balancing act here. So while I'm going through this, maybe in the back of your mind, you could just think, how do I-- what's the strategy here? So let me introduce some formal notation. So this is called a",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "single-move simultaneous game. So it involves just playing the game. Single move, you're done. There's no state. There's two players, A and B. We're going to define this payoff matrix, which is essentially going to be the equivalent of the value",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "function or the reward function. And it takes two arguments, A and B. And for each action pair, I'm going to give you a value. And that value is A's utility. And because it's zero-sum, B's utility is just the minus of that. And again, there's no state.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "There's only one action. So this is what it looks like for two-finger Morra. Let me just write this on the board as a handy reference. So I have-- So A can play either one finger or two fingers. B can play one finger or two fingers. And then if they both",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "play one, then A gets 2. If they both play 2, A gets 4. Otherwise, a minus-- it loses 3. So that's the payoff matrix. Just to round things out a bit, so there's two actions-- 1 and 2. And this is the payoff matrix. So V of 1 and 1, gives you",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "2, and so on, and so forth. So that's a game. Now, what is the equivalent of a policy here. In game theory, it's known as a strategy. And a pure strategy is a deterministic policy. And a deterministic policy is a single action. And a mixed strategy, also",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "known as a stochastic policy, is a distribution over actions. So for example in two-finger Morra, always 1 is a strategy. And this means for the action one finger. I'm going to have probability one. Another way I'm going to write that in math is pi,",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "the policy is a vector of probabilities of each action, so for one, I have probability 1. For 2, I have probability zero. And for always 2, that is the strategy, where all my probability mass is on two fingers. So written in math is pi equals zero comma 1.",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "And if I were playing uniformly at random, then I put 50/50 probability on each action. So I've defined the payoff matrix, the policies. And now, I can define the value of the game which combines them. And in math, the value of the game, according to two mixed",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "strategies, pi A and pi B, is, I'm going to consider each of every pair of actions, A and B. The probability of a plane this action, and B plane this action, notice that they're independent. And times, the payoff matrix value of action A and B.",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "In code, if I have this payoff matrix, V, then I'm going to pass in with let's say the uniform policy for both players. This is what I'm going to get. So I have this payoff matrix. I have two policies. And then this is fairly straightforward.",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "For every possible action with probability A, for every action B with probability B. I'm just going to sum up the values probability a times probability B, times the corresponding entry in the payoff matrix. So if I do that, then I get a value of zero.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "And this makes sense. If I take the average over all these four values, I should get zero. So everyone's playing uniformly. The value of this is zero. So now, what happens if player A plays always 1, and player B plays uniformly. So that the value",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "is going to be -0.5. So you can think about in this case. On player B is uniform between these two, and player A only plays one. So that means it's going to be average of these two values. And that's going to be -0.5. Always two means I'm always two down here.",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "But uniform over these, 1 and 2. And that's going to give me the average of minus 3 and 4, which is 0.5. And then you can look at if A is playing uniformly and B is playing one, then it's going to be the average of these two. And that's going to be -0.5.",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "And the fourth case is uniform A is playing uniform over 1 and 2 and B is playing only two. And that's going to be the average of these two. And that's going to be 0.5. Hopefully, game evaluation is clear. And just to build some intuition, it makes sense",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "that, for example, player 1 wants to play two more. And if B is playing uniform, which is a sort of generic strategy, you can get away with playing 2 and getting some value. So in some sense, it's much simpler than having states and actions",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "and transitions and rewards and discount factors. But the solution is actually more subtle here because of the simultaneous nature. So how do you come up with the optimal strategy here? So just to have a bit of fun, why don't you-- I want everyone",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "to find a partner and try playing like a few rounds and see if you get any insights. All right. How did people do? Anyone figure out a good strategy that worked for them? It shouldn't be that, this is fairly subtle. So I'd be very impressed if you guys came up",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "with the optimal strategy. And one other caveat is that this is meant to be a single move game. So you play once and you're done. What's happening, obviously, when you play iterated game now their state, because now you have the history of what the",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "other person's doing. And that changes the dynamic. So it's not quite the same game anymore. But anyway, OK. So let's try to solve the game. So probably you're thinking now you're dying to know what's the optimal strategy. So the game-- remember",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "the game value. It's very simply defined as V of pi A and pi B. But the problem is I pay a player a wants to maximize this quantity, and player B wants to minimize, and they want to do at the same time. So you get into this jam, where you don't--",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "how do you move forward? How do you break out of jam? Well, you just have to let someone go first. So we're going to see what we can do here. Let someone go first. So first, let's consider pure strategies. So when players are just playing",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "a pure strategy, what happens? Because this case, we know how to do right. This is just normal minimax. So let's say player A goes first. So player A is trying to maximize. Player B is trying to minimize. So if player A goes first, then whatever happens,",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "player B can just play the opposite and get you, minus 3. So player, the minimax value of this game is minus 3. So it's pretty bad for player A. But if player B goes first, then player A can just match the number, So if player B goes with one,",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "then a is going to play one. If player B goes with 2, A is going to sorry. A is going to play two. And then B knowing this is going to play one, because 2 is players, B is trying to minimize 2 is less than 4. So we solve this. But for these weird games that",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "we don't really care about. But this process, hopefully, gives us some insight, and there's something that's worth commenting on, which has in this setting, and in general, going second is no worse and often better. So in particular, this value",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "is smaller or equal to. This value minus 3 is less than or equal to 2. So in more generality, max over a min over B is less than or equal to min B, max A. So going second is going to give you a higher result for player A. This intuitively makes sense",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "because if you're going second, you see what your opponent does, and you can react. And since there's no state, it's not like the player A takes the card from you. And now you can't take the action. You can take the same set of actions and its payoff.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "The matrix is the same. So all you're doing is getting more information, if you go second. So that's for pure strategies. Let's see what happens for mixed strategies now. So suppose player A plays a mixed strategy. So this is a little bit of a strange thing.",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "But you say play it. By what this means is that player A announces their strategy. I'm going to flip a coin. And with heads. If it's heads, I'm going to play one. If it's tails, I'm going to play two. That is what is meant by player A playing mixed strategy.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "He's not revealing. He's not flipping the coin yet, but they're announcing the strategy. Now, player B-- suppose player B knows player A is going to do this. What is the best thing for player B? So now, I'm going to do some very simple algebra",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "to figure out the answer here. So just expand the definition of the game value into four terms, where each of the four terms corresponds to a different combination of actions. So each term has probability of under A, probably under B, and then the payoff",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "matrix entry century. And then I'm going to start simplifying this. So actually, let me actually do this on the board here, since I'll think I'll be easier. So in this case, player A is half, half. Player A is uniform. And so the question is like what",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "is the best thing for player B? So player A is half over these two, which means that-- if I play one, I'm just going to get the average. And that's going to be minus one-half. If I'm playing too, I get the average. And I'm going to play half.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "So what should the optimal pi V, b. Yeah. You should always play two. So it should be zero or one. Because 1/2 is greater than minus 1/2. So this points out another important fact is that the second player can always play a pure strategy, in this case.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "So if the first player plays either a pure strategy or a mixed strategy, if the second player is trying to minimize this, it can always be attained by a pure strategy. And the reason here is that suppose this were not half, but anything, then I",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "can do the same math. take the weighted average, I get some number, take the weighted average, get some other number. And I look at which one's bigger. And I'm going to put all my eggs in that one basket. Sure. Yeah. You're right. I got a bit confused.",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "So player B wants to minimize. So this is the preferred choice. So no matter what the first player does, the second player can always play a pure strategy. So hopefully, we're making progress. We've made two observations. One is that going second is no worse.",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "And if you go second, you can just choose one item. You don't have to randomize. So now, let's try to do this more generally. So I'm going to do minimax, but where the actions are actually mixed strategies. So player A is going to play go first now and play",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "a strategy which is p with probability p, play one finger. With probability one minus p, play two fingers. So the way to think about this is you have a uncountably infinite number of possible actions that player A can take. And then at this node, player B,",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "remember from this observation, the optimal thing is just to play a pure strategy. So there's only two possible values, 1 or 2. So now, we just have to compute what the value of the leaves are. So if player A plays p minus 1 p, and player B plays one,",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "then the game value is, basically, p times 2, plus 1 minus p times minus 3. So just to write this out here, so now, I'm going to assume that this is a p, 1 minus p. So I have p, 1 minus p here. And so now, this quantity is 2p minus 3, 1 minus p,",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "which is 5p minus 3, I believe. And this is going to be minus 3p plus 4, 1 minus p. That is-- what is that? That is minus 7p plus 4. Hopefully, that matches what I have. So I have the game values here. And then I'm going to choose which",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "one is I'm going to take the max over these two. That is going to be the minimax value of the game. So it's exactly what we did before now with p instead of plugging in half and half. [INAUDIBLE] Sorry. You're right. I should be taking the min.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "Maybe we'll consult this equation now. So the minimax value of the game is I take a max over p, the continuous value. And then I take a min over these two values. It's a bit weird because I have this infinite number of actions here. But hopefully, if you can",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "generalize our intuitions for minimax into this setting. Just jumping ahead here. The way you solve one of these things is this minimum is obtained when these two quantities are equal. Let's see if I can try to draw it. Maybe I'll draw it.",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "I don't think I can get exact lead to scale, but basically, you're taking the-- what am I taking in? The min over two things. So 5p minus 3. So looks like this. So this is p. And this is-- let me try to use a different color here. Looks something like this.",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "This is definitely not the scale. But I'm taking the min, which means that I erase these two pieces. So this is like 5p minus 3. And then this is minus 7p plus 4. And if you set them to equal, you get basically this max value. So when you set them equal, if",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "you have 5p minus 3 equals minus 7p plus 4, then you find that p equals 7 over 12. And then if you plug in the actual p into either one of these, then you get that the minimax value of the game is minus 1 over 12. So a bit of algebra, but the upshot",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "here is that we are still doing making this turn-based, where player A goes first with a mixed strategy. And player B goes second with a mixed strategy, which can also be a pure strategy because they're going second. And then we compute the",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "minimax value of the game, which is minus 1 over 12, where the player A is playing 7/12. So this favors player B, because player B goes second. So now, just to be fair, let's give player a chance to go second. So now, let's let player B go first",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "and do the same calculation. And if you do it, which I'm not going to do again, you're going to notice something remarkable that happens, which is that the minimax value of the game is exactly the same, minus 1/12. And the probability is 7 over 12.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "So you might think, OK, I rigged all these numbers. So we just got lucky here. But this is actually not a coincidence. It turns out that there is a very important theorem in game theory called the minimax theorem. This comes from John von Neumann from 1928,",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "which says that for every simultaneous two-player zero-sum game, as long as you have a finite number of actions, we have two actions here, so that definitely counts, going first and going second is the same. In other words, max over pi a, min over pi B",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "is the same as min over pi B max over pi a. And it's important here that pi A and pi B has to be over mixed strategies. As we saw in the first example, if pi A and pi B are pure strategies, this is definitely false. Going second, if with a pure strategy",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "is going to be always favorable. The proof of this is actually linear programming duality. It turns out this is a linear program. And there's some really nice math that shows you that this is true. And furthermore, you can compute the optimal mixed strategies",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "very efficiently using linear programming as well. So we just solved the linear programming manually for this example. But you can solve this for any number-- any payoff matrix and any number of actions. But the upshot of all of this is that revealing",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "your optimal mixed strategy doesn't hurt you. So answering the poll question from before, you can go ahead and announce to all your friends that you're for two-finger Morra, this is the strategy. You're going to play 7/12 on 1, 5/12 on 2, and you won't suffer.",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "So it's bizarre that it works out but it's math. So you can check the math. But then once you've checked it, you have to trust it. I'll skip that part. If you go back to the minimax principles, which we covered before for turn-based games,",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "the same thing applies here. If you're at a minimax, these are minimax strategies, which means that if your opponent deviates from that strategy, it can only be good for you. And furthermore, if you deviate from your own strategy, you can only make it worse.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "So minimax is this really nice setting where you want to be playing minimax so that your opponent-- there's-- nothing your opponent can do. And you can't do any better. And of course, the same idea of minimax being optimal against a perfect player makes sense.",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "If you, for example, knew that your player was all your player A, and you're always going to play two fingers, then, of course, I can do better. I can just play two fingers as well. So remember, expectimax is the best thing if you know what",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "your opponent's going to do. But if you don't know what your opponent's going to do, doing the minimax thing guards you against any sort of potential huge downside. So let me cover non-zero-sum games. So this is going to be just a brief overview,",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "just to get you some exposure. We're not going to have time to go through it. So the idea with non-zero-sum games is that it's not zero sum. So the utilities of the players are arbitrary. Before, we had always-- so far in this class, we have assumed the",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "utility of player A plus the utility of player B is zero. In other words, utility of A is minus utility of player B. So there are many possible settings you could be in. If you're playing competitive games, that's zero-sum. If you win, I lose.",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "If I win, you lose. There are cooperative games, where the utility of all the players are the same. There's nothing really to be said there because there, it's just pure maximization. It's a search because everything is a max. And real life is",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "somewhere in between. So here is an example. How many of you know about prisoner's dilemma? So this is more popular. So the idea here is that you have two players, the prosecutors asked both of them to testify against each other. Both are accused of",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "doing something bad. If both testify, then they're sentenced to five years in jail, both of them. If they both refuse to testify, then they're both sentenced to one year in jail, which is, I guess, better than five years in jail. And if only one testifies,",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "then they get out for free, and the other one gets a 10-year sentence, which really sucks. So this is going to be captured by a payoff matrix, where, now, I have to have a subscript p to denote the utility of a particular player. So if the utility is minus",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "the number of years in jail, this is what the payoff matrix looks like for the prisoner's dilemma. If they both testify minus 5, minus 5. If they both refuse, minus 1, minus 1. And then on the diagonals, if a testifies and b refuses, A gets off and B",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "gets thrown in jail for 10 years and vice-versa. So we don't have time to let you guys play this, but that's fine. So how do you solve non-zero-sum games? So we can't apply von Neumann's minimax theorem anymore because it's not zero-sum. But it turns out we",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "can get something. And that's called a Nash equilibrium. So a Nash equilibrium is a pair of strategies pi A star and pi star B, such that no player A or B has an incentive to change his or her strategy. So in other words, if pi A tries to change,",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "that's going to only make it worse. And if pi B tries to change, that's also going to make it worse. This is a Nash equilibrium. And in 1950, Nash proved this really beautiful theorem, the existence theorem, which says that for any, if you--",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "as long as you have a finite number of players and finite number of actions, there exists at least one Nash equilibrium. So there is at least one solution. So here are some examples, just to give you some intuition about Nash equilibria look like.",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "So we looked at two-finger Morra before. And the minimax strategy is also a Nash equilibrium, because no player has an incentive to move off what they're doing. If you consider a fully collaborative version of this where both and B have the same reward,",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "then the Nash-- there's two Nash equilibria, either both play one or both play two. And that's stable because, if you're here, even though it's not optimal, if B tries to move off, then it's just going to make it worse for everyone. So this is a local optimum.",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "So local optimum are also Nash equilibrium in search problems. And then finally, the Nash equilibrium for prisoner's dilemma is both players testify, because no one has an incentive to move off. So the point here is that both refusing is not",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "a Nash equilibrium. Because if you're in this state, someone's going to-- if I'm here, then, both and B are going to want to testify and get out for free. So this is not stable. And of course, if you're here, then, that's also not stable because",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "B is going to try to move here. So this is only stable point. And the whole point of prisoner's dilemma is that sometimes, unfortunately. If you have agents that are only after their own selfish interest, you can get into situations which are suboptimal.",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "Clearly this is better for both of them, but it is not a Nash equilibrium. So just to contrast, simultaneous zero-sum games-- here, we have a von Neumann minimax theorem. We can produce a single game value. And in non-zero-sum games, we",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "have Nash's existence theorem. And that can lead to multiple Nash equilibrium multiple game values. So the way to think about Nash equilibria that they're just stable. They're locally stable. So no one can change. No individual agent can change something.",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "It's not really about optimality in the same way that we've been pursuing in the rest of this class. And it makes sense because everyone has different utilities. What is optimal with multi-objective even mean? And fortunately, they do",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "exist for non-zero-sum games. To summarize, we looked at simultaneous games. Two players move at the same time. In general, second player has an advantage and play a pure strategy. But the minimax theorem says, if you allow for mixed strategies,",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "then second player doesn't actually have an advantage. Both players can be optimal. And then we look at Nash equilibria exist for a non-zero sum games, but it's not unique. And in general, there's a huge literature in game theory and economics.",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "So if you like this, second half of this lecture, you should go take a game theory course and learn more. So that concludes the game unit and all our work on state space models. I'm going to start a brand new unit on Bayesian networks. See you next time.",
+      "start": 1212,
+      "duration": 6
+    }
+  ]
+}

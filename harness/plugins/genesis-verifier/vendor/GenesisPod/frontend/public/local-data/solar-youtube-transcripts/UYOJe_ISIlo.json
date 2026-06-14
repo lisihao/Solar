@@ -1,0 +1,334 @@
+{
+  "videoId": "UYOJe_ISIlo",
+  "title": "FAST '26 - CoFS: A Filesystem for Fast Container Startup",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 15618,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Good afternoon everyone. My name is Ha\nand today I'll be presenting cos a file\nsystem designed specifically to\naccelerated container code startup. This\nwork comes from Dr. Lee Wong and\ncolleagues at Kittingoft.\nSo let's get started. So first let's\nlook at the motivation running\napplication in container offers great\nscalability and portability but the\nco-star process is a well-known\nbottleneck a container co-star involves\na sequential pipeline the first we\ndownload image we unpack it and\nconfigure it and finally we start it a\nlandmark study by Dr. Harder at fast 16\nshowed that putting the image\naccounts for 76% of the total container\nstartup time yet only 6.4 four of the\npool data is actually read during the\nstartup. So the time spent on the unused\ndata downloading may cause may lead to a\nvery high startup latency that may\nviolate the responsiveness SOA in\nserverless computing or during the\nautomatic scaling to handle the burst\nrequest.\nSo to address this issue several system\nimplement the on demand ping which is\nmentioned earlier the container start\nrunning before the entire image is\ndownloaded fashioning the required data\nas is accessed. Uh for example the nus\nfuse and ear gz are the fuse space file\nsystem level solution but they inherit\nthe fuse two core cost. The first ever\nmetadata lookup requires a round trip to\nthe user space diamond and multiple\ncontact switching between the user space\nand and the kernel space. And second for\nthe even down already download data will\nstill be routed through the user space\nfor read and another solution will be\nthe nidas fuse that will excuse me that\navoids the use the fuse by modifying the\ninternal e-ro to work with the FS cache.\nHowever, the data download will be\nsynchronized right to the disc and\nnotify the FS cache driver. Only then\ncan the colonel serve it. Although the\ncache eviction is hard to control\ncausing performance fluctuation.\nAnd the last one will be the overlay BD\nwhich operates at the block level but\nthat will prevent us from to utilize the\npage cache sharing of image data across\nthe containers.\nBut fields is a very natural framework\nfor ondemand porting. So we still want\nto keep using it when while trying to\nmitigate over overhead we mentioned in\nthe previous slide. So let's zoom in on\nwhy fuse can be problematic for the use\ncases here. There are two main\nbottlenecks. The first one will be the\nmetadata lookup before reading any file.\nThe kernel performance iteratively path\niterative path traversal for path like\nthe user local bing app that will\nrequire four se separate lookups. Each\nlookup will form the Linux virtual file\nsystem to the fuse driver in the kernel\nspace and switch to the fuse the user\nspace statement and the user space\nstatement will get a response and send\nit back in the reverse order of this\npath. Uh that means a multiple context\nswitches and the request copies per path\ncomponent on the path and second even\nfor the data that has already been\ndownload and is sitting in the local\nhost file system fuse will still forward\nthe read request to user space for\nprocessing. So we are paying context\nswitching and data copy overhead on\nevery read even for the cache data. So\nthese two bottlenecks are what cos\ntargets for. Here's a key inside that\nmakes cos possible. The container images\nare built once with a fixed read only\nfile system. Here uh the image layer are\nimmutable and that means three things.\nThe first the complete set of the file\nnames is known at the image build time.\nAnd second since the set is already\nfixed so we can use a perfect hash\nfunction to premp compute the hash value\nfor all the entries for the image file.\nAnd third, after utilizing the hash\nfunction, we can achieve a 01 time\ncomplicity lookup and no directory\ntraversal needed at runtime. This is a\nfundamental observation that motivated\ndesign of cos.\nSo first let's look at a minimum perfect\nhash function. Here is a hash function\nthat maps m key to exactly zero to n\nminus one inquisitively with no\ncollisions. And the figure here shows\nhow we use the minimal perfect hash\nfunction in QFS. On the left hand side,\nwe got input key which in QFS is the\nconcatenation of the path I parent in\nnumber and the file name. And this key\nwill get fit through the sub hash\nfunction f_sub_1 and f_sub_2 producing\ntwo index a and b here to and then into\nthe array g were preconstructed. We look\nup those two positions by the index E\nand B and sum them modulo M and get a\nunique index H K. This index will\nfinally be used to look up for the\nmetadata of these files. The key\nproperties that make these minimum\nperfect hash function attractive for the\ncos are first is collision free. every\nvalue key will maps to a unique slot and\nsecond is a space optimal with OM\nstorage complicity and third that will\ngive a 01 lookup time complicity because\nit's a hash function and the last one\nwill be the algorithm we use here will\nwill guarantee that the construction of\nthe minimum perfect hash during the\nimage build is a linear time.\nSo we can then integrate the minimal\nperfect hatch function into our metadata\nfile layout. We designed an image format\nbased on ear GZ. The key addition here\nis that we add a binary metadata file\ncalled QFS I know array replacing the\noriginal JSON format metadata. Its\nlayout is showing here in the figure.\nThe file starts with a fixed 12 bytes\nheader containing a magic number and\nMPHF parameters. And following the\nheaders are the three arrays that used\nin the minima perfect hash function T1,\nT2 and G. And the next comp is the true\nmetadata array itself. Each element is\nabout 112 bytes 120 byt file metadata\nentry containing all the metadata of the\ncorresponding file for an node. And if a\nfile name is 60 bytes or 16 bytes or\nshorter, it will store inline in the\nentry or if longer we will store in the\nlast section the extra metadata here.\nAnd the total space complexity will be\nOM which is about 9.5 megabytes for a\nmillion files.\nBased on the minimum perfect hash\nfunction concept and the metadata file\nlo file layout we just show we can now\nlook at how QFS put all these things\ntogether into its architecture. The QFS\nconsists of two main component. First in\nthe user space we got a curf nest\nsnapshot. It implement based on Ear GZ\nsnapshot. is responsible for putting the\nmeta to the file setting up the cache\nmarrow directory and serve as a fuse\ndamon that downloads the data on demand\nfrom the remote image repository and\nsecond we got a intern kernel space coss\ndriver is an extended fuse driver and it\nwill hand up it will handle the lookup\nrequest directory using the minima\nperfect hash function and for read\nrequest it will act as a gateway uh it\nwill request a data as if the requested\ndata has already been downloaded meaning\nit exists in a mirror file on the local\nhost file system. The QFS driver will\ntakes a fast pass which is shown at\ndashed line here and reads directly from\nthe internal file system. Only when the\ndata hasn't been downloaded yet, it will\nfall back to the slow pass with the\nsolid line here. it will first contact\nthe snapshot in the user space just like\nthe regular food did and to fetch the\nmetadata and the data from the image\nrepository and turn it back to the\ndriver and finally to the application.\nAnd we also noted what we should also\nnoted that we also make the snapshot\nasynchronizedly write all the data it\nfetch from the repository into a mirror\nfile into the host file system so that\nwe can use it for the next read to to\nusing the five path we just mentioned.\nSo here let's see how this layout\nenables the first the fast lookup\nprocess. The lay the lookup process is\nto find the iode for a given file before\nactually we read the file content. First\nwe use the parent inode number and file\nname as a key and we compute the minimum\nperfect hash function value based on the\ninput and then and then we will use the\nresulting hash value as an index to\nlocate the corresponding element in a\nmetadata array and read it from the\nmetadata file. Next we will we will\nperform a verification. We will compare\nthe parent inde\nif each doesn't if if idol doesn't ma\nmatch or the file doesn't exist. If both\nthe parentode number and the file name\nmatch the immemory anode will be\nconstructed from the entry we just read\nand the entire process require at most\none IO operation and if the\ncorresponding disc block is already in a\npage cache no IO is needed at all.\nCompare this to a traditional file\nsystem like the ext4 where IO counts for\nthe IO lookup without caching depending\ndepends on both the directory side and\ndirectory diff.\nAnother problem we mentioned earlier\nwill be the complexity of the pass\nresolution. The Linux VFS will receive\nthe pass top down one component at a\ntime sequentially. For example, for the\nuser local bin app, there will there\nwill be four separate IO lookup in\nseries from the root directory to the\napp. Finally, and cos build a second\nminimal perfect hash function here on\nthe full file path beside the original\nminimum perfect hash function from the\nparent iode and file name we mentioned\nin the previous slide and they both map\nto the same hash value for same given\nfile. At the runtime when a file is open\nwhen a file open operation is\ninterpreted and the path exceed three\nlevel dips the cos will dispatch it into\na kernel workq thread and the kernel the\nworker will reserve the path bottom up\nfrom the bottom to the top starting from\nthe leaf computing the full path minimum\nperfect hash function to construct the I\nknow and it will stop as soon as it hits\none I know which is already in memory.\nThis works because if an io is cached\nall its ancestor are guaranteed to be\ncached too. This is because that at the\nsame time the normal virtual file system\nis resolving the path top down. They run\nconcurrently and it will finally meet in\nthe middle cutting the serial lookup\nchain and thus improve the lookup\nperformance.\nNow let's look at how QFS handle the\ndata access after we we know how to\nresolve for I note here and when an\napplication read the data that hasn't\nbeen done yet here's a flaw it's\nuncashed data rate the root request\ncomes from the application go through\nthe union file system and reach the cos\ndriver the driver will check the mirror\nfor pointer of the I know is none or not\nif it's none that the it will check\nwhether mirror exists in the mirror\ndirectory if in this case a first time\naccess we are mentioning about we're\ntalking about the uncash data which\nmeans the data is accessed for the first\ntime there will be no mror file because\nwe haven't download yet and the\ncorresponding range within the sparse\nfile would contain a hole so the cos\ndriver forwards the request to the\nsnapshot in the user space and a\nsnapshot will fetch the data from the\nremote im image repository and return it\nto the driver which pass it back to the\napplication and after returning data\njust like I mentioned When introducing\nthe architecture the snapshot will a\nwill asynchronously\nwrite to check the mirror file\ndirectory. If no mirror file exists it\nwill create an empty sparse file then\nasynchroniz the fetch data into the\ncorresponding range of the mop file so\nthat we can use the fast path next time\nand here is a fast path. Uh this is this\nis designed for the cache data rate. The\nrequest will still flow from the\napplication in a container and through\nthe union file system to the KFS driver\nhere and this time we will check for the\ncache mirror fail and that will return a\nvalid mirror fail pointer. So when all\nthe data request in the in the mirror\nfile without any host that the driver\nwould directly read the mail file\nthrough the host file system. Notice\nthat the cos snapshot is not attached at\nthis time and the image repository we\ndidn't contact the image repository\nhere. So the data really happen entirely\nin the kernel space. There's there will\nbe no contest switches for for the QFS\ndriver. Here's\na time. Now is the time for the\nevaluation. We evaluate the performance\non a configuration intentionally to\nsimulate the limiting download bandwidth\nfor remote sh image repository. We major\ncode stop our time across four commonly\nused container images,\nradius, tomcat and elastic search. And\nwe only show three of them here on the\nslides due to the space uh limitation.\nThe result are clear. The QFS\noutperforms all the system container\ntested.\nAnd one interesting we notice when\nperform this evaluation is that uh when\na system downloads uh the rest of the\nimage in the background when the code\nstartup actually that will actually\ndegra performance in most cases. For\nexample, if you look at a figure here,\nthe column that in a figure ending with\na dashp is with the background download\nturned on. And the reason that the\nentire image is much larger larger than\nthe data will try to access during the\nstartup. So the effective background\ndownload will compete for the local\nnetwork bandwidth and IO resource and\nfinally harm the performance.\nAlso, we noticed that the Nidus EOS here\nand is worse than the original Nidus\nfuse in some scenarios. We we think that\nwould be due to the long fs cache call\nchain inherited in the nidus e-ros\nand also for the lookup performance\nspecifically we measure the execution\ntime of the fuse lookup function during\nthe container startup compared to a\nsimple fuse bu simple fusebased lookup\nsystem fuse lookup the cos achieves 73\nto 86% improvements in average lookup\ntime across all containers and a\nparallel blue cup optimization\ncontributes an additional 28%\nimprovement of the container images with\ndeeper directory structures for the\ncache data rate performance. The results\nshow that the kernel space system\nincluding QFS all achieve nearly\nidentical bandwidth and latency because\nthey all access the download data in the\nkernel space. And for the fuel space\nsolutions like the Nidus fuse and ear gz\nuh the perform worse because they still\nwrote the cache data read through the\nuser space fuel statement.\nand about the uh minimum perfect hash\nfunction construction overhead side the\nminimum perfect hash function\nconstruction time scales linearly and\ngiven that the building an image at a\nlarge scale takes at least several\nminutes I we think that is it it is\nnegligible and acceptable\nso to summarize cos make three key\ncontributions first the minimal perfect\nhash function based lookup by comp by\npremputing a minimal perfect hash hash\nfunction at image view time. QFS achieve\nall one metadata lookup directly from\nthe kernel space requiring at most one\nIO operation and complete completely\navoid a user space round trip. Second, a\nkernel space fast path for data access.\nThe sparse mirror file files on the host\nfile system incrementally cache download\ndata and cache read are served entirely\nin the kernel space with no fuse\noverhead. Third, parallel data\nresolution. A second minimal perfect\nhack function key on the full file path\nenables a key enables a kernel worker\ncute thread to resolve in bottom up\nconcurrently with the VFS top down\ntraversal. This result in that the cos\noutperforms all the state-of-the-art\nondemand pooling system we mentioned and\nwith 73 to 86% lookup improvement over\nfuse. Thank you. And I'm happy to take\nany questions.",
+  "segments": [
+    {
+      "text": "Good afternoon everyone. My name is Ha and today I'll be presenting cos a file system designed specifically to accelerated container code startup. This work comes from Dr. Lee Wong and colleagues at Kittingoft. So let's get started. So first let's",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "look at the motivation running application in container offers great scalability and portability but the co-star process is a well-known bottleneck a container co-star involves a sequential pipeline the first we download image we unpack it and",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "configure it and finally we start it a landmark study by Dr. Harder at fast 16 showed that putting the image accounts for 76% of the total container startup time yet only 6.4 four of the pool data is actually read during the",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "startup. So the time spent on the unused data downloading may cause may lead to a very high startup latency that may violate the responsiveness SOA in serverless computing or during the automatic scaling to handle the burst request.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "So to address this issue several system implement the on demand ping which is mentioned earlier the container start running before the entire image is downloaded fashioning the required data as is accessed. Uh for example the nus",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "fuse and ear gz are the fuse space file system level solution but they inherit the fuse two core cost. The first ever metadata lookup requires a round trip to the user space diamond and multiple contact switching between the user space",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "and and the kernel space. And second for the even down already download data will still be routed through the user space for read and another solution will be the nidas fuse that will excuse me that avoids the use the fuse by modifying the",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "internal e-ro to work with the FS cache. However, the data download will be synchronized right to the disc and notify the FS cache driver. Only then can the colonel serve it. Although the cache eviction is hard to control causing performance fluctuation.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "And the last one will be the overlay BD which operates at the block level but that will prevent us from to utilize the page cache sharing of image data across the containers. But fields is a very natural framework for ondemand porting. So we still want",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "to keep using it when while trying to mitigate over overhead we mentioned in the previous slide. So let's zoom in on why fuse can be problematic for the use cases here. There are two main bottlenecks. The first one will be the",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "metadata lookup before reading any file. The kernel performance iteratively path iterative path traversal for path like the user local bing app that will require four se separate lookups. Each lookup will form the Linux virtual file",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "system to the fuse driver in the kernel space and switch to the fuse the user space statement and the user space statement will get a response and send it back in the reverse order of this path. Uh that means a multiple context",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "switches and the request copies per path component on the path and second even for the data that has already been download and is sitting in the local host file system fuse will still forward the read request to user space for",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "processing. So we are paying context switching and data copy overhead on every read even for the cache data. So these two bottlenecks are what cos targets for. Here's a key inside that makes cos possible. The container images",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "are built once with a fixed read only file system. Here uh the image layer are immutable and that means three things. The first the complete set of the file names is known at the image build time. And second since the set is already",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "fixed so we can use a perfect hash function to premp compute the hash value for all the entries for the image file. And third, after utilizing the hash function, we can achieve a 01 time complicity lookup and no directory traversal needed at runtime. This is a",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "fundamental observation that motivated design of cos. So first let's look at a minimum perfect hash function. Here is a hash function that maps m key to exactly zero to n minus one inquisitively with no collisions. And the figure here shows",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "how we use the minimal perfect hash function in QFS. On the left hand side, we got input key which in QFS is the concatenation of the path I parent in number and the file name. And this key will get fit through the sub hash",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "function f_sub_1 and f_sub_2 producing two index a and b here to and then into the array g were preconstructed. We look up those two positions by the index E and B and sum them modulo M and get a unique index H K. This index will",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "finally be used to look up for the metadata of these files. The key properties that make these minimum perfect hash function attractive for the cos are first is collision free. every value key will maps to a unique slot and second is a space optimal with OM",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "storage complicity and third that will give a 01 lookup time complicity because it's a hash function and the last one will be the algorithm we use here will will guarantee that the construction of the minimum perfect hash during the",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "image build is a linear time. So we can then integrate the minimal perfect hatch function into our metadata file layout. We designed an image format based on ear GZ. The key addition here is that we add a binary metadata file",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "called QFS I know array replacing the original JSON format metadata. Its layout is showing here in the figure. The file starts with a fixed 12 bytes header containing a magic number and MPHF parameters. And following the headers are the three arrays that used",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "in the minima perfect hash function T1, T2 and G. And the next comp is the true metadata array itself. Each element is about 112 bytes 120 byt file metadata entry containing all the metadata of the corresponding file for an node. And if a",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "file name is 60 bytes or 16 bytes or shorter, it will store inline in the entry or if longer we will store in the last section the extra metadata here. And the total space complexity will be OM which is about 9.5 megabytes for a million files.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "Based on the minimum perfect hash function concept and the metadata file lo file layout we just show we can now look at how QFS put all these things together into its architecture. The QFS consists of two main component. First in",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "the user space we got a curf nest snapshot. It implement based on Ear GZ snapshot. is responsible for putting the meta to the file setting up the cache marrow directory and serve as a fuse damon that downloads the data on demand",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "from the remote image repository and second we got a intern kernel space coss driver is an extended fuse driver and it will hand up it will handle the lookup request directory using the minima perfect hash function and for read",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "request it will act as a gateway uh it will request a data as if the requested data has already been downloaded meaning it exists in a mirror file on the local host file system. The QFS driver will takes a fast pass which is shown at",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "dashed line here and reads directly from the internal file system. Only when the data hasn't been downloaded yet, it will fall back to the slow pass with the solid line here. it will first contact the snapshot in the user space just like",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "the regular food did and to fetch the metadata and the data from the image repository and turn it back to the driver and finally to the application. And we also noted what we should also noted that we also make the snapshot",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "asynchronizedly write all the data it fetch from the repository into a mirror file into the host file system so that we can use it for the next read to to using the five path we just mentioned. So here let's see how this layout",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "enables the first the fast lookup process. The lay the lookup process is to find the iode for a given file before actually we read the file content. First we use the parent inode number and file name as a key and we compute the minimum",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "perfect hash function value based on the input and then and then we will use the resulting hash value as an index to locate the corresponding element in a metadata array and read it from the metadata file. Next we will we will",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "perform a verification. We will compare the parent inde if each doesn't if if idol doesn't ma match or the file doesn't exist. If both the parentode number and the file name match the immemory anode will be constructed from the entry we just read",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "and the entire process require at most one IO operation and if the corresponding disc block is already in a page cache no IO is needed at all. Compare this to a traditional file system like the ext4 where IO counts for the IO lookup without caching depending",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "depends on both the directory side and directory diff. Another problem we mentioned earlier will be the complexity of the pass resolution. The Linux VFS will receive the pass top down one component at a time sequentially. For example, for the",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "user local bin app, there will there will be four separate IO lookup in series from the root directory to the app. Finally, and cos build a second minimal perfect hash function here on the full file path beside the original",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "minimum perfect hash function from the parent iode and file name we mentioned in the previous slide and they both map to the same hash value for same given file. At the runtime when a file is open when a file open operation is",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "interpreted and the path exceed three level dips the cos will dispatch it into a kernel workq thread and the kernel the worker will reserve the path bottom up from the bottom to the top starting from the leaf computing the full path minimum",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "perfect hash function to construct the I know and it will stop as soon as it hits one I know which is already in memory. This works because if an io is cached all its ancestor are guaranteed to be cached too. This is because that at the",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "same time the normal virtual file system is resolving the path top down. They run concurrently and it will finally meet in the middle cutting the serial lookup chain and thus improve the lookup performance. Now let's look at how QFS handle the",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "data access after we we know how to resolve for I note here and when an application read the data that hasn't been done yet here's a flaw it's uncashed data rate the root request comes from the application go through the union file system and reach the cos",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "driver the driver will check the mirror for pointer of the I know is none or not if it's none that the it will check whether mirror exists in the mirror directory if in this case a first time access we are mentioning about we're",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "talking about the uncash data which means the data is accessed for the first time there will be no mror file because we haven't download yet and the corresponding range within the sparse file would contain a hole so the cos driver forwards the request to the",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "snapshot in the user space and a snapshot will fetch the data from the remote im image repository and return it to the driver which pass it back to the application and after returning data just like I mentioned When introducing",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "the architecture the snapshot will a will asynchronously write to check the mirror file directory. If no mirror file exists it will create an empty sparse file then asynchroniz the fetch data into the corresponding range of the mop file so",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "that we can use the fast path next time and here is a fast path. Uh this is this is designed for the cache data rate. The request will still flow from the application in a container and through the union file system to the KFS driver",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "here and this time we will check for the cache mirror fail and that will return a valid mirror fail pointer. So when all the data request in the in the mirror file without any host that the driver would directly read the mail file",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "through the host file system. Notice that the cos snapshot is not attached at this time and the image repository we didn't contact the image repository here. So the data really happen entirely in the kernel space. There's there will",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "be no contest switches for for the QFS driver. Here's a time. Now is the time for the evaluation. We evaluate the performance on a configuration intentionally to simulate the limiting download bandwidth for remote sh image repository. We major",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "code stop our time across four commonly used container images, radius, tomcat and elastic search. And we only show three of them here on the slides due to the space uh limitation. The result are clear. The QFS outperforms all the system container tested.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "And one interesting we notice when perform this evaluation is that uh when a system downloads uh the rest of the image in the background when the code startup actually that will actually degra performance in most cases. For",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "example, if you look at a figure here, the column that in a figure ending with a dashp is with the background download turned on. And the reason that the entire image is much larger larger than the data will try to access during the",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "startup. So the effective background download will compete for the local network bandwidth and IO resource and finally harm the performance. Also, we noticed that the Nidus EOS here and is worse than the original Nidus fuse in some scenarios. We we think that",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "would be due to the long fs cache call chain inherited in the nidus e-ros and also for the lookup performance specifically we measure the execution time of the fuse lookup function during the container startup compared to a",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "simple fuse bu simple fusebased lookup system fuse lookup the cos achieves 73 to 86% improvements in average lookup time across all containers and a parallel blue cup optimization contributes an additional 28% improvement of the container images with",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "deeper directory structures for the cache data rate performance. The results show that the kernel space system including QFS all achieve nearly identical bandwidth and latency because they all access the download data in the",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "kernel space. And for the fuel space solutions like the Nidus fuse and ear gz uh the perform worse because they still wrote the cache data read through the user space fuel statement. and about the uh minimum perfect hash function construction overhead side the",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "minimum perfect hash function construction time scales linearly and given that the building an image at a large scale takes at least several minutes I we think that is it it is negligible and acceptable so to summarize cos make three key",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "contributions first the minimal perfect hash function based lookup by comp by premputing a minimal perfect hash hash function at image view time. QFS achieve all one metadata lookup directly from the kernel space requiring at most one",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "IO operation and complete completely avoid a user space round trip. Second, a kernel space fast path for data access. The sparse mirror file files on the host file system incrementally cache download data and cache read are served entirely",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "in the kernel space with no fuse overhead. Third, parallel data resolution. A second minimal perfect hack function key on the full file path enables a key enables a kernel worker cute thread to resolve in bottom up concurrently with the VFS top down",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "traversal. This result in that the cos outperforms all the state-of-the-art ondemand pooling system we mentioned and with 73 to 86% lookup improvement over fuse. Thank you. And I'm happy to take any questions.",
+      "start": 378,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+flowchart TD
+  TOOL_CALL(["Model requests tool\ntool_use block"]) --> VALIDATE
+
+  VALIDATE["1 · Tool.validateInput()\nZod schema check"]
+  VALIDATE -->|Fail| DENY_INVALID["DENY: Invalid input"]
+  VALIDATE -->|Pass| CHECK_PERM
+
+  CHECK_PERM["2 · Tool.checkPermissions()\nTool-level permission logic"]
+  CHECK_PERM -->|deny| DENY_TOOL["DENY: Tool rejected"]
+  CHECK_PERM -->|allow| ALLOW_TOOL["ALLOW"]
+  CHECK_PERM -->|ask| RULES
+
+  RULES["3 · Rule Matching\nalwaysAllowRules / alwaysDenyRules\nglob patterns"]
+  RULES -->|match deny| DENY_RULE["DENY: Rule blocked"]
+  RULES -->|match allow| ALLOW_RULE["ALLOW"]
+  RULES -->|no match| HOOKS
+
+  HOOKS["4 · PreToolUse Hooks\ncommand / prompt / http / agent"]
+  HOOKS -->|permissionDecision: deny| DENY_HOOK["DENY: Hook blocked"]
+  HOOKS -->|permissionDecision: allow| ALLOW_HOOK["ALLOW"]
+  HOOKS -->|updatedInput| UPDATE["Replace tool input\nthen continue"]
+  HOOKS -->|no decision| MODE
+  UPDATE --> MODE
+
+  MODE{"5 · Permission Mode"}
+  MODE -->|bypass| ALLOW_BYPASS["ALLOW: bypass mode"]
+  MODE -->|auto| CLASSIFIER["6 · Speculative Classifier\nBackground safety check"]
+  MODE -->|default / plan| DIALOG
+
+  CLASSIFIER -->|safe| ALLOW_AUTO["ALLOW: classifier passed"]
+  CLASSIFIER -->|uncertain| DIALOG
+
+  DIALOG["7 · User Confirmation Dialog\nAllow / Deny / Always Allow"]
+  DIALOG -->|Allow| ALLOW_USER["ALLOW"]
+  DIALOG -->|Always Allow| SAVE_RULE["Save rule + ALLOW"]
+  DIALOG -->|Deny| DENY_USER["DENY: User rejected"]
+
+  ALLOW_TOOL & ALLOW_RULE & ALLOW_HOOK & ALLOW_BYPASS & ALLOW_AUTO & ALLOW_USER & SAVE_RULE --> EXECUTE(["Execute Tool"])
+  DENY_INVALID & DENY_TOOL & DENY_RULE & DENY_HOOK & DENY_USER --> REJECTED(["Rejected\nReturn error to model"])

@@ -4,11 +4,15 @@ from __future__ import annotations
 import argparse
 import importlib.util
 from pathlib import Path
+import signal
 import sqlite3
+import time
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE = ROOT / "lib" / "knowledge-semantic-extract.py"
+MODULE = ROOT / "tools" / "knowledge-semantic-extract.py"
 
 
 def _load_module():
@@ -94,6 +98,19 @@ def test_registry_query_indexes_created() -> None:
     assert "idx_documents_source_path" in names
 
 
+def test_wall_timeout_interrupts_blocking_main_thread() -> None:
+    if not hasattr(signal, "SIGALRM"):
+        pytest.skip("SIGALRM unavailable on this platform")
+    mod = _load_module()
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        with mod.wall_timeout(0.05, "unit test call"):
+            time.sleep(2)
+
+    assert time.monotonic() - started < 1.0
+
+
 def test_registry_doc_id_prefers_duplicate_path_with_completed_extract() -> None:
     mod = _load_module()
     conn = sqlite3.connect(":memory:")
@@ -121,3 +138,43 @@ def test_registry_doc_id_prefers_duplicate_path_with_completed_extract() -> None
     )
 
     assert mod.registry_doc_id(conn, source, "sha", Path("/tmp")) == "raw_chatgpt:canonical"
+
+
+def test_single_worker_lock_removes_own_lock_file(tmp_path: Path) -> None:
+    mod = _load_module()
+    lock_path = tmp_path / "extract.lock"
+    args = argparse.Namespace(lock_path=str(lock_path), lock_wait=False)
+
+    with mod.single_worker_lock(tmp_path, args):
+        assert lock_path.exists()
+
+    assert not lock_path.exists()
+
+
+def test_normalize_extracted_fallback_does_not_emit_bad_retry_fillers() -> None:
+    mod = _load_module()
+    text = mod.normalize_extracted("短内容", [{"span_id": "S001"}])
+
+    assert "## 1. 一句话摘要" in text
+    assert "raw:S001" in text
+    assert "需要重新抽取" not in text
+    assert "本次抽取质量不足" not in text
+    assert mod.is_bad_extracted_text(text) == []
+
+
+def test_run_qmd_update_uses_configured_solar_harness_bin(monkeypatch, tmp_path: Path) -> None:
+    mod = _load_module()
+    marker = tmp_path / "called.txt"
+    fake_bin = tmp_path / "solar-harness"
+    fake_bin.write_text(
+        "#!/usr/bin/env bash\n"
+        f"printf '%s\\n' \"$*\" > {marker}\n",
+        encoding="utf-8",
+    )
+    fake_bin.chmod(0o755)
+    monkeypatch.setenv("SOLAR_HARNESS_BIN", str(fake_bin))
+    args = argparse.Namespace(qmd_after=True)
+
+    mod.run_qmd_update(args)
+
+    assert marker.read_text(encoding="utf-8").strip() == "wiki qmd-update"

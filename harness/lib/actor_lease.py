@@ -152,6 +152,9 @@ class LeaseBroker:
 
         try:
             current = self._read(path)
+            if current and current.state == LEASED and self._is_expired(current):
+                current.state = STALE
+                path.write_text(json.dumps(current.to_dict(), indent=2), encoding="utf-8")
             if current and current.state not in {READY, STALE, CRASHED}:
                 return None
 
@@ -219,14 +222,21 @@ class LeaseBroker:
         lease = self._read(path)
         if not lease or lease.state != LEASED:
             return False
-        if not lease.expires_at:
-            return False
-        now = datetime.datetime.now(datetime.timezone.utc)
-        exp = datetime.datetime.fromisoformat(lease.expires_at.replace("Z", "+00:00"))
-        return now > exp
+        return self._is_expired(lease)
 
     def get(self, actor_id: str) -> Optional[LeaseState]:
         return self._read(self._lease_path(actor_id))
+
+    @staticmethod
+    def _is_expired(lease: LeaseState) -> bool:
+        if not lease.expires_at:
+            return False
+        try:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            exp = datetime.datetime.fromisoformat(lease.expires_at.replace("Z", "+00:00"))
+            return now > exp
+        except ValueError:
+            return False
 
     def _read(self, path: Path) -> Optional[LeaseState]:
         if not path.exists():

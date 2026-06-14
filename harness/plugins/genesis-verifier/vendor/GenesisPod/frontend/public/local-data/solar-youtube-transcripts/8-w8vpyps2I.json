@@ -1,0 +1,889 @@
+{
+  "videoId": "8-w8vpyps2I",
+  "title": "Can you even build Databricks entirely out of Open Source Software?",
+  "channelName": "Databricks",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 40457,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "hello, and welcome to Overarchitected with Nick and Holly, where this month we quit.\nThat's right, we had enough of Databricks and we've decided why should we pay all this\nmoney for Databricks when in fact we could do an open source version completely for free.\nSo we've sent those emails, we've burned those bridges, we're not being invited back.\nAnd so now we're in the scenario where we need a platform to be able to do dev rel stuff\nabout.\nAnd to do that, we're going to try and build one out of open source with some wonderful\nhelp from Lisa Cao open source, aficionado enthusiast, absolute juggernaut, a wonderful\ncontributor in the community for so many open source projects.\nWelcome Lisa.\nHi, thank you for having me.\nI am really excited.\nit's nice to be here for maybe the last episode of Over Architected, I don't know.\nI think they're coming to get my laptop right now, so we need to finish this fast.\nI actually did go down this rabbit hole a little bit ago.\nSo for those of you who don't know, I'm a dev rel here at Databricks, but I focus\nprimarily on open source and so I really like playing around with open source\ntechnologies.\nCool, okay then.\nSo yes, tell me, I don't know where I'd get started.\nHelp me, please.\nI have no job.\n00:01:36,705 --> 00:01:14,225\nspot.\nwill do my best, valiantly so.\nSo the good thing is that Databricks pretty much at most points of the stack does have an\nopen source equivalent even maintained and built by Databricks themselves, which means\nthat it's actually pretty feasible to rebuild a lot of Databricks, at least in terms of\nits core skeleton, without necessarily having to go to anything proprietary.\nThe rest we can actually supplement with other open source technologies that even\nDatabricks uses as well.\nI'm going to caveat this by saying nothing here is proprietary.\nI am running Ubuntu.\nI am using Vim and we're going to use Pure Vim for this because you guys are now going to\nbe open source people and open source people love their minimal text editors and we're\ngoing to be working through it.\nSo I have a open source repository called Lakehouse at home that you can use if you want\nto follow along with this.\nYou can uh git clone it for free, which is awesome.\nBut one of the things that you'll need to do if you have a blank machine, so that's\nprobably the step one, is that you need a computer.\nwhich it doesn't sound like Nick will have for very much longer, but we're going to work\nwith it.\nAnd the second is that you need to have an operating system and some files and some data.\nI'm not gonna tell you which data to use, that's really your choice, but what you will\nneed is an object store.\nThere's a couple of different open source options that you can use here.\nThe first is either MinIO or Seaweed FS.\nI'm using Seaweed FS, which is S3 compatible.\nI'm already scared.\nYeah, I like how you started with the real basics of Holly, you need a computer, which I\ngotta say.\nYou need a computer.\nI'm just going to show really quickly what this uh repository looks like currently.\nSo we have a bunch of our DAGs.\nWe have our configuration files, our data demos.\nDocker is going to probably be your best friend here, especially if you're running a lot\nof open source technologies that helps manage a lot of different dependencies that you'll\nhave.\nand also you'll need to actually download the source code for a lot of this which will\noftentimes come in a jar file, especially if you're working with a lot of Java.\nThen we're going to look at some of also these different uh services.\nIs that too mismatched, Holly?\nDo want me to slow this down so that we just walk through it\nNo, no, no, this is fine.\nAll I'm thinking is, my goodness, I've not used Docker in years and now I'm going to have\nto reuse it again.\nSo this is like, you're like deploying the whole platform here.\nThis is everything.\nI'm seeing a lot of words.\nWe got.\nI was so freaked out yesterday?\nBut yes, so yes, I'm deploying the entire platform.\nI actually have all of these different services running.\nSo I built a CLI tool around this.\ncalled Lakehouse and this is just the output of Lakehouse status.\nYou can see that all of these different services run on different ports on my machine and\nyou can test how they're connecting to each other.\nSo networking is a really big part of data engineering actually because you have so many\ndifferent services that need to connect to each other.\nSo we see that the Airflow web server here is not working or live.\nSo if we look at the rest of this, have our Terraform recipes, we have our Docker compose\nfiles.\nWe have our jar files, we have different schemas and scripts and data.\nAnd if we look at the different Docker compose files themselves, we can see exactly what\ngoes in here.\nIn this case for Spark 4.1, we have it pulled from the Spark image.\nSo if I take a look at the rest of these, you don't need to know all of these, I already\nhave them figured out and most of the open source projects that you work with will already\nprovide you a Docker container.\nI'm sure you're feeling the open source now,\nI'm feeling it.\nI'd like to like, does open source come with like a nice UI?\nso that I can just, I'm feeling it.\nI'm not seeing it.\nSo, again, yes, but UI is not really like an open source-y type strength, ah which is why\na lot of the services you use have nice UIs around them, including Databricks.\nBut as I was showing there, we need to connect to a lot of these different services\ntogether uh really quickly, including different credential files and configurations, which\nwe'll get into later.\nSo wait, I have some questions before we move on.\nSo sorry, that that's just like a config that runs in the background.\nThere's not a lot that like I need to set up because there was a lot of words that you\nsaid there, which I kind of know what they are in passing.\nDo I know?\nthis.\nLet me start saying this very simply.\num A lot of these projects are built independently of each other.\nAnd so oftentimes there's a lot of work in between that requires glue, right?\n00:05:58,121 --> 00:05:55,365\nor, yeah.\nas in code glue, not AWS glue, right?\nYes, as in CodeGlue, and I'll show this in a little bit too, but oftentimes, say if you're\nrunning the newest version of Apache Iceberg, like 1.10, that has different dependencies\nthat maybe don't work with the different Spark versions that you're running, which maybe\ndon't work with the different S3 versions that you're running or Hadoop versions that\nyou're running that maybe don't work with the different Kafka versions that you're\nrunning.\nAnd so oftentimes, you'll need to have dedicated jars\nthat are just meant to connect two services together or pick and choose between your\ndependencies.\nYeah, I understood all of that\nOkay,\nSo I have this script here that shows us how Seaweed works.\nSo if you're running Seaweed, anything that's S3 compatible will work with Seaweed.\nIt just provides you an object store where you can have your same buckets and things like\nthat, uh same S3 compatibility, just on a local system instead.\nNothing too crazy running on my system.\nYou can scale this out, of course, depending on what kind of resources you have.\nWe can also take a look at some of the parquet files that I have stored here.\nSo this is in my bucket Lakehouse, and we have all these parquet files, which is pretty\nstraightforward.\nIgnore that error.\nI do, and it seems to work fine.\nThat is the key of open source.\nYeah\nbut essentially through Seaweed, you can actually hook it in and actually use then Spark\nto set up Iceberg.\nWe'll get into this a little bit in terms of what actually is required to set up Iceberg.\nEssentially, if you have a bunch of Parquet files, those are just the columnar files.\nYou still need the metadata around it to actually make it a table, and that's where\nIceberg comes in.\nThere's a lot of different other table formats you can run to too.\nLike Delta Lake for instance, Delta Lake is really good as well.\nIt really depends on what your flavor is.\nBoth are very similar and we can definitely get into that uh in a little bit more.\nSo are there any questions that I can answer while we're running through this?\nNick, think at some point you and I are gonna have to start diagramming to say how are\ngonna stick all of this together because I am not a CLI person.\nWhat are we, yeah, catch this up.\nare we showing us now?\nSo you have your object store now, you have your buckets, and then you now have a bunch of\nparquet files that you're throwing in there.\nSo that's your raw data.\nTypically, an engine can just read directly the parquet files, but it's a little bit messy\nbecause, well, you don't really have any metadata, you might have different locking\nissues.\nthings like that, and so Iceberg provides a metadata layer on top of this.\nwhat it'll provide are the metadata files and layers that engines can natively understand.\nand that really helps different engines coordinate across their different writes.\nIf you have multiple engines, it makes it much easier to coordinate and actually helps\npreserve the integrity of your Parquet files by providing you things like snapshots,\nmetadata statistics, metadata files, There's a lot of different complexities at scale,\nespecially if you have.\nnot just hundreds or thousands, but millions and billions of Parquet files with different\nengines writing to them, having all these different writes, and you're worried about the\nintegrity of the actual Parquet files.\nIf you're using Spark with Parquet alone, you're directly loading all of those Parquet\nfiles straight into Spark, which is not clean hygiene.\nAnd so if you have Iceberg in between there as a table, then you can preserve the\nintegrity of those files and make sure that there's no abandoned writes.\nOrphan processes, things like that, and that actually makes it much cleaner.\nThere's a lot of different options if you're coming from, the Delta world for this.\nSo the first is that you can use something called the Delta Kernel to ensure that your\nengine, so to explain, the Delta Kernel is an open source project that is a Rust native\nand embedded library that you can actually embed within your different engines to be able\nto understand the Delta protocol natively, which is very similar to how compatibility\nworks with different engines when it comes to the Iceberg rest protocol.\nThe other option is to use something like Uniform where you can actually use Iceberg\nclients to read Delta tables as Iceberg.\nSo does that make sense in terms of how the table formats and the engines and all these\nthings work together?\nYeah, I mean, we've done a lot of iceberg and delta stuff as part of Databricks anyway, so\nI'm kind of familiar with like what a lot of the kind of um\nwhat the features are kind of on the box or like on the marketing.\nI guess from a open source perspective, maybe something I've not considered is if we've\ngot multiple engines doing different things.\nSo if we've got Spark doing something and then we've got Flink doing something and then\nwe've got something else doing something, ensuring that they all work together is probably\nsomething that has been obfuscated away in Databricks, but in open source land, you have\nto think a lot more about.\nAlright, let's take, can we, let's pause.\nI'm taking a note from Holly.\nWe should start drawing something because my head can't fit all this in there.\nwe have a seaweed.\nSee, it's getting a huge push from us.\nThis is just like a random choice that I chose.\nthe first thing that we said, you know?\nSo my storage...\nIs this going in here?\nDone!\nwe're, I love it.\nThis is good.\nGood job.\nThrow another one.\nThrow it.\nLet's copy this.\nCopy that.\nMinio, Minio?\nIs that right?\ntable formats.\nDelta.\nIceberg.\nOK, so we're building it up.\nI like where we're at.\nwe have engines, right?\nAnd so wait, explain this Delta kernel thing again, just very briefly, because that's\nwhere I got, I mean, I got a little bit lost, right?\nSo we have like something like Spark and doesn't Spark use, didn't they migrate it to like\nalso use Delta kernel underneath, like the, the Spark connector for Delta uses the Delta\nkernel or no?\nI think where Delta Kernel really shines is in engines that have nothing to do with the\nDatabricks open source ecosystem.\nSo let's say if you take something like Flink, for instance, or Trino, DuckDB, et cetera,\nthat don't necessarily natively understand the way that Delta works, especially when it\ncomes to its metadata systems and things like that.\nThey don't need to build that in anymore directly into the engine.\nThey can just instead take Delta Kernel, which is like a very low level embedded library,\nstick it in, make it compatible, and then never have to worry about it again.\nOkay, but Delta...\nBut Delta kernel is not part of that...\nDelta kernel helps the engine, but it doesn't...\nIt's not part of the engine.\nLike,\nIt's like an inline module, I guess.\ndon't know.\nIt's like a plugin.\nyou also said Trino as well.\nSo let's add that in.\n186\n00:12:56,351 --> 00:12:48,129\nBoop, there we go.\nother way if I were you, but it's fine.\nAlso, you called the table format Delta RS, but Delta RS is like the connector, not the\nformat.\nI thought that was the implementation in Rust, rather than...\nAnyway, fine, bye, fine.\nWe can argue about this later.\ndoes this, does this accurately represent what you've described so far or no?\nNo, not at all.\nIt's actually completely, I'm joking, I'm joking.\nBut there are some tweaks I would make to it.\nSo like Nick said, Delta Kernel really lives on engine side compared to being in the table\nformat.\nSo Iceberg has the IRC built in.\nWhereas Delta can have a Delta kernel embedded in an engine, for instance.\nOkay, I'm just gonna put them in between to show that it's kind of the glue to stick them\nall together.\nHow about that?\nYeah, I might get a little bit picky about the arrow direction, but I think you're good.\nyou\nHahaha!\nThe argument we have every month.\nfine.\nThis is a beautiful diagram.\nI also want to note for you guys in particular, if you're building a data platform for the\nfirst time, I would not start out with two different object stores, two different table\nformats, and three uh engines.\nfine you know what well this is our platform and we're gonna do it our way as well hang on\nso we have storage but we also have like storage uh slash own computer\nSo if you really want to get pedantic about it, I've tested this on my machine.\nMy machine's pretty powerful, but I think you can run what I have off 16 gigabytes of RAM\nsetting the stage realistically, the only reason you'd want to run it on your machine is\nsimply to emulate what it would be like at scale, right?\nBecause like there's really no reason to set any of this up for a single machine.\nOr is there?\nIt depends how crazy you are.\nIf you're like me, like kind of a little bit, but I think you can actually build this in a\nbusiness.\nLike there's a lot of businesses out there that are very invested in open source.\nAnd so they would take a framework like this and then also apply it within their own\nservers on their own machines with a lot of other overhead too.\nBut if you're serving it to like say actual customers, you probably want to keep it off\nyour laptop.\nOkay, fine.\nLet me update this to say not own laptop.\nHahaha\nAlright so sorry Lisa we've rudely interrupted you halfway through showing us something\nand then we got confused and drew a diagram.\nBut now you know where we stand, so you pick it up from here.\nnow you know how dumb we are.\nto make you shift everything up uh between table formats and engines.\nYou spent a ton of time building this beautiful diagram, but I want to make space here for\na catalog and explain why we actually do need a catalog.\nSo I went over this a little bit in the demo and we can go back into it soon.\nBut generally speaking, like I said before, you didn't want your engines directly reading\nParquet.\nSo now you have them reading the table formats.\nAnd now you have every single engine here.\nconfigured to read the table format separately.\nwe're going to simplify this by adding an actual dedicated catalog implementation.\nIn this case, we're going to use UC OSS, which is the Unity catalog open source version,\nA catalog in this case will provide a unified interface for engines, but it will provide\nus something that's really important, especially if you don't want to get sued in your new\nbusiness endeavor, which is data governance.\nSo a catalog will help broker and manage and tag all of your different tables here, and\nthen actually control what queries can access which data as well.\nmay have been overly ambitious and just wrote Unity catalog.\nAre there other catalogs that we should consider?\nOr is Unity the one and only?\nCatalogs vary quite widely in terms of implementation.\nThe Iceberg REST catalog is pretty basic in terms of how it couples to the data format\nitself, but other different options that you have there in terms of catalog\nimplementations include things like Lakekeeper, which is a Rust native Iceberg catalog\nimplementation.\nThere's also Polaris, which is an Apache project as well.\nThere is also Gravitino, which is another open source project.\nAnd catalogs over time have really changed its definition.\nSo we're talking about specifically catalogs for Open Table formats, but other governance\ncatalogs like Informatica or Collibra, uh DataHub, those are all examples of catalogs that\nkind of predate or at least extend around the iceberg ecosystem.\none of the things that a catalog does is that it actually can coordinate different\ncommits.\nSo this is something that was introduced in the recent version of Unity catalog OSS.\nSo the reason why this is so important is because you might have Spark and Flink both\nwriting to the same table underneath.\nThis can happen in parallel, but all of those changes or all of the metadata files that\nmight be generated as a result of that might differ from each other, creating a really\nmessy situation, and you might just not know what your source of truth is.\nYou might also want to just in general account for more concurrency.\nSo something that Unity Catalog can do now is actually uh commit coordination.\nSo if you have multiple engines committing and querying the same dataset,\nwhat Unity Catalog will do is take those commits, serialize them, and then act as the\nwriter in that case directly to the actual table format.\nThis is also really cool because Unity Catalog also does the credential vending.\nIf you're not using a catalog, these credentials are often hard-coded into the engine\nitself, and it's just sort of like, okay, whatever this object store is, you can access\nall of it as this engine, which is not super scalable over time, and you might over-permit\nsomething to access things that you don't want to.\nSo instead, what Unity catalog does in this case, and many other catalogs do this as well,\nis that it will actually provide temporary credentials to the engine for that single query\nso that then you don't have to worry about it at\nDoes that make sense?\nIt's overwhelming.\nYeah, there's a lot of decisions we gotta make.\nI'm used to just clicking on a thing and then a box comes up saying credentials and then\nyou just do some stuff and then hope for the best.\nIt is really complicated, especially when you have a ton of engines, a ton of users, But\nagain, unless you have really strong vertical integration with your governance, a single\ncatalog's not going to be able to do it all without needing extra workarounds or just\nextensibility around it.\nAnd when you keep saying vertical integration, do you mean like vertical across all our\nboxes here, there?\nOr does vertical integration mean something different?\nIt does mean across all these boxes, but there's a lot of boxes that aren't included in\nthis.\nSo if I want to look only at the lineage between like Delta tables or iceberg tables here\nand see like how a table has transformed over time, that is pretty straightforward.\nBut I might have like a Tableau service or an Excel sheet somewhere that also has data\ntransformations that occurs.\nthat is not tracked in any sort of way.\nAnd that lineage is completely lost unless I do this like manual work of like actually\nbuilding the code in between that.\nSo if we want to set up something like Unity catalog, one, we're going to have to run it\nas a service, just like everything else here is run as a service.\nAnd once we do have that, we can actually configure it to detect and catch our tables.\nSo in this case, we have it set to detect our iceberg tables and we can actually then use\nand query, let's say, like Unity catalog, either using like a Spark query or using post or\nrest or whatever.\nto be able to actually list and interact with our tables instead of going directly to the\nIceberg REST catalog or worse going straight into SeaweedFS and trying to list individual\nparquet files.\nyou can see that the return is in a JSON format and we actually get our catalog.\nSo if you're used to working with UIs, this is the same information, just not in a\ndropdown menu.\nearlier you said something about setting this up as a service like what does that mean\nsorry you say that like that's one of many options\ntypically a service is something that's running 24 seven that you can then query.\nLike if I want to go to a website, it's always going to be up and it's always going to be\nthere.\nAnd it lives at a very specific place on my network.\nthere is a lot of networking that comes to data platforms that people do not realize.\nOkay, I'm going to show you guys now through the shell script that I've showed you what it\nactually looks like to interact with Unity and actually run some really simple curl\ncommands against my existing catalog so that then I can see it listed out.\nAnd you can see it's pretty clean.\nCool, so we're having a look at this data and is this meant to be like a substitute for UI\nof like what are the things that I can browse and look through or is this something that\nother services are then going to query and come back with that information?\nthey're gonna query and come back with that information.\nI think only a masochist really interacts with their data infrastructure this way, to be\nhonest.\nUnity Catalog does offer a UI, most of these services do, but I will also say that...\nMost of the UIs in open source are typically stripped down compared to their proprietary\nequivalents.\nOkay.\nWhat is the go-to for notebook interfaces?\nIt's still like Jupyter.\nWhat's the latest and greatest?\nthink Jupyter is still pretty much the winner in this space.\nIt has the most robust ecosystem, so if you want to work with your data and\ntransformations in that way, that's really great.\nJupyter is hard to run though.\nThere's a lot of dependencies that make it really messy to run at scale, especially if\nyou're managing the notebooks itself, but it is possible.\nYou hear that, Holly?\nIt's possible.\nLooks like we're Jupyter clan now.\nOkay, so one of the things that I want to go over really quickly is actually how to set\nthings up in Spark.\nSo this is probably one of the things that is really complicated for anybody running open\nsource Spark and has never had to deal with it before.\nSo, Spark has a lot of configuration files that makes it really hard to actually\nunderstand what is going on.\nAnd the way that Spark understands whether or not you're using an Iceberg REST catalog or\nUnity, how it has all these different credentials.\nis through these configuration files.\nSo you can see that there's Hadoop configurations with S3.\nWe have to load in our actual jar files in here that has all of that glue that I talked\nabout before.\nSo things like the Iceberg Spark runtime, AWS compatibility, which we're using to\ninterface with Seaweed, and then all of these extra bundles as well.\nSo it's really important to note that this is probably where you're going to have a ton of\nstuff set in there.\nI have it.\nwith my Docker container so that my Spark versions know which configurations to pull from.\nBut it's really important if you're setting up for the first time that this is something\nthat you keep an eye on.\nAnd if I get it wrong, it just doesn't work, right?\nYeah, everything breaks and your internet gets canceled.\nSo one of the other things that I want to show you guys is how I'm using Spark 4.1.\nSo if you recall earlier, I had Spark 4 and Spark 4.1.\nI'm using 4.1 for most things because it comes with a lot of awesome new features.\nAnd typically the way that you submit your transformations or your code is through\nsomething called Spark Submit.\nSo I guess in this environment, everything that you're setting up with infrastructure is\nalso going to be in the same terminal window CLI tool that you're using to do all your\ndata analysis in your ETL.\nYes, precisely.\nSo all of this runs on my home system right now, but the spark is up, everything else is\nup just in terms of services on my machine.\nIt's exactly the same as what you would use in a Cloud system, it's just where it lives\ninstead.\nbut if I had a bunch of users and I didn't want them to see all of this stuff in the\nbackground, I'd have to figure out a way to make that happen.\nSo this is a really great segue into our next part, which is if you're actually planning\nto build out a platform or if you're trying to scale out your actual cluster, this is all\nsingle node, which is pretty overbearing.\nBut again, like Holly said, you're going to probably have many different users.\nIn that case, I would really recommend using Spark Connect.\nSo Spark Connect allows you to have lightweight clients that users can interact with Spark\non.\non their local machines or wherever they are, and then you manage a larger Spark cluster\nand then they just submit jobs to that.\nAnd there's a very easily insured compatibility between the two in terms of protocols.\nIt's very simple to set up.\nYou can use either PySpark to download it, or if you want to, you can even just download\nthe client itself.\nIt's really straightforward and we can get into what some of that code looks like really\nquickly.\nAnd you can see me moving through these directories that don't exist.\nOftentimes on Databricks you will not have this issue.\nYeah, I was gonna say either you're like really over-optimizing, like overestimating my\nskills or you're delusional on how well I can do all this stuff.\nI think it's much easier once you get the hang of it, especially with AI these days, you\ncan actually do a lot of this glue work and debug more easily.\nBut this used to be a really tough thing to do, especially back in the day.\nThe fact that we have it running on a laptop now is pretty insane.\n351\n00:27:23,129 --> 00:26:52,030\nwith Spark Connect, what you're going to be able to do is, again, submit jobs to a remote\ninstance of Spark.\nAnd it's really nice because the dependencies, all of that configuration and all of those\njars and things like that that I showed before, your client actually doesn't have to worry\nabout any of that if you're using Spark Connect, which is much easier.\nBut if we look into how actually Spark Connect works, we have our local host here, which\nis where the remote is set, and you're going to see it denoted by the SC namespace.\nThen we're actually going to be able to, show you some different ways to submit Spark\njobs.\nAgain, because I have a Docker container running Spark, a lot of these commands seem more\nscary than they are, but we're going to be able to create our Spark session here, and then\nI'm going to show you really quickly how to actually submit a job and get some data out of\nit.\nwe see here that we have a Spark Connect uh demo that's written out.\nwe have our Spark SQL queries, and we're actually going to submit them uh through Connect.\nAnd we can see the output of these tables.\nSo it's pretty straightforward to run.\nI would not, again, recommend running it locally on your own machine, but to each their\nown.\nYeah, so think we've got a few things missing from our architecture diagram in terms of\nwhere to actually run this stuff.\nLike we've got some storage here, but what we don't have is any clusters or anything set\nup like that.\nwhere does this cluster live?\nSorry, you mentioned kind of like Kubernetes, like where, where?\nSo a cluster is just a collection of machines.\nSo technically it's somewhere on the network,\nI think that's fine.\nI guess it only applies to spark, not flink and Trino but that's okay.\nThere's no way we can make it look pretty, I think, at this point, so that's okay.\nIt will only get messier as time goes on.\nAnd so sorry, what were you suggesting to have like Spark Connect like this and then have\na cluster?\nIs this what you meant?\nLike I'm so confused.\nThat does look like a cluster of something.\nwhat we can do is put Jupyter Notebooks down and actually have Spark Connect in the\nJupyter Notebook.\nAnd the reason why I say this is because the way that you install like Spark Connect, at\nleast if you're on Python, is by installing like the Python package.\nAnd in the notebook as well as where you identify where you're going to submit it in your\nSpark session code.\nSo maybe then cluster can be above even higher\nthink we can just remove cluster, honestly.\nLet's just pretend we've you know, compute ephemeral, like just available via Kubernetes\nsomewhere.\nSure, okay, yeah, that happens magically.\nI like that it just says CLI.\nYeah.\nI just need something that's gonna remind me that this is what I'm gonna spend my time\nlooking at and I'm just kissed goodbye to a lovely little UI that I'm used to.\njust to review for everybody, because I know that this is getting complicated to say the\nleast, and it's only going to get more complicated in a little bit.\nIf you're running Spark Connect compared to normal Spark, so normal Spark will have your\ncode in your notebook, and then it'll also have your actual Spark implementation, such\nengine, which is like your JVM and then all the drivers.\nAnd that all is like one process that's coupled together.\nvery hard to separate it out.\nSo if you're using Connect, what you can then do is submit over a network protocol, in\nthis case, gRPC, to connect to a server.\nSame concept that we talked about with Unity earlier, and so we're connecting it and we're\nsubmitting it to a service that's running somewhere else, and then we don't have to think\nabout configuring all of that locally.\nDoes that make more sense?\nI'm sure with time it will, yes.\nYou\nIt's the same API, it's the same everything, it's just configured a little bit\ndifferently, especially if you're running really large organizations.\nwe can move on to the next part of this now, which is if you're developing a lot of Spark\ncode, yes, Connect makes it easier in terms of somebody else, in this case, you guys,\nsadly still, manage all of the actual Spark glue code and the configurations, all of these\ndifferent things, the jars and dependencies.\nBut there's also a lot of issues that often come up with Spark.\nin terms of the way that you actually set up your Spark session, the way that you handle\nparallelization, the way that you handle retries.\nThere's a lot of of code that goes around the transformation itself, which if you guys end\nup having customers, God forbid, um will eventually need them to be able to run things in\na way that's as foolproof as possible, which is why I recommend Spark 4.1, because it\ncomes with something called Spark Declarative Pipelines.\nWell, I guess we're used to SDP from a Databricks perspective.\nSo if it looks very similar to that, I think we kind of understand that bit.\nIt's more the setup that we're struggling with.\nOkay, cool.\nThat's awesome to hear.\nSo Spark declarative pipelines comes with a different set of tools than maybe people are\nused to when it comes to like Spark submit or running their own jobs.\nI won't get into it too deeply, but when you initialize an SDP project, you create a YAML\nfile spec.\nthat then contains your different configurations for your different files, that includes\nyour code, and then you can then perform something like a Spark Pipelines dry run, and\nthen submit that into Spark itself.\nSo you can also do a normal run.\nIt really depends on if you want actual data to be processed, or if you just want it to\nlike say double-check your logic for you, and make sure that you don't really have any\nissues.\nSo assuming that you guys are unemployed right now, and you want to save money on compute,\neven if it's your local compute, I would highly recommend using dry run very liberally in\nyour case.\nSo you can see that SDP syntax requires declaring a table and we have the ability to use\nstreaming as well as our normal declarative batch syntax as well.\nSo we have this table here that's actually pulling from our Kafka service that we set up\nearlier and is pulling out orders.\nWe also have our materialized view and this is how we're building out the silver layer as\nwell.\nAnd then we have our gold layers here.\nuh We don't really need to get into these transformations.\nIt really depends on what your data looks like.\nBut this is just like a really simple high level overview of what, say, a Python script\nthat utilizes SDP looks like.\nThis is also terrifying in the command line.\nshowing me where everything's going.\nYeah.\nthing about Spark Declarative Pipelines was the DAG for me personally.\n431\n00:33:48,968 --> 00:33:44,663\nI'm just a simple person.\nI just like seeing the data flow.\nah Yeah, and then you\na hardcore Vim user and you're a VS Code user, there are open source VS Code plugins that\nwill allow you to visualize your DAGs, which is really awesome.\nSo this is a look at the configuration file.\nReally simple.\nYou can see that it just has our libraries and the Python files that we're including.\nWe declare our catalog and our directories and things like that.\nAnd so we're going to see what it actually looks like to run this really quickly so that\nyou have a good idea of what it looks like.\nWe have our pipeline code and this is just piping out the logic back to us so that we see\nit, and then we can see these tables being made as well.\nNothing that I would get too in the weeds of, but if you just want to see what the output\nof these lines are, especially if you want to play around with it at home, it's very easy\nto just take a look.\nrun it through, and then see what the difference is.\nSo in this pipeline, really easily we're generating our silver and our gold tables through\na really simple script.\nAnd then we're showing that this verifies and works.\nOkay then.\nSo where does all the logging for this go?\nLike if you get a bunch of errors, do you just have to search through this and hope that\nall of it's been saved?\nSpark does have a lot of logs.\nI think as a backup, it's really good practice just to keep these logs somewhere else\nsafe, especially if you're running so many different services that have their own logs as\nwell.\nLog ingestion and debugging is a very different part of running a platform that I think is\na little bit out of our scope.\nNick, what do you think?\nI we're maybe trying to cram too much into one thing one episode, but that's okay\nwanted the entirety of Databricks into one machine.\nThis is what it looks like.\nThat's fair.\nThat is fair.\nwe're gonna be busy.\nGood job we don't have a job anymore.\nDoes it feel clear how you run this in a networked environment with high powered clustered\nmachines in a distributed system?\nAbsolutely not.\nYeah, yeah, I get it straight away.\nHow's this hard?\nThis is so easy.\nYeah, great.\nAlright, tell us.\nSo I think where a lot of the complication comes from is really trying to run with\nmultiple different clusters and jobs.\nAnd the reason why we need clusters and jobs and all these different things at scale is\nbecause oftentimes the more our business grows, in this case, as you guys raise whatever\nseries you want to raise around this data platform idea, you will eventually...\nhave a need for more performance, more machines, more raw compute, and more reliability,\nright?\nThis idea of fault tolerance that you kind of need a job to complete no matter what.\nYou need your data readily available uh no matter if there is a power outage, in my case\nSan Francisco or not, et cetera.\nAnd so the way that we do that is by building infrastructure around it that keeps things\nrunning smoothly.\noftentimes, if you're then running with Spark declarative pipelines, which end with\nAirflow at the same time, that gives you lot of coverage in terms of actually scaling this\nout as you're having multiple containers running at once.\nIn each one of these, we've only had one container running one service, but you're likely\ngoing to have like five to 10 Spark containers.\nAfter that,\nadd to our diagram of scaling considerations.\nconsiderations I'm going to add in.\n481\n00:37:32,592 --> 00:37:31,375\nyou said multiple containers.\nAnd also you said around airflow.\nWhat other things do we need for our scaling considerations?\nLogging being expense?\nYeah.\nhealing for your containers, orchestrating them.\nKubernetes and orchestration and then logging, which sounds like it's expensive,\nI was going to put the dollar signs on its own row.\nOkay, more dollars.\nExcellent for infra.\nAnd our impending breakdowns as we've realised that we can't do this.\nI would also add you're gonna need more computers.\ncomputers.\nCool, it sounds like you guys have everything you need.\nThis consulting session I'm gonna charge about five million for.\nI'll take it in stock, don't worry.\nBut you guys will be good.\nYeah.\nAll right, are we ready to wrap up?\nNick, what do you think of our architecture?\nFive?\nIt could be zero, could be ten, it could be five, I'm gonna give it five.\nI think we could always just git clone Lake House at home and that's like half of it.\nI feel like buried the lead there.\nLisa already did the work.\nYeah, I feel like as a local thing, like if it was just me wanting to play around and\nmaking my own free version, like, is it doable?\nYeah, it looks like I could do it, but I don't know if it would be enjoyable.\nIt would setting up your own open source version be more enjoyable than using Databricks\nfree edition?\nNo.\nThank\nI mean, if you're gonna do the Databricks comparison, then we have serverless Postgres,\napps, I mean, it's not even close to being in comparison.\nThis is like maybe Databricks circa five years ago, so to speak, in terms of platform\ncapability.\nem The features are of course all like, there's a bunch of modern stuff that's recent, but\nlike as a platform, this is like, it's 50 % of the way there.\nYeah, it doesn't even have its own agent, you know, I just bring my own.\nBut having said which, you do have a lot of the interop there as well.\nSo if you wanted to switch between, I think it's it's good if you want that flexibility,\nright?\nLike if you want to switch between, you know, Spark or Trino or DuckDB or whatever, it\ndoes give you the feasibility to be able to do that, which you probably wouldn't have if\nyou were using Databricks Free Edition.\nBut yeah, Nick, I think we've got to go beg for our jobs back, don't you?\nUh, yeah.\nYeah.\nIt may be too late.\nAll right then, that is it for this month.\nThank you very much for watching all of this.\nWhat do you think when you see this?\nIs this something that you want to give a go as a bit of a pet project?\nIs this something that you would reasonably set up by yourself?\nDefinitely remember to go and check out Lisa's repo.\nWe'll put that in a link down below.\nUntil then, we need to go get our jobs back and maybe we'll see you next month with some\nmore Databricks features.\nAll right.\nThank you so much everyone.\nThank you so much Lisa for joining us and doing this consulting.\nBye bye bye.\nBye.\nSay bye Lisa.\nAll right,",
+  "segments": [
+    {
+      "text": "hello, and welcome to Overarchitected with Nick and Holly, where this month we quit. That's right, we had enough of Databricks and we've decided why should we pay all this",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "money for Databricks when in fact we could do an open source version completely for free. So we've sent those emails, we've burned those bridges, we're not being invited back.",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "And so now we're in the scenario where we need a platform to be able to do dev rel stuff about. And to do that, we're going to try and build one out of open source with some wonderful",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "help from Lisa Cao open source, aficionado enthusiast, absolute juggernaut, a wonderful contributor in the community for so many open source projects. Welcome Lisa. Hi, thank you for having me. I am really excited.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "it's nice to be here for maybe the last episode of Over Architected, I don't know. I think they're coming to get my laptop right now, so we need to finish this fast. I actually did go down this rabbit hole a little bit ago.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "So for those of you who don't know, I'm a dev rel here at Databricks, but I focus primarily on open source and so I really like playing around with open source technologies. Cool, okay then. So yes, tell me, I don't know where I'd get started. Help me, please.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "I have no job. 00:01:36,705 --> 00:01:14,225 spot. will do my best, valiantly so. So the good thing is that Databricks pretty much at most points of the stack does have an open source equivalent even maintained and built by Databricks themselves, which means",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "that it's actually pretty feasible to rebuild a lot of Databricks, at least in terms of its core skeleton, without necessarily having to go to anything proprietary. The rest we can actually supplement with other open source technologies that even",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "Databricks uses as well. I'm going to caveat this by saying nothing here is proprietary. I am running Ubuntu. I am using Vim and we're going to use Pure Vim for this because you guys are now going to",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "be open source people and open source people love their minimal text editors and we're going to be working through it. So I have a open source repository called Lakehouse at home that you can use if you want to follow along with this.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "You can uh git clone it for free, which is awesome. But one of the things that you'll need to do if you have a blank machine, so that's probably the step one, is that you need a computer.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "which it doesn't sound like Nick will have for very much longer, but we're going to work with it. And the second is that you need to have an operating system and some files and some data.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "I'm not gonna tell you which data to use, that's really your choice, but what you will need is an object store. There's a couple of different open source options that you can use here. The first is either MinIO or Seaweed FS.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "I'm using Seaweed FS, which is S3 compatible. I'm already scared. Yeah, I like how you started with the real basics of Holly, you need a computer, which I gotta say. You need a computer.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "I'm just going to show really quickly what this uh repository looks like currently. So we have a bunch of our DAGs. We have our configuration files, our data demos. Docker is going to probably be your best friend here, especially if you're running a lot",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "of open source technologies that helps manage a lot of different dependencies that you'll have. and also you'll need to actually download the source code for a lot of this which will",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "oftentimes come in a jar file, especially if you're working with a lot of Java. Then we're going to look at some of also these different uh services. Is that too mismatched, Holly? Do want me to slow this down so that we just walk through it",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "No, no, no, this is fine. All I'm thinking is, my goodness, I've not used Docker in years and now I'm going to have to reuse it again. So this is like, you're like deploying the whole platform here. This is everything. I'm seeing a lot of words. We got.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "I was so freaked out yesterday? But yes, so yes, I'm deploying the entire platform. I actually have all of these different services running. So I built a CLI tool around this. called Lakehouse and this is just the output of Lakehouse status.",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "You can see that all of these different services run on different ports on my machine and you can test how they're connecting to each other. So networking is a really big part of data engineering actually because you have so many",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "different services that need to connect to each other. So we see that the Airflow web server here is not working or live. So if we look at the rest of this, have our Terraform recipes, we have our Docker compose files.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "We have our jar files, we have different schemas and scripts and data. And if we look at the different Docker compose files themselves, we can see exactly what goes in here. In this case for Spark 4.1, we have it pulled from the Spark image.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "So if I take a look at the rest of these, you don't need to know all of these, I already have them figured out and most of the open source projects that you work with will already provide you a Docker container. I'm sure you're feeling the open source now,",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "I'm feeling it. I'd like to like, does open source come with like a nice UI? so that I can just, I'm feeling it. I'm not seeing it. So, again, yes, but UI is not really like an open source-y type strength, ah which is why",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "a lot of the services you use have nice UIs around them, including Databricks. But as I was showing there, we need to connect to a lot of these different services together uh really quickly, including different credential files and configurations, which",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "we'll get into later. So wait, I have some questions before we move on. So sorry, that that's just like a config that runs in the background. There's not a lot that like I need to set up because there was a lot of words that you",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "said there, which I kind of know what they are in passing. Do I know? this. Let me start saying this very simply. um A lot of these projects are built independently of each other. And so oftentimes there's a lot of work in between that requires glue, right?",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "00:05:58,121 --> 00:05:55,365 or, yeah. as in code glue, not AWS glue, right? Yes, as in CodeGlue, and I'll show this in a little bit too, but oftentimes, say if you're running the newest version of Apache Iceberg, like 1.10, that has different dependencies",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "that maybe don't work with the different Spark versions that you're running, which maybe don't work with the different S3 versions that you're running or Hadoop versions that you're running that maybe don't work with the different Kafka versions that you're",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "running. And so oftentimes, you'll need to have dedicated jars that are just meant to connect two services together or pick and choose between your dependencies. Yeah, I understood all of that Okay, So I have this script here that shows us how Seaweed works.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "So if you're running Seaweed, anything that's S3 compatible will work with Seaweed. It just provides you an object store where you can have your same buckets and things like that, uh same S3 compatibility, just on a local system instead.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "Nothing too crazy running on my system. You can scale this out, of course, depending on what kind of resources you have. We can also take a look at some of the parquet files that I have stored here.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "So this is in my bucket Lakehouse, and we have all these parquet files, which is pretty straightforward. Ignore that error. I do, and it seems to work fine. That is the key of open source. Yeah",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "but essentially through Seaweed, you can actually hook it in and actually use then Spark to set up Iceberg. We'll get into this a little bit in terms of what actually is required to set up Iceberg.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "Essentially, if you have a bunch of Parquet files, those are just the columnar files. You still need the metadata around it to actually make it a table, and that's where Iceberg comes in. There's a lot of different other table formats you can run to too.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "Like Delta Lake for instance, Delta Lake is really good as well. It really depends on what your flavor is. Both are very similar and we can definitely get into that uh in a little bit more.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So are there any questions that I can answer while we're running through this? Nick, think at some point you and I are gonna have to start diagramming to say how are gonna stick all of this together because I am not a CLI person.",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "What are we, yeah, catch this up. are we showing us now? So you have your object store now, you have your buckets, and then you now have a bunch of parquet files that you're throwing in there. So that's your raw data.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "Typically, an engine can just read directly the parquet files, but it's a little bit messy because, well, you don't really have any metadata, you might have different locking issues. things like that, and so Iceberg provides a metadata layer on top of this.",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "what it'll provide are the metadata files and layers that engines can natively understand. and that really helps different engines coordinate across their different writes. If you have multiple engines, it makes it much easier to coordinate and actually helps",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "preserve the integrity of your Parquet files by providing you things like snapshots, metadata statistics, metadata files, There's a lot of different complexities at scale, especially if you have.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "not just hundreds or thousands, but millions and billions of Parquet files with different engines writing to them, having all these different writes, and you're worried about the integrity of the actual Parquet files.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "If you're using Spark with Parquet alone, you're directly loading all of those Parquet files straight into Spark, which is not clean hygiene. And so if you have Iceberg in between there as a table, then you can preserve the",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "integrity of those files and make sure that there's no abandoned writes. Orphan processes, things like that, and that actually makes it much cleaner. There's a lot of different options if you're coming from, the Delta world for this.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "So the first is that you can use something called the Delta Kernel to ensure that your engine, so to explain, the Delta Kernel is an open source project that is a Rust native",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "and embedded library that you can actually embed within your different engines to be able to understand the Delta protocol natively, which is very similar to how compatibility works with different engines when it comes to the Iceberg rest protocol.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "The other option is to use something like Uniform where you can actually use Iceberg clients to read Delta tables as Iceberg. So does that make sense in terms of how the table formats and the engines and all these things work together?",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, I mean, we've done a lot of iceberg and delta stuff as part of Databricks anyway, so I'm kind of familiar with like what a lot of the kind of um what the features are kind of on the box or like on the marketing.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "I guess from a open source perspective, maybe something I've not considered is if we've got multiple engines doing different things. So if we've got Spark doing something and then we've got Flink doing something and then",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "we've got something else doing something, ensuring that they all work together is probably something that has been obfuscated away in Databricks, but in open source land, you have to think a lot more about. Alright, let's take, can we, let's pause.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "I'm taking a note from Holly. We should start drawing something because my head can't fit all this in there. we have a seaweed. See, it's getting a huge push from us. This is just like a random choice that I chose. the first thing that we said, you know?",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "So my storage... Is this going in here? Done! we're, I love it. This is good. Good job. Throw another one. Throw it. Let's copy this. Copy that. Minio, Minio? Is that right? table formats. Delta. Iceberg. OK, so we're building it up. I like where we're at.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "we have engines, right? And so wait, explain this Delta kernel thing again, just very briefly, because that's where I got, I mean, I got a little bit lost, right? So we have like something like Spark and doesn't Spark use, didn't they migrate it to like",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "also use Delta kernel underneath, like the, the Spark connector for Delta uses the Delta kernel or no? I think where Delta Kernel really shines is in engines that have nothing to do with the Databricks open source ecosystem.",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "So let's say if you take something like Flink, for instance, or Trino, DuckDB, et cetera, that don't necessarily natively understand the way that Delta works, especially when it comes to its metadata systems and things like that.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "They don't need to build that in anymore directly into the engine. They can just instead take Delta Kernel, which is like a very low level embedded library, stick it in, make it compatible, and then never have to worry about it again. Okay, but Delta...",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "But Delta kernel is not part of that... Delta kernel helps the engine, but it doesn't... It's not part of the engine. Like, It's like an inline module, I guess. don't know. It's like a plugin. you also said Trino as well. So let's add that in. 186",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "00:12:56,351 --> 00:12:48,129 Boop, there we go. other way if I were you, but it's fine. Also, you called the table format Delta RS, but Delta RS is like the connector, not the format. I thought that was the implementation in Rust, rather than...",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "Anyway, fine, bye, fine. We can argue about this later. does this, does this accurately represent what you've described so far or no? No, not at all. It's actually completely, I'm joking, I'm joking. But there are some tweaks I would make to it.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "So like Nick said, Delta Kernel really lives on engine side compared to being in the table format. So Iceberg has the IRC built in. Whereas Delta can have a Delta kernel embedded in an engine, for instance.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "Okay, I'm just gonna put them in between to show that it's kind of the glue to stick them all together. How about that? Yeah, I might get a little bit picky about the arrow direction, but I think you're good. you Hahaha! The argument we have every month. fine.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "This is a beautiful diagram. I also want to note for you guys in particular, if you're building a data platform for the first time, I would not start out with two different object stores, two different table formats, and three uh engines.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "fine you know what well this is our platform and we're gonna do it our way as well hang on so we have storage but we also have like storage uh slash own computer So if you really want to get pedantic about it, I've tested this on my machine.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "My machine's pretty powerful, but I think you can run what I have off 16 gigabytes of RAM setting the stage realistically, the only reason you'd want to run it on your machine is simply to emulate what it would be like at scale, right?",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "Because like there's really no reason to set any of this up for a single machine. Or is there? It depends how crazy you are. If you're like me, like kind of a little bit, but I think you can actually build this in a business.",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "Like there's a lot of businesses out there that are very invested in open source. And so they would take a framework like this and then also apply it within their own servers on their own machines with a lot of other overhead too.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "But if you're serving it to like say actual customers, you probably want to keep it off your laptop. Okay, fine. Let me update this to say not own laptop. Hahaha Alright so sorry Lisa we've rudely interrupted you halfway through showing us something",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "and then we got confused and drew a diagram. But now you know where we stand, so you pick it up from here. now you know how dumb we are. to make you shift everything up uh between table formats and engines.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "You spent a ton of time building this beautiful diagram, but I want to make space here for a catalog and explain why we actually do need a catalog. So I went over this a little bit in the demo and we can go back into it soon.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "But generally speaking, like I said before, you didn't want your engines directly reading Parquet. So now you have them reading the table formats. And now you have every single engine here. configured to read the table format separately.",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "we're going to simplify this by adding an actual dedicated catalog implementation. In this case, we're going to use UC OSS, which is the Unity catalog open source version, A catalog in this case will provide a unified interface for engines, but it will provide",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "us something that's really important, especially if you don't want to get sued in your new business endeavor, which is data governance. So a catalog will help broker and manage and tag all of your different tables here, and",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "then actually control what queries can access which data as well. may have been overly ambitious and just wrote Unity catalog. Are there other catalogs that we should consider? Or is Unity the one and only?",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "Catalogs vary quite widely in terms of implementation. The Iceberg REST catalog is pretty basic in terms of how it couples to the data format itself, but other different options that you have there in terms of catalog",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "implementations include things like Lakekeeper, which is a Rust native Iceberg catalog implementation. There's also Polaris, which is an Apache project as well. There is also Gravitino, which is another open source project.",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "And catalogs over time have really changed its definition. So we're talking about specifically catalogs for Open Table formats, but other governance catalogs like Informatica or Collibra, uh DataHub, those are all examples of catalogs that",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "kind of predate or at least extend around the iceberg ecosystem. one of the things that a catalog does is that it actually can coordinate different commits. So this is something that was introduced in the recent version of Unity catalog OSS.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "So the reason why this is so important is because you might have Spark and Flink both writing to the same table underneath. This can happen in parallel, but all of those changes or all of the metadata files that",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "might be generated as a result of that might differ from each other, creating a really messy situation, and you might just not know what your source of truth is. You might also want to just in general account for more concurrency.",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "So something that Unity Catalog can do now is actually uh commit coordination. So if you have multiple engines committing and querying the same dataset, what Unity Catalog will do is take those commits, serialize them, and then act as the",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "writer in that case directly to the actual table format. This is also really cool because Unity Catalog also does the credential vending. If you're not using a catalog, these credentials are often hard-coded into the engine",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "itself, and it's just sort of like, okay, whatever this object store is, you can access all of it as this engine, which is not super scalable over time, and you might over-permit something to access things that you don't want to.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "So instead, what Unity catalog does in this case, and many other catalogs do this as well, is that it will actually provide temporary credentials to the engine for that single query so that then you don't have to worry about it at Does that make sense?",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "It's overwhelming. Yeah, there's a lot of decisions we gotta make. I'm used to just clicking on a thing and then a box comes up saying credentials and then you just do some stuff and then hope for the best.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "It is really complicated, especially when you have a ton of engines, a ton of users, But again, unless you have really strong vertical integration with your governance, a single",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "catalog's not going to be able to do it all without needing extra workarounds or just extensibility around it. And when you keep saying vertical integration, do you mean like vertical across all our boxes here, there?",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "Or does vertical integration mean something different? It does mean across all these boxes, but there's a lot of boxes that aren't included in this. So if I want to look only at the lineage between like Delta tables or iceberg tables here",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "and see like how a table has transformed over time, that is pretty straightforward. But I might have like a Tableau service or an Excel sheet somewhere that also has data transformations that occurs. that is not tracked in any sort of way.",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "And that lineage is completely lost unless I do this like manual work of like actually building the code in between that. So if we want to set up something like Unity catalog, one, we're going to have to run it",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "as a service, just like everything else here is run as a service. And once we do have that, we can actually configure it to detect and catch our tables. So in this case, we have it set to detect our iceberg tables and we can actually then use",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "and query, let's say, like Unity catalog, either using like a Spark query or using post or rest or whatever. to be able to actually list and interact with our tables instead of going directly to the",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "Iceberg REST catalog or worse going straight into SeaweedFS and trying to list individual parquet files. you can see that the return is in a JSON format and we actually get our catalog.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "So if you're used to working with UIs, this is the same information, just not in a dropdown menu. earlier you said something about setting this up as a service like what does that mean sorry you say that like that's one of many options",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "typically a service is something that's running 24 seven that you can then query. Like if I want to go to a website, it's always going to be up and it's always going to be there. And it lives at a very specific place on my network.",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "there is a lot of networking that comes to data platforms that people do not realize. Okay, I'm going to show you guys now through the shell script that I've showed you what it actually looks like to interact with Unity and actually run some really simple curl",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "commands against my existing catalog so that then I can see it listed out. And you can see it's pretty clean. Cool, so we're having a look at this data and is this meant to be like a substitute for UI",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "of like what are the things that I can browse and look through or is this something that other services are then going to query and come back with that information? they're gonna query and come back with that information.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "I think only a masochist really interacts with their data infrastructure this way, to be honest. Unity Catalog does offer a UI, most of these services do, but I will also say that...",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "Most of the UIs in open source are typically stripped down compared to their proprietary equivalents. Okay. What is the go-to for notebook interfaces? It's still like Jupyter. What's the latest and greatest?",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "think Jupyter is still pretty much the winner in this space. It has the most robust ecosystem, so if you want to work with your data and transformations in that way, that's really great. Jupyter is hard to run though.",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "There's a lot of dependencies that make it really messy to run at scale, especially if you're managing the notebooks itself, but it is possible. You hear that, Holly? It's possible. Looks like we're Jupyter clan now.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "Okay, so one of the things that I want to go over really quickly is actually how to set things up in Spark. So this is probably one of the things that is really complicated for anybody running open source Spark and has never had to deal with it before.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "So, Spark has a lot of configuration files that makes it really hard to actually understand what is going on. And the way that Spark understands whether or not you're using an Iceberg REST catalog or Unity, how it has all these different credentials.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "is through these configuration files. So you can see that there's Hadoop configurations with S3. We have to load in our actual jar files in here that has all of that glue that I talked about before.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "So things like the Iceberg Spark runtime, AWS compatibility, which we're using to interface with Seaweed, and then all of these extra bundles as well. So it's really important to note that this is probably where you're going to have a ton of",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "stuff set in there. I have it. with my Docker container so that my Spark versions know which configurations to pull from. But it's really important if you're setting up for the first time that this is something that you keep an eye on.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "And if I get it wrong, it just doesn't work, right? Yeah, everything breaks and your internet gets canceled. So one of the other things that I want to show you guys is how I'm using Spark 4.1. So if you recall earlier, I had Spark 4 and Spark 4.1.",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "I'm using 4.1 for most things because it comes with a lot of awesome new features. And typically the way that you submit your transformations or your code is through something called Spark Submit.",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "So I guess in this environment, everything that you're setting up with infrastructure is also going to be in the same terminal window CLI tool that you're using to do all your data analysis in your ETL. Yes, precisely.",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "So all of this runs on my home system right now, but the spark is up, everything else is up just in terms of services on my machine. It's exactly the same as what you would use in a Cloud system, it's just where it lives instead.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "but if I had a bunch of users and I didn't want them to see all of this stuff in the background, I'd have to figure out a way to make that happen. So this is a really great segue into our next part, which is if you're actually planning",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "to build out a platform or if you're trying to scale out your actual cluster, this is all single node, which is pretty overbearing. But again, like Holly said, you're going to probably have many different users.",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "In that case, I would really recommend using Spark Connect. So Spark Connect allows you to have lightweight clients that users can interact with Spark on. on their local machines or wherever they are, and then you manage a larger Spark cluster",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "and then they just submit jobs to that. And there's a very easily insured compatibility between the two in terms of protocols. It's very simple to set up. You can use either PySpark to download it, or if you want to, you can even just download",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "the client itself. It's really straightforward and we can get into what some of that code looks like really quickly. And you can see me moving through these directories that don't exist. Oftentimes on Databricks you will not have this issue.",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, I was gonna say either you're like really over-optimizing, like overestimating my skills or you're delusional on how well I can do all this stuff. I think it's much easier once you get the hang of it, especially with AI these days, you",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "can actually do a lot of this glue work and debug more easily. But this used to be a really tough thing to do, especially back in the day. The fact that we have it running on a laptop now is pretty insane. 351 00:27:23,129 --> 00:26:52,030",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "with Spark Connect, what you're going to be able to do is, again, submit jobs to a remote instance of Spark. And it's really nice because the dependencies, all of that configuration and all of those",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "jars and things like that that I showed before, your client actually doesn't have to worry about any of that if you're using Spark Connect, which is much easier. But if we look into how actually Spark Connect works, we have our local host here, which",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "is where the remote is set, and you're going to see it denoted by the SC namespace. Then we're actually going to be able to, show you some different ways to submit Spark jobs.",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "Again, because I have a Docker container running Spark, a lot of these commands seem more scary than they are, but we're going to be able to create our Spark session here, and then",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to show you really quickly how to actually submit a job and get some data out of it. we see here that we have a Spark Connect uh demo that's written out. we have our Spark SQL queries, and we're actually going to submit them uh through Connect.",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "And we can see the output of these tables. So it's pretty straightforward to run. I would not, again, recommend running it locally on your own machine, but to each their own.",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, so think we've got a few things missing from our architecture diagram in terms of where to actually run this stuff. Like we've got some storage here, but what we don't have is any clusters or anything set up like that. where does this cluster live?",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "Sorry, you mentioned kind of like Kubernetes, like where, where? So a cluster is just a collection of machines. So technically it's somewhere on the network, I think that's fine. I guess it only applies to spark, not flink and Trino but that's okay.",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "There's no way we can make it look pretty, I think, at this point, so that's okay. It will only get messier as time goes on. And so sorry, what were you suggesting to have like Spark Connect like this and then have a cluster? Is this what you meant?",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "Like I'm so confused. That does look like a cluster of something. what we can do is put Jupyter Notebooks down and actually have Spark Connect in the Jupyter Notebook. And the reason why I say this is because the way that you install like Spark Connect, at",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "least if you're on Python, is by installing like the Python package. And in the notebook as well as where you identify where you're going to submit it in your Spark session code. So maybe then cluster can be above even higher",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "think we can just remove cluster, honestly. Let's just pretend we've you know, compute ephemeral, like just available via Kubernetes somewhere. Sure, okay, yeah, that happens magically. I like that it just says CLI. Yeah.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "I just need something that's gonna remind me that this is what I'm gonna spend my time looking at and I'm just kissed goodbye to a lovely little UI that I'm used to. just to review for everybody, because I know that this is getting complicated to say the",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "least, and it's only going to get more complicated in a little bit. If you're running Spark Connect compared to normal Spark, so normal Spark will have your code in your notebook, and then it'll also have your actual Spark implementation, such",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "engine, which is like your JVM and then all the drivers. And that all is like one process that's coupled together. very hard to separate it out. So if you're using Connect, what you can then do is submit over a network protocol, in",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "this case, gRPC, to connect to a server. Same concept that we talked about with Unity earlier, and so we're connecting it and we're submitting it to a service that's running somewhere else, and then we don't have to think about configuring all of that locally.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "Does that make more sense? I'm sure with time it will, yes. You It's the same API, it's the same everything, it's just configured a little bit differently, especially if you're running really large organizations.",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "we can move on to the next part of this now, which is if you're developing a lot of Spark code, yes, Connect makes it easier in terms of somebody else, in this case, you guys,",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "sadly still, manage all of the actual Spark glue code and the configurations, all of these different things, the jars and dependencies. But there's also a lot of issues that often come up with Spark.",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "in terms of the way that you actually set up your Spark session, the way that you handle parallelization, the way that you handle retries. There's a lot of of code that goes around the transformation itself, which if you guys end",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "up having customers, God forbid, um will eventually need them to be able to run things in a way that's as foolproof as possible, which is why I recommend Spark 4.1, because it comes with something called Spark Declarative Pipelines.",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "Well, I guess we're used to SDP from a Databricks perspective. So if it looks very similar to that, I think we kind of understand that bit. It's more the setup that we're struggling with. Okay, cool. That's awesome to hear.",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "So Spark declarative pipelines comes with a different set of tools than maybe people are used to when it comes to like Spark submit or running their own jobs. I won't get into it too deeply, but when you initialize an SDP project, you create a YAML file spec.",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "that then contains your different configurations for your different files, that includes your code, and then you can then perform something like a Spark Pipelines dry run, and then submit that into Spark itself. So you can also do a normal run.",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "It really depends on if you want actual data to be processed, or if you just want it to like say double-check your logic for you, and make sure that you don't really have any issues.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "So assuming that you guys are unemployed right now, and you want to save money on compute, even if it's your local compute, I would highly recommend using dry run very liberally in your case.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "So you can see that SDP syntax requires declaring a table and we have the ability to use streaming as well as our normal declarative batch syntax as well. So we have this table here that's actually pulling from our Kafka service that we set up",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "earlier and is pulling out orders. We also have our materialized view and this is how we're building out the silver layer as well. And then we have our gold layers here. uh We don't really need to get into these transformations.",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "It really depends on what your data looks like. But this is just like a really simple high level overview of what, say, a Python script that utilizes SDP looks like. This is also terrifying in the command line. showing me where everything's going. Yeah.",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "thing about Spark Declarative Pipelines was the DAG for me personally. 431 00:33:48,968 --> 00:33:44,663 I'm just a simple person. I just like seeing the data flow. ah Yeah, and then you",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "a hardcore Vim user and you're a VS Code user, there are open source VS Code plugins that will allow you to visualize your DAGs, which is really awesome. So this is a look at the configuration file. Really simple.",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "You can see that it just has our libraries and the Python files that we're including. We declare our catalog and our directories and things like that. And so we're going to see what it actually looks like to run this really quickly so that",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "you have a good idea of what it looks like. We have our pipeline code and this is just piping out the logic back to us so that we see it, and then we can see these tables being made as well.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "Nothing that I would get too in the weeds of, but if you just want to see what the output of these lines are, especially if you want to play around with it at home, it's very easy to just take a look. run it through, and then see what the difference is.",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "So in this pipeline, really easily we're generating our silver and our gold tables through a really simple script. And then we're showing that this verifies and works. Okay then. So where does all the logging for this go?",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "Like if you get a bunch of errors, do you just have to search through this and hope that all of it's been saved? Spark does have a lot of logs. I think as a backup, it's really good practice just to keep these logs somewhere else",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "safe, especially if you're running so many different services that have their own logs as well. Log ingestion and debugging is a very different part of running a platform that I think is a little bit out of our scope. Nick, what do you think?",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "I we're maybe trying to cram too much into one thing one episode, but that's okay wanted the entirety of Databricks into one machine. This is what it looks like. That's fair. That is fair. we're gonna be busy. Good job we don't have a job anymore.",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "Does it feel clear how you run this in a networked environment with high powered clustered machines in a distributed system? Absolutely not. Yeah, yeah, I get it straight away. How's this hard? This is so easy. Yeah, great. Alright, tell us.",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "So I think where a lot of the complication comes from is really trying to run with multiple different clusters and jobs. And the reason why we need clusters and jobs and all these different things at scale is",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "because oftentimes the more our business grows, in this case, as you guys raise whatever series you want to raise around this data platform idea, you will eventually... have a need for more performance, more machines, more raw compute, and more reliability,",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "right? This idea of fault tolerance that you kind of need a job to complete no matter what. You need your data readily available uh no matter if there is a power outage, in my case San Francisco or not, et cetera.",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "And so the way that we do that is by building infrastructure around it that keeps things running smoothly. oftentimes, if you're then running with Spark declarative pipelines, which end with",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "Airflow at the same time, that gives you lot of coverage in terms of actually scaling this out as you're having multiple containers running at once. In each one of these, we've only had one container running one service, but you're likely",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "going to have like five to 10 Spark containers. After that, add to our diagram of scaling considerations. considerations I'm going to add in. 481 00:37:32,592 --> 00:37:31,375 you said multiple containers. And also you said around airflow.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "What other things do we need for our scaling considerations? Logging being expense? Yeah. healing for your containers, orchestrating them. Kubernetes and orchestration and then logging, which sounds like it's expensive,",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "I was going to put the dollar signs on its own row. Okay, more dollars. Excellent for infra. And our impending breakdowns as we've realised that we can't do this. I would also add you're gonna need more computers. computers.",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "Cool, it sounds like you guys have everything you need. This consulting session I'm gonna charge about five million for. I'll take it in stock, don't worry. But you guys will be good. Yeah. All right, are we ready to wrap up?",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "Nick, what do you think of our architecture? Five? It could be zero, could be ten, it could be five, I'm gonna give it five. I think we could always just git clone Lake House at home and that's like half of it. I feel like buried the lead there.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "Lisa already did the work. Yeah, I feel like as a local thing, like if it was just me wanting to play around and making my own free version, like, is it doable? Yeah, it looks like I could do it, but I don't know if it would be enjoyable.",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "It would setting up your own open source version be more enjoyable than using Databricks free edition? No. Thank I mean, if you're gonna do the Databricks comparison, then we have serverless Postgres, apps, I mean, it's not even close to being in comparison.",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "This is like maybe Databricks circa five years ago, so to speak, in terms of platform capability. em The features are of course all like, there's a bunch of modern stuff that's recent, but like as a platform, this is like, it's 50 % of the way there.",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, it doesn't even have its own agent, you know, I just bring my own. But having said which, you do have a lot of the interop there as well. So if you wanted to switch between, I think it's it's good if you want that flexibility, right?",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "Like if you want to switch between, you know, Spark or Trino or DuckDB or whatever, it does give you the feasibility to be able to do that, which you probably wouldn't have if you were using Databricks Free Edition.",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "But yeah, Nick, I think we've got to go beg for our jobs back, don't you? Uh, yeah. Yeah. It may be too late. All right then, that is it for this month. Thank you very much for watching all of this. What do you think when you see this?",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "Is this something that you want to give a go as a bit of a pet project? Is this something that you would reasonably set up by yourself? Definitely remember to go and check out Lisa's repo. We'll put that in a link down below.",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "Until then, we need to go get our jobs back and maybe we'll see you next month with some more Databricks features. All right. Thank you so much everyone. Thank you so much Lisa for joining us and doing this consulting. Bye bye bye. Bye. Say bye Lisa.",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "All right,",
+      "start": 1044,
+      "duration": 6
+    }
+  ]
+}

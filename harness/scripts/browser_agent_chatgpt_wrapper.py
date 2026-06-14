@@ -11,6 +11,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "lib"
@@ -25,7 +26,7 @@ from browser_use.browser.session import BrowserSession
 
 DEFAULT_URL = "https://chatgpt.com/"
 DEFAULT_USER_DATA_DIR = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
-DEFAULT_PROFILE_DIRECTORY = "Profile 1"
+DEFAULT_PROFILE_DIRECTORY = "Default"
 DEFAULT_BROWSER_CHANNEL = "chrome"
 DEFAULT_CHROME_EXECUTABLE = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 DEFAULT_ALLOWED_DOMAINS = ["chatgpt.com", "auth.openai.com", "challenges.cloudflare.com"]
@@ -47,6 +48,123 @@ def _headed_run_allowed() -> bool:
         "BROWSER_AGENT_ALLOW_HEADED",
         default=False,
     )
+
+
+def _env_disabled(*names: str) -> bool:
+    for name in names:
+        value = str(os.environ.get(name) or "").strip().lower()
+        if not value:
+            continue
+        return value in {"1", "true", "yes", "on"}
+    return False
+
+
+def _chatgpt_profile_policy_path() -> Path | None:
+    raw = str(
+        os.environ.get("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE")
+        or os.environ.get("BROWSER_AGENT_PROFILE_POLICY_FILE")
+        or os.environ.get("TECH_HOTSPOT_BROWSER_CHATGPT_PROFILE_POLICY_FILE")
+        or ""
+    ).strip()
+    if raw:
+        return Path(raw).expanduser()
+    default_path = Path.home() / ".solar" / "harness" / "browser-agent-chatgpt-local.json"
+    return default_path if default_path.exists() else None
+
+
+def _policy_key_for_purpose(purpose: str) -> str:
+    explicit = str(os.environ.get("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_KEY") or "").strip()
+    if explicit:
+        return explicit
+    lowered = str(purpose or "").lower()
+    if lowered.startswith("hf-paper-") or "hf-paper" in lowered:
+        return "hf_paper_insight"
+    if lowered.startswith("github-trend-report") or "github-trend-report" in lowered:
+        return "github_trend_report"
+    if lowered.startswith("ai-influence-report") or "ai-influence-report" in lowered:
+        return "ai_influence_report"
+    return "default"
+
+
+def _account_from_policy(policy: dict[str, Any]) -> str:
+    for key in ("expected_account_email", "selected_account_email", "target_account_email", "account_email"):
+        value = str(policy.get(key) or "").strip()
+        if value:
+            return value
+    allowed = policy.get("allowed_account_identifiers")
+    if isinstance(allowed, list):
+        for item in allowed:
+            value = str(item or "").strip()
+            if "@" in value:
+                return value
+    return ""
+
+
+def _select_chatgpt_profile_policy(purpose: str) -> dict[str, Any]:
+    if _env_disabled("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_DISABLED", "BROWSER_AGENT_PROFILE_POLICY_DISABLED"):
+        return {"enabled": False, "reason": "disabled_by_env"}
+    path = _chatgpt_profile_policy_path()
+    if path is None:
+        return {"enabled": False, "reason": "missing_policy_file"}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"browser_agent_profile_policy_load_failed:{path}:{type(exc).__name__}:{exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"browser_agent_profile_policy_invalid:{path}")
+    policies = data.get("policies") if isinstance(data.get("policies"), dict) else {}
+    policy_key = _policy_key_for_purpose(purpose)
+    policy = policies.get(policy_key) if isinstance(policies.get(policy_key), dict) else None
+    if policy is None:
+        policy = policies.get("default") if isinstance(policies.get("default"), dict) else data
+    if not isinstance(policy, dict):
+        raise RuntimeError(f"browser_agent_profile_policy_missing:{path}:{policy_key}")
+    allowed_profiles = [str(item).strip() for item in (policy.get("allowed_profiles") or []) if str(item).strip()]
+    selected_profile = ""
+    explicit_profile = str(
+        os.environ.get("BROWSER_AGENT_PROFILE_DIRECTORY")
+        or os.environ.get("TECH_HOTSPOT_BROWSER_CHATGPT_PROFILE_DIRECTORY")
+        or ""
+    ).strip()
+    if explicit_profile:
+        if allowed_profiles and explicit_profile not in allowed_profiles:
+            raise RuntimeError(
+                "browser_agent_profile_policy_profile_mismatch:"
+                f"profile={explicit_profile}:allowed={','.join(allowed_profiles)}"
+            )
+        selected_profile = explicit_profile
+    elif allowed_profiles:
+        selected_profile = allowed_profiles[0]
+    account_email = _account_from_policy(policy)
+    explicit_account = str(
+        os.environ.get("BROWSER_AGENT_CHATGPT_ACCOUNT_EMAIL")
+        or os.environ.get("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL")
+        or ""
+    ).strip()
+    if explicit_account and account_email and explicit_account.lower() != account_email.lower():
+        raise RuntimeError(
+            "browser_agent_profile_policy_account_mismatch:"
+            f"account={explicit_account}:expected={account_email}"
+        )
+    user_data_dir = str(policy.get("user_data_dir") or "").strip()
+    profile_strategy = str(policy.get("profile_strategy") or "").strip().lower()
+    if profile_strategy and profile_strategy not in {"persistent", "isolated"}:
+        raise RuntimeError(f"browser_agent_profile_policy_invalid_strategy:{profile_strategy}")
+    return {
+        "enabled": True,
+        "policy_path": str(path),
+        "policy_key": policy_key if policy_key in policies else ("default" if "default" in policies else policy_key),
+        "selected_profile_directory": selected_profile,
+        "selected_account_email": account_email,
+        "allowed_profiles": allowed_profiles,
+        "allow_headless": bool(policy.get("allow_headless", True)),
+        "force_headed": bool(policy.get("force_headed", False)),
+        "allow_default_profile": bool(policy.get("allow_default_profile", False)),
+        "scrub_client_state": policy.get("scrub_client_state"),
+        "profile_strategy": profile_strategy,
+        "user_data_dir": user_data_dir,
+        "ignore_explicit_profile_id": bool(policy.get("ignore_explicit_profile_id", True)),
+    }
 
 
 def _browser_channel() -> str:
@@ -96,16 +214,24 @@ def _browser_user_agent(*, browser_channel: str) -> str:
     return _build_mac_chrome_user_agent("148.0.0.0")
 
 
+def _disable_browser_extensions() -> bool:
+    return _env_flag(
+        "BROWSER_AGENT_CHATGPT_DISABLE_EXTENSIONS",
+        "BROWSER_AGENT_DISABLE_EXTENSIONS",
+        default=True,
+    )
+
+
 def _challenge_grace_seconds() -> float:
     raw = str(
         os.environ.get("BROWSER_AGENT_CHATGPT_CHALLENGE_GRACE_SECONDS")
         or os.environ.get("BROWSER_AGENT_CHALLENGE_GRACE_SECONDS")
-        or "20"
+        or "75"
     ).strip()
     try:
         value = float(raw)
     except ValueError:
-        value = 20.0
+        value = 75.0
     return max(0.0, value)
 
 
@@ -114,6 +240,49 @@ def _challenge_persisted_too_long(challenge_since: float | None, *, now: float |
         return False
     deadline = challenge_since + (grace_s if grace_s is not None else _challenge_grace_seconds())
     return (now if now is not None else time.time()) >= deadline
+
+
+def _minimum_answer_chars() -> int:
+    raw = str(
+        os.environ.get("BROWSER_AGENT_CHATGPT_MIN_ANSWER_CHARS")
+        or os.environ.get("BROWSER_AGENT_MIN_ANSWER_CHARS")
+        or "0"
+    ).strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def _should_attempt_reasoning_retry(post_submit: dict, *, elapsed_s: float, retried: bool) -> bool:
+    if retried or elapsed_s < float(os.environ.get("BROWSER_AGENT_CHATGPT_REASONING_RETRY_AFTER_SECONDS") or os.environ.get("BROWSER_AGENT_REASONING_RETRY_AFTER_SECONDS") or 20):
+        return False
+    return (
+        bool(post_submit.get("is_generating"))
+        and int(post_submit.get("assistant_count") or 0) == 0
+        and int(post_submit.get("message_count") or 0) > 0
+        and bool(str(post_submit.get("conversation_id") or "").strip())
+    )
+
+
+def _normalize_capture_payload(payload: dict) -> dict:
+    normalized = dict(payload or {})
+    latest = str(normalized.get("latest_assistant_text") or "").strip()
+    status_only = {"正在思考", "已思考", "thinking", "reasoning"}
+    normalized["latest_assistant_text_raw"] = latest
+    if latest and any(latest.lower().startswith(item) for item in status_only):
+        assistant_texts = [
+            str(msg.get("text") or "").strip()
+            for msg in (normalized.get("messages") or [])
+            if isinstance(msg, dict) and msg.get("role") == "assistant"
+        ]
+        substantive = [
+            text
+            for text in assistant_texts
+            if text and not any(text.lower().startswith(item) for item in status_only)
+        ]
+        normalized["latest_assistant_text"] = substantive[-1] if substantive else ""
+    return normalized
 
 CAPTURE_JS = r"""() => {
   const clean = (value) => String(value || "")
@@ -151,11 +320,14 @@ CAPTURE_JS = r"""() => {
   const latestAssistant = [...messages].reverse().find((item) => item.role === "assistant") || null;
   const composer = document.querySelector("#prompt-textarea, div[contenteditable='true'][role='textbox'], textarea[name='prompt-textarea']");
   const lowered = stripNoise(textFrom(document.body)).toLowerCase();
-  const challengeWall = /cloudflare|turnstile|checking your browser|verify you are human|请稍候|正在验证|验证你是真人/i.test(
-    `${document.title || ""}\n${location.href}\n${lowered}`
-  ) || Array.from(document.querySelectorAll("iframe")).some((iframe) =>
+  // Keep this narrow: normal chats/sidebar titles can mention Cloudflare.
+  const titleAndUrl = `${document.title || ""}\n${location.href}`;
+  const challengeFrame = Array.from(document.querySelectorAll("iframe")).some((iframe) =>
     /challenges\.cloudflare\.com|turnstile/i.test(String(iframe.src || ""))
   );
+  const challengeTitleOrUrl = /cloudflare|turnstile|challenges\.cloudflare\.com/i.test(titleAndUrl);
+  const explicitHumanCheck = /checking your browser|verify you are human|just a moment|正在验证|验证你是真人/i.test(lowered);
+  const challengeWall = challengeFrame || challengeTitleOrUrl || (explicitHumanCheck && !composer);
   const loginWallCue = [
     "log in",
     "sign in",
@@ -166,12 +338,18 @@ CAPTURE_JS = r"""() => {
     "使用 google 账户继续",
     "使用 apple 账户继续"
   ].some((cue) => lowered.includes(cue));
+  const actionLabels = Array.from(document.querySelectorAll("button,a,[role='button'],[role='menuitem'],[role='menuitemradio']"))
+    .map((el) => clean(el.getAttribute("aria-label") || el.textContent || ""))
+    .filter(Boolean);
+  const loginActionVisible = actionLabels.some((label) =>
+    /^(log in|sign in|login|sign up|登录|免费注册|注册)$/i.test(label)
+  );
   const stopButton = Array.from(document.querySelectorAll("button")).find((btn) => {
     const label = clean(btn.getAttribute("aria-label") || btn.textContent || "");
     return /(stop|停止|停止生成|中止|cancel)/i.test(label);
   });
   const conversationMatch = location.pathname.match(/\/c\/([^/?#]+)/);
-  const loginWall = loginWallCue && !composer && messages.length === 0 && !conversationMatch;
+  const loginWall = loginWallCue && messages.length === 0 && !conversationMatch && (!composer || loginActionVisible);
   return JSON.stringify({
     title: document.title || "",
     url: location.href,
@@ -179,6 +357,7 @@ CAPTURE_JS = r"""() => {
     conversation_id: conversationMatch ? decodeURIComponent(conversationMatch[1]) : "",
     login_wall: loginWall,
     challenge_wall: challengeWall,
+    challenge_reason: challengeFrame ? "challenge_frame" : (challengeTitleOrUrl ? "title_or_url" : (explicitHumanCheck && !composer ? "explicit_human_check" : "")),
     composer_ready: !!composer,
     is_generating: !!stopButton,
     message_count: messages.length,
@@ -279,6 +458,80 @@ COMPOSER_STATE_JS = r"""() => {
   return JSON.stringify({ ok: true, text_length: text.length, tag: composer.tagName, id: composer.id || "" });
 }"""
 
+CLEAR_PROMPT_JS = r"""() => {
+  const visible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  };
+  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], textarea[name='prompt-textarea'], textarea"));
+  const composer = candidates.find(visible) || candidates[0];
+  if (!composer) return JSON.stringify({ ok: false, error: "composer_not_found" });
+  composer.focus();
+  if (composer.tagName === "TEXTAREA") {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+    if (setter) setter.call(composer, "");
+    else composer.value = "";
+  } else {
+    composer.innerText = "";
+    composer.textContent = "";
+  }
+  composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
+  composer.dispatchEvent(new Event("change", { bubbles: true }));
+  return JSON.stringify({ ok: true, tag: composer.tagName, id: composer.id || "" });
+}"""
+
+DISMISS_BLOCKING_MODALS_JS = r"""() => {
+  const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const visible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  };
+  const modalSelector = [
+    "dialog[open]",
+    "[role='dialog']",
+    "[aria-modal='true']",
+    "[data-testid*='cookie' i]",
+    "[id*='cookie' i]",
+    "[class*='cookie' i]",
+  ].join(",");
+  const modals = Array.from(document.querySelectorAll(modalSelector)).filter(visible);
+  const consentLike = (text) =>
+    /(cookie|consent|privacy|cookies|tracking|偏好|隐私|同意|接受|使用 Cookie|使用 cookie|使用条款|条款)/i.test(text);
+  const actionLike = (text) =>
+    /^(accept all|accept|agree|allow|ok|okay|got it|continue|dismiss|close|同意|接受|全部接受|允许|好的|知道了|我知道了|继续|关闭)$/i.test(text);
+  const clickNode = (node) => {
+    node.scrollIntoView({ block: "center", inline: "center" });
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
+      node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    }
+    node.click();
+  };
+  const clicked = [];
+  for (const modal of modals) {
+    const modalText = clean(modal.innerText || modal.textContent || "");
+    const modalId = clean(`${modal.id || ""} ${modal.getAttribute("data-testid") || ""} ${modal.className || ""}`);
+    if (!consentLike(`${modalText} ${modalId}`)) continue;
+    const actions = Array.from(modal.querySelectorAll("button,[role='button'],a"))
+      .filter(visible)
+      .map((node) => ({
+        node,
+        text: clean(node.innerText || node.textContent || ""),
+        aria: clean(node.getAttribute("aria-label") || ""),
+        title: clean(node.getAttribute("title") || ""),
+      }));
+    const action = actions.find((item) => actionLike(clean(`${item.text} ${item.aria} ${item.title}`)))
+      || actions.find((item) => /(accept|agree|allow|同意|接受|允许|ok|close|关闭)/i.test(`${item.text} ${item.aria} ${item.title}`));
+    if (!action) continue;
+    clickNode(action.node);
+    clicked.push({ text: action.text, aria: action.aria, modal: modalId || modalText.slice(0, 80) });
+  }
+  return JSON.stringify({ ok: true, dismissed_count: clicked.length, clicked });
+}"""
+
 SUBMIT_JS = r"""() => {
   const visible = (el) => {
     if (!el) return false;
@@ -287,22 +540,26 @@ SUBMIT_JS = r"""() => {
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
   const candidates = [
-    "form button[type='submit']",
-    "button[type='submit']",
-    "button[data-testid='send-button']",
-    "button[data-testid='composer-send-button']",
-    "button[aria-label*='Send']",
-    "button[aria-label*='send']",
-    "button[aria-label*='发送']",
-    "button.composer-submit-button-color[type='button']",
-    "button.composer-submit-button-color",
+    { selector: "button[data-testid='send-button']", strict: false },
+    { selector: "button[data-testid='composer-send-button']", strict: false },
+    { selector: "button[aria-label*='Send']", strict: false },
+    { selector: "button[aria-label*='send']", strict: false },
+    { selector: "button[aria-label*='发送']", strict: false },
+    { selector: "button.composer-submit-button-color[type='button']", strict: false },
+    { selector: "button.composer-submit-button-color", strict: false },
+    { selector: "form button[type='submit']", strict: true },
+    { selector: "button[type='submit']", strict: true },
   ];
-  for (const selector of candidates) {
+  const sendLike = (label) => /send|发送|提交|送出/i.test(label);
+  const rejectLike = (label) => /语音|voice|stop|停止|cancel|中止|continue|继续|resume|next|下一步|confirm|确认/i.test(label);
+  for (const candidate of candidates) {
+    const selector = candidate.selector;
     const buttons = Array.from(document.querySelectorAll(selector));
     for (const button of buttons) {
       if (!visible(button)) continue;
-      const label = String(button.getAttribute("aria-label") || button.textContent || "").trim();
-      if (/语音|voice|stop|停止|cancel|中止/i.test(label)) continue;
+      const label = String(button.getAttribute("aria-label") || button.getAttribute("title") || button.textContent || "").trim();
+      if (rejectLike(label)) continue;
+      if (candidate.strict && !sendLike(label)) continue;
       const disabled = button.disabled || button.getAttribute("aria-disabled") === "true";
       if (disabled) continue;
       button.click();
@@ -510,6 +767,7 @@ CONFIGURE_CHATGPT_UI_JS = r"""(settings) => new Promise(async (resolve) => {
       if (!isActionNode(el) || rejectChromeNoise(text, aria)) return false;
       if ((text + " " + aria).length > 180) return false;
       if (/个人资料|profile|Li Sihao Pro/i.test(text + " " + aria)) return false;
+      if (/\b(log in|sign in)\b|登录|免费注册|注册/i.test(text + " " + aria)) return false;
       return modelMatches(text, aria, el);
     });
     steps.push({ step: "select_model_mode", mode: modelMode || "thinking", ok: !!selected, clicked: selected });
@@ -529,6 +787,7 @@ CONFIGURE_CHATGPT_UI_JS = r"""(settings) => new Promise(async (resolve) => {
         if ((text + " " + aria).length > 180) return false;
         if (el.tagName === "A" && /\/c\//.test(String(el.getAttribute("href") || ""))) return false;
         const joined = `${text} ${aria}`;
+        if (/\b(log in|sign in)\b|登录|免费注册|注册/i.test(joined)) return false;
         return /(High|Think longer|思考时间更长|思考深度|深度思考|深入思考|更长时间思考|高强度|进阶专业|Pro\s*思考)/i.test(joined);
       });
       steps.push({ step: "select_high_reasoning", ok: !!high, clicked: high });
@@ -733,21 +992,56 @@ def _kill_browser_profile_processes(profile_dir: Path | None) -> None:
         pass
 
 
+def _refresh_persistent_profile_after_login_wall(
+    *,
+    user_data_dir: Path,
+    profile_directory: str,
+    profile_strategy: str,
+    profile_policy: dict[str, Any],
+) -> dict[str, Any]:
+    if profile_strategy != "persistent":
+        return {"attempted": False, "reason": "not_persistent"}
+    if not profile_policy.get("enabled"):
+        return {"attempted": False, "reason": "policy_disabled"}
+    try:
+        refreshed = bjrt.prepare_browser_profile_runtime(
+            user_data_dir,
+            profile_directory,
+            refresh=True,
+        )
+    except Exception as exc:
+        return {
+            "attempted": True,
+            "ok": False,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+    return {
+        "attempted": True,
+        "ok": bool(refreshed),
+        "refreshed_runtime_root": str(refreshed) if refreshed else "",
+    }
+
+
 def _prompt_from_stdin() -> str:
     prompt = sys.stdin.read()
     action = str(os.environ.get("BROWSER_AGENT_CHATGPT_ACTION") or "run").strip().lower()
-    if not prompt.strip() and action not in {"poll", "collect"}:
+    if not prompt.strip() and action not in {"poll", "collect", "login_hold"}:
         raise SystemExit("stdin prompt is empty")
     return prompt
 
 
 async def _wait_for_ready(page, *, timeout_s: int = 60) -> dict:
-    deadline = time.time() + timeout_s
+    challenge_grace_s = _challenge_grace_seconds()
+    effective_timeout_s = max(timeout_s, int(challenge_grace_s) + 30)
+    deadline = time.time() + effective_timeout_s
     last_data = {}
     refresh_count = 0
     challenge_since: float | None = None
-    challenge_grace_s = _challenge_grace_seconds()
     while time.time() < deadline:
+        dismiss_note = await _dismiss_blocking_modals(page)
+        if int(dismiss_note.get("dismissed_count") or 0) > 0:
+            await asyncio.sleep(0.8)
         data = json.loads(await page.evaluate(CAPTURE_JS))
         last_data = data
         if data.get("login_wall"):
@@ -791,6 +1085,131 @@ async def _wait_for_ready(page, *, timeout_s: int = 60) -> dict:
     )
 
 
+async def _dismiss_blocking_modals(page) -> dict:
+    try:
+        return json.loads(await page.evaluate(DISMISS_BLOCKING_MODALS_JS))
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "dismissed_count": 0}
+
+
+async def _hold_for_login(page, request_dir: Path, *, timeout_s: int) -> dict:
+    deadline = time.time() + max(30, timeout_s)
+    last_state: dict = {}
+    while time.time() < deadline:
+        try:
+            await _dismiss_blocking_modals(page)
+            state = json.loads(await page.evaluate(CAPTURE_JS))
+        except Exception as exc:
+            state = {"error": f"{type(exc).__name__}: {exc}"}
+        last_state = state
+        _write_json(request_dir / "login-hold-state.json", {
+            "ok": bool(state.get("composer_ready")) and not bool(state.get("login_wall")) and not bool(state.get("challenge_wall")),
+            "checked_at": bjrt._now(),
+            "state": state,
+        })
+        if state.get("composer_ready") and not state.get("login_wall") and not state.get("challenge_wall"):
+            return {"ok": True, "status": "logged_in", "state": state}
+        await asyncio.sleep(3.0)
+    return {"ok": False, "status": "timeout", "state": last_state}
+
+
+async def _capture_isolation_state(page) -> dict:
+    data = json.loads(await page.evaluate(CAPTURE_JS))
+    try:
+        composer_state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
+    except Exception as exc:
+        composer_state = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    data["_composer_state"] = composer_state
+    data["composer_text_length"] = int(composer_state.get("text_length") or 0) if composer_state.get("ok") else None
+    return data
+
+
+def _is_blank_chat_state(state: dict) -> bool:
+    return (
+        bool(state.get("composer_ready"))
+        and not str(state.get("conversation_id") or "").strip()
+        and int(state.get("message_count") or 0) == 0
+        and int(state.get("composer_text_length") or 0) == 0
+    )
+
+
+def _isolation_state_summary(state: dict) -> dict:
+    return {
+        "url": state.get("url"),
+        "conversation_id": state.get("conversation_id"),
+        "message_count": state.get("message_count"),
+        "assistant_count": state.get("assistant_count"),
+        "composer_ready": state.get("composer_ready"),
+        "composer_text_length": state.get("composer_text_length"),
+        "challenge_wall": state.get("challenge_wall"),
+        "login_wall": state.get("login_wall"),
+    }
+
+
+async def _clear_prompt_box(page) -> dict:
+    clear_note = json.loads(await page.evaluate(CLEAR_PROMPT_JS))
+    try:
+        await page.press("Meta+A")
+        await asyncio.sleep(0.1)
+        await page.press("Backspace")
+        await asyncio.sleep(0.2)
+    except Exception:
+        pass
+    try:
+        state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
+    except Exception as exc:
+        state = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {"clear": clear_note, "state": state}
+
+
+async def _force_new_blank_chat(page, *, request_dir: Path | None = None, timeout_s: int = 45) -> dict:
+    result: dict[str, Any] = {"ok": False, "steps": []}
+
+    async def record(label: str) -> dict:
+        state = await _capture_isolation_state(page)
+        step = {"step": label, **_isolation_state_summary(state)}
+        result["steps"].append(step)
+        return state
+
+    new_chat_step = json.loads(await page.evaluate(NEW_CHAT_JS))
+    result["steps"].append({"step": "click_new_chat", **new_chat_step})
+    await asyncio.sleep(1.5)
+    await _wait_for_ready(page, timeout_s=timeout_s)
+    await _clear_prompt_box(page)
+    state = await record("after_new_chat")
+    if _is_blank_chat_state(state):
+        result.update({"ok": True, "ready": _isolation_state_summary(state)})
+        return result
+
+    try:
+        await page.goto(DEFAULT_URL)
+    except Exception:
+        await page.navigate(DEFAULT_URL)
+    await asyncio.sleep(1.5)
+    await _wait_for_ready(page, timeout_s=timeout_s)
+    await _clear_prompt_box(page)
+    state = await record("after_root_navigation")
+    if _is_blank_chat_state(state):
+        result.update({"ok": True, "ready": _isolation_state_summary(state)})
+        return result
+
+    retry_step = json.loads(await page.evaluate(NEW_CHAT_JS))
+    result["steps"].append({"step": "click_new_chat_retry", **retry_step})
+    await asyncio.sleep(1.5)
+    await _wait_for_ready(page, timeout_s=timeout_s)
+    await _clear_prompt_box(page)
+    state = await record("after_new_chat_retry")
+    if _is_blank_chat_state(state):
+        result.update({"ok": True, "ready": _isolation_state_summary(state)})
+        return result
+
+    result["error"] = "chatgpt_new_chat_did_not_create_blank_chat"
+    result["ready"] = _isolation_state_summary(state)
+    if request_dir is not None:
+        _write_json(request_dir / "new-chat-isolation-failed.json", result)
+    return result
+
+
 async def _ensure_prompt_visible(page, prompt: str) -> dict:
     composer_state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
     minimum_visible_chars = max(10, min(len(prompt.strip()), 80))
@@ -820,6 +1239,7 @@ async def _wait_for_prompt_submission(page, baseline_message_count: int, *, time
 
 
 async def _submit_prompt(page, prompt: str) -> dict:
+    await _dismiss_blocking_modals(page)
     baseline = json.loads(await page.evaluate(CAPTURE_JS))
     baseline_message_count = int(baseline.get("message_count") or 0)
     if len(prompt) > 1000 or "\n" in prompt:
@@ -830,7 +1250,7 @@ async def _submit_prompt(page, prompt: str) -> dict:
                 composer_state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
                 submit_note = json.loads(await page.evaluate(SUBMIT_JS))
                 if not submit_note.get("ok") and int(composer_state.get("text_length") or 0) > 0:
-                    await page.press("Enter")
+                    await page.press("Meta+Enter")
                     submit_note = {"mode": "enter_key_after_keyboard_insert", "js_error": submit_note.get("error")}
                 post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
                 post_submit["_submit_note"] = {
@@ -869,7 +1289,10 @@ async def _submit_prompt(page, prompt: str) -> dict:
             post_submit["_composer_state_before_submit"] = clipboard_note.get("composer_state_after_paste") or {}
             if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
                 return post_submit
-            await page.press("Meta+Enter")
+            await page.press("Enter")
+            await asyncio.sleep(0.8)
+            if int((json.loads(await page.evaluate(CAPTURE_JS))).get("message_count") or 0) == baseline_message_count:
+                await page.press("Meta+Enter")
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
             post_submit["_submit_note"] = {"mode": "clipboard_paste_meta_enter_retry", "clipboard": clipboard_note}
             post_submit["_composer_state_before_submit"] = clipboard_note.get("composer_state_after_paste") or {}
@@ -978,15 +1401,25 @@ async def _keyboard_insert_prompt(page, prompt: str) -> dict:
 async def _clipboard_paste_and_submit(page, prompt: str) -> dict:
     old_clip = ""
     restored = False
+    baseline_message_count = 0
     try:
         old_clip = subprocess.run(["pbpaste"], check=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=3).stdout
     except Exception:
         old_clip = ""
     try:
+        await _dismiss_blocking_modals(page)
+        baseline = json.loads(await page.evaluate(CAPTURE_JS))
+        baseline_message_count = int(baseline.get("message_count") or 0)
         subprocess.run(["pbcopy"], input=prompt, text=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
         focused = json.loads(await page.evaluate(FOCUS_COMPOSER_JS))
         if not focused.get("ok"):
             raise RuntimeError(f"composer_focus_failed:{focused}")
+        clear_note = await _clear_prompt_box(page)
+        if int((clear_note.get("state") or {}).get("text_length") or 0) > 0:
+            await page.press("Meta+A")
+            await asyncio.sleep(0.1)
+            await page.press("Backspace")
+            await asyncio.sleep(0.2)
         await page.press("Meta+A")
         await asyncio.sleep(0.2)
         await page.press("Meta+V")
@@ -995,9 +1428,13 @@ async def _clipboard_paste_and_submit(page, prompt: str) -> dict:
         submit_result = json.loads(await page.evaluate(SUBMIT_JS))
         if not submit_result.get("ok") and int(state.get("text_length") or 0) > 0:
             await page.press("Enter")
+            await asyncio.sleep(0.8)
+            submitted_state = json.loads(await page.evaluate(CAPTURE_JS))
+            if int(submitted_state.get("message_count") or 0) <= baseline_message_count and not submitted_state.get("is_generating"):
+                await page.press("Meta+Enter")
         elif not submit_result.get("ok"):
             await page.press("Meta+Enter")
-        return {"ok": True, "composer_state_after_paste": state, "submit_result": submit_result}
+        return {"ok": True, "composer_state_after_paste": state, "submit_result": submit_result, "clear": clear_note}
     finally:
         try:
             subprocess.run(["pbcopy"], input=old_clip, text=True, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
@@ -1043,6 +1480,26 @@ async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: in
     if first_response_seen:
         return json.loads(await page.evaluate(CAPTURE_JS))
     raise TimeoutError("chatgpt_response_timeout")
+
+
+async def _continue_if_answer_too_short(page, final_data: dict, *, min_chars: int, timeout_s: int) -> dict:
+    latest = str(final_data.get("latest_assistant_text") or "").strip()
+    if min_chars <= 0 or len(latest) >= min_chars:
+        return final_data
+    baseline_assistant_count = int(final_data.get("assistant_count") or 0)
+    continuation_prompt = (
+        "上一条回复只是确认或摘要，没有完成原始任务。"
+        f"请立即基于上方已经提交的全部输入，输出完整结果，正文不少于 {min_chars} 个字符。"
+        "不要解释、不要确认、不要说你将要做什么，直接从报告标题开始写完整正文。"
+    )
+    await _submit_prompt(page, continuation_prompt)
+    continued = await _wait_for_answer(page, baseline_assistant_count, timeout_s=timeout_s)
+    continued["_continuation_trigger"] = {
+        "reason": "answer_too_short",
+        "previous_chars": len(latest),
+        "min_chars": min_chars,
+    }
+    return continued
 
 
 async def _write_conversation_artifacts(
@@ -1315,8 +1772,15 @@ async def _run(prompt: str) -> int:
     expected = str(os.environ.get("BROWSER_AGENT_EXPECTED_OUTPUT") or "markdown").strip().lower()
     model = str(os.environ.get("CHATGPT_MODEL") or "chatgpt-5.5").strip()
     reasoning_effort = str(os.environ.get("CHATGPT_REASONING_EFFORT") or "high").strip().lower()
+    purpose = str(os.environ.get("BROWSER_AGENT_PURPOSE") or request_dir.name or "").strip()
+    profile_policy = _select_chatgpt_profile_policy(purpose)
     profile_directory = str(os.environ.get("BROWSER_AGENT_PROFILE_DIRECTORY") or DEFAULT_PROFILE_DIRECTORY)
     user_data_dir = Path(os.environ.get("BROWSER_AGENT_USER_DATA_DIR") or str(DEFAULT_USER_DATA_DIR)).expanduser()
+    if profile_policy.get("enabled"):
+        if profile_policy.get("selected_profile_directory"):
+            profile_directory = str(profile_policy.get("selected_profile_directory"))
+        if profile_policy.get("user_data_dir"):
+            user_data_dir = Path(str(profile_policy.get("user_data_dir"))).expanduser()
     target_url = str(os.environ.get("BROWSER_AGENT_CHATGPT_URL") or DEFAULT_URL)
     action = str(os.environ.get("BROWSER_AGENT_CHATGPT_ACTION") or "run").strip().lower()
     collect_url = str(os.environ.get("BROWSER_AGENT_CHATGPT_CONVERSATION_URL") or "").strip()
@@ -1338,6 +1802,8 @@ async def _run(prompt: str) -> int:
         or os.environ.get("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL")
         or ""
     ).strip()
+    if profile_policy.get("enabled") and profile_policy.get("selected_account_email"):
+        account_email = str(profile_policy.get("selected_account_email") or "").strip()
     headless = _env_flag("BROWSER_AGENT_HEADLESS", default=False)
     headed_allowed = _headed_run_allowed()
     profile_strategy = str(
@@ -1345,6 +1811,14 @@ async def _run(prompt: str) -> int:
         or os.environ.get("BROWSER_AGENT_PROFILE_STRATEGY")
         or "persistent"
     ).strip().lower()
+    if profile_policy.get("enabled"):
+        if profile_policy.get("force_headed") or not bool(profile_policy.get("allow_headless", True)):
+            headless = False
+            headed_allowed = True
+        if profile_policy.get("profile_strategy"):
+            profile_strategy = str(profile_policy.get("profile_strategy"))
+        if profile_policy.get("scrub_client_state") is not None:
+            scrub_client_state = bool(profile_policy.get("scrub_client_state"))
     if profile_strategy not in {"persistent", "isolated"}:
         profile_strategy = "persistent"
     browser_channel = _browser_channel()
@@ -1394,6 +1868,9 @@ async def _run(prompt: str) -> int:
         "scrub_client_state": scrub_client_state,
         "scrubbed_client_state": scrubbed_client_state,
         "account_email_hint_present": bool(account_email),
+        "profile_policy": profile_policy,
+        "user_data_dir": str(user_data_dir),
+        "staged_user_data_dir": str(staged_dir) if staged_dir else "",
         "request_dir": str(request_dir),
         "started_at": bjrt._now(),
     }
@@ -1409,7 +1886,11 @@ async def _run(prompt: str) -> int:
         user_data_dir=str(user_data_dir),
         staged_user_data_dir=str(staged_dir),
         account_identifier=account_email or None,
-        explicit_profile_id=str(os.environ.get("BROWSER_AGENT_PROFILE_ID") or "").strip() or None,
+        explicit_profile_id=(
+            None
+            if profile_policy.get("enabled") and profile_policy.get("ignore_explicit_profile_id")
+            else str(os.environ.get("BROWSER_AGENT_PROFILE_ID") or "").strip() or None
+        ),
         task_id=str(os.environ.get("TASK_ID") or request_dir.name),
         control_modes={
             "browser_use_session": True,
@@ -1438,7 +1919,7 @@ async def _run(prompt: str) -> int:
         )
     )
     try:
-        await asyncio.wait_for(browser.start(), timeout=40)
+        await asyncio.wait_for(browser.start(), timeout=180)
         brtc.update_runtime_endpoint(
             control_ctx,
             cdp_url=str(getattr(browser, "cdp_url", "") or ""),
@@ -1454,6 +1935,22 @@ async def _run(prompt: str) -> int:
             await asyncio.wait_for(page.goto(target_url), timeout=30)
         except Exception:
             await asyncio.wait_for(page.navigate(target_url), timeout=30)
+        if action == "login_hold":
+            hold = await _hold_for_login(page, request_dir, timeout_s=timeout_s)
+            _write_json(request_dir / "login-hold-result.json", hold)
+            final_page_state = {
+                "url": (hold.get("state") or {}).get("url"),
+                "conversation_id": (hold.get("state") or {}).get("conversation_id"),
+                "message_count": (hold.get("state") or {}).get("message_count"),
+                "assistant_count": (hold.get("state") or {}).get("assistant_count"),
+                "login_wall": (hold.get("state") or {}).get("login_wall"),
+                "challenge_wall": (hold.get("state") or {}).get("challenge_wall"),
+            }
+            if hold.get("ok"):
+                logged_in_verified = True
+                print(json.dumps(hold, ensure_ascii=False))
+                return 0
+            raise RuntimeError("chatgpt_login_hold_timeout")
         try:
             ready = await _wait_for_ready(page, timeout_s=90)
         except Exception:
@@ -1481,15 +1978,14 @@ async def _run(prompt: str) -> int:
             "challenge_wall": ready.get("challenge_wall"),
         }
         if action == "run" and not open_project_first and (force_new_chat or int(ready.get("message_count") or 0) > 0):
-            new_chat_step = json.loads(await page.evaluate(NEW_CHAT_JS))
-            await asyncio.sleep(1.5)
-            ready = await _wait_for_ready(page, timeout_s=45)
-            _write_json(request_dir / "new-chat-result.json", {
-                "step": new_chat_step,
-                "ready": ready,
-            })
-            if int(ready.get("message_count") or 0) > 0:
-                raise RuntimeError("chatgpt_new_chat_did_not_clear_existing_conversation")
+            new_chat_result = await _force_new_blank_chat(page, request_dir=request_dir, timeout_s=45)
+            _write_json(request_dir / "new-chat-result.json", new_chat_result)
+            if not new_chat_result.get("ok"):
+                raise RuntimeError(
+                    "chatgpt_new_chat_did_not_clear_existing_conversation: "
+                    + json.dumps(new_chat_result.get("ready") or {}, ensure_ascii=False)
+                )
+            ready = json.loads(await page.evaluate(CAPTURE_JS))
         if action in {"poll", "collect"}:
             final_data = json.loads(await page.evaluate(CAPTURE_JS))
             if final_data.get("is_generating") or not str(final_data.get("latest_assistant_text") or "").strip():
@@ -1687,6 +2183,14 @@ async def _run(prompt: str) -> int:
             print(json.dumps(submitted, ensure_ascii=False))
             return 0
         final_data = await _wait_for_answer(page, baseline_assistant_count, timeout_s=timeout_s)
+        final_data = _normalize_capture_payload(final_data)
+        final_data = await _continue_if_answer_too_short(
+            page,
+            final_data,
+            min_chars=_minimum_answer_chars(),
+            timeout_s=timeout_s,
+        )
+        final_data = _normalize_capture_payload(final_data)
         final_page_state = {
             "url": final_data.get("url"),
             "conversation_id": final_data.get("conversation_id"),
@@ -1706,7 +2210,7 @@ async def _run(prompt: str) -> int:
         if not latest:
             raise RuntimeError("chatgpt_latest_assistant_text_empty")
 
-        if project_name:
+        if project_name and (open_project_first or require_project):
             project_result = await _move_current_conversation_to_project(page, project_name)
             _write_json(request_dir / "project-archive-result.json", project_result)
             if require_project and not project_result.get("ok"):
@@ -1724,6 +2228,25 @@ async def _run(prompt: str) -> int:
         except Exception:
             pass
         _kill_browser_profile_processes(staged_dir)
+        if final_error_text == "chatgpt_login_wall_detected":
+            try:
+                refresh_note = _refresh_persistent_profile_after_login_wall(
+                    user_data_dir=user_data_dir,
+                    profile_directory=profile_directory,
+                    profile_strategy=profile_strategy,
+                    profile_policy=profile_policy,
+                )
+                _write_json(request_dir / "profile-refresh-after-login-wall.json", refresh_note)
+            except Exception as exc:
+                _write_json(
+                    request_dir / "profile-refresh-after-login-wall.json",
+                    {
+                        "attempted": True,
+                        "ok": False,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
         if cleanup_dir is not None:
             shutil.rmtree(cleanup_dir, ignore_errors=True)
         brtc.finalize_runtime_contract(

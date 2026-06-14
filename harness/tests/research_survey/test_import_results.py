@@ -387,6 +387,44 @@ Relevant Quotes:
     assert payload["finalize"]["ok"] is True
 
 
+def test_survey_auto_source_writes_returned_sources_from_search_hits(tmp_path, monkeypatch, capsys):
+    from research import cli
+
+    (tmp_path / "survey_source_gap.json").write_text(
+        json.dumps({"missing_source_types": ["paper", "code"]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    def fake_web_search(query, max_results, provider="auto"):
+        return [
+            {
+                "title": f"Result for {query}",
+                "url": f"https://example.com/{len(query)}",
+                "snippet": "Agent systems need runtime evaluation and deployment evidence.",
+                "connector": provider,
+            }
+        ], []
+
+    monkeypatch.setattr(cli, "web_search", fake_web_search)
+    rc = main([
+        "survey-auto-source",
+        "--output-dir", str(tmp_path),
+        "--brief", "Agent system architecture",
+        "--provider", "auto",
+        "--max-results", "1",
+        "--json",
+    ])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["hit_count"] >= 2
+    text = (tmp_path / "returned_sources.md").read_text(encoding="utf-8")
+    assert "## Source 1:" in text
+    assert "Source Type: paper" in text
+    assert "Source Type: code" in text
+
+
 def test_parse_survey_search_markdown_accepts_gemini_deep_search_report_format():
     markdown = """# Gemini Deep Search
 

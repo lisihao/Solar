@@ -1,0 +1,289 @@
+{
+  "videoId": "3l11oLIeCjo",
+  "title": "SREcon26 Americas - Beyond Blanket Freezes: Enabling Safe Innovation During Critical Events at...",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 13475,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Thank you. Let's start with a story\nhere. Picture this. A Squid Game level\nglobal launch. Massive high traffic\nprojected to blow past peak. So, we do\nthe responsible thing. We declare a\nblanket deployment freeze. Nothing\nships, so nothing breaks. Teams keep\nbuilding though. Features, performance\nfixes, capacity tweaks, it's all\nstacking up behind that freeze. Launch\nday hits, traffic ramps up, and then one\nregion starts to wobble. You're seeing\nerrors climbing, latency spiking, and we\nrealize there is a capacity improvement\nwe made last week exactly for this\nscenario which is sitting behind the\nfreeze. So we are riding the launch with\nlast month's capacity profile\nand then fast forward the freeze lifts\nand we push a huge batch of changes. If\nsomething breaks your suspect list\neverything well show of hand who here\nhas been in a no one deploys for a week\nkind of freeze.\nOh, all of you. Excellent.\nAll right. Hi everybody. I'm Pachchi.\nI'm an S sur in the security engineering\nat Netflix. Mostly focused on making\nchanges safer without slowing people\ndown.\n>> And I'm Sandia, a technical program\nmanager at Netflix. Um we are the people\nwho are extremely averse to risk but\nalso hyperallergic to stopping our\nengineers from shipping.\nSo in this session we'll share about how\nwe think about risk and how we avoid\nblanket freezes. So, welcome to our talk\non beyond blanket freezes.\nWe want to uh we'll talk a little bit\nabout how we went from no changes\nallowed to allowing some changes during\nsome of the most critical events at\nNetflix.\nWe'll spend the next 15 minutes talking\nabout what's wrong with blanket freezes\nand how they typically backfire, how we\nreplaced it with some riskbased\nclassification and signals. We'll talk\nthrough some resiliency tactics that\nmakes the deploys safe and finally how\nwe automated the bypass so teams can\nship when it matters and not have to\nkeep asking for permission. So hopefully\nby the end of this talk you have at\nleast three concrete things you can try\nwithin your own organizations.\n>> All right, let's start with what's wrong\nwith blanket freezers. We used to have\nwhat we like to call as quiet periods\naround big events. I'm talking major\ntitle launches like Stranger Things,\nSquid Games, global product pushes, live\nevents. On paper, they sounded great,\nbut we kept seeing the same three\nproblems. Let's dive into those. First,\ninnovation slowdown. Teams don't stop\nbuilding during a freeze. They just stop\nshipping. So, the work piles up. People\neither rush to squeeze in things before\nthe freeze or they're trying to catch up\nright after. Either way, you get chaos\ninstead of progress. That leads me to\nthe risk pileup.\nThe changes that are ready and sitting\nbehind a freeze. The moment you lift\nthat freeze, you deploy a massive batch.\nIf something breaks, as I said earlier,\nyour suspect list is everything we just\nshipped. And lastly, operational pain. A\nhard freeze makes s release engineering,\nthey turn them into gatekeepers.\nEvery this one is really important. Can\nwe please ship it? Kind of goes through\nthem.\nBut there's a fourth problem that we\ndon't always talk about, and that's\nsecurity debt. When you freeze changes,\nyou're not freezing security. A critical\npatch that's ready to ship, it's sitting\nthere. A compliance requirement that\nprobably needs a config tweak, also\nblocked. So, you end up in this weird\nstate where you're trying to be safe by\nfreezing, but you're actually making\nyourself less secure. And from an audit\nstandpoint, when you do eventually\ndeploy that batch of 200 odd changes\nacross 50 services and something goes\nwrong, you can't easily answer which\nchange introduced that vulnerability or\ndid we actually test this security\ncontrol and that's a serious compliance\nproblem waiting to happen.\nSo pachchi it looks like the freezes\ndidn't remove the risk it just reccheded\nit and concentrated it\n>> that's exactly right Sya and this kind\nof risk is harder to manage operate and\nmitigate\nso before we dive into how we solve this\nproblem let me ask you this as a TPM\nwhat scares you most about these big\npost freeze deploys\n>> honestly\nI think it's the needle in the hay stack\nwhen we have no idea of the thousands of\nchanges that we have made across\nhundreds of our services\num we know that will come to bite us and\nyou very well know at our scale when\nsomething breaks it's visible and often\nbreaks loud. So for a quick show of\nhands, how many of you have been through\nan aftermath of freeze deploys and that\nhas created some risky behaviors?\nWe see here this is definitely a group\ntherapy session. But the good news is\nacceptance is half the problem. We too\nrealized that the freezes weren't\nworking for us.\nIn reality, our systems weren't all\nplaying the same role. Some were in\nfront of the customers, some were buried\nway back deep in the background and some\nwere mainly for our engineers to make\ntheir lives easier. So in order to solve\nthis problem, we started asking a\ndifferent question. What if we actually\ntuned our controls to the real risk of\neach service and instead of freezing\neverything the same way\nthat's where this idea of risk\nclassification came in. Isn't that\nright, Rachie? Exactly right, Sandy. And\nwe based our risk taring based on three\nsimple things.\nImpact on customer experience, blast\nradius during a critical event, and what\nis the acceptable risk threshold for us.\nOnce we had data for those three things,\nwe stopped treating everything the same\nand turned it into a taring model that\nour teams could use. Let's dive into\nthat.\nAt the very top we have tier zero or\ncritical services. If this breaks the\nuser absolutely feels it. Think play\nbutton, signups, payments, login.\nRight behind tier zero we have tier one\nwhich is our high impact services. These\nare the services that are tightly\ncoupled to those core experiences. If\nthey misbehave, it might not be as\nobvious as the play button breaking, but\nit still hurts the user quickly.\nThen we have tier 2 or medium impact\nservices. These are important platform\nand infrastructure services where the\nimpact is indirect or delayed. If they\nare degraded for a short time, users may\nnot notice immediately.\nAnd lastly, the low impact one. The\nthink of internal tools, low blast\nradius services where a hiccup is\nprobably an inconvenience for you and\nyour engineering team but it will not\nmake a front page incident and those are\nthe ones which are absolutely safe to\nship and that's where we really preserve\nphilosophy.\nSo coming back to the core idea, not\neverything should be treated like the\nplay button classify risk, but under a\nblanket freeze, we were not doing that.\nThink about your own stack here for a\nsecond. How many services would actually\nbreak the user experience if they go\ndown? And are you really applying the\nsame controls to them as you are to your\ninternal dashboards?\nOnce we had this classification, I'm\nassuming we stopped asking should we\nfreeze and started asking which services\nneed to be we need to be more strict and\nwhich can keep shipping.\n>> Right? The higher the risk, the stricter\nthe guardrails.\nBut in addition to tiers, we also needed\nto know for a given service,\nfor a given change, how risky is this\nright now in the moment? We wanted to\nmove from gut feeling to a few simple\nrisk signals.\nAnd these are the four core risk signals\nwe lean on. Deployment confidence, how\nconfident are you with your pipelines\nand the embedded reliability patterns.\nTest signals, whether changes have\npassing tests and enough code coverage.\nChange type, the scope and nature of the\nmodification you are making. And lastly,\nhistorical behavior. How has this\nservice and this change behaved in past\nduring critical events? So instead of a\nblanket freeze that says everything is\nbanned, our model gives us nuanced\nanswer service X with this change at\nthis moment is low, medium or high risk.\nFor example, take an internal UI tweak,\na config change, maybe tier three\nservice, grid deploy history, passing\ntest. Under the old blanket freeze\nmodel, it's blocked. But under a new\nmodel, the signals read that change as\nlow risk and let it ship. Keep in mind,\nblocking safe changes is essentially\npunishing the wrong people.\nSo Pachchi once you started rolling out\nthese signals what surprised you?\n>> Oh when we actually looked at the data\nit challenged a lot of our assumptions.\nSome services felt absolutely scary and\nothers had great deploy hygiene. So if\nyou're starting from scratch and can\nonly instrument two signals use these.\nHow often do deploys fail? And if they\nfail, what's the blast radius?\n>> So, moving to our next section, which is\nall about empowering our teams and\nletting them keep shipping even during\ncritical events without putting\navailability at risk.\nWe've got tears. We've got risk signals.\nWe know what changes are safe to make,\nbut we still don't hit that deploy\nbutton. Would you say we are paranoid in\na good way?\nAbsolutely sa I feel paranoia is the\nmiddle name of an S sur for building\nresilience into a framework. We\nbasically lean on three primary tactics.\nCanaries which is essentially can be\nused to verify that changes in your code\nor configuration will not cause\ndeviations in performance behavior. So\ninstead of flipping a giant switch, a\ntiny slice of traffic sees the new\nversion. We watch metrics and error\nrates and only then we roll out to wider\naudience especially for high-risk tiers.\nThen comes regional staggering which is\nessentially deploy region to region.\nDeploy to a region evaluate and move on\nto the next one. So if one region breaks\nit does not turn into a global incident.\nAnd lastly synthetic tests. We make sure\nour critical user journeys are well\ntested. Think of can my users press the\nplay button? Can they log in? Can they\nsign up?\nThree simple tactics, but together they\nturn we hope this works into we know\nthis works.\nSo now we have tears, risk signals, and\ntactics. So how does this all come\ntogether in practice? Who can bypass\nthese freezes? I know the intent is we\ndon't want to become bottlenecks. Did we\nend up automating the bypass?\nExcellent question. And yes, we did. So\nwe have this simple formula up there on\nthe screen. Bypass decision is\nessentially equal to the result of the\nfour core things we discussed. event\ntype, service taring, risk signals, and\nresilience tactics.\nAnd we use something we call as\nriskaware launch rubric. Think of it\nlike a scorecard, the one you see up on\nthe screen. It takes everything we\ndiscussed. Event type, how critical the\nmoment is for us. service tier, how\nclose you are to the core experience,\nrisk signals, and lastly, resilience\ntactics, and turns it into a clear, can\nyou bypass the freeze decisions for us.\nSo, if you meet the criteria for your\ntier and event, the rubric says yes, you\ncan ship. If you don't, it blocks you\nand it kind of nudges you, hey, add more\nguardrails. The best part is this isn't\na manual hallway conversation. It's\nwired into our deployment pipelines. So\nthe system applies the rubric the same\nway every time, consistently, safely,\nand datadriven.\nSo it's about understood risk,\nengineered mitigations, and pipelines\nthat enforce the framework for us. And\nthat brings us to our feedback loop.\nSya, what do you think about that?\n>> Yeah, ultimately we want to be business\nenablers. So the real question is, do we\nknow if the system is actually working?\nAfter big events, we don't just say\nthat's over and move on. We run\npostevent reviews that look at the whole\npicture. What worked? What broke? what\nwas just unnecessarily noisy or\nstressful. Then we do a signal and tier\ntuning. Did a tier 2 service behave like\na tier zero? Maybe it's mis tiered. Did\nour risk signals fire too often or not\nenough? Do we need to adjust thresholds?\nAnd finally, we update the playbook and\nthe pipelines. If we learn that a\ncertain type of change really needs\ncanaries or synthetics, then we don't\njust write it in a document. We actually\nwire it into our CI/CD flow. The goal is\nthat after every major event, we leave\nthe system a little smarter than before\nand not just tired humans.\nTime to wrap up. Take us home.\n>> All right. So here are the three main\ntakeaways which we want you to leave\nwith. First, make riskbased decisions.\nIt's not freeze everything or ship\neverything. It's knowing your services,\nunderstanding the tradeoff and choosing\nthe right level of risk.\nThen automate your risk signals, track\ndeployment success rate, test coverages.\nAnd from a security lens, maybe add a\nthird signal. Has this change been\nsecurity reviewed? Those three\nindicators cover a lot of ground. And\nlastly, design for resilience. Canaries,\nregional staggering, real-time\nmonitoring. These aren't just nice to\nhaves. They are how you detect issues\nearly before they turn into global\nincidents.\n>> And listen to your teams. Their feedback\nis data. Use it to make the system\neasier, safer, and faster over time.\nStart small. Two risk signals, one\nresiliency tactics. Learn, expand. You\ndon't need a multi-year platform\nrewrite. You just need to get started.\nThank you.\n>> All right. Thank you everybody.",
+  "segments": [
+    {
+      "text": "Thank you. Let's start with a story here. Picture this. A Squid Game level global launch. Massive high traffic projected to blow past peak. So, we do the responsible thing. We declare a blanket deployment freeze. Nothing ships, so nothing breaks. Teams keep",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "building though. Features, performance fixes, capacity tweaks, it's all stacking up behind that freeze. Launch day hits, traffic ramps up, and then one region starts to wobble. You're seeing errors climbing, latency spiking, and we",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "realize there is a capacity improvement we made last week exactly for this scenario which is sitting behind the freeze. So we are riding the launch with last month's capacity profile and then fast forward the freeze lifts",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "and we push a huge batch of changes. If something breaks your suspect list everything well show of hand who here has been in a no one deploys for a week kind of freeze. Oh, all of you. Excellent. All right. Hi everybody. I'm Pachchi.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "I'm an S sur in the security engineering at Netflix. Mostly focused on making changes safer without slowing people down. >> And I'm Sandia, a technical program manager at Netflix. Um we are the people who are extremely averse to risk but",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "also hyperallergic to stopping our engineers from shipping. So in this session we'll share about how we think about risk and how we avoid blanket freezes. So, welcome to our talk on beyond blanket freezes. We want to uh we'll talk a little bit",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "about how we went from no changes allowed to allowing some changes during some of the most critical events at Netflix. We'll spend the next 15 minutes talking about what's wrong with blanket freezes and how they typically backfire, how we",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "replaced it with some riskbased classification and signals. We'll talk through some resiliency tactics that makes the deploys safe and finally how we automated the bypass so teams can ship when it matters and not have to",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "keep asking for permission. So hopefully by the end of this talk you have at least three concrete things you can try within your own organizations. >> All right, let's start with what's wrong with blanket freezers. We used to have",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "what we like to call as quiet periods around big events. I'm talking major title launches like Stranger Things, Squid Games, global product pushes, live events. On paper, they sounded great, but we kept seeing the same three",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "problems. Let's dive into those. First, innovation slowdown. Teams don't stop building during a freeze. They just stop shipping. So, the work piles up. People either rush to squeeze in things before the freeze or they're trying to catch up",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "right after. Either way, you get chaos instead of progress. That leads me to the risk pileup. The changes that are ready and sitting behind a freeze. The moment you lift that freeze, you deploy a massive batch. If something breaks, as I said earlier,",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "your suspect list is everything we just shipped. And lastly, operational pain. A hard freeze makes s release engineering, they turn them into gatekeepers. Every this one is really important. Can we please ship it? Kind of goes through them.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "But there's a fourth problem that we don't always talk about, and that's security debt. When you freeze changes, you're not freezing security. A critical patch that's ready to ship, it's sitting there. A compliance requirement that",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "probably needs a config tweak, also blocked. So, you end up in this weird state where you're trying to be safe by freezing, but you're actually making yourself less secure. And from an audit standpoint, when you do eventually",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "deploy that batch of 200 odd changes across 50 services and something goes wrong, you can't easily answer which change introduced that vulnerability or did we actually test this security control and that's a serious compliance problem waiting to happen.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "So pachchi it looks like the freezes didn't remove the risk it just reccheded it and concentrated it >> that's exactly right Sya and this kind of risk is harder to manage operate and mitigate so before we dive into how we solve this",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "problem let me ask you this as a TPM what scares you most about these big post freeze deploys >> honestly I think it's the needle in the hay stack when we have no idea of the thousands of changes that we have made across hundreds of our services",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "um we know that will come to bite us and you very well know at our scale when something breaks it's visible and often breaks loud. So for a quick show of hands, how many of you have been through an aftermath of freeze deploys and that",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "has created some risky behaviors? We see here this is definitely a group therapy session. But the good news is acceptance is half the problem. We too realized that the freezes weren't working for us. In reality, our systems weren't all",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "playing the same role. Some were in front of the customers, some were buried way back deep in the background and some were mainly for our engineers to make their lives easier. So in order to solve this problem, we started asking a",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "different question. What if we actually tuned our controls to the real risk of each service and instead of freezing everything the same way that's where this idea of risk classification came in. Isn't that right, Rachie? Exactly right, Sandy. And",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "we based our risk taring based on three simple things. Impact on customer experience, blast radius during a critical event, and what is the acceptable risk threshold for us. Once we had data for those three things, we stopped treating everything the same",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "and turned it into a taring model that our teams could use. Let's dive into that. At the very top we have tier zero or critical services. If this breaks the user absolutely feels it. Think play button, signups, payments, login.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Right behind tier zero we have tier one which is our high impact services. These are the services that are tightly coupled to those core experiences. If they misbehave, it might not be as obvious as the play button breaking, but",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "it still hurts the user quickly. Then we have tier 2 or medium impact services. These are important platform and infrastructure services where the impact is indirect or delayed. If they are degraded for a short time, users may not notice immediately.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "And lastly, the low impact one. The think of internal tools, low blast radius services where a hiccup is probably an inconvenience for you and your engineering team but it will not make a front page incident and those are the ones which are absolutely safe to",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "ship and that's where we really preserve philosophy. So coming back to the core idea, not everything should be treated like the play button classify risk, but under a blanket freeze, we were not doing that. Think about your own stack here for a",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "second. How many services would actually break the user experience if they go down? And are you really applying the same controls to them as you are to your internal dashboards? Once we had this classification, I'm assuming we stopped asking should we",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "freeze and started asking which services need to be we need to be more strict and which can keep shipping. >> Right? The higher the risk, the stricter the guardrails. But in addition to tiers, we also needed to know for a given service,",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "for a given change, how risky is this right now in the moment? We wanted to move from gut feeling to a few simple risk signals. And these are the four core risk signals we lean on. Deployment confidence, how confident are you with your pipelines",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "and the embedded reliability patterns. Test signals, whether changes have passing tests and enough code coverage. Change type, the scope and nature of the modification you are making. And lastly, historical behavior. How has this",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "service and this change behaved in past during critical events? So instead of a blanket freeze that says everything is banned, our model gives us nuanced answer service X with this change at this moment is low, medium or high risk.",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "For example, take an internal UI tweak, a config change, maybe tier three service, grid deploy history, passing test. Under the old blanket freeze model, it's blocked. But under a new model, the signals read that change as",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "low risk and let it ship. Keep in mind, blocking safe changes is essentially punishing the wrong people. So Pachchi once you started rolling out these signals what surprised you? >> Oh when we actually looked at the data it challenged a lot of our assumptions.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "Some services felt absolutely scary and others had great deploy hygiene. So if you're starting from scratch and can only instrument two signals use these. How often do deploys fail? And if they fail, what's the blast radius?",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": ">> So, moving to our next section, which is all about empowering our teams and letting them keep shipping even during critical events without putting availability at risk. We've got tears. We've got risk signals. We know what changes are safe to make,",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "but we still don't hit that deploy button. Would you say we are paranoid in a good way? Absolutely sa I feel paranoia is the middle name of an S sur for building resilience into a framework. We basically lean on three primary tactics.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "Canaries which is essentially can be used to verify that changes in your code or configuration will not cause deviations in performance behavior. So instead of flipping a giant switch, a tiny slice of traffic sees the new version. We watch metrics and error",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "rates and only then we roll out to wider audience especially for high-risk tiers. Then comes regional staggering which is essentially deploy region to region. Deploy to a region evaluate and move on to the next one. So if one region breaks",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "it does not turn into a global incident. And lastly synthetic tests. We make sure our critical user journeys are well tested. Think of can my users press the play button? Can they log in? Can they sign up? Three simple tactics, but together they",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "turn we hope this works into we know this works. So now we have tears, risk signals, and tactics. So how does this all come together in practice? Who can bypass these freezes? I know the intent is we don't want to become bottlenecks. Did we",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "end up automating the bypass? Excellent question. And yes, we did. So we have this simple formula up there on the screen. Bypass decision is essentially equal to the result of the four core things we discussed. event type, service taring, risk signals, and",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "resilience tactics. And we use something we call as riskaware launch rubric. Think of it like a scorecard, the one you see up on the screen. It takes everything we discussed. Event type, how critical the moment is for us. service tier, how",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "close you are to the core experience, risk signals, and lastly, resilience tactics, and turns it into a clear, can you bypass the freeze decisions for us. So, if you meet the criteria for your tier and event, the rubric says yes, you",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "can ship. If you don't, it blocks you and it kind of nudges you, hey, add more guardrails. The best part is this isn't a manual hallway conversation. It's wired into our deployment pipelines. So the system applies the rubric the same",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "way every time, consistently, safely, and datadriven. So it's about understood risk, engineered mitigations, and pipelines that enforce the framework for us. And that brings us to our feedback loop. Sya, what do you think about that?",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": ">> Yeah, ultimately we want to be business enablers. So the real question is, do we know if the system is actually working? After big events, we don't just say that's over and move on. We run postevent reviews that look at the whole",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "picture. What worked? What broke? what was just unnecessarily noisy or stressful. Then we do a signal and tier tuning. Did a tier 2 service behave like a tier zero? Maybe it's mis tiered. Did our risk signals fire too often or not",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "enough? Do we need to adjust thresholds? And finally, we update the playbook and the pipelines. If we learn that a certain type of change really needs canaries or synthetics, then we don't just write it in a document. We actually",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "wire it into our CI/CD flow. The goal is that after every major event, we leave the system a little smarter than before and not just tired humans. Time to wrap up. Take us home. >> All right. So here are the three main takeaways which we want you to leave",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "with. First, make riskbased decisions. It's not freeze everything or ship everything. It's knowing your services, understanding the tradeoff and choosing the right level of risk. Then automate your risk signals, track deployment success rate, test coverages.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "And from a security lens, maybe add a third signal. Has this change been security reviewed? Those three indicators cover a lot of ground. And lastly, design for resilience. Canaries, regional staggering, real-time monitoring. These aren't just nice to",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "haves. They are how you detect issues early before they turn into global incidents. >> And listen to your teams. Their feedback is data. Use it to make the system easier, safer, and faster over time. Start small. Two risk signals, one",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "resiliency tactics. Learn, expand. You don't need a multi-year platform rewrite. You just need to get started. Thank you. >> All right. Thank you everybody.",
+      "start": 324,
+      "duration": 6
+    }
+  ]
+}

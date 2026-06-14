@@ -17,11 +17,14 @@ if str(ROOT / "lib") not in sys.path:
     sys.path.insert(0, str(ROOT / "lib"))
 
 import operator_flow_control as ofc  # noqa: E402
+from browser_agent_queue_client import enqueue_current_process_if_needed  # noqa: E402
 
 DEFAULT_OPERATOR_ID = "mini-gemini-deep-research"
-DEFAULT_PROJECT_NAME = "杂项"
+DEFAULT_PROJECT_NAME = ""
 DEFAULT_WRAPPER = ROOT / "scripts" / "browser_agent_gemini_deep_research_wrapper.py"
 DEFAULT_BROWSER_USE_PYTHON = Path.home() / ".claude" / "mcp-servers" / "browser-use" / ".venv" / "bin" / "python"
+DEFAULT_MIN_TIMEOUT_SECONDS = 1800
+DEFAULT_PROCESS_TIMEOUT_GRACE_SECONDS = 180
 
 
 def _load_envelope() -> dict[str, Any]:
@@ -84,6 +87,7 @@ def build_request(envelope: dict[str, Any], *, task_dir: Path | None = None) -> 
                 "prompt_file",
                 "expected_output",
                 "project_name",
+                "account_email",
                 "timeout_seconds",
                 "max_retries",
             ):
@@ -168,6 +172,24 @@ def _summary_markdown(response: dict[str, Any]) -> str:
     )
 
 
+def _timeout_settings(request: dict[str, Any]) -> tuple[int, int]:
+    request_timeout = ofc.int_value(request.get("timeout_seconds"), 0)
+    env_timeout = ofc.int_value(os.environ.get("BROWSER_AGENT_GEMINI_TIMEOUT"), 0)
+    min_timeout = ofc.int_value(
+        os.environ.get("BROWSER_AGENT_GEMINI_MIN_TIMEOUT_SECONDS")
+        or os.environ.get("BROWSER_AGENT_GEMINI_MIN_TIMEOUT"),
+        DEFAULT_MIN_TIMEOUT_SECONDS,
+    )
+    internal_timeout = max(request_timeout, env_timeout, min_timeout)
+    grace = ofc.int_value(
+        os.environ.get("BROWSER_AGENT_GEMINI_PROCESS_TIMEOUT_GRACE_SECONDS")
+        or os.environ.get("BROWSER_AGENT_GEMINI_OUTER_TIMEOUT_GRACE"),
+        DEFAULT_PROCESS_TIMEOUT_GRACE_SECONDS,
+    )
+    process_timeout = internal_timeout + max(60, grace)
+    return internal_timeout, process_timeout
+
+
 def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
     prompt = str(request.get("prompt") or "").strip()
     if not prompt:
@@ -187,6 +209,11 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
     env = os.environ.copy()
     if "BROWSER_AGENT_HEADLESS" not in env:
         env["BROWSER_AGENT_HEADLESS"] = "true"
+    env.setdefault("BROWSER_AGENT_PROFILE_DIRECTORY", "Default")
+    account_email = str(request.get("account_email") or "").strip()
+    if account_email:
+        env.setdefault("BROWSER_AGENT_GEMINI_ACCOUNT_EMAIL", account_email)
+        env.setdefault("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL", account_email)
     env.update(
         {
             "BROWSER_AGENT_REQUEST_DIR": str(request_dir),
@@ -194,7 +221,8 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
             "BROWSER_AGENT_GEMINI_PROJECT_NAME": str(request.get("project_name") or DEFAULT_PROJECT_NAME),
         }
     )
-    timeout = ofc.int_value(request.get("timeout_seconds") or os.environ.get("BROWSER_AGENT_GEMINI_TIMEOUT"), 1800)
+    internal_timeout, process_timeout = _timeout_settings(request)
+    env["BROWSER_AGENT_GEMINI_TIMEOUT"] = str(internal_timeout)
     max_retries = ofc.int_value(request.get("max_retries"), 3)
     
     last_exc = None
@@ -207,7 +235,7 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
                 text=True,
                 capture_output=True,
                 env=env,
-                timeout=timeout,
+                timeout=process_timeout,
             )
             combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
             (task_dir / f"gemini-deep-research-output-attempt{attempt}.txt").write_text(
@@ -275,6 +303,14 @@ def main() -> int:
         return 1
         
     task_dir = _task_dir()
+    queued_rc = enqueue_current_process_if_needed(
+        job_name=_operator_id(envelope),
+        repo_root=ROOT,
+        cwd=task_dir,
+        timeout_seconds=ofc.int_value(os.environ.get("BROWSER_AGENT_GEMINI_QUEUE_WAIT_TIMEOUT_SECONDS"), 6 * 60 * 60),
+    )
+    if queued_rc is not None:
+        return queued_rc
     ofc.clear_task_control(task_dir)
     request = build_request(envelope, task_dir=task_dir)
     rate_control = _rate_control_settings(envelope)

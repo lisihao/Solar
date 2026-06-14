@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar.local/schemas/draft/execution-ir.v1.draft.json",
+  "title": "Solar Execution IR v1",
+  "description": "Runtime operator state tracking: state, lease, heartbeat, attempt lineage, and retry policy.",
+  "type": "object",
+  "required": ["ir_id", "ir_type", "schema_version", "state"],
+  "additionalProperties": true,
+  "properties": {
+    "ir_id": {"type": "string", "minLength": 1},
+    "ir_type": {"type": "string", "const": "execution"},
+    "schema_version": {"type": "string", "const": "1"},
+    "node_id": {"type": "string"},
+    "operator_id": {"type": "string"},
+    "state": {
+      "type": "string",
+      "enum": ["idle", "leased", "running", "draining", "cooldown", "quota_exhausted", "auth_expired", "disabled"]
+    },
+    "pane": {"type": "string"},
+    "dispatch_id": {"type": "string"},
+    "lease": {
+      "type": "object",
+      "required": ["acquired_at", "expires_at"],
+      "properties": {
+        "acquired_at": {"type": "string"},
+        "expires_at": {"type": "string"},
+        "released_at": {"type": ["string", "null"]},
+        "lease_id": {"type": "string"},
+        "owner": {"type": "string"}
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "required": ["last_heartbeat_at"],
+      "properties": {
+        "last_heartbeat_at": {"type": "string"},
+        "heartbeat_count": {"type": "integer"},
+        "missed_count": {"type": "integer"},
+        "interval_seconds": {"type": "integer"}
+      }
+    },
+    "attempt_lineage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["attempt_id", "started_at"],
+        "properties": {
+          "attempt_id": {"type": "string"},
+          "started_at": {"type": "string"},
+          "finished_at": {"type": ["string", "null"]},
+          "outcome": {"type": "string", "enum": ["success", "failure", "timeout", "cancelled", ""]},
+          "error_summary": {"type": "string"},
+          "retry_of": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "retry_count": {"type": "integer", "minimum": 0},
+    "max_retries": {"type": "integer", "minimum": 0},
+    "retry_policy": {"type": "string", "enum": ["none", "fixed", "exponential_backoff"]},
+    "error_log": {"type": "array", "items": {"type": "string"}},
+    "assigned_to": {"type": "string"},
+    "metadata": {"type": "object", "additionalProperties": true},
+    "provenance": {
+      "type": "object",
+      "required": ["owner"],
+      "properties": {"owner": {"type": "string"}}
+    }
+  }
+}

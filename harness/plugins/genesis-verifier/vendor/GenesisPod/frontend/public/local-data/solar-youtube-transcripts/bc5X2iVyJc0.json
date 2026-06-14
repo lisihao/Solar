@@ -1,0 +1,239 @@
+{
+  "videoId": "bc5X2iVyJc0",
+  "title": "Add Gemini Live agents to your video conferencing with Fishjam",
+  "channelName": "Google for Developers",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 11534,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-j3PyPqV-e1s",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[MUSIC PLAYING]\nADRIAN CZERWIEC: Creating video\nconferences with AI participants\nhas never been so easy.\nHi, I am Adrian.\nI work on Fishjam\nat Software Mansion.\nAnd today, I will\nshow you how quickly\nyou can create such\nvideo conferencing\nand invite an AI model\nas a participant.\nLet me ask if you can see\nwhat's on my video feed.\nGEMINI AGENT: I can\nsee your video feed.\nIt looks like you're in a room\nwith some purple lighting,\nseveral potted plants\non shelves behind you,\nand a sign that says,\n\"Software Mansion.\"\nAnything specific you'd\nlike me to observe?\nADRIAN CZERWIEC: We\nwill use two things--\nFishjam, a low-latency\nvideo conferencing\nand live-streaming API, and the\njust-released Gemini 3.1 Flash\nLive audio model.\nTo build the bridge\nbetween Gemini and Fishjam,\nwe'll use Fishjam\nAgents, a feature that\nlets your backend join\na video conference just\nlike a regular client would.\nSounds fun?\nLet's get to it.\nLet's start with\nthe Gemini Live API\noverview to see what\nwe're going to be using.\nAnd basically, this\npicture is our app.\nSo we're going to be\nsending text, audio,\nand video to the Live API.\nAnd we'll be getting text\nand, in our case, audio.\nAnd the connection is going to\nbe via the WebSocket protocol.\nLet's start with the Fishjam\ndocs on Gemini Live integration.\nWe are building a real-time\nspeech-to-speech agent\nusing Fishjam and Google's\nMultimodal Live API.\nTo achieve our goal,\nwhat we need to do\nis basically take the audio from\nFishjam and send it to Gemini,\nwait for Gemini's response,\nand put the audio back\nin the Fishjam conference room.\nThe prerequisites are\nFishjam ID and the management\ntoken You can get\nthem at Fishjam.io.\nYou can use the sandbox here.\nYou don't need to\nbuy any package\nto be able to build such app.\nYou can use the sandbox tier\nand build a similar app yourself\neven today.\nAnd the second thing is,\nobviously, the Gemini API key.\nFirst thing first, we need\nto install the Fishjam Server\nSDK and the Google GenAI SDK.\nWe initialize our clients.\nThen we need to create a\nFishjam room and a Fishjam\nAgent inside that room.\nAll right, moving to the code,\nI have prepared some boilerplate\nfor me so I don't have to\nwrite everything from scratch.\nBut this setup is simple.\nWe have a simple backend\nwith tRPC endpoints.\nThey are not ready yet.\nWe will uncover them together.\nAnd a simple React\napp as our frontend\nthat will allow us to\njoin the conference\nand talk to the agent.\nSo let me quickly walk\nyou over the frontend,\nsince it's very simple.\nAnd you'll see what methods\nare we going to be building.\nSo this is the root view.\nAnd let's go to Lobby.\nSo Lobby is the simplest form.\nIt takes the room name,\nthe name of the peer,\nand allows us to join the room.\nSo we're going to be calling\nthe getPeerToken method.\nAnd we want to retrieve our\nroom ID and the peer token.\nAnd then we're going to\ninitialize devices using\nour React SDK and, finally,\njoining the room using\nthe generated peer token.\nWe can also add some\nmetadata, and in our case,\nit's going to be our name.\nThe second view\nis the call view.\nSo once we are in the room,\nwe display a simple tiled view\nwith a toolbar.\nSo we also use our Fishjam\nSDK hooks to handle devices,\ntoggle them, mute the\nmicrophone, so on.\nAnd then we can\nuse usePeers hook\nto take the data and also the\nvideo tracks, audio tracks,\nof the remote peers.\nSo then we can find\nthe agent peer.\nWe can distinguish it by\nensuring it has no metadata\nand also list the rest\nof the human peers.\nThere's going to be also\na StartAgent button,\nand it's going to be calling the\nsecond endpoint, createAgent.\nAnd that's the second\nthing that we're going\nto be building on our backend.\nSo let's quickly move\nover to our backend.\nLet me close that one.\nSo we've got a simple Fastify\nsetup with tRPC router.\nLet's go quickly jump to it.\nAnd here we are.\nThere are two endpoints\nthat I just mentioned about,\nand as you can see,\nthey are empty.\nSo let's go over them.\nFirst, we want to create\na room in Fishjam,\nthen create a peer in that room.\nSo we have our two arguments\nthat we pass from our frontend.\nAnd first, since Fishjam don't\nstore any room metadata yet,\nwe want to create a\nsimple mapping that\nwill map our room\nname to the room ID\nthat we're going to\nget from Fishjam API.\nSo first, let's\ncheck if we already\nhave such a room in our cache.\nAnd then we use two\nmethods, so it depends on\nif we already have that room.\nWe refresh our state and get\nthe room straight from Fishjam,\nor we create a new room, and\nthen we update our cache.\nThen we can handle\nthe validation,\nso we can tell if the\nname is already taken--\nthe peer name, of course.\nAnd we can throw an error\nif it's already taken.\nAnd then we can finally\ncreate a peer in Fishjam.\nSo we have our room\nID, and then we\ncan create a peer with our data.\nAnd then we can also\nget our peer token\nthat we're going to be\nreturning to the frontend.\nFinally, we just return.\nThat's all we need to\ndo to create a room\nand then to create a peer\ntoken, allowing the peer to join\nthe conference on the frontend.\nOK, let's now build the\ncreateAgent function.\nFirst, we need to create an\nagent in the specified room.\nWhat's important about it--\nwe need to specify the codec\nsettings for its output,\nand they need to match the\nexact settings that Gemini\nexpects on its input.\nSo in this case, we've\nprepared ready helpers for you\nnot to worry about\nthe exact numbers.\nJust import the settings\nand use it in your code.\nThen we can create a\ntrack for our agent\nso we can talks\nto the conference.\nAnd this time, we also need to\nspecify the codec settings is\nthe other way around.\nSo we need to specify what codec\nsettings Gemini will send us,\nand then we will use\nit in our conference.\nThen let me quickly\ncreate a cleanup function.\nAnd finally, we can\ncreate our Gemini session.\nLet's use the new\n3.1 audio model,\nput our instruction\nin place, and then\nlet's turn the Google Search\non and also declare a function.\nSo in this case, I\ncame up with an idea\nthat I could ask Gemini to\ninvoke disconnect function\nand completely\nclean up everything\nafter itself on the backend.\nMoving over to the\nonmessage handler,\nso once we get the\nresponse from Gemini,\nwe check if we have\nsome audio data in it.\nThen we convert it from\nBase64 to a JavaScript buffer\nand send it directly to Fishjam.\nWe can also handle\ninterruptions.\nSo once we got some\naudio chunk from Gemini\nand we send it to\nFishjam, it keeps playing.\nBut once Gemini tells us\nit might get interrupted,\nwe can also flush the\naudio in the Fishjam room\nso the leftover audio\nis not playing anymore.\nFinally, we can see some\nfunction calls has been detected\nand call our code accordingly.\nIt does the cleanup function.\nThat's not been declared\nyet, but let's move over\nto the next part.\nAnd the next part is\nfinally subscribing to audio\non the Fishjam side.\nSo in this case, we listen\nto the trackData event\non the Fishjam agent, and\nwe send the data to Gemini\nupon converting it to Base64.\nWhat's important about\nthis part is, in this case,\nwe listen for every\nparticipant's audio chunks.\nIf you want some more\ngranular approach,\nconsider using Fishjam\nSelective Subscriptions API.\nThis will allow you to handle\nthis case more manually.\nBut in this case,\nwe'll keep it simple.\nAll right.\nThen let's handle the\nagent seeing things.\nSo the Google allows\nfor 1-FPS video,\nso we will be capturing a frame\nof my video track and sending it\nto Gemini each second.\nSo in this case, I call\nfishjam.getRoom method,\nfind my track that\nI want to use,\nand then capture the\nimage using the track ID.\nFinally, we can move over\nto the cleanup function.\nSo once I have my interval,\nI have my Gemini session,\nI can set it up and then remove\nall listeners, delete all track,\nand disconnect\neverything that I can.\nAll right.\nHere we are in our room.\nLet me come up with\nsome name, happy room.\n[LAUGHS] And let\nme join the room.\nHello.\n[CHUCKLES] Here I am.\nAnd let's add our agent.\nSo here's the system prompt.\nFor now, I will leave it as is.\nAnd hello, can you hear me?\nGEMINI AGENT: Yes, I\ncan hear you clearly.\nHow can I help you today?\nADRIAN CZERWIEC:\nI have a question.\nCould you please\ngoogle for me what's\nthe weather forecast for\nKraków for the next three days?\nGEMINI AGENT: I can do that.\nFor the next three\ndays in Kraków,\nyou can expect temperatures\nto be around 8 to 11 degrees\nCelsius during the day.\nThere's a good chance of\nrain today and tomorrow,\nbut Saturday should\nlook a little brighter,\nwith partly cloudy skies.\nIs there anything else you'd\nlike to know about the forecast?\nADRIAN CZERWIEC: About\nthe forecast, maybe not,\nbut let me ask you if you can\nsee what's on my video feed.\nGEMINI AGENT: I can\nsee your video feed.\nIt looks like you're in a room\nwith some purple lighting,\nseveral potted plants\non shelves behind you,\nand a sign that says,\n\"Software Mansion.\"\nAnything specific you'd\nlike me to observe?\nADRIAN CZERWIEC: Well,\nthat's already impressive.\nI have another request.\nCan we talk in some\nother language?\nCan you say hi to me in Polish?\nGEMINI AGENT: [POLISH]\nI can do that.\nHow would you like to continue?\nWe can talk about\nthe weather in Polish\nor anything else you like.\nADRIAN CZERWIEC:\nOK, maybe in German.\nGEMINI AGENT: [SPEAKING GERMAN]\nADRIAN CZERWIEC:\nThat's impressive.\nOK, I have one more request for\nyou-- to disconnect yourself.\nNot even a goodbye, but\nthat was kind of expected.\nBut what if you want to have\nsome guardrails on our agent?\nFor example, we\nbuild a conference,\nand we want to have an\nagent that will only\ntalk about a certain thing.\nWe can modify our system\nprompt and tell the agent to\n\"You can only talk\nabout bananas.\nNo other thing exists for you.\"\nHello?\nHow are you?\nGEMINI AGENT: I'm feeling\npositively bananatastic,\nthanks for asking.\nJust thinking about all the\nwonderful varieties of bananas\nthere are.\nHow are you?\nADRIAN CZERWIEC: I'm fine.\nWhat about oranges?\nCan we talk about oranges?\nGEMINI AGENT: Oranges?\nNever heard of them.\nNow, bananas, on the other\nhand, are fascinating.\nHave you ever\ntried a red banana?\nThey're quite creamy.\nADRIAN CZERWIEC: Oh, no, never.\nBut could you teach me calculus?\nGEMINI AGENT: We could try, but\ncalculus is the math of change,\nand bananas are pretty\nconsistently delicious.\nMaybe we could talk about\nthe rate a plant grows\nor the volume of a\nbanana split instead.\nWhat do you think?\nADRIAN CZERWIEC: All right,\nI think that's it for me,\nbut I have a banana\nrequest for you.\nCould you please\ndisconnect yourself?\nGEMINI AGENT: A banana\nrequest, I like it.\nDisconnecting\nmyself like a banana\nsplit from the rest\nof the dessert.\nSo long.\nADRIAN CZERWIEC: And that's it.\nWith just a few lines of code,\nwe connected a Gemini Live model\nas a real participant in a\nFishjam video conference.\nIt can hear, see\nthe camera feed,\nand talk back in real time.\nIf you want to\ntry this yourself,\nthe full example is\nlinked in the description.\nYou'll just need a Fishjam\nsandbox account and a Gemini API\nkey.\nIf you build something cool\nwith this, let us know.\nWe would love to see it.\nHappy coding.\n[MUSIC PLAYING]",
+  "segments": [
+    {
+      "text": "[MUSIC PLAYING] ADRIAN CZERWIEC: Creating video conferences with AI participants has never been so easy. Hi, I am Adrian. I work on Fishjam at Software Mansion. And today, I will show you how quickly you can create such video conferencing",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "and invite an AI model as a participant. Let me ask if you can see what's on my video feed. GEMINI AGENT: I can see your video feed. It looks like you're in a room with some purple lighting, several potted plants on shelves behind you, and a sign that says,",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "\"Software Mansion.\" Anything specific you'd like me to observe? ADRIAN CZERWIEC: We will use two things-- Fishjam, a low-latency video conferencing and live-streaming API, and the just-released Gemini 3.1 Flash Live audio model. To build the bridge",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "between Gemini and Fishjam, we'll use Fishjam Agents, a feature that lets your backend join a video conference just like a regular client would. Sounds fun? Let's get to it. Let's start with the Gemini Live API overview to see what we're going to be using.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "And basically, this picture is our app. So we're going to be sending text, audio, and video to the Live API. And we'll be getting text and, in our case, audio. And the connection is going to be via the WebSocket protocol. Let's start with the Fishjam",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "docs on Gemini Live integration. We are building a real-time speech-to-speech agent using Fishjam and Google's Multimodal Live API. To achieve our goal, what we need to do is basically take the audio from Fishjam and send it to Gemini,",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "wait for Gemini's response, and put the audio back in the Fishjam conference room. The prerequisites are Fishjam ID and the management token You can get them at Fishjam.io. You can use the sandbox here. You don't need to buy any package",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "to be able to build such app. You can use the sandbox tier and build a similar app yourself even today. And the second thing is, obviously, the Gemini API key. First thing first, we need to install the Fishjam Server SDK and the Google GenAI SDK.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "We initialize our clients. Then we need to create a Fishjam room and a Fishjam Agent inside that room. All right, moving to the code, I have prepared some boilerplate for me so I don't have to write everything from scratch. But this setup is simple.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "We have a simple backend with tRPC endpoints. They are not ready yet. We will uncover them together. And a simple React app as our frontend that will allow us to join the conference and talk to the agent. So let me quickly walk you over the frontend,",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "since it's very simple. And you'll see what methods are we going to be building. So this is the root view. And let's go to Lobby. So Lobby is the simplest form. It takes the room name, the name of the peer, and allows us to join the room.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "So we're going to be calling the getPeerToken method. And we want to retrieve our room ID and the peer token. And then we're going to initialize devices using our React SDK and, finally, joining the room using the generated peer token. We can also add some",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "metadata, and in our case, it's going to be our name. The second view is the call view. So once we are in the room, we display a simple tiled view with a toolbar. So we also use our Fishjam SDK hooks to handle devices, toggle them, mute the microphone, so on.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "And then we can use usePeers hook to take the data and also the video tracks, audio tracks, of the remote peers. So then we can find the agent peer. We can distinguish it by ensuring it has no metadata and also list the rest of the human peers.",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "There's going to be also a StartAgent button, and it's going to be calling the second endpoint, createAgent. And that's the second thing that we're going to be building on our backend. So let's quickly move over to our backend. Let me close that one.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "So we've got a simple Fastify setup with tRPC router. Let's go quickly jump to it. And here we are. There are two endpoints that I just mentioned about, and as you can see, they are empty. So let's go over them. First, we want to create a room in Fishjam,",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "then create a peer in that room. So we have our two arguments that we pass from our frontend. And first, since Fishjam don't store any room metadata yet, we want to create a simple mapping that will map our room name to the room ID that we're going to",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "get from Fishjam API. So first, let's check if we already have such a room in our cache. And then we use two methods, so it depends on if we already have that room. We refresh our state and get the room straight from Fishjam, or we create a new room, and",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "then we update our cache. Then we can handle the validation, so we can tell if the name is already taken-- the peer name, of course. And we can throw an error if it's already taken. And then we can finally create a peer in Fishjam. So we have our room",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "ID, and then we can create a peer with our data. And then we can also get our peer token that we're going to be returning to the frontend. Finally, we just return. That's all we need to do to create a room and then to create a peer",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "token, allowing the peer to join the conference on the frontend. OK, let's now build the createAgent function. First, we need to create an agent in the specified room. What's important about it-- we need to specify the codec settings for its output,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "and they need to match the exact settings that Gemini expects on its input. So in this case, we've prepared ready helpers for you not to worry about the exact numbers. Just import the settings and use it in your code. Then we can create a track for our agent",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "so we can talks to the conference. And this time, we also need to specify the codec settings is the other way around. So we need to specify what codec settings Gemini will send us, and then we will use it in our conference. Then let me quickly",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "create a cleanup function. And finally, we can create our Gemini session. Let's use the new 3.1 audio model, put our instruction in place, and then let's turn the Google Search on and also declare a function. So in this case, I came up with an idea",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "that I could ask Gemini to invoke disconnect function and completely clean up everything after itself on the backend. Moving over to the onmessage handler, so once we get the response from Gemini, we check if we have some audio data in it.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "Then we convert it from Base64 to a JavaScript buffer and send it directly to Fishjam. We can also handle interruptions. So once we got some audio chunk from Gemini and we send it to Fishjam, it keeps playing. But once Gemini tells us it might get interrupted,",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "we can also flush the audio in the Fishjam room so the leftover audio is not playing anymore. Finally, we can see some function calls has been detected and call our code accordingly. It does the cleanup function. That's not been declared",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "yet, but let's move over to the next part. And the next part is finally subscribing to audio on the Fishjam side. So in this case, we listen to the trackData event on the Fishjam agent, and we send the data to Gemini upon converting it to Base64.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "What's important about this part is, in this case, we listen for every participant's audio chunks. If you want some more granular approach, consider using Fishjam Selective Subscriptions API. This will allow you to handle this case more manually.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "But in this case, we'll keep it simple. All right. Then let's handle the agent seeing things. So the Google allows for 1-FPS video, so we will be capturing a frame of my video track and sending it to Gemini each second. So in this case, I call",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "fishjam.getRoom method, find my track that I want to use, and then capture the image using the track ID. Finally, we can move over to the cleanup function. So once I have my interval, I have my Gemini session, I can set it up and then remove",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "all listeners, delete all track, and disconnect everything that I can. All right. Here we are in our room. Let me come up with some name, happy room. [LAUGHS] And let me join the room. Hello. [CHUCKLES] Here I am. And let's add our agent.",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "So here's the system prompt. For now, I will leave it as is. And hello, can you hear me? GEMINI AGENT: Yes, I can hear you clearly. How can I help you today? ADRIAN CZERWIEC: I have a question. Could you please google for me what's the weather forecast for",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "Kraków for the next three days? GEMINI AGENT: I can do that. For the next three days in Kraków, you can expect temperatures to be around 8 to 11 degrees Celsius during the day. There's a good chance of rain today and tomorrow, but Saturday should",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "look a little brighter, with partly cloudy skies. Is there anything else you'd like to know about the forecast? ADRIAN CZERWIEC: About the forecast, maybe not, but let me ask you if you can see what's on my video feed. GEMINI AGENT: I can see your video feed.",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "It looks like you're in a room with some purple lighting, several potted plants on shelves behind you, and a sign that says, \"Software Mansion.\" Anything specific you'd like me to observe? ADRIAN CZERWIEC: Well, that's already impressive.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "I have another request. Can we talk in some other language? Can you say hi to me in Polish? GEMINI AGENT: [POLISH] I can do that. How would you like to continue? We can talk about the weather in Polish or anything else you like. ADRIAN CZERWIEC:",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "OK, maybe in German. GEMINI AGENT: [SPEAKING GERMAN] ADRIAN CZERWIEC: That's impressive. OK, I have one more request for you-- to disconnect yourself. Not even a goodbye, but that was kind of expected. But what if you want to have some guardrails on our agent?",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "For example, we build a conference, and we want to have an agent that will only talk about a certain thing. We can modify our system prompt and tell the agent to \"You can only talk about bananas. No other thing exists for you.\" Hello? How are you?",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "GEMINI AGENT: I'm feeling positively bananatastic, thanks for asking. Just thinking about all the wonderful varieties of bananas there are. How are you? ADRIAN CZERWIEC: I'm fine. What about oranges? Can we talk about oranges? GEMINI AGENT: Oranges?",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "Never heard of them. Now, bananas, on the other hand, are fascinating. Have you ever tried a red banana? They're quite creamy. ADRIAN CZERWIEC: Oh, no, never. But could you teach me calculus? GEMINI AGENT: We could try, but calculus is the math of change,",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "and bananas are pretty consistently delicious. Maybe we could talk about the rate a plant grows or the volume of a banana split instead. What do you think? ADRIAN CZERWIEC: All right, I think that's it for me, but I have a banana request for you.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "Could you please disconnect yourself? GEMINI AGENT: A banana request, I like it. Disconnecting myself like a banana split from the rest of the dessert. So long. ADRIAN CZERWIEC: And that's it. With just a few lines of code, we connected a Gemini Live model",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "as a real participant in a Fishjam video conference. It can hear, see the camera feed, and talk back in real time. If you want to try this yourself, the full example is linked in the description. You'll just need a Fishjam sandbox account and a Gemini API key.",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "If you build something cool with this, let us know. We would love to see it. Happy coding. [MUSIC PLAYING]",
+      "start": 264,
+      "duration": 6
+    }
+  ]
+}

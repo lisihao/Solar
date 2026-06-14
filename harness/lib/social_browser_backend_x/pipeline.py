@@ -73,6 +73,7 @@ THUNDEROMLX_SOCKET_PATH = Path.home() / ".thunderomlx" / "socket"
 
 # Ledger table name for model call cost tracking.
 LEDGER_TABLE = "model_call_ledger"
+LEDGER_TABLE_SQL = '"model_call_ledger"'
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +176,7 @@ def thunderomlx_socket_available(socket_path: Path = THUNDEROMLX_SOCKET_PATH) ->
 def ensure_ledger_table(conn: sqlite3.Connection) -> None:
     """Create model_call_ledger table if absent. Idempotent."""
     conn.execute(
-        f"CREATE TABLE IF NOT EXISTS {LEDGER_TABLE} ("
+        "CREATE TABLE IF NOT EXISTS " + LEDGER_TABLE_SQL + " ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "  step TEXT NOT NULL,"
         "  account_id TEXT,"
@@ -193,7 +194,7 @@ def write_ledger(conn: sqlite3.Connection, entries: Sequence[LedgerEntry]) -> in
         return 0
     existing = {
         row[1]
-        for row in conn.execute(f"PRAGMA table_info({LEDGER_TABLE})").fetchall()
+        for row in conn.execute("PRAGMA table_info(" + LEDGER_TABLE_SQL + ")").fetchall()
     }
     if {"step", "account_id", "cost_units", "backend", "timestamp", "details"}.issubset(existing):
         cols = "step, account_id, cost_units, backend, timestamp, details"
@@ -210,7 +211,7 @@ def write_ledger(conn: sqlite3.Connection, entries: Sequence[LedgerEntry]) -> in
             for e in entries
         ]
         conn.executemany(
-            f"INSERT INTO {LEDGER_TABLE} ({cols}) VALUES ({placeholders})", rows
+            "INSERT INTO " + LEDGER_TABLE_SQL + " (" + cols + ") VALUES (" + placeholders + ")", rows
         )
         return len(rows)
 

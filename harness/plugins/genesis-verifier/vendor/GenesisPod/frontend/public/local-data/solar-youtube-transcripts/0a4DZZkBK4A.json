@@ -1,0 +1,404 @@
+{
+  "videoId": "0a4DZZkBK4A",
+  "title": "Enabling Topology Visibility in BGP Fabrics with BGP-LS.",
+  "channelName": "Open Compute Project",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 19299,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Good afternoon, and thanks for the Sonic\nFoundation for organizing this workshop.\nIt's always a pleasure to be here, learn\nabout the latest innovation in Sonic,\nbut also share with the Sonic community\nwhat we are doing with the operator in\norder to bring some new innovation in\nSonic. My name is Ahmed Abd Salam. I\nwork as part of Cisco.\nAnd today I'm going to talk to you about\nsome of the work that we have been doing\nwith our colleagues at Alibaba\nin order to enable the topology\nvisibility in Sonic. So, this is a joint\ntalk with my colleague from Alibaba,\nJoey. But, she unfortunately she could\nnot be here today because she has a\nconflict, so I will be doing that talk\non behalf of the Cisco and Alibaba team.\nOkay.\nSo,\nI'm pretty sure all of you know about\nthe huge investment ongoing right now in\nAI in order to meet the requirement for\nthe training demands. And we all\nunderstand that one of the key\nchallenges is basically the power in\norder to power all of these different\ndata center. Basically, you cannot fit\nall of this infrastructure in a single\ndata center. And and the solution that\nall that everyone is doing is to is\nspread this\ninfrastructure across multiple data\ncenter. But, in order to\nand in order to connect these different\ndata center, you need what is called EI\nDCI.\nAnd this DCI when is basically needed to\nto build that what is called like a\nsupercomputer or that large-scale\ninfrastructure needed in order to how to\nsay, to meet such training demands. This\nis something that has been explicitly\nexplained in this blog from Microsoft\nwhen they announced their Fairwater DC\nfor the need of AI when to build that\nsupercomputer.\nbut also has been uh explicitly\nmentioned in the latest announcement\nfrom\nuh Google about their Virgo um scale-out\nnetwork where they explicitly explain\nthe massive scale that is needed for\nthat training demand, and basically that\nyou cannot fit all of this\ninfrastructure in a single data center,\nand you need to build a multi\ndata multi data center, and again, the\nneed for the AI uh\nis a key here.\nBut, let's look at this DCI and WAN\nnetwork, and what are the key, let's\nsay, characteristics and the challenges\nthat we have in this uh in this network.\nFirst, this uh\nthis network has to handle different\ntypes of traffic pattern, different\nrequirement,\nRDMA versus storage traffic, but also\ntraffic direction going east-west\nbetween the different data center, but\nalso north-south going from the data\ncenter to the outside world.\nAnd in this DCI network, typically your\ntopology is less symmetric, or you don't\nhave the full mesh um nature of the\nof the leaf-spine that you have inside\nthe data center.\nCapacity is much more expensive, much\nmore is scarce there, so you don't have\nexactly the same capacity that you have\nin the network, so you need to handle\nthis bandwidth and this capacity much\nmore efficiently. Latency, we know that\nlatency much matters a lot in AI, and\nhere when you have to cross a DCI\nnetwork, you have to cross multiple\nhops, longer fiber, so all of this also\nis a key challenge in this network. But,\nyou also get a lot of, let's say,\nparticular things like SRLG were or all\nof the, let's say, shortcuts that you\nneed to do between the different data\ncenter.\nAnd when you look at all of these\ncharacteristics,\nimmediately realize that there are two\nthings that will be needed in those or\nmust in this in this network.\nBasically, traffic engineering in order\nto steer the traffic in the on the right\npath for the right, let's say, for the\nright requirement, but also\nfaster route or\na a mechanism to protect um the traffic\nagainst uh failure that happen in the\nnetwork.\nSo, if we look at the traffic\nengineering, basically you have\ndifferent types of traffic, you have\ndifferent different characteristic for\nthis traffic, they have different\npatterns, so you need to compute\ndifferent passes in this network based\nthat minimize latency, for example, for\nthe RDMA, where the latency matters a\nlot, but also you need to have different\nor meet different requirement like\ndisjointness when you need to have your\nbackup path completely or your second\npath completely disjoint from the from\nthe primary path for failure uh\nscenarios, some bandwidth guarantee if\nyou are sharing this network or sharing\nthis infrastructure across multiple\ntenants or multiple customers or\nmultiple data center, etc.\nAnd faster route is very well-known\ntechnology in IP. It is used basically\nto protect traffic in the network\nagainst all different types of failure,\nnode failure, link failure, SRLG\nfailure, etc. etc. And here here it's\nit's well-known, very how to say, very\nknow\num deployed widely in in the wide area\nnetwork basically with some techniques\nlike loop-free alternate LFA, where you\ncompute your backup passes and you\ninstall them in advance and you have\njust you need just a\nhow to say, quick trigger to enable the\nbackup path. But also TI-LFA, where you\ncan protect this traffic in any kind of\ntopology by steering traffic using some\nsource routing technique, etc. And all\nof the techniques also that come with it\nlike micro avoidance, etc. So, those are\nlike kind of key characteristic that we\nneed in that kind in those DCI network.\nAnd when you look at those\ncharacteristic, there is one common\nfundamental building block that you need\nin order to do all of these computation.\nYou need to have a view of the topology\nin order to be able to do all of these\nall of these computation. And when you\nlook at the topology\nnow in SONiC or generally we what we\nhave seen is that you have many people\ntry to do the topology in different way.\nSome of these techniques or many of\nthem, they were non-standard, basically\na bit fragmented. You you try to collect\nas many telemetry as you as you can from\nthe network trying to build a view or a\ntopology view of the network. And many\ntimes it's a static, so for any dynamic\nfailure or anything that happen in the\nnetwork, you don't learn at least very\nquickly about this.\nAnd\na lot of a lot of let's say a lot of\nthis topology collection, it was a bit\nbound to IGB. So,\nconceptually or\nI would say misconception that if you\nneed to have a topology view, you need\nan IGB protocol. But in SONiC, we\ntypically run SONiC EBGP fabric, which\nis a hop-by-hop fabric. How we can also\nhave the topology view in this network\nwhere in an EBGP fabric, I have only a\nview about my neighbors. How can I have\nthe full topology view?\nSo, the goal that we want to to have in\nSONiC is basically to build a topology a\nsolution to have the topology view. This\nsolution based on a standard, open,\nsupported by multi-vendor, and also it\nit scales well for all of these\ndifferent deploy deployment. And we want\nthe same solution\nto work either I run IGB or in like most\nof the Sonic deployment where it runs\nonly EBGP fabric.\nAnd then when you look, there is\nactually well-known method in the\nindustry to do topology collection,\nwhich is called BGB LS. And basically,\nit was initially designed for IGP, so\nthat's also\nhow how the misconception came at the\nbeginning that everyone thinks that when\nyou when you use BGB LS, you really need\nto have IGP in that. This is not This is\nnot needed, and you will see during the\npresentation that we can have the same\ntopology view that you have in an IGP\nnetwork via BGB LS\nin an hop-by-hop EBGP fabric. It's\nsomething is standard, and again,\nanother thing that was commonly that\npeople think typically think that in\norder to or BGB LS, its only job is to\nexport the LSDB or the link state\ndatabase. It's not directly export. It\nbasically takes this information,\nnormalize them, and send them in a\nstandard or\ntopology model. This topology model is\ntypically made of three elements: nodes,\nlinks in the fabric, and also the\nprefix. But the topology This topology\nmodel has been also extended extensively\nto include the segment routing\ninformation, the segment routing\npolicies, etc., etc.\nAnd for each one of these objects like\nthe node or link, you have a new NLRI in\nin the BGB link state\naddress address family.\nSo, why BGB LS and why nothing else?\nBecause why do we do something else\ndifferent from the whole industry is\ndoing? Is it standard? It's supported by\nmost of the vendor. It's supported by\nopen source stacks, and you will see\nduring the presentation we have\ncontributed the support of BGB LS both\nfor IGB fabric and BGB fabric to the\nFRR. So, it's already part of the FRR\nmain line, ready to be consumed, and it\nit will come in the in the as part of\nthe Sonic in the next\nFRR upgrade. It is scaled very well\nbecause basically we are not introduced\nBGB LS is not a new protocol. It's just\na new address family in the BGB\nprotocol. So, it it uses all of the\nscale infrastructure of BGB including\nroute reflectors, all of the policy\nfiltering, etc., etc. And it can provide\nyou a full topology view of multi of\nmulti domain. And again, from\napplication perspective, if you run a\ncontroller, you just need to have a\nsession with that collector, and you get\na full topology view just from a single\nlocation without having to do the\ncollection from all the different parts\nof the network. And it's just purely\ncontrol plane. There's no impact at all\non the on the data on the data plane.\nLet's see how BGB LS works in the IGB\nnetwork and how we export this\ninformation, and how it is supported now\nin FRR, and then we we will see how the\nsame model, exactly the same the the\nsame information we can get from an EBGB\nfabric and\nwith the same representation. In an IGB\nnetwork, what happens is that all of the\nnodes participating in that IGB domain,\nthey exchange the link state between\neach other. So, right So, what you get\nat the end, each node has a full view of\nthe topology. What you need to do is\nthat build or peer have a BGB session\nwith any one of this node, and you get\nall of the topology information from\nfrom that node. But what But But\nremember that in order to have the\ntopology information at each one of the\nnode, this node has to exchange\ninformation between each other.\nHow is it in FRR right now? So, this is\nsomething that has been part already of\nthe FRR main line. We contributed this\ncouple of months ago and basically in in\nISIS when you do the configuration of\nISIS, you just need to enable the\ndistribution of the link\nstate information with that command that\nyou see here distribute link state. And\nthen you have your BGP session between\none of the nodes to the route reflector\nand it's just a new address family in\nthe BGP protocol. So you're already\nrunning BGP, you just need to have this\nnew you enable this new address family\nand all of this information that you see\nhere is going to be sent\nto to the route reflector. What are the\ninformation that you have in in as part\nof these different LRI? You have a lot\nof information. So basically it gives\nyou very rich topology that maybe you\nmore than you you need, but actually it\nhas but it has everything that you need\neven more\nthan this. So you can see all of the\nattributes that you have for a given\nlink, for a given node or for a given\nprefix.\nNow and and as part of the FRR, we we\nhave some debug CLI if you want to look\nat all of this information in in\nin FRR.\nNow let's go to the part which is likely\nmore interesting for the Sonic community\nbecause we we all run EBGP hop-by-hop\nfabric. How can I use BGP LS in this\nnetwork in order to get the same\ntopology information that we just saw in\nIGP? So EBGP is the norm here. It's used\nin the data center. You use it both for\nunderlay and overlay and also it extends\nnaturally. The minute you want to take\nSonic from the data center and you put\nit in the DCI, you build this DCI\nnetworks also with EBGP fabric. So you\nuse the same tool set, same operating\nsystem, same experience etc.\nAnd to to remind the in order to get a\ntopology, there is no need really for\nIGP. You can do the same with BGP LS.\nAnd this is not something that we we we\nwe recently introduced. It's something\nthat has been in the standardization for\nITF for some time. And there is already\nan ITF draft. It's a working group draft\nto explain how you can export the link\nstate information in an EBGP only only\nfabric. It's already also has been also\nmerged in the FRR line main line. So,\nit's already available. And from your\ncontroller viewpoint, if you have a\ncontroller that used to get the BGP LS\ntopology from an IGP domain, it can\nexactly get the same information or from\nfrom that EBGP. So, there is no need to\nchange anything in your application or\ncontroller, etc.\nSo, how does it work?\nRemember in IGP the nodes exchange\nchange information between each other in\norder to build the topology view. In\nEBGP, to me, it's actually even more\nsimilar because you don't have to\nexchange those information with everyone\nin the IGP domain. You just need to send\nyour view of the of the topology to that\nroute reflector. And he's going to put\nall of this information together. So, in\nIGP, what happened? Node one sent to\neveryone, here is or every one of its\nneighbor,\nthis is my link state information. It's\nnot going to send it to its neighbor.\nIt's just going to send it to the\ncontroller.\nNode two is going to do the same. And we\nall already all of these devices are\nrunning BGPs. You just need to enable\nthis new address family, which is the\nlink state address family, with a\nbearing session to that route reflector.\nAnd the route reflector is going to get\nwhat in process is going to get is get\nis going to get a node in LRI from node\none, node two, three, four, five. Then\nthe result, he has all of the node in\nLRIs for all of the different nodes.\nHe's going to get all of the link\ninformation from each one of the node\nand he's going to build exactly the same\ntopology information as you get in IGB.\nSo, and if you look at this\nit's already part of FRR as we as we\nmentioned it's it's already merged in in\nthe main line. How do you enable it?\nAgain, just enable the address family\nunder BGB and you peer with this\ninformation with that with just route\nreflector to send this information\ndirectly to to the route reflector.\nSo, as a result, what you have here is a\nunified solution to get the topology\ninformation either from IGB or BGB\nexactly the same way is the exact same\nNLRI, the exact same information in in\nthe two network. In IGB\nthe difference was that the nodes\nexchange information between each other\nto build a full topology view at each\nnode. In EBGP much simpler, you don't\nhave to do that. You just send this\ninformation to that\nroute reflector and he will build all of\nthis information um together.\nSo, this BGP LS it's really a let's say\nwe an essential found foundational\nbuilding block because once you have it,\nyou can do many things. We can do all of\nthe traffic engineering capabilities\nthat we need in this DCI network to\ncompute the different set of passes etc.\nYou can do all of the fast re-route or\nthe protection mechanism like LFA or\nTLFA and this is something that we have\nrecently submitted a draft to IETF to\nexplain\nhow would you compute fast re-route in\nan EBGP only fabric and the key\nessential component for this is\nbasically the topology but we have it\nalready and this also open much more\nlet's say room for innovation here where\nonce I have the topology I can do all of\nthe different analytics in terms of\npasses, topology changes, how my\ntopology evolve over the time and I can\nhave all of these analytics\nuh dynamically.\nSo, to conclude,\nthere is a huge investment in AI where\nwe need to scale this infrastructure to\nfor for the AI training demands. We need\nto build\nmultiple data center to fit all of\ninfrastructure. In order to connect them\ntogether, we need the AI DCI when these\nnetworks have a specific characteristics\nwhere which require to have the\ncapabilities for traffic engineering and\nfast route techniques. And one of the\nessential building blocks for this uh\nto to achieve this capabilities is to\nhave the topology. And now we have a\nunified solution for the topology either\nin IGB or BGB which is using BGB LS is\nsomething is standard and multi-vendor\nopen and we have it already supported in\nthe FRR main line. And\nwith this, I I advise or I I invite all\nof the all of the attendees to look at\nthe code, basically test it, etc. We\nhave some demos running with this. If\nyou are interested, feel free to to\ncontact us. Thank you.\n>> [applause]\n>> Just a quick question. Um thanks for the\npresentation. You mentioned it's in FRR,\nbut what about adding support in Sonic\nin terms of the young model and FRR\nCFGD? I\n>> Is that in the plan or is that uh part\nof your current already supported FRR?\nOkay, so very good question. Many\nthanks. So, the first the first step in\norder to enable that was to add the\nsupport in FRR and that's let's say we\nclosed that first step. And in order to\nget this fully integrated in Sonic, we\nneed to look at all of let's say\ntelemetry models, etc. that that we\nneed. So, I I I think that will will\ncome as a next step. So, and we will be\nhappy to collaborate on on doing that.\nMore questions?\nIt's It's on.\nOkay.\nUm so,\nthis uh LS RR route reflector, it\ndoesn't have to be a\nroute reflector in the traditional sense\nthat it it reflecting other IBGP or BGP\nroutes. It's just receiving the link\nstate information. Is that correct?\n>> Yes. Yeah, it can be let's say any BGP\ndevice in your own can be also your BGP\nroute route reflector. It just need\nsomething that needs to be with all of\nthe different nodes to get this\ninformation.\nAll right. Thank you.\nYeah.\nLet me bring the mic here.\nFirst of all, thanks for your\npresentation. Very interesting.\ntwo questions. The first [music] one, uh\nany possibility to include more\ninformation in the protocol right, for\ninstance, let's say bandwidth or maybe\nlatency of each latency of each link\nthat is\nintegrated in the database? First one.\nAnd the second one, any possibility to\nobtain\nthe interlink information from, for\ninstance, LLDP to populate the routes\ninside the BGP LS?\nOkay. So, I'll I'll I'll I'll I'll take\nthem one by one. So, the first question\nregarding to adding some of the metric.\nSo, you mentioned, for example, in\ndelay. And if you look at all of the uh\nat the attributes that you have in the\nBGP LS, delay is already one part of\nthose attributes. And the way BGP LS\nwork, basically, you have this NLRI, and\nyou have some TLVs that are mandatory,\nyou need to send them, but you have a\nbunch of let's say optional TLVs that\nyou can already extend them and add\nother TLVs. So, I think if there is more\ninformation that would be needed to be\nexported uh regarding the topology, it's\nit's uh if it's either available in one\nof the TLVs, we can support them, or uh\nwe can extend the model to have uh new\nTLVs.\nThen, big applause.\nThank you.\n>> [applause]\n>> And I'm not",
+  "segments": [
+    {
+      "text": "Good afternoon, and thanks for the Sonic Foundation for organizing this workshop. It's always a pleasure to be here, learn about the latest innovation in Sonic, but also share with the Sonic community what we are doing with the operator in",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "order to bring some new innovation in Sonic. My name is Ahmed Abd Salam. I work as part of Cisco. And today I'm going to talk to you about some of the work that we have been doing with our colleagues at Alibaba in order to enable the topology",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "visibility in Sonic. So, this is a joint talk with my colleague from Alibaba, Joey. But, she unfortunately she could not be here today because she has a conflict, so I will be doing that talk on behalf of the Cisco and Alibaba team. Okay. So,",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "I'm pretty sure all of you know about the huge investment ongoing right now in AI in order to meet the requirement for the training demands. And we all understand that one of the key challenges is basically the power in order to power all of these different",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "data center. Basically, you cannot fit all of this infrastructure in a single data center. And and the solution that all that everyone is doing is to is spread this infrastructure across multiple data center. But, in order to",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "and in order to connect these different data center, you need what is called EI DCI. And this DCI when is basically needed to to build that what is called like a supercomputer or that large-scale infrastructure needed in order to how to",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "say, to meet such training demands. This is something that has been explicitly explained in this blog from Microsoft when they announced their Fairwater DC for the need of AI when to build that supercomputer. but also has been uh explicitly",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "mentioned in the latest announcement from uh Google about their Virgo um scale-out network where they explicitly explain the massive scale that is needed for that training demand, and basically that you cannot fit all of this",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "infrastructure in a single data center, and you need to build a multi data multi data center, and again, the need for the AI uh is a key here. But, let's look at this DCI and WAN network, and what are the key, let's say, characteristics and the challenges",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "that we have in this uh in this network. First, this uh this network has to handle different types of traffic pattern, different requirement, RDMA versus storage traffic, but also traffic direction going east-west between the different data center, but",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "also north-south going from the data center to the outside world. And in this DCI network, typically your topology is less symmetric, or you don't have the full mesh um nature of the of the leaf-spine that you have inside the data center.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "Capacity is much more expensive, much more is scarce there, so you don't have exactly the same capacity that you have in the network, so you need to handle this bandwidth and this capacity much more efficiently. Latency, we know that",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "latency much matters a lot in AI, and here when you have to cross a DCI network, you have to cross multiple hops, longer fiber, so all of this also is a key challenge in this network. But, you also get a lot of, let's say,",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "particular things like SRLG were or all of the, let's say, shortcuts that you need to do between the different data center. And when you look at all of these characteristics, immediately realize that there are two things that will be needed in those or",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "must in this in this network. Basically, traffic engineering in order to steer the traffic in the on the right path for the right, let's say, for the right requirement, but also faster route or a a mechanism to protect um the traffic",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "against uh failure that happen in the network. So, if we look at the traffic engineering, basically you have different types of traffic, you have different different characteristic for this traffic, they have different patterns, so you need to compute",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "different passes in this network based that minimize latency, for example, for the RDMA, where the latency matters a lot, but also you need to have different or meet different requirement like disjointness when you need to have your",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "backup path completely or your second path completely disjoint from the from the primary path for failure uh scenarios, some bandwidth guarantee if you are sharing this network or sharing this infrastructure across multiple tenants or multiple customers or",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "multiple data center, etc. And faster route is very well-known technology in IP. It is used basically to protect traffic in the network against all different types of failure, node failure, link failure, SRLG failure, etc. etc. And here here it's",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "it's well-known, very how to say, very know um deployed widely in in the wide area network basically with some techniques like loop-free alternate LFA, where you compute your backup passes and you install them in advance and you have just you need just a",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "how to say, quick trigger to enable the backup path. But also TI-LFA, where you can protect this traffic in any kind of topology by steering traffic using some source routing technique, etc. And all of the techniques also that come with it",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "like micro avoidance, etc. So, those are like kind of key characteristic that we need in that kind in those DCI network. And when you look at those characteristic, there is one common fundamental building block that you need",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "in order to do all of these computation. You need to have a view of the topology in order to be able to do all of these all of these computation. And when you look at the topology now in SONiC or generally we what we have seen is that you have many people",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "try to do the topology in different way. Some of these techniques or many of them, they were non-standard, basically a bit fragmented. You you try to collect as many telemetry as you as you can from the network trying to build a view or a",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "topology view of the network. And many times it's a static, so for any dynamic failure or anything that happen in the network, you don't learn at least very quickly about this. And a lot of a lot of let's say a lot of this topology collection, it was a bit",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "bound to IGB. So, conceptually or I would say misconception that if you need to have a topology view, you need an IGB protocol. But in SONiC, we typically run SONiC EBGP fabric, which is a hop-by-hop fabric. How we can also",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "have the topology view in this network where in an EBGP fabric, I have only a view about my neighbors. How can I have the full topology view? So, the goal that we want to to have in SONiC is basically to build a topology a",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "solution to have the topology view. This solution based on a standard, open, supported by multi-vendor, and also it it scales well for all of these different deploy deployment. And we want the same solution to work either I run IGB or in like most",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "of the Sonic deployment where it runs only EBGP fabric. And then when you look, there is actually well-known method in the industry to do topology collection, which is called BGB LS. And basically, it was initially designed for IGP, so that's also",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "how how the misconception came at the beginning that everyone thinks that when you when you use BGB LS, you really need to have IGP in that. This is not This is not needed, and you will see during the presentation that we can have the same",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "topology view that you have in an IGP network via BGB LS in an hop-by-hop EBGP fabric. It's something is standard, and again, another thing that was commonly that people think typically think that in order to or BGB LS, its only job is to",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "export the LSDB or the link state database. It's not directly export. It basically takes this information, normalize them, and send them in a standard or topology model. This topology model is typically made of three elements: nodes,",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "links in the fabric, and also the prefix. But the topology This topology model has been also extended extensively to include the segment routing information, the segment routing policies, etc., etc. And for each one of these objects like",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "the node or link, you have a new NLRI in in the BGB link state address address family. So, why BGB LS and why nothing else? Because why do we do something else different from the whole industry is doing? Is it standard? It's supported by",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "most of the vendor. It's supported by open source stacks, and you will see during the presentation we have contributed the support of BGB LS both for IGB fabric and BGB fabric to the FRR. So, it's already part of the FRR main line, ready to be consumed, and it",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "it will come in the in the as part of the Sonic in the next FRR upgrade. It is scaled very well because basically we are not introduced BGB LS is not a new protocol. It's just a new address family in the BGB protocol. So, it it uses all of the",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "scale infrastructure of BGB including route reflectors, all of the policy filtering, etc., etc. And it can provide you a full topology view of multi of multi domain. And again, from application perspective, if you run a controller, you just need to have a",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "session with that collector, and you get a full topology view just from a single location without having to do the collection from all the different parts of the network. And it's just purely control plane. There's no impact at all",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "on the on the data on the data plane. Let's see how BGB LS works in the IGB network and how we export this information, and how it is supported now in FRR, and then we we will see how the same model, exactly the same the the",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "same information we can get from an EBGB fabric and with the same representation. In an IGB network, what happens is that all of the nodes participating in that IGB domain, they exchange the link state between each other. So, right So, what you get",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "at the end, each node has a full view of the topology. What you need to do is that build or peer have a BGB session with any one of this node, and you get all of the topology information from from that node. But what But But remember that in order to have the",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "topology information at each one of the node, this node has to exchange information between each other. How is it in FRR right now? So, this is something that has been part already of the FRR main line. We contributed this",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "couple of months ago and basically in in ISIS when you do the configuration of ISIS, you just need to enable the distribution of the link state information with that command that you see here distribute link state. And then you have your BGP session between",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "one of the nodes to the route reflector and it's just a new address family in the BGP protocol. So you're already running BGP, you just need to have this new you enable this new address family and all of this information that you see here is going to be sent",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "to to the route reflector. What are the information that you have in in as part of these different LRI? You have a lot of information. So basically it gives you very rich topology that maybe you more than you you need, but actually it",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "has but it has everything that you need even more than this. So you can see all of the attributes that you have for a given link, for a given node or for a given prefix. Now and and as part of the FRR, we we have some debug CLI if you want to look",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "at all of this information in in in FRR. Now let's go to the part which is likely more interesting for the Sonic community because we we all run EBGP hop-by-hop fabric. How can I use BGP LS in this network in order to get the same",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "topology information that we just saw in IGP? So EBGP is the norm here. It's used in the data center. You use it both for underlay and overlay and also it extends naturally. The minute you want to take Sonic from the data center and you put",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "it in the DCI, you build this DCI networks also with EBGP fabric. So you use the same tool set, same operating system, same experience etc. And to to remind the in order to get a topology, there is no need really for IGP. You can do the same with BGP LS.",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "And this is not something that we we we we recently introduced. It's something that has been in the standardization for ITF for some time. And there is already an ITF draft. It's a working group draft to explain how you can export the link",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "state information in an EBGP only only fabric. It's already also has been also merged in the FRR line main line. So, it's already available. And from your controller viewpoint, if you have a controller that used to get the BGP LS",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "topology from an IGP domain, it can exactly get the same information or from from that EBGP. So, there is no need to change anything in your application or controller, etc. So, how does it work? Remember in IGP the nodes exchange",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "change information between each other in order to build the topology view. In EBGP, to me, it's actually even more similar because you don't have to exchange those information with everyone in the IGP domain. You just need to send",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "your view of the of the topology to that route reflector. And he's going to put all of this information together. So, in IGP, what happened? Node one sent to everyone, here is or every one of its neighbor, this is my link state information. It's",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "not going to send it to its neighbor. It's just going to send it to the controller. Node two is going to do the same. And we all already all of these devices are running BGPs. You just need to enable this new address family, which is the",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "link state address family, with a bearing session to that route reflector. And the route reflector is going to get what in process is going to get is get is going to get a node in LRI from node one, node two, three, four, five. Then",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "the result, he has all of the node in LRIs for all of the different nodes. He's going to get all of the link information from each one of the node and he's going to build exactly the same topology information as you get in IGB. So, and if you look at this",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "it's already part of FRR as we as we mentioned it's it's already merged in in the main line. How do you enable it? Again, just enable the address family under BGB and you peer with this information with that with just route reflector to send this information",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "directly to to the route reflector. So, as a result, what you have here is a unified solution to get the topology information either from IGB or BGB exactly the same way is the exact same NLRI, the exact same information in in the two network. In IGB",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "the difference was that the nodes exchange information between each other to build a full topology view at each node. In EBGP much simpler, you don't have to do that. You just send this information to that route reflector and he will build all of",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "this information um together. So, this BGP LS it's really a let's say we an essential found foundational building block because once you have it, you can do many things. We can do all of the traffic engineering capabilities that we need in this DCI network to",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "compute the different set of passes etc. You can do all of the fast re-route or the protection mechanism like LFA or TLFA and this is something that we have recently submitted a draft to IETF to explain how would you compute fast re-route in",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "an EBGP only fabric and the key essential component for this is basically the topology but we have it already and this also open much more let's say room for innovation here where once I have the topology I can do all of the different analytics in terms of",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "passes, topology changes, how my topology evolve over the time and I can have all of these analytics uh dynamically. So, to conclude, there is a huge investment in AI where we need to scale this infrastructure to for for the AI training demands. We need",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "to build multiple data center to fit all of infrastructure. In order to connect them together, we need the AI DCI when these networks have a specific characteristics where which require to have the capabilities for traffic engineering and",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "fast route techniques. And one of the essential building blocks for this uh to to achieve this capabilities is to have the topology. And now we have a unified solution for the topology either in IGB or BGB which is using BGB LS is",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "something is standard and multi-vendor open and we have it already supported in the FRR main line. And with this, I I advise or I I invite all of the all of the attendees to look at the code, basically test it, etc. We have some demos running with this. If",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "you are interested, feel free to to contact us. Thank you. >> [applause] >> Just a quick question. Um thanks for the presentation. You mentioned it's in FRR, but what about adding support in Sonic in terms of the young model and FRR CFGD? I",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": ">> Is that in the plan or is that uh part of your current already supported FRR? Okay, so very good question. Many thanks. So, the first the first step in order to enable that was to add the support in FRR and that's let's say we",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "closed that first step. And in order to get this fully integrated in Sonic, we need to look at all of let's say telemetry models, etc. that that we need. So, I I I think that will will come as a next step. So, and we will be",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "happy to collaborate on on doing that. More questions? It's It's on. Okay. Um so, this uh LS RR route reflector, it doesn't have to be a route reflector in the traditional sense that it it reflecting other IBGP or BGP routes. It's just receiving the link",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "state information. Is that correct? >> Yes. Yeah, it can be let's say any BGP device in your own can be also your BGP route route reflector. It just need something that needs to be with all of the different nodes to get this information. All right. Thank you.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. Let me bring the mic here. First of all, thanks for your presentation. Very interesting. two questions. The first [music] one, uh any possibility to include more information in the protocol right, for instance, let's say bandwidth or maybe",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "latency of each latency of each link that is integrated in the database? First one. And the second one, any possibility to obtain the interlink information from, for instance, LLDP to populate the routes inside the BGP LS?",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "Okay. So, I'll I'll I'll I'll I'll take them one by one. So, the first question regarding to adding some of the metric. So, you mentioned, for example, in delay. And if you look at all of the uh at the attributes that you have in the",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "BGP LS, delay is already one part of those attributes. And the way BGP LS work, basically, you have this NLRI, and you have some TLVs that are mandatory, you need to send them, but you have a bunch of let's say optional TLVs that",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "you can already extend them and add other TLVs. So, I think if there is more information that would be needed to be exported uh regarding the topology, it's it's uh if it's either available in one of the TLVs, we can support them, or uh",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "we can extend the model to have uh new TLVs. Then, big applause. Thank you. >> [applause] >> And I'm not",
+      "start": 462,
+      "duration": 6
+    }
+  ]
+}

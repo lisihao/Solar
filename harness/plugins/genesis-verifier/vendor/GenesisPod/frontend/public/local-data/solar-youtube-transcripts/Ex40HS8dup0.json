@@ -1,0 +1,309 @@
+{
+  "videoId": "Ex40HS8dup0",
+  "title": "How to Build an AI Security Governance Hub with Agent Bricks",
+  "channelName": "Databricks",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 14873,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "The hidden cost of cybersecurity attack\nisn't just the breach itself. It's a\nknowledge depth left behind.\nWhen incident playbooks remain buried in\nstatic PDFs and elementary siloed in\ntables, you lose as the most valuable\nasset, institutional memory.\nToday, I'm going to show you how you can\nuse Eden breaks to build a security\ngovernance hub. We are going to\ntransform a standard operating\nprocedures from passive documents into\nadaptive multi-agent system that\nenforces process consistency, automates\npost-incident reviews, and ensures your\nSOC evolves as fast as the threats it\nfaces. Let's dive in.\n>> [music]\n>> Let's dive in by looking at the um data\nsources that we have for this example.\nAnd we will have three main data sources\ncommon in any SOC environment. We have a\nstructured tables which represent the\nmetadata about incidents. Like, for\ninstance, we can look at the incidents\nmatrix.\nIt contains the data like, for instance,\nstart and end date for a specific uh\nincident,\ntype of incident, where it happened, and\nso on.\nWe also have uh unstructured documents\nstored in a Unity Catalog volume, which\nrepresent playbooks and reports.\nAs I mentioned, those are PDF documents,\nand they vary greatly in structure.\nSo, the structure of uh for instance, uh\nimpact analysis is much different\ncomparing to structure of\na playbook for a specific threat type.\nWe will start by building a knowledge\nassistant, which allows us um work with\nunstructured documents like PDFs, like\nthe one we have here, and start asking\nquestions to those unstructured\ndocuments in using natural language.\nCool part about it, we don't have to\nimplement a complicated logic to\nactually parse those documents.\nSo, let's dive in. I already created uh\na few agents that we'll be using today,\nand I will explain how uh it's actually\ndone under the hood a little bit later.\nBut, let's start by asking questions to\nthe agent. Where you can find agents,\nyou go to uh agents,\nand then you have a list of agents that\nyou can use. I have my knowledge\nassistant one, and this is the one that\nI created for this presentation.\nI will start with a simple question,\nlike for instance, give me a list of uh\nsecurity playbooks and a short summary\nof every single one of them.\nWe got to get to know answers, and you\nsee that it's not um\ngeneric assistant that goes somewhere to\ninternet and fetches generic\ninformation. It is based on our\ndocuments, because this is an incident\nthat we will be investigating in this\nparticular example.\nWe can dive a little bit deeper and uh\nask assistant also to uh um\nhow strategies differ\ndepending on on incident type.\nAs you can see here that um knowledge\nassistant help us identify the key\ndifference between these um\nincident reports.\nWe can also ask it to go one level\ndeeper and suggest a list of playbooks\nthat we need to develop uh based on our\ngap in our documentation.\nKnowledge assistant recommended a list\nof uh playbooks that we might want to\ndevelop based on information that it\nhas. It obviously doesn't mean that\nthose playbooks doesn't uh don't exist\nin the in the organization. It just\nmeans that we don't have access to them\num in our storage.\nBut, this is a questions to you and\nunstructured data in our PDF documents.\nIt would be very powerful to combine it\nwith the structured data about our\nincidents.\nTo access the structured data, we need\nto use a Genie space, because Genie is\nspecifically built to uh\nask questions in natural language to a\nstructured data stored in tables.\nLet's go there. You can find Genie under\nthe SQL tab.\nAnd I already have a Genie space\npre-built.\nOkay, so now let's start asking\nquestions to Genie.\nLet's start with for instance October\ncampaign October incident that we had\nand try to understand a bit of more\ndetails regarding that one.\nAs you can see here, we are using all\nthe tables that I showed you at the\nbeginning. Genie the catalog those are\nexactly the same tables.\nYou see here the Genie provided us with\na detailed analysis what happened also\nshowing us a graph of for instance\nanomalous events throughout the period\nand so on.\nand also provided us with detailed\nmetrics and so on.\n>> [snorts]\n>> For every single\nqueries a Genie executed, you can see\nwhere this data is coming from, but you\ncan also if you go up, you can see the\nthinking process of how Genie came up\nwith that answer.\nWe can start asking more in-depth\nquestion to it as well like for instance\nwhich regions\nor entity types\nwas the most affected by the incident\nthat happened in October.\nOkay, we started getting our answers.\nYou can also see regions\nregional breakdown of based on\ninformation that we have.\nKeep in mind that this all information\ncoming from\nstructured data that we have.\nSo ultimately I showed you by now two\ndifferent ways to access two different\ntypes of data.\nWouldn't be ideal to combine them in one\nsingle agent that we can actually ask\nour questions and then agent decides to\nwhich is it question to a structured\ndata, is it a question to our PDF\ndocuments and so on.\nAnd we can actually do it. So ultimately\nwhat we want to build and is an\narchitecture like this.\nWe want to have um our knowledge\nassistant which has access to\nuh playbooks and incident reports stored\nin Unity Catalog volumes. We also want\nto have um\nour Genie space which has access uh to\nincident metadata. We want to combine\nthem in one agent and then ask questions\nto it.\nIn Databricks, you can do it by using a\nsupervisor agent and I already built one\nof us specifically for this purpose. You\ncan see here supervisor agent. Let's go\nto it.\nBefore we dive into how it actually\nworks, let's uh test that it does what\nwe want to uh it to do.\nUh we got an answer from our supervisor\nagent.\nNot focusing specifically on answer, I\nwant to show you that our agent actually\ntried to decide to which um\nunderlying agents delegate this task to.\nSo, you can see here that the first uh\nfirst it started asking questions to\nGenie space for getting specific\nstructure data.\nAfter that, another question to Genie\nspace. But, if you see a little bit\nfurther, it also started asking\nquestions to our knowledge assistant\nmeaning that it started using a PDF\ndocuments to find an answers it needed.\nOf course, it wouldn't be AI if it\nwouldn't add like a super nice uh emojis\nuh once in a while.\nBut, uh you can see how powerful the\nsystem can be.\nNow, let's dive deeper into how it\nactually worked.\nSo, as you can see here on the left\nside, we have information about our\nsupervisor agent.\nAs you can see here, it has uh two\nagents\nadded. One of them is our knowledge\nassistant that I showed you uh a few\nminutes earlier.\nAnd the second one is our Genie space.\nYou can add up to 20 uh different uh\nagents\nto a supervisor to work with it.\nWe have our agents set up. Everything\nseems to be working, but the one\nquestion that you might ask like how can\nyou improve it? Obviously, none of the\nagents will be perfect from\nfirst try just because it doesn't know a\nlot of information about your\norganization. So, how can you improve\nit?\nEssentially, to start improving\nanswers from a supervisor agent, you\nneed to start by answers from individual\nagents. And we will start with the Genie\nspace.\nSo, if you go to Genie, there are\nmultiple ways how you can actually make\nthis Genie space better.\nIf you start by default by adding your\ntables and start asking questions, you\nmight in certain cases be disappointed\nwith answers because it might not\nunderstand specific terminology that you\nuse\ndoesn't particularly nicely understand\nhow to join specific tables.\nThere are many ways how you can actually\ntweak and tune Genie, but I would like\nto show you just a few of them which can\nget you started.\nWe will focus on\nfour core capabilities that you can add.\nFirst of all, data itself.\nAnd after that, we will talk about\ninstructions, join joins, and example\nqueries for SQL.\nSo, let's start with the data.\nWhen you start working with data, data\nneeds to have a very nice metadata\nattached to it. If your tables are\ncalled XYZ, it would be really hard for\nGenie to understand what the content of\nit because metadata of a table is a\nprimary source of analysis for Genie to\nunderstand what this table is about.\nIf you go here, you can see that we have\na description for a table, but we don't\nhave description for individual columns.\nWhich is a gap we can\nwe definitely should add it for an\nindividual columns as well.\nOne interesting thing here is that\nbesides adding metadata of what does it\nmean, you can also add synonyms, which\nessentially explain all\nother ways of calling this table.\nDon't forget to add synonyms here\nbecause it's crucial for Genie to become\nbetter.\nAnother part where we can actually\nimprove quality of answers from Genie\nspace is instructions, joins, and SQL\nqueries. Let's start with the SQL\nqueries.\nSQL queries allow you to specify certain\nqueries\nthat Genie should use for a specific\nquestions that you asked it.\nWhen you try to add those queries, don't\nadd like a generic select star type of\nqueries. Genie is smart enough to\nunderstand how to do those. Add queries\nthat are very specific to your data.\nQueries that are much more detailed\ncomparing to just a generic one.\nTreat Genie as a junior analyst who\ndoesn't know yet every single specific\nof your organization, but very talented\nin understanding and working with data.\nThe same time, what you might also want\nto do, you might want to specify how to\njoin specific tables and on which\ncondition.\nThis is one level deeper because here\nyou help Genie to follow specific logic\nof how your data needs to be connected.\nAnd the last one, last but not least, is\ninstructions.\nMy advice to you would be don't treat\ninstruc- don't start with instructions.\nInstructions should be your last resort\nafter everything else is configured.\nOne important thing here is that you\ncannot know how if Genie is good or bad\nif you can't measure it.\nThat's why here you also have a\nbenchmarks.\nWhat benchmarks do, they allow you to\nevaluate your Genie every time you make\ncertain changes in either instructions\nor joins or SQL queries or maybe your\ndata structure changed.\nHow does it How do they look like?\nEssentially, it's a bunch of queries and\nalso and ground truth answers that Genie\nshould execute.\nEvery time you change something in your\nconfiguration of your Genie space, you\ncan run benchmark and see how Genie\nperforms against that benchmark.\nNow, let's move to a knowledge system.\nIf our Genie is perfect, let's see what\nwe can tweak and tune in our knowledge\nassistant.\nWhen you try to improve knowledge\nassistant, you have two main ways to do\nit.\nFirst of all, you definitely need to\nspecify description of your knowledge\nassistant.\nIt will help a supervisor agent to\nselect a proper knowledge assistant if\nyou have many of them. It uses exactly\nthis description to make it better.\nThe second one, you can also specify\ninstructions similar to what we just saw\nin Genie space. It allows you to\nguide knowledge assistant to a certain\nbehavioral patterns.\nAnd one of the critical point is\nexamples.\nKnowledge assistant is an agent learning\nfrom human feedback. The more you use\nit, the more it understands your data\nstructure, the more it understands your\nthinking process, and the more it learns\nfrom you.\nTo be able to help it from a get-go, you\nneed to add the questions and guidelines\nof how to response those certain\nquestions.\nAgain, similar to Genie examples, don't\nadd simple questions. What is What is\nincident or what is campaign? Knowledge\nassistant is smart enough to figure out\nthe simple questions. Add questions that\nyour junior analyst would have\ndifficulties with.\nAnd now, when your both agents are\nconfigured properly, we go and tweak can\ntune our supervisor agent. Similarly to\nknowledge assistant, here is where the\ndescription is critical because our\nsupervisor agent decides which agent to\ncall, which underlying agent to call, it\nrelies on a description of a certain\nagent to understand is it the right\nagent to be called.\nAnother part similar to knowledge\nassistant is examples.\nOkay, we configure it, it gives us\nanswers.\nOne last step that we need to do, we\nneed to understand how to monitor those\nagents.\nAll those agents are registered in\nMLflow as an experiments.\nAnd there you can monitor your agents.\nIf we click here on experiment, we go to\nMLflow. And what it allows us to do, it\nallows us to see all the traces related\nto an execution of that specific agent.\nMeaning that every single interaction\nwith that specific agent,\nin our case a supervisor agent, is\ntracked in MLflow and you can see\nexactly what happened, what kind of\nerrors, what kind of issues user faced,\nwhat kind how long it took and so on.\nYou can see here also a detailed pass of\nwhich agent was called, which function\nand so on.\nObviously your end user will not be\nlooking there, but it will help you\nsignificantly to actually monitor how\nthose agents perform and how to improve\nit over time.\nMaybe some loops are redundant, maybe\ncertain parts are not as efficient as\npossible.\nHere as well, you can set up a judges to\nessentially evaluate how good your agent\nresponds to a certain certain questions.\nYou can make this evaluation system as\ncomplex as you would like, but what\nimportant here is that you have a full\ntraceability and also ability to\nevaluate those agents in production.\nOur story wouldn't be complete if we\ndidn't talk about data privacy.\nWhen we working with security documents,\nof course they have a lot of PII and\nother sensitive data.\nThere are three main components how you\ncan prevent this data from being\naccessed either through agents or just\nvisible to end user.\nFirst of all, we store all our data in\nUnity Catalog, which implies that we can\nset up a fine-grained permission of who\ncan access this data and when.\nWe can also set up\na policies for this data to be able to\neither mask the data or hide for a\ncertain users.\nSo, back to our architecture that we\nbuilt today. Agent Bricks allows you to\ncombine multiple specialized agents into\none cohesive system.\nBeing part of a Databricks ecosystem, it\nall runs within your scalable, secure\nlakehouse environment. We saw it with\nUnity Catalog, we saw it with other\ncomponents.\nAgent Bricks revolutionize how security\nteams use SOAR playbooks, transforming\nstatic documents into intelligent,\nadaptive systems. You can start with\nyours today and I would be happy to hear\nhow it goes.\n>> [music]",
+  "segments": [
+    {
+      "text": "The hidden cost of cybersecurity attack isn't just the breach itself. It's a knowledge depth left behind. When incident playbooks remain buried in static PDFs and elementary siloed in tables, you lose as the most valuable asset, institutional memory.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Today, I'm going to show you how you can use Eden breaks to build a security governance hub. We are going to transform a standard operating procedures from passive documents into adaptive multi-agent system that enforces process consistency, automates",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "post-incident reviews, and ensures your SOC evolves as fast as the threats it faces. Let's dive in. >> [music] >> Let's dive in by looking at the um data sources that we have for this example. And we will have three main data sources",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "common in any SOC environment. We have a structured tables which represent the metadata about incidents. Like, for instance, we can look at the incidents matrix. It contains the data like, for instance, start and end date for a specific uh incident,",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "type of incident, where it happened, and so on. We also have uh unstructured documents stored in a Unity Catalog volume, which represent playbooks and reports. As I mentioned, those are PDF documents, and they vary greatly in structure.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "So, the structure of uh for instance, uh impact analysis is much different comparing to structure of a playbook for a specific threat type. We will start by building a knowledge assistant, which allows us um work with unstructured documents like PDFs, like",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "the one we have here, and start asking questions to those unstructured documents in using natural language. Cool part about it, we don't have to implement a complicated logic to actually parse those documents. So, let's dive in. I already created uh",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "a few agents that we'll be using today, and I will explain how uh it's actually done under the hood a little bit later. But, let's start by asking questions to the agent. Where you can find agents, you go to uh agents, and then you have a list of agents that",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "you can use. I have my knowledge assistant one, and this is the one that I created for this presentation. I will start with a simple question, like for instance, give me a list of uh security playbooks and a short summary of every single one of them.",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "We got to get to know answers, and you see that it's not um generic assistant that goes somewhere to internet and fetches generic information. It is based on our documents, because this is an incident that we will be investigating in this particular example.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "We can dive a little bit deeper and uh ask assistant also to uh um how strategies differ depending on on incident type. As you can see here that um knowledge assistant help us identify the key difference between these um incident reports.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "We can also ask it to go one level deeper and suggest a list of playbooks that we need to develop uh based on our gap in our documentation. Knowledge assistant recommended a list of uh playbooks that we might want to develop based on information that it",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "has. It obviously doesn't mean that those playbooks doesn't uh don't exist in the in the organization. It just means that we don't have access to them um in our storage. But, this is a questions to you and unstructured data in our PDF documents.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "It would be very powerful to combine it with the structured data about our incidents. To access the structured data, we need to use a Genie space, because Genie is specifically built to uh ask questions in natural language to a",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "structured data stored in tables. Let's go there. You can find Genie under the SQL tab. And I already have a Genie space pre-built. Okay, so now let's start asking questions to Genie. Let's start with for instance October campaign October incident that we had",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "and try to understand a bit of more details regarding that one. As you can see here, we are using all the tables that I showed you at the beginning. Genie the catalog those are exactly the same tables. You see here the Genie provided us with",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "a detailed analysis what happened also showing us a graph of for instance anomalous events throughout the period and so on. and also provided us with detailed metrics and so on. >> [snorts] >> For every single queries a Genie executed, you can see",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "where this data is coming from, but you can also if you go up, you can see the thinking process of how Genie came up with that answer. We can start asking more in-depth question to it as well like for instance which regions or entity types",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "was the most affected by the incident that happened in October. Okay, we started getting our answers. You can also see regions regional breakdown of based on information that we have. Keep in mind that this all information coming from",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "structured data that we have. So ultimately I showed you by now two different ways to access two different types of data. Wouldn't be ideal to combine them in one single agent that we can actually ask our questions and then agent decides to",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "which is it question to a structured data, is it a question to our PDF documents and so on. And we can actually do it. So ultimately what we want to build and is an architecture like this. We want to have um our knowledge assistant which has access to",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "uh playbooks and incident reports stored in Unity Catalog volumes. We also want to have um our Genie space which has access uh to incident metadata. We want to combine them in one agent and then ask questions to it. In Databricks, you can do it by using a",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "supervisor agent and I already built one of us specifically for this purpose. You can see here supervisor agent. Let's go to it. Before we dive into how it actually works, let's uh test that it does what we want to uh it to do.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "Uh we got an answer from our supervisor agent. Not focusing specifically on answer, I want to show you that our agent actually tried to decide to which um underlying agents delegate this task to. So, you can see here that the first uh",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "first it started asking questions to Genie space for getting specific structure data. After that, another question to Genie space. But, if you see a little bit further, it also started asking questions to our knowledge assistant",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "meaning that it started using a PDF documents to find an answers it needed. Of course, it wouldn't be AI if it wouldn't add like a super nice uh emojis uh once in a while. But, uh you can see how powerful the system can be. Now, let's dive deeper into how it",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "actually worked. So, as you can see here on the left side, we have information about our supervisor agent. As you can see here, it has uh two agents added. One of them is our knowledge assistant that I showed you uh a few minutes earlier.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "And the second one is our Genie space. You can add up to 20 uh different uh agents to a supervisor to work with it. We have our agents set up. Everything seems to be working, but the one question that you might ask like how can",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "you improve it? Obviously, none of the agents will be perfect from first try just because it doesn't know a lot of information about your organization. So, how can you improve it? Essentially, to start improving answers from a supervisor agent, you",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "need to start by answers from individual agents. And we will start with the Genie space. So, if you go to Genie, there are multiple ways how you can actually make this Genie space better. If you start by default by adding your",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "tables and start asking questions, you might in certain cases be disappointed with answers because it might not understand specific terminology that you use doesn't particularly nicely understand how to join specific tables.",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "There are many ways how you can actually tweak and tune Genie, but I would like to show you just a few of them which can get you started. We will focus on four core capabilities that you can add. First of all, data itself. And after that, we will talk about",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "instructions, join joins, and example queries for SQL. So, let's start with the data. When you start working with data, data needs to have a very nice metadata attached to it. If your tables are called XYZ, it would be really hard for",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "Genie to understand what the content of it because metadata of a table is a primary source of analysis for Genie to understand what this table is about. If you go here, you can see that we have a description for a table, but we don't",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "have description for individual columns. Which is a gap we can we definitely should add it for an individual columns as well. One interesting thing here is that besides adding metadata of what does it mean, you can also add synonyms, which",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "essentially explain all other ways of calling this table. Don't forget to add synonyms here because it's crucial for Genie to become better. Another part where we can actually improve quality of answers from Genie space is instructions, joins, and SQL",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "queries. Let's start with the SQL queries. SQL queries allow you to specify certain queries that Genie should use for a specific questions that you asked it. When you try to add those queries, don't add like a generic select star type of",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "queries. Genie is smart enough to understand how to do those. Add queries that are very specific to your data. Queries that are much more detailed comparing to just a generic one. Treat Genie as a junior analyst who doesn't know yet every single specific",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "of your organization, but very talented in understanding and working with data. The same time, what you might also want to do, you might want to specify how to join specific tables and on which condition. This is one level deeper because here",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "you help Genie to follow specific logic of how your data needs to be connected. And the last one, last but not least, is instructions. My advice to you would be don't treat instruc- don't start with instructions. Instructions should be your last resort",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "after everything else is configured. One important thing here is that you cannot know how if Genie is good or bad if you can't measure it. That's why here you also have a benchmarks. What benchmarks do, they allow you to evaluate your Genie every time you make",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "certain changes in either instructions or joins or SQL queries or maybe your data structure changed. How does it How do they look like? Essentially, it's a bunch of queries and also and ground truth answers that Genie should execute.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "Every time you change something in your configuration of your Genie space, you can run benchmark and see how Genie performs against that benchmark. Now, let's move to a knowledge system. If our Genie is perfect, let's see what",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "we can tweak and tune in our knowledge assistant. When you try to improve knowledge assistant, you have two main ways to do it. First of all, you definitely need to specify description of your knowledge assistant. It will help a supervisor agent to",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "select a proper knowledge assistant if you have many of them. It uses exactly this description to make it better. The second one, you can also specify instructions similar to what we just saw in Genie space. It allows you to",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "guide knowledge assistant to a certain behavioral patterns. And one of the critical point is examples. Knowledge assistant is an agent learning from human feedback. The more you use it, the more it understands your data structure, the more it understands your",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "thinking process, and the more it learns from you. To be able to help it from a get-go, you need to add the questions and guidelines of how to response those certain questions. Again, similar to Genie examples, don't add simple questions. What is What is",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "incident or what is campaign? Knowledge assistant is smart enough to figure out the simple questions. Add questions that your junior analyst would have difficulties with. And now, when your both agents are configured properly, we go and tweak can",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "tune our supervisor agent. Similarly to knowledge assistant, here is where the description is critical because our supervisor agent decides which agent to call, which underlying agent to call, it relies on a description of a certain",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "agent to understand is it the right agent to be called. Another part similar to knowledge assistant is examples. Okay, we configure it, it gives us answers. One last step that we need to do, we need to understand how to monitor those agents.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "All those agents are registered in MLflow as an experiments. And there you can monitor your agents. If we click here on experiment, we go to MLflow. And what it allows us to do, it allows us to see all the traces related to an execution of that specific agent.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "Meaning that every single interaction with that specific agent, in our case a supervisor agent, is tracked in MLflow and you can see exactly what happened, what kind of errors, what kind of issues user faced, what kind how long it took and so on.",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "You can see here also a detailed pass of which agent was called, which function and so on. Obviously your end user will not be looking there, but it will help you significantly to actually monitor how those agents perform and how to improve it over time.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "Maybe some loops are redundant, maybe certain parts are not as efficient as possible. Here as well, you can set up a judges to essentially evaluate how good your agent responds to a certain certain questions. You can make this evaluation system as",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "complex as you would like, but what important here is that you have a full traceability and also ability to evaluate those agents in production. Our story wouldn't be complete if we didn't talk about data privacy. When we working with security documents,",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "of course they have a lot of PII and other sensitive data. There are three main components how you can prevent this data from being accessed either through agents or just visible to end user. First of all, we store all our data in",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "Unity Catalog, which implies that we can set up a fine-grained permission of who can access this data and when. We can also set up a policies for this data to be able to either mask the data or hide for a certain users. So, back to our architecture that we",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "built today. Agent Bricks allows you to combine multiple specialized agents into one cohesive system. Being part of a Databricks ecosystem, it all runs within your scalable, secure lakehouse environment. We saw it with Unity Catalog, we saw it with other",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "components. Agent Bricks revolutionize how security teams use SOAR playbooks, transforming static documents into intelligent, adaptive systems. You can start with yours today and I would be happy to hear how it goes. >> [music]",
+      "start": 348,
+      "duration": 6
+    }
+  ]
+}

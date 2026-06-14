@@ -42,6 +42,7 @@
             "GoogleStack",
             "LocalPrivacy",
             "RouterMeta",
+            "AdvisoryReview",
             "AuditLedger"
           ]
         },
@@ -183,7 +184,7 @@
             "availability": {"type": "string", "enum": ["enabled", "disabled", "degraded"]},
             "runtime_state": {
               "type": "string",
-              "enum": ["created", "warming", "idle", "leased", "running", "draining", "cooldown", "error", "quota_exhausted", "auth_expired", "disabled", "stale_context", "needs_human_review"]
+              "enum": ["unknown", "created", "warming", "idle", "leased", "running", "draining", "cooldown", "error", "quota_exhausted", "auth_expired", "disabled", "stale_context", "needs_human_review"]
             },
             "last_heartbeat_at": {"type": ["string", "null"]},
             "last_success_at": {"type": ["string", "null"]},
@@ -219,7 +220,53 @@
         "vendor": {"type": "string"},
         "model": {"type": "string"},
         "preferred_for": {"type": "array", "items": {"type": "string"}},
-        "avoid_for": {"type": "array", "items": {"type": "string"}}
+        "avoid_for": {"type": "array", "items": {"type": "string"}},
+        "reverse_binding": {
+          "type": "object",
+          "description": "Reverse binding metadata linking this operator back to capsule/traits/skills/MCP that select it.",
+          "additionalProperties": true,
+          "properties": {
+            "installed_traits": {"type": "array", "items": {"type": "string"}},
+            "installed_skills": {"type": "array", "items": {"type": "string"}},
+            "mounted_mcp": {"type": "array", "items": {"type": "string"}},
+            "allowed_capsules": {"type": "array", "items": {"type": "string"}},
+            "forbidden_capsules": {"type": "array", "items": {"type": "string"}},
+            "historical_scoring": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "avg_score": {"type": "number", "minimum": 0, "maximum": 1},
+                "total_tasks": {"type": "integer", "minimum": 0},
+                "last_scored_at": {"type": "string"}
+              }
+            },
+            "success_rate_by_capsule": {
+              "type": "object",
+              "description": "Rolling 7-day success rate per capsule ID (0.0-1.0).",
+              "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1},
+              "default": {}
+            },
+            "recent_failure_modes": {
+              "type": "array",
+              "description": "Recent failure categories with timestamps for capsule-operator pair.",
+              "items": {
+                "type": "object",
+                "required": ["capsule_id", "failure_category", "occurred_at", "task_id"],
+                "additionalProperties": false,
+                "properties": {
+                  "capsule_id": {"type": "string"},
+                  "failure_category": {
+                    "type": "string",
+                    "enum": ["timeout", "auth_expired", "quota_exhausted", "context_overflow", "hallucination", "logic_error", "permission_denied"]
+                  },
+                  "occurred_at": {"type": "string"},
+                  "task_id": {"type": "string"}
+                }
+              },
+              "default": []
+            }
+          }
+        }
       },
       "if": {
         "properties": {

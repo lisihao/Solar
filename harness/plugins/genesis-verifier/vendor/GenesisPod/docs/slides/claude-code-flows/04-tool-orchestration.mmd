@@ -1,0 +1,35 @@
+flowchart TD
+  INPUT(["ToolUseBlock[]\nFrom API response"]) --> PARTITION
+
+  PARTITION["partitionToolCalls()\nGroup by isConcurrencySafe"]
+
+  PARTITION --> EX1["Batch 1: Concurrent\nRead + Grep + Glob"]
+  PARTITION --> EX2["Batch 2: Serial\nBash"]
+  PARTITION --> EX3["Batch 3: Concurrent\nRead"]
+  PARTITION --> EX4["Batch 4: Serial\nFileEdit"]
+
+  EX1 --> CONC1["runToolsConcurrently()\nall() generator · max=10"]
+  CONC1 --> P1["Tool A\nRead"]
+  CONC1 --> P2["Tool B\nGrep"]
+  CONC1 --> P3["Tool C\nGlob"]
+  P1 & P2 & P3 --> QUEUE_MOD1["Queue contextModifiers\nDo NOT apply yet"]
+  QUEUE_MOD1 --> APPLY1["Apply modifiers in\ntool-receive order"]
+
+  EX2 --> SER1["runToolsSerially()"]
+  SER1 --> S1["Bash\nexecute"]
+  S1 --> APPLY_S1["Apply contextModifier\nimmediately"]
+
+  EX3 --> CONC2["runToolsConcurrently()"]
+  CONC2 --> P4["Tool D\nRead"]
+  P4 --> APPLY2["Apply modifiers"]
+
+  EX4 --> SER2["runToolsSerially()"]
+  SER2 --> S2["FileEdit\nexecute"]
+  S2 --> APPLY_S2["Apply contextModifier"]
+
+  APPLY1 --> NEXT1((" "))
+  APPLY_S1 --> NEXT1
+  NEXT1 --> APPLY2
+  APPLY2 --> NEXT2((" "))
+  NEXT2 --> APPLY_S2
+  APPLY_S2 --> DONE(["Orchestration Complete\nyield final context"])

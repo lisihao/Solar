@@ -21,7 +21,7 @@ class SubtitleTrack:
     source_backend: str  # yt_dlp | player_caption | browser_capture | youtube_api
     language: str  # BCP-47
     language_name: str
-    track_kind: str  # standard | asr | translation
+    track_kind: str  # standard | auto | translation
     format: str  # srv1, vtt, json3, etc.
     is_auto_generated: bool
     is_translatable: bool
@@ -136,7 +136,7 @@ def _parse_tracks(
                 source_backend="yt_dlp",
                 language=lang_code,
                 language_name=entry.get("name", lang_code),
-                track_kind="asr",
+                track_kind="auto",
                 format=entry.get("ext", "unknown"),
                 is_auto_generated=True,
                 is_translatable=True,

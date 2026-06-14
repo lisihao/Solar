@@ -8,6 +8,8 @@ from pathlib import Path
 
 from .schemas import SurveyScorecard, to_dict
 from .quality import assess_survey_quality
+from .golden_style_gate import assess_audience_hygiene, assess_golden_style
+from .insight_gates import run_all_insight_gates
 
 
 def _read_json(path: Path) -> dict:
@@ -44,6 +46,7 @@ def evaluate_survey(
     *,
     min_finalized: int | None = None,
     require_complete: bool = False,
+    require_golden_style: bool = False,
 ) -> dict:
     root = Path(output_dir).expanduser()
     ast = _read_json(root / "survey_report_ast.json")
@@ -74,6 +77,8 @@ def evaluate_survey(
     reviews = [_read_json(path / "review.json") for path in section_dirs if (path / "review.json").exists()]
     blocked_sections = int(packs.get("blocked") or 0) if isinstance(packs, dict) else len(sections)
     quality = assess_survey_quality(root, ast=ast, packs=packs)
+    golden_style = assess_golden_style(root, require_benchmark=require_golden_style)
+    audience_hygiene = assess_audience_hygiene(root)
     taxonomy = quality.get("taxonomy", {})
     contradiction_matrix = quality.get("contradiction_matrix", {})
     section_factual_audit = quality.get("section_factual_audit", {})
@@ -85,6 +90,7 @@ def evaluate_survey(
     chapter_review = quality.get("chapter_review", {})
     chief_editor_review = quality.get("chief_editor_review", {})
     depth_profile = quality.get("depth_profile", {})
+    insight_quality = quality.get("insight_quality", {})
     issues: list[str] = []
     if len(chapters) < 8:
         issues.append(f"chapter_count_low:{len(chapters)}<8")
@@ -140,9 +146,24 @@ def evaluate_survey(
             issues.append(str(issue))
         for issue in depth_profile.get("issues", []):
             issues.append(str(issue))
+        if insight_quality.get("active"):
+            for issue in insight_quality.get("issues", []):
+                issues.append(str(issue))
+        if golden_style.get("enabled") or require_golden_style:
+            for issue in golden_style.get("issues", []):
+                issues.append(str(issue))
+        for issue in audience_hygiene.get("issues", []):
+            issues.append(str(issue))
         if require_complete:
             for issue in final_quality.get("issues", []):
                 issues.append(str(issue))
+    insight_gate_results: list[dict] = []
+    if insight_quality.get("active"):
+        insight_gate_results = run_all_insight_gates(root, ast)
+        for gate in insight_gate_results:
+            if not gate.get("ok"):
+                for req_id in gate.get("failed_requirement_ids", []):
+                    issues.append(f"insight_gate:{gate['gate_id']}:{req_id}")
     required_finalized = len(sections) if require_complete else (min_finalized if min_finalized is not None else 3)
     if strict and finalized < required_finalized:
         issues.append(f"finalized_sections_low:{finalized}<{required_finalized}")
@@ -216,6 +237,11 @@ def evaluate_survey(
         "chapter_review": chapter_review,
         "chief_editor_review": chief_editor_review,
         "depth_profile": depth_profile,
+        "insight_quality": insight_quality,
+        "golden_style": golden_style,
+        "require_golden_style": require_golden_style,
+        "audience_hygiene": audience_hygiene,
+        "insight_gates": insight_gate_results,
     }
     (root / "survey_eval.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return payload

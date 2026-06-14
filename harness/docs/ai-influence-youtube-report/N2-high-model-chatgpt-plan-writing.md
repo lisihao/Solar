@@ -235,7 +235,7 @@ Output:
   },
   "archive_metadata": {
     "browser_session_id": "string",
-    "chatgpt_project": "杂项",
+    "chatgpt_project": "1234",
     "chatgpt_conversation_url": "string",
     "model": "ChatGPT 5.5 Thinking high"
   }
@@ -248,7 +248,7 @@ Phase 3 MUST:
 - Remove internal processing language.
 - Replace ASCII diagrams with inline SVG.
 - Preserve visible source mapping per major section.
-- Produce archive metadata so Browser Agent can move the ChatGPT conversation into project `杂项`.
+- Produce archive metadata so Browser Agent can move the ChatGPT conversation into project `1234`.
 
 ---
 
@@ -260,7 +260,7 @@ The Browser Agent wrapper MUST provide these stable fields to the pipeline:
 {
   "browser_session_id": "string",
   "chatgpt_model": "ChatGPT 5.5 Thinking high",
-  "chatgpt_project": "杂项",
+  "chatgpt_project": "1234",
   "conversation_url": "https://chatgpt.com/...",
   "prompt_hash": "sha256",
   "input_artifact_path": "path",
@@ -276,7 +276,7 @@ Rules:
 - The wrapper reads prompt input from stdin or a prompt file.
 - The wrapper selects ChatGPT 5.5 Thinking high before submitting.
 - The wrapper must save raw model output and parsed JSON/Markdown output separately.
-- After useful output is extracted, the wrapper must archive the ChatGPT conversation into project `杂项`.
+- After useful output is extracted, the wrapper must archive the ChatGPT conversation into project `1234`.
 - If archival fails, report generation can continue, but `archive_status=failed` must be visible in `model_call_ledger`.
 
 ---
@@ -298,7 +298,7 @@ Required fields:
   "report_id": "string",
   "chapter_id": "string|null",
   "browser_session_id": "string",
-  "chatgpt_project": "杂项",
+  "chatgpt_project": "1234",
   "conversation_url": "string|null",
   "input_tokens_estimate": 0,
   "output_tokens_estimate": 0,

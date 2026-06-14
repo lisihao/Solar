@@ -1,0 +1,260 @@
+# Monitoring Agent Configuration
+# Version: 1.0
+
+# 监控环境配置
+environment:
+  # 默认环境
+  default: staging
+
+  # 环境列表
+  environments:
+    staging:
+      prometheus_url: "http://localhost:9090"
+      grafana_url: "http://localhost:3000"
+      alertmanager_url: "http://localhost:9093"
+      data_retention_days: 7
+
+    production:
+      prometheus_url: "http://prometheus.prod.example.com"
+      grafana_url: "http://grafana.prod.example.com"
+      alertmanager_url: "http://alertmanager.prod.example.com"
+      data_retention_days: 30
+
+# 告警配置
+alerts:
+  # 是否启用告警检查
+  enabled: true
+
+  # 检查间隔（分钟）
+  check_interval: 5
+
+  # 严重程度优先级
+  severity_levels:
+    - critical
+    - warning
+    - info
+
+  # 告警阈值
+  thresholds:
+    staging:
+      error_rate: 0.05 # 5%
+      latency_p95: 1.0 # 1秒
+      memory_usage: 0.90 # 90%
+      cpu_usage: 0.80 # 80%
+      disk_usage: 0.85 # 85%
+
+    production:
+      error_rate: 0.01 # 1%
+      latency_p95: 0.5 # 500ms
+      memory_usage: 0.85 # 85%
+      cpu_usage: 0.70 # 70%
+      disk_usage: 0.80 # 80%
+
+  # 告警通知
+  notifications:
+    # Slack通知
+    slack:
+      enabled: false
+      webhook_url: ""
+      channel: "#alerts"
+
+    # Email通知
+    email:
+      enabled: false
+      smtp_host: ""
+      smtp_port: 587
+      from: "alertmanager@example.com"
+      to:
+        - "team@example.com"
+
+# 性能分析
+performance:
+  # 是否启用性能分析
+  enabled: true
+
+  # 分析指标
+  metrics:
+    - latency
+    - error_rate
+    - throughput
+    - cpu_usage
+    - memory_usage
+    - database_performance
+
+  # 趋势分析周期
+  trend_periods:
+    - 1h # 最近1小时
+    - 24h # 最近1天
+    - 7d # 最近7天
+
+  # 瓶颈识别
+  bottleneck_detection:
+    enabled: true
+    # 瓶颈阈值
+    thresholds:
+      latency_increase: 0.30 # 延迟增加30%
+      error_rate_increase: 0.50 # 错误率增加50%
+      cpu_saturation: 0.80 # CPU使用80%
+      memory_saturation: 0.85 # 内存使用85%
+
+# 健康检查
+health_check:
+  # 是否启用健康检查
+  enabled: true
+
+  # 检查间隔（秒）
+  interval: 30
+
+  # 超时时间（秒）
+  timeout: 5
+
+  # 检查的服务
+  services:
+    - name: prometheus
+      url: "http://localhost:9090/-/healthy"
+      required: true
+
+    - name: grafana
+      url: "http://localhost:3000/api/health"
+      required: true
+
+    - name: alertmanager
+      url: "http://localhost:9093/-/healthy"
+      required: false
+
+  # Exporters
+  exporters:
+    - name: postgres-exporter
+      port: 9187
+      required: true
+
+    - name: redis-exporter
+      port: 9121
+      required: true
+
+    - name: mongodb-exporter
+      port: 9216
+      required: true
+
+    - name: node-exporter
+      port: 9100
+      required: false
+
+    - name: cadvisor
+      port: 8080
+      required: false
+
+# CI/CD集成
+cicd_integration:
+  # 部署前检查
+  pre_deployment:
+    enabled: true
+    checks:
+      - no_critical_alerts # 无Critical告警
+      - error_rate_low # 错误率低
+      - resource_available # 资源充足
+
+  # 部署后验证
+  post_deployment:
+    enabled: true
+    # 预热时间（分钟）
+    warmup_minutes: 2
+    # 验证持续时间（分钟）
+    validation_minutes: 5
+    # 对比基线（分钟）
+    baseline_minutes: 15
+
+    # 验证指标
+    metrics:
+      - error_rate
+      - latency_p95
+      - cpu_usage
+      - memory_usage
+
+    # 自动回滚
+    auto_rollback:
+      enabled: true
+      triggers:
+        - error_rate_increase: 0.50 # 错误率增加50%
+        - latency_increase: 0.50 # 延迟增加50%
+        - new_critical_alerts: true # 出现新Critical告警
+
+# Dashboard配置
+dashboards:
+  # 自动加载Dashboard
+  auto_load: true
+
+  # Dashboard列表
+  dashboards:
+    - name: "Overview"
+      file: "overview.json"
+      refresh: "30s"
+
+    - name: "Backend API"
+      file: "backend-api.json"
+      refresh: "10s"
+
+    - name: "Database"
+      file: "database.json"
+      refresh: "30s"
+
+    - name: "Business Metrics"
+      file: "business.json"
+      refresh: "1m"
+
+# 数据导出
+export:
+  # 是否启用导出
+  enabled: true
+
+  # 导出格式
+  formats:
+    - json
+    - csv
+    - prometheus
+
+  # 默认导出路径
+  output_dir: "./.claude/logs/metrics"
+
+  # 自动清理旧数据
+  auto_cleanup:
+    enabled: true
+    retention_days: 30
+
+# 审计日志
+audit:
+  # 是否启用审计
+  enabled: true
+
+  # 日志路径
+  log_path: ".claude/logs/monitoring-audit.jsonl"
+
+  # 记录的事件
+  events:
+    - deployment_check
+    - alert_triggered
+    - alert_resolved
+    - performance_issue
+    - config_change
+
+# 高级选项
+advanced:
+  # 并发查询数
+  concurrent_queries: 5
+
+  # 查询超时（秒）
+  query_timeout: 30
+
+  # 是否缓存查询结果
+  cache_enabled: true
+  cache_ttl: 300 # 5分钟
+
+  # 自定义PromQL查询
+  custom_queries:
+    request_rate:
+      query: "rate(http_requests_total[5m])"
+      description: "HTTP请求速率（5分钟平均）"
+
+    error_ratio:
+      query: 'rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m])'
+      description: "错误率（5分钟平均）"

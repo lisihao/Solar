@@ -2599,8 +2599,8 @@ if [[ "$rc" -eq 0 && -s "$HANDOFF" && "$HANDOFF" -nt "$RUN_STARTED_MARKER" ]]; t
     success_status="reviewing"
   fi
   "$HARNESS" graph-scheduler mark --graph "$GRAPH" --node "$NODE_ID" --status "$success_status" --in-place >> "$OUTPUT_LOG" 2>&1 || true
-  write_status completed "$rc"
-  pane_title "MT $ROLE/$PROFILE | 模型:$MODEL | provider:$PROVIDER | 状态:completed"
+  write_status result_submitted "$rc"
+  pane_title "MT $ROLE/$PROFILE | 模型:$MODEL | provider:$PROVIDER | 状态:result_submitted"
 elif [[ "$rc" -eq 0 && -s "$HANDOFF" ]]; then
   echo "ERROR: stale handoff predates current run: $HANDOFF" | tee -a "$OUTPUT_LOG"
   if mark_graph_failed_unless_passed; then

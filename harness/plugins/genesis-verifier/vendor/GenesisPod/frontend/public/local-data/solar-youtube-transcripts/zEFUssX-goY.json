@@ -1,0 +1,599 @@
+{
+  "videoId": "zEFUssX-goY",
+  "title": "SREcon26 Americas - 5 Wrong Hypotheses about PostgreSQL Multi-Transaction Locks",
+  "channelName": "USENIX",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 28718,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "Who who here I have imagined who here\nlikes to be right. Right. Who who here\nactually thinks they're right. Right.\nOkay. We all work in SRE I think or\naround SRE and we're used to being a\nlittle bit right and a little bit wrong.\nToday we're going to talk about how we\ndo that and I'm going to tell you a\nspecific story how we were a little less\nwrong over multi-year about a really big\nproblem that we had.\nSo first to mention a little bit who I\nam.\nBiggest bullet point here is I'm an\nincident nerd. I can't resist. If\nthere's an incident I have to dive in.\nIt's it's kind of a sickness and my good\nfriend and co-host Colette knows how to\npull me out of that. But I just have a\nreally big head for Nerd Snipes. So\nthat's what led to a lot of what we have\ntoday. Uh I'm also a tech lead for a\nproduction engineering team. Um what\nthat means is we just are the team that\nthey bring all the weird stuff to. Um\nproduction isn't the way we expected it.\nSo go ask production engineering. We\nalso own things that everybody shares in\nproduction. So it's basically a platform\nteam like the databases and the cues and\nthings like that. I host a podcast where\nwe talk about how people actually have\nto do this work. Um, and most\nimportantly, I'm just me. I don't speak\nfor my employer who I won't mention\nright now so that we can talk freely\nabout this story that was inspired by\ntrue events.\nBut what are we really going to talk\nabout? I heard somebody mention\nyesterday uh global learning and local\nlearning. So, we're going to have a\nglobal learning and we're going to have\nsome local learning. The global learning\nthat I want you to take away today is\nthat while we're doing site reliability\nengineering, we need to be doing a\nlittle bit of site reliability science.\nWe have to have a little bit of rigor in\nas we look at these systems. And if we\ndon't, we're just going to keep spinning\nall the time.\nSo, I'm going to tell you a little\nstory, but the names, places, uh times,\ndates, everything have been changed to\nprotect the innocent. That That's me.\nUm, and I I also do know that that's a\nmedic and not a scientist. Uh, but I\njust like how the scientist is sort of\nlike wideeyed looking to the future and\nthe engineer is just like, \"Oh, I got to\ndo this work.\"\nAnd the local learning is that we're\ngoing to have is about Postgress\nmulti-transaction locks. Can I just get\na hand? Does anybody know how they work?\nOkay. Okay. I was going to call you a\nliar\nand I and I I met anybody like work on\nPostgress like deeply like like Okay,\ngreat. So I can tell you lies. So what\nPostgress multi-transaction locks are is\nsometimes when you're in a database with\nmulti- version concurrency, you need to\nhave things not disappear. That's really\nall it is. So in this example, we got a\nschema where like these many to many\nrelated objects also have a foreign key\nback to this like ancestor object for\nreasons. In this case, there's like a\nchance that the many to many\nrelationship will get lost and we'll\nhave orphans. So we want to make sure we\nknow who owns that ultimately so we can\nclean it up someday. And by doing that\nforeign key in this specific database\nschema, we created a problem which is we\ninsert millions and millions and\nmillions of these child objects. And\nwhen we do that, we have to share lock\nthat one tenant object all the way at\nthe top. No matter how many concurrent\nthreads are going, they all have to\nshare that object. They have to make\nsure it doesn't disappear.\nSubtransactions also need to do this,\nbut we're not going to get into why that\nis. How does it do that?\nIt's crazy. Like I I I wish I could do\nthe next I got 31 minutes left. I want\nto do 32 minutes on this, but you're all\ngoing to go to sleep. The really\nimportant things to know is it's a bunch\nof 32-bit integers that just get written\nto disk. In the database, there's header\nfields that define how what the oldest\nand newest transactions are, and those\nare constantly moving as the versions\nchange. In each table header, there's\nthese things called frozen transactions\nand frozen multi-transaction locks that\nare get get kept track of by the vacuum\nprocess. In the rows, you have just that\nrow. When did it uh get born? That's\nxmin. And when did it get deleted? Xmaxx\nexcept asterisk. If the flags say that\nthat's actually a multitransaction lock,\nthen that's not when it's deleted.\nThere's this offset file that has all\nthese 32-bit integers saying this\nmulti-t transaction ID is over here and\nthis member file and then the members\nfile is just a bunch of transaction IDs.\nWhy does all this have to exist? When\nyou're in a multi version concurrency\nsystem, you have to be able to tell if\nsomething is visible because it may be\nabout to change or it may have changed\nfrom the time you started your\ntransaction.\nThis is all just background. put it in\nthe back of your mind. This is how\nthings have to work.\nBut now, let's get into the fun stuff.\nThis is a story. This happened years\nbefore I joined this production\nengineering team. Uh, and I only know\nabout this because they wrote stuff down\nand made good incident reports. So,\nplease write stuff down, put them in\nincident reports that won't die. We f I\nfound this graph early on in this\ninvestigation. Um, basically they were\ntrying to solve a minor problem in the\nhot path. Uh, so you see that nice\nlittle line over there. It was like\ntaking 10 milliseconds. They're like,\n\"Ah, we need it to take one\nmillisecond.\" And so let's make an\nindex. It's a good idea. They were like,\n\"There's a better cardality index. Let's\nmake it.\" They made it and it totally\nimproved the query until several minutes\nlater something reverse improved it.\nSo the engineer who was doing this was\njust watching this query's performance.\nThey were like, I just made the index\nand now things are better. And then just\nas they were about to like disengage,\nthey saw this graph go up. And they\ndidn't really panic. They just were\nlike, uh-oh, something bad is happening\nto my query. I should run a vacuum\nanalyze.\nThe graph on the top is not the query's\nperformance. That's the entire\ndatabase's performance after the vacuum\nanalyze was run.\nPanic ensues, right? What what did I do?\nYou know, everybody's pages go off. This\nis a a big monolithic application with a\nbig Aurora Postgress database that uh\nhas to be up and now it's orders of\nmagnitude slower and no one knows why.\nUh so they sort of look at the system,\nthey're twisting it around, they're\ntrying to figure out what's going on.\nAnd finally the engineer after several\nminutes is like what if we just drop the\nindex. They drop the index and\neverything goes green.\nNow\nthis is a weird position to be in. If\nyou're if you've ever been in this\nsituation\nthe engineers like I I took actions. I\nhave causal effect on this database. I\ncan see it in the graphs. I I did this\nand this happened. And so if they did\njust traditional root cause analysis,\nuh they they wrote this down as a root\ncause. An engineer created an index on\nthe table which led to global latency\nproblems. The problem was resolved when\nthe index was dropped. That's a root\ncause. Okay, we can tell the customers\nthat. But why? Like why? What does that\nactually tell you about the system? What\nwhat was actually happening? While they\nwere analyzing it, they they noted a\nbunch of stuff that they just like\ndidn't know. They were like, why were\nall these threads in this LW lock\nmultiXAC waiting threads mode?\nThis team doesn't have Postgress core\ndevelopers on it. Like what the heck is\nthat? They also looked back through the\nlogs and they actually found in the\nmetrics and they found that like every\nday, sometimes multiple times a day, a\nlittle graph like the one at the bottom\nhappens, which is this little mohawk\nwould like build up of these waiters and\nthen just drop and build up and drop.\nAnd in this case, if you look at the\nprevious one, that mohawk was just much\nbigger.\nWhy? So the team kind of had to move on\nbecause they're not scientists. They're\nsite reliability engineers. So they had\nfixed the system. They moved on. But\nthey did write down a hypothesis.\nMultaxs are bad.\nThat's all they had. They're like, I\nokay, well, let's watch for them. And\nthe only experiment they could really\nrun in this case was just watch for\nthose weight states. See if they can\ncorrelate with failure modes.\nHypothesis one confirmed. This one\nactually was confirmed. Yeah. So it\nlooks like multiXs are bad. What you see\nhere are the graphs of longunning\ntransactions. Whenever you start a\ntransaction, that graph starts going up\nand when it finishes, that graph goes\ndown. And these were found to correlate\nexactly with those weight states, but\nnot always. Sometimes a longing\ntransaction doesn't make the weight\nstates happen, and sometimes the weight\nstates don't make it happen. So we could\nbe looking at cause or effect. we could\nlook at symptoms but we do have a\nconfirmation multaxx are involved in\nsomething bad.\nThey needed a new hypothesis.\nSo they decided let's let's let's assume\nlongunning traction transactions are\npreventing the autovacuum process in a\npostcrist database from cleaning out\nthose multi-transaction locks that would\ncause them to build up in the system. If\nyou go back to our thing like why do you\nneed multi-transaction locks? Well, we\nhave to keep a list of all the\ntransactions that are currently running\nthat have a lock in a table. But with\nPostgress, we can't ever really like\nclear those out until we run vacuum. So\nevery time we encounter that row, we\nhave to go back and look at that list\nand see if any of those transactions are\nstill running. And so autovacuum comes\nalong and just it freezes them. It marks\nthem as like those aren't active\nanymore. And so they're building up\nfaster and faster. And when there's a\nlongrunning transaction, autovacuum\ncan't touch any of those transactions.\nThat's the hypothesis. So the experiment\nthey came up with was whenever we see\nthose weight states, we're just going to\nkill the longest running transactions uh\nbecause that should work.\nThey actually kind of got some data here\nover the next year. Uh there were some\nof these similar lockups and latency\nbumps. uh every time they just were\nlike, \"Kill the longest running\ntransaction. That'll work until it\ndidn't.\"\nSo, fast forward, we're we're about two\nyears after that initial\nuh latency event and\nthat we we get this. If you can't if you\ncan't see, it's kind of hard to see\nbecause the graph just looks empty. on\nthe right side you have like many more\norders of magnitude of growth all of a\nsudden in a in a in a really alarming\npattern. Those are the locks on all the\ntables in the system. Doesn't work very\nwell when all the things are locked\nto the runbook, right? They had written\ndown their experiment basically as a\nrunbook. And I think we do that as SRES.\nWe're like I like we we need to run this\nand and and\nlearn things from it. And so they had\nwritten down this awesome query and\neverybody had access to it. It was\nlinked to in the alerts about the locks.\nRun this and all shall work\nexcept transactions stopped stopping. By\nthe way, I love this AI generated image.\nThis is a database running a stop sign.\nWe live in a strange time.\nBut essentially\nthe what happened normally this would\nwork. It would just kill the longest\nrunning. But the problem was the longest\nrunning transactions were in this weird\nstate. LW lock multiXAC offset SLRU.\nWhat does that mean? somewhere some\ndeveloper stuck that into a state and\nsaid someone will understand this\nsomeday. They looked in the code they're\nlike I don't know what this means it's\nall this weird concurrency stuff the\nteam is in time pressure here we're now\nin hours of incident time hours of\ndowntime and\nthe usual they call it they would call\nit bailing water out of the leaking boat\njust wasn't working. So, they needed a\nbigger bucket or as they called it, they\ndid the nuclear option, which is just\nturn it all off and turn it back on\nagain.\nEverything's all green. Like instantly\neverything comes back. Everything is\nfine for 10 minutes.\nNot great. Not great. So, it was just\nlong enough to shut down the the\nincident bridge and have everybody like\ndisengage, but immediately like people\ncome back in the incident Slack channel\nlike, \"Ah, there's something wrong.\" And\nthe everybody's pagers go off again.\nGoes right back into the same state. If\nthis graph right here is those multit\noffset control locks that you saw\nbefore, the team is back into panic\nmode. What do you do? You go back to\nhypothesis. Now that original hypothesis\nis out the door. The longrunning\ntransactions obviously weren't the\nproblem.\nThey just a thousand hypotheses bloom.\nSome of the ones that came up a lot were\nthere's an audit log system and seems\nlike there were a lot of inserts there.\nMaybe that's a problem except that's\nlike a compliance issue. We can't turn\nthat off. Uh vacuums on these like high\nchurn tables seem to be eating up a lot\nof IO bandwidth but there wasn't any\nknown ceiling for the IO bandwidth for\nthis system. So they turned it off, but\nit's not healthy. So that doesn't work.\nLow priority jobs could be interfering.\nThis system has a lot of like background\ncleanup of really complex relational\ntables. Uh they turned that off, but\nthat wasn't going yet. So the system was\njust completely unhealthy. They said,\n\"Well, what if we turned it off and back\non again?\"\nAnd everything goes green.\nI think you feel it.\nYou feel it.\nThis time it was for about 24 hours.\nNot not a good time to be on call for\nthis system. Uh panic ensues again. This\nis the next day now. Uh and actually for\nthe next eight days it happened four\ntimes. Now this is where resilience\ncomes in. The team figures it out. Like\nthey make this work. They just start\nlike watching the dashboard. Does\nanybody here watch the dashboard?\nYeah. Yeah. Yeah. I found my company's\nnumber one observability user because I\nthey're like, \"What do you do?\" I'm\nlike, \"I just refreshed this dashboard\na lot.\" And that's what happens. And\nthey and they start to see a leading\nindicator, but it's not a great leading\nindicator. Five minutes. you got five\nminutes from when this number starts to\njump up sort of I wouldn't say\nexponentially but fast if you go ahead\nand just redeploy the app really fast\nand they found faster ways to redeploy\nit so instead of going through like the\nwhole CI/CD pipeline they figured out\nthey could just like go into the\ncontainer orchestrator and turn it off\nand back on faster they got to the point\nwhere there wasn't downtime but there\nwas still like this dangerous\ndangerously bad effect happening and\nthey don't have any idea what's going\non.\nObviously, hypothesis 2 out the window.\nEven with no longunning transactions,\nthe system is locking up. So, they come\nup with another one. They're like,\n\"Okay, I think we see that the number of\nmulti-transaction locks being generated,\nthat's the problem.\" Like, and it's just\noverwhelming the DB in some way. So,\nremember, we've already confirmed\nmultaxs are bad. So, having lots of them\nis worse. So we should generate fewer of\nthem. So let's do an experiment. Let's\njust go on a tear reducing these, right?\nWe don't need all those foreign keys,\nespecially on like high churn tables. We\ncould maybe try to introduce concurrency\nlimits so we don't insert too many child\nrows under a single shared thing. All of\nthis happens in development in in a\nnumber of days while there's otherwise\nan actual global code freeze going on\nbecause people are scared that the the\nsystem isn't going to come back and be\nreliable anymore.\nSo that's their experiment and their\nexpected rate uh result.\nNo more lockups. That's an expensive\nexperiment\nespecially when we're already in debt\nwith our error budget. We're way below\nwater on our error budget and we're\nrunning an expensive experiment where\nour confirmation of our hypothesis would\ntake an undefined amount of time. So the\nbiggest problem though was there\nactually wasn't a measure known to the\nteam for how many multaxx were even\nbeing generated.\nSo they were just sort of going on vibes\nlike we'll see it again or we won't.\nWe saw it again\nand unfortunately just a couple of weeks\nafter all this effort was done the\ndatabase did fill up with locks. did we\ndid see like a slight improvement but\nultimately the weight states came back.\nThey tried like pausing all that low\npriority work. Nothing. Okay. But the\nthe only thing was turn it off and back\non and they got really good at turning\nit off and back on.\nAt this point\nthe team realized they needed to become\nbetter experts. This this isn't\nacceptable essentially like we need\nbetter understanding of Postgress. It's\na busy SRE team. They hadn't really\nbuilt their expertise on this. They were\njust sort of trusting that Aurora\nPostgress would do its thing. And that\nbecame a key point. We they leaned out\non Amazon support and they they they\nleaned out onto other experts and they\nfound a lot of blog posts about the fact\nthat Aurora Postgress is actually\nspecial. It doesn't have an OS VFS cache\nlayer. And because it doesn't have that,\ncache misses when reading\nmulti-transaction locks are really\nexpensive. And the buffer size has to be\nincreased for it to perform except we're\nfour major versions behind and we can't\neven see it. So huge hypothesis. I am so\nsorry to try and make you read it. I\nwon't. But essentially what it says is\nall that stuff I just said is causing\nthe problem. We think and if we can just\nmeasure the hit rate and watch it, we\ncan find out what's driving it up. We\ncan sort of look at what happens before\nand prevent that. So the experiment is\nupgrade four major releases. Uh not an\neasy task. If anybody anybody done an\nupgrade of a major release of Postgress,\nit's like downtime, difficulty, things\nbreak. they get it done\nand they start to see actually this is\nthis is good. This is this is less wrong\nand that's a great result. But\nthis SR site reliability scientist site\nreliability scientist uh this SR was\nlike nervous like I know the database\nisn't going down anymore but like that\nhit rate goes all the way down all the\ntime and we still don't go down. There's\nlike sort of doubts but you move on.\nThere's no fire to put out. So the team\nmoves on and whole entire year.\nSo that year goes by, the database is\nbeautiful.\nWe're we're good. We start to build up\nsome error budget. And so I br I wore\nthe shirt today. We decide to test in\nprod and not live a lie.\nWe've been running load tests and we say\nit's time we're going to push prod. We\nthink we know that if that hit rate\ndrops, we'll stop the test. We'll back\nit out. Right?\nTraffic to 500% of normal. No problem.\n2% drop in hit rate. It's beautiful.\nEverything is going great\ntill it's not\na few minutes later. Anybody?\nThis is what happens. So, it looked\nokay, but then this is a different\ngraph. This is the aggregate reads and\nwrites to the SLRU caches. These are\nthese caches that sit between the system\nand those files on disk that have all\nthose 32-bit integers. and they go up a\nlot. So, normal was near zero. It would\nmaybe spike to 100 or 200. We're in the\nmillions now, folks.\nAnd if you recognize a quadratic growth\ncurve, that's what you see there.\nEventually, it does actually flatten out\nbecause we're essentially in a dead\nstate. We've reached the capacity of the\nsystem to touch the disk.\nBut, you know, obviously, this is bad.\nOpen transactions are stuck. We f we\nhave found the maximum number of open\ntransactions we could do 4,000. Uh we\nfound the maximum number of locks. We\nthere's a lot of data here, but the\nsystem is down.\nAnd in fact, what happened? I'll back up\na little bit. Uh there were actually two\nincidents. So the the load test happens\nand we're able to like recover it\nquickly. Turn it off, turn it back on\nagain. Still works. Great. Uh but a\ncouple weeks later it happened again.\nNothing was happening on the system. It\nit was actually pretty disorienting. We\nhad had a year with no events and there\nwas no load tests going on and it goes\nback to dying. We couldn't figure out\nwhy. But we noticed something. If you\nlook that arrow on the right, a million\nbecame the new normal. For the next two\nweeks, the thing was doing a million SRU\naggregate accesses all the time. Whereas\nbefore the load test had been none. This\nwas new learning. This was an aha\nmoment. There's pressure that stays in\nthe system. Even after you've cleared\nand turned off and turned back on\neverything, something is still sitting\non disk making your life terrible. And\nin fact, the event several weeks later\nwas a longish running transaction. So\nwe're back to this old chestnut.\nWe've got old long-running transactions\nand we've got this pressure in the\nsystem building up. Now we're really\nlearning. We've done the work. We've\ndone the science. We've gotten enough.\nSo, hypothesis 4 is out. Even though\nthat model got us an entire year of\npeace, we had to we had to let go of it\nbecause we found this was great\nlearning. Hit rate doesn't matter. I\nmean hit rate probably matters in some\nscenarios not for us.\nThe the most important thing that we\nlearned that day was we need to find out\nwhat what it what does matter and we\ndid. It's that aggregate number. So\nhypothesis 5 was born. Aggregate multack\ncache pressure can increase to the point\nwhere it overwhelms the systems ability\nto read rows multaxx on them. Vacuum\nfreeze relieves the pressure by freezing\nold multx, removing the need to look up\ntheir XID members. What does that mean?\nI'm deep in the weeds, y'all. Like,\nhelp.\nThis is this is where we live now,\nactually. Uh, but our experiment was\nlet's let's set the alert level at\n200,000 per second. And remember that\nthat new normal was a million. So, we\ntried to give ourselves a little space.\nI will say we created like an alert\nfatigue generator at that point. The\nthing went over that threshold\nconstantly. Uh I want to apologize to\nReed on my team who was on call that\nfirst week. It was rough, but those\nalerts taught us. So we get an alert, we\nwould run vacuum freeze, and the system\nwould stay in in total stasis. Uh in\nfact, we didn't have any downtime during\nthat time. And in fact, the database has\nnot gone down since then. Has any did\nanybody have the dashboard? Can I look\nat it? I don't think it's down right now\nbecause we do have this model. But we\ndid create this sort of like mechanical\nTurk like\naggregate pressurees building up. Pull\nthe lever. Uh so after a couple weeks,\nReed in anger discovered that there's\nactually an answer for this. Autovacuum\nhas this setting. autovacuum multiXXM\nmax freeze age. What does that mean?\nOne of the things about\nmulti-transaction lock IDs is they have\nan age. There's the there's a distance\nbetween when they were created and now.\nAnd as that grows, it's more likely that\nyou can get rid of that multitransaction\nlock. And so the the system by default\nat 400 million will vacuum that away. it\nwill freeze that meaning it'll it'll\nmark it as this couldn't possibly be\nrunning right now so you don't have to\nworry about it. The only reason they set\nit at 400 million and and this is in the\ncomments in the code. Thank you for\ncomments in the code Postgress\ndevelopers is because it's a 32-bit\ninteger. It wraps. So 400 million gives\nenough time for the vacuum to finish\nbefore it will wrap around if you're on\na high transaction system. We didn't\nhave a wraparound problem. We weren't\nany coming anywhere near that age. We\nwere running at like seven or eight\nmillion,\nbut setting it to 1.5 million seemed\nreasonable. Like, cool, we run at eight.\nLet's keep it down below one and a half.\n1.5 million. Um,\nholy auto vacuum. It it this doesn't\nmake sense. I'll try to explain it. The\ntop was a normal day before that\nsetting. Uh, we would get little spikes\nwhere autovacuum would like loop a\nthousand times in in an hour. Um, we are\nnow running like 40,000 an hour, maybe\n50,000 an hour. Autovacuum is just\nconstantly just like obsessed with our\ntables, just vacuuming and vacuuming and\nvacuuming. And it like we got a little\nnervous,\nbut the system doesn't go down. It's\nkind of great. And we wouldn't have\nknown to do this if we didn't do all\nthis science.\nSo, I'm still kind of wrong about this.\nWe're still kind of wrong about this.\nHypothesis 5 probably will be\ninvalidated someday. Uh we like actually\nhave this like weird sick need for the\nsystem to go down. So we find out new\nstuff.\nI I don't want it to go down. Don't tell\nmy bosses I said that.\nBut I but there's I don't know any other\nway to do it. Like we've done load tests\nand it just doesn't work the same\nwithout the production traffic. Like we\ncan't break it in staging. We just it\ndoesn't break. Put it in the test\nharness and it it'll go to a billion.\nIt's the user activity and the entropy\nthat's coming from the users that's\ndoing it. Which is why we want to do\nthis science some more, but we can't\nuntil it breaks. So don't break\ndatabase, but break a little.\nSo yeah, what what's hypothesis looking\nlike? I'm not sure. I have all these\nquestions. Our team has these questions\nwhy sometimes when we run a manual\nvacuum freeze instead of letting\nautovacuum do it, it does like way way\nbetter. No idea why. Talked to many\nPostgress developers and AWS support\npeople. Nobody. They're like, I don't\nknow. Like it's weird. Postgress is\nweird. Multi multi-transaction locks.\nActually, if you want to not make\nfriends at a Postgress conference, talk\nabout multi-transaction locks. They're\nnot happy about it. Um, we still don't\nreally know why we have so many\nmultitransaction locks. We know foreign\nkeys make them, but they have enough\nvalue that we're going to keep them. Uh,\nwe know subtransactions might do them.\nWe still don't know why. The system is\nstable, so we don't we're not allocating\nany of our excess budget uh to find out.\nUh, also Postgress 17 did this cool\nthing where they made that cache work\nbetter presumably because other people\nhad problems like this.\nMaybe that's not why we're not going\ndown too. Also, like are we just like\nwasting IO? Like you know IO isn't free\non Aurora Postgress.\nNo idea.\nSo I want to leave you with this.\nPlease, please, please, I said this in\nthe beginning. I'm going to say it\nagain. Snap the graph and put it\nsomewhere where it won't die.\nSo we can have talks like this. Write\nthings down. Write down what happened in\nthe incident. I know you've got your\npostmortem form and says, \"How did we\nget lucky?\" And and why or you're doing\nyour five W's. Whatever your company\nneeds you to do to file that document. I\nunderstand.\nBut please also if you don't understand\nwhat happened, spend just a little more\ntime to write down your questions. Make\na hypothesis. like do a detailed\nincident analysis and and share it with\npeople and try to teach people about it\nbecause that's the only way you're going\nto get through some hard things like\nthis. Also, just like don't be afraid to\nbe a little wrong. Like make a statement\nin a hypothesis that\nyou know like ah this this probably\nisn't right but if it's a little bit\nright and a little wrong that'll help us\nlearn. And one of the things that you\nmight have caught in here that I think\nis important, and I really didn't even\nunderstand this until I went back\nthrough this whole sequence of events,\nyour error budget really can drive\nwhether or not you're able to learn. In\nthe early stages, we were underwater. We\ncouldn't really do the learning and we\nhad to pay with pain and more downtime.\nWe actually had to double down and go\neven deeper into error debt.\nBut when we had enough,\nit took a lot of pushing to say, \"No,\nwe're going to actually burn some of\nthat error budget to learn.\" Like, I'm\nnot going to lie, some people still are\na little unhappy that we just made an\nincident happen in in production. But\nthose of us who understand that the next\nsix months of peace came from that, no,\nyou've got to spend that era budget.\nThat's all I have, folks. Thank you.",
+  "segments": [
+    {
+      "text": "Who who here I have imagined who here likes to be right. Right. Who who here actually thinks they're right. Right. Okay. We all work in SRE I think or around SRE and we're used to being a little bit right and a little bit wrong.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Today we're going to talk about how we do that and I'm going to tell you a specific story how we were a little less wrong over multi-year about a really big problem that we had. So first to mention a little bit who I am. Biggest bullet point here is I'm an",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "incident nerd. I can't resist. If there's an incident I have to dive in. It's it's kind of a sickness and my good friend and co-host Colette knows how to pull me out of that. But I just have a really big head for Nerd Snipes. So",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "that's what led to a lot of what we have today. Uh I'm also a tech lead for a production engineering team. Um what that means is we just are the team that they bring all the weird stuff to. Um production isn't the way we expected it.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "So go ask production engineering. We also own things that everybody shares in production. So it's basically a platform team like the databases and the cues and things like that. I host a podcast where we talk about how people actually have",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "to do this work. Um, and most importantly, I'm just me. I don't speak for my employer who I won't mention right now so that we can talk freely about this story that was inspired by true events. But what are we really going to talk",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "about? I heard somebody mention yesterday uh global learning and local learning. So, we're going to have a global learning and we're going to have some local learning. The global learning that I want you to take away today is",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "that while we're doing site reliability engineering, we need to be doing a little bit of site reliability science. We have to have a little bit of rigor in as we look at these systems. And if we don't, we're just going to keep spinning all the time.",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "So, I'm going to tell you a little story, but the names, places, uh times, dates, everything have been changed to protect the innocent. That That's me. Um, and I I also do know that that's a medic and not a scientist. Uh, but I",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "just like how the scientist is sort of like wideeyed looking to the future and the engineer is just like, \"Oh, I got to do this work.\" And the local learning is that we're going to have is about Postgress multi-transaction locks. Can I just get",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "a hand? Does anybody know how they work? Okay. Okay. I was going to call you a liar and I and I I met anybody like work on Postgress like deeply like like Okay, great. So I can tell you lies. So what Postgress multi-transaction locks are is",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "sometimes when you're in a database with multi- version concurrency, you need to have things not disappear. That's really all it is. So in this example, we got a schema where like these many to many related objects also have a foreign key",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "back to this like ancestor object for reasons. In this case, there's like a chance that the many to many relationship will get lost and we'll have orphans. So we want to make sure we know who owns that ultimately so we can",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "clean it up someday. And by doing that foreign key in this specific database schema, we created a problem which is we insert millions and millions and millions of these child objects. And when we do that, we have to share lock",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "that one tenant object all the way at the top. No matter how many concurrent threads are going, they all have to share that object. They have to make sure it doesn't disappear. Subtransactions also need to do this, but we're not going to get into why that",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "is. How does it do that? It's crazy. Like I I I wish I could do the next I got 31 minutes left. I want to do 32 minutes on this, but you're all going to go to sleep. The really important things to know is it's a bunch of 32-bit integers that just get written",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "to disk. In the database, there's header fields that define how what the oldest and newest transactions are, and those are constantly moving as the versions change. In each table header, there's these things called frozen transactions",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "and frozen multi-transaction locks that are get get kept track of by the vacuum process. In the rows, you have just that row. When did it uh get born? That's xmin. And when did it get deleted? Xmaxx except asterisk. If the flags say that",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "that's actually a multitransaction lock, then that's not when it's deleted. There's this offset file that has all these 32-bit integers saying this multi-t transaction ID is over here and this member file and then the members",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "file is just a bunch of transaction IDs. Why does all this have to exist? When you're in a multi version concurrency system, you have to be able to tell if something is visible because it may be about to change or it may have changed",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "from the time you started your transaction. This is all just background. put it in the back of your mind. This is how things have to work. But now, let's get into the fun stuff. This is a story. This happened years before I joined this production",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "engineering team. Uh, and I only know about this because they wrote stuff down and made good incident reports. So, please write stuff down, put them in incident reports that won't die. We f I found this graph early on in this",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "investigation. Um, basically they were trying to solve a minor problem in the hot path. Uh, so you see that nice little line over there. It was like taking 10 milliseconds. They're like, \"Ah, we need it to take one millisecond.\" And so let's make an",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "index. It's a good idea. They were like, \"There's a better cardality index. Let's make it.\" They made it and it totally improved the query until several minutes later something reverse improved it. So the engineer who was doing this was",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "just watching this query's performance. They were like, I just made the index and now things are better. And then just as they were about to like disengage, they saw this graph go up. And they didn't really panic. They just were",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "like, uh-oh, something bad is happening to my query. I should run a vacuum analyze. The graph on the top is not the query's performance. That's the entire database's performance after the vacuum analyze was run. Panic ensues, right? What what did I do?",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "You know, everybody's pages go off. This is a a big monolithic application with a big Aurora Postgress database that uh has to be up and now it's orders of magnitude slower and no one knows why. Uh so they sort of look at the system,",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "they're twisting it around, they're trying to figure out what's going on. And finally the engineer after several minutes is like what if we just drop the index. They drop the index and everything goes green. Now this is a weird position to be in. If",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "you're if you've ever been in this situation the engineers like I I took actions. I have causal effect on this database. I can see it in the graphs. I I did this and this happened. And so if they did just traditional root cause analysis,",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "uh they they wrote this down as a root cause. An engineer created an index on the table which led to global latency problems. The problem was resolved when the index was dropped. That's a root cause. Okay, we can tell the customers",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "that. But why? Like why? What does that actually tell you about the system? What what was actually happening? While they were analyzing it, they they noted a bunch of stuff that they just like didn't know. They were like, why were",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "all these threads in this LW lock multiXAC waiting threads mode? This team doesn't have Postgress core developers on it. Like what the heck is that? They also looked back through the logs and they actually found in the metrics and they found that like every",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "day, sometimes multiple times a day, a little graph like the one at the bottom happens, which is this little mohawk would like build up of these waiters and then just drop and build up and drop. And in this case, if you look at the",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "previous one, that mohawk was just much bigger. Why? So the team kind of had to move on because they're not scientists. They're site reliability engineers. So they had fixed the system. They moved on. But they did write down a hypothesis. Multaxs are bad.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "That's all they had. They're like, I okay, well, let's watch for them. And the only experiment they could really run in this case was just watch for those weight states. See if they can correlate with failure modes. Hypothesis one confirmed. This one",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "actually was confirmed. Yeah. So it looks like multiXs are bad. What you see here are the graphs of longunning transactions. Whenever you start a transaction, that graph starts going up and when it finishes, that graph goes",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "down. And these were found to correlate exactly with those weight states, but not always. Sometimes a longing transaction doesn't make the weight states happen, and sometimes the weight states don't make it happen. So we could",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "be looking at cause or effect. we could look at symptoms but we do have a confirmation multaxx are involved in something bad. They needed a new hypothesis. So they decided let's let's let's assume longunning traction transactions are",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "preventing the autovacuum process in a postcrist database from cleaning out those multi-transaction locks that would cause them to build up in the system. If you go back to our thing like why do you need multi-transaction locks? Well, we",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "have to keep a list of all the transactions that are currently running that have a lock in a table. But with Postgress, we can't ever really like clear those out until we run vacuum. So every time we encounter that row, we have to go back and look at that list",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "and see if any of those transactions are still running. And so autovacuum comes along and just it freezes them. It marks them as like those aren't active anymore. And so they're building up faster and faster. And when there's a",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "longrunning transaction, autovacuum can't touch any of those transactions. That's the hypothesis. So the experiment they came up with was whenever we see those weight states, we're just going to kill the longest running transactions uh",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "because that should work. They actually kind of got some data here over the next year. Uh there were some of these similar lockups and latency bumps. uh every time they just were like, \"Kill the longest running transaction. That'll work until it didn't.\"",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "So, fast forward, we're we're about two years after that initial uh latency event and that we we get this. If you can't if you can't see, it's kind of hard to see because the graph just looks empty. on the right side you have like many more",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "orders of magnitude of growth all of a sudden in a in a in a really alarming pattern. Those are the locks on all the tables in the system. Doesn't work very well when all the things are locked to the runbook, right? They had written",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "down their experiment basically as a runbook. And I think we do that as SRES. We're like I like we we need to run this and and and learn things from it. And so they had written down this awesome query and everybody had access to it. It was",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "linked to in the alerts about the locks. Run this and all shall work except transactions stopped stopping. By the way, I love this AI generated image. This is a database running a stop sign. We live in a strange time. But essentially",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "the what happened normally this would work. It would just kill the longest running. But the problem was the longest running transactions were in this weird state. LW lock multiXAC offset SLRU. What does that mean? somewhere some",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "developer stuck that into a state and said someone will understand this someday. They looked in the code they're like I don't know what this means it's all this weird concurrency stuff the team is in time pressure here we're now",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "in hours of incident time hours of downtime and the usual they call it they would call it bailing water out of the leaking boat just wasn't working. So, they needed a bigger bucket or as they called it, they did the nuclear option, which is just",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "turn it all off and turn it back on again. Everything's all green. Like instantly everything comes back. Everything is fine for 10 minutes. Not great. Not great. So, it was just long enough to shut down the the incident bridge and have everybody like",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "disengage, but immediately like people come back in the incident Slack channel like, \"Ah, there's something wrong.\" And the everybody's pagers go off again. Goes right back into the same state. If this graph right here is those multit",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "offset control locks that you saw before, the team is back into panic mode. What do you do? You go back to hypothesis. Now that original hypothesis is out the door. The longrunning transactions obviously weren't the problem.",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "They just a thousand hypotheses bloom. Some of the ones that came up a lot were there's an audit log system and seems like there were a lot of inserts there. Maybe that's a problem except that's like a compliance issue. We can't turn",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "that off. Uh vacuums on these like high churn tables seem to be eating up a lot of IO bandwidth but there wasn't any known ceiling for the IO bandwidth for this system. So they turned it off, but it's not healthy. So that doesn't work.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "Low priority jobs could be interfering. This system has a lot of like background cleanup of really complex relational tables. Uh they turned that off, but that wasn't going yet. So the system was just completely unhealthy. They said,",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "\"Well, what if we turned it off and back on again?\" And everything goes green. I think you feel it. You feel it. This time it was for about 24 hours. Not not a good time to be on call for this system. Uh panic ensues again. This",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "is the next day now. Uh and actually for the next eight days it happened four times. Now this is where resilience comes in. The team figures it out. Like they make this work. They just start like watching the dashboard. Does anybody here watch the dashboard?",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "Yeah. Yeah. Yeah. I found my company's number one observability user because I they're like, \"What do you do?\" I'm like, \"I just refreshed this dashboard a lot.\" And that's what happens. And they and they start to see a leading",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "indicator, but it's not a great leading indicator. Five minutes. you got five minutes from when this number starts to jump up sort of I wouldn't say exponentially but fast if you go ahead and just redeploy the app really fast",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "and they found faster ways to redeploy it so instead of going through like the whole CI/CD pipeline they figured out they could just like go into the container orchestrator and turn it off and back on faster they got to the point",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "where there wasn't downtime but there was still like this dangerous dangerously bad effect happening and they don't have any idea what's going on. Obviously, hypothesis 2 out the window. Even with no longunning transactions,",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "the system is locking up. So, they come up with another one. They're like, \"Okay, I think we see that the number of multi-transaction locks being generated, that's the problem.\" Like, and it's just overwhelming the DB in some way. So,",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "remember, we've already confirmed multaxs are bad. So, having lots of them is worse. So we should generate fewer of them. So let's do an experiment. Let's just go on a tear reducing these, right? We don't need all those foreign keys,",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "especially on like high churn tables. We could maybe try to introduce concurrency limits so we don't insert too many child rows under a single shared thing. All of this happens in development in in a number of days while there's otherwise",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "an actual global code freeze going on because people are scared that the the system isn't going to come back and be reliable anymore. So that's their experiment and their expected rate uh result. No more lockups. That's an expensive experiment",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "especially when we're already in debt with our error budget. We're way below water on our error budget and we're running an expensive experiment where our confirmation of our hypothesis would take an undefined amount of time. So the",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "biggest problem though was there actually wasn't a measure known to the team for how many multaxx were even being generated. So they were just sort of going on vibes like we'll see it again or we won't. We saw it again and unfortunately just a couple of weeks",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "after all this effort was done the database did fill up with locks. did we did see like a slight improvement but ultimately the weight states came back. They tried like pausing all that low priority work. Nothing. Okay. But the",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "the only thing was turn it off and back on and they got really good at turning it off and back on. At this point the team realized they needed to become better experts. This this isn't acceptable essentially like we need better understanding of Postgress. It's",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "a busy SRE team. They hadn't really built their expertise on this. They were just sort of trusting that Aurora Postgress would do its thing. And that became a key point. We they leaned out on Amazon support and they they they",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "leaned out onto other experts and they found a lot of blog posts about the fact that Aurora Postgress is actually special. It doesn't have an OS VFS cache layer. And because it doesn't have that, cache misses when reading multi-transaction locks are really",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "expensive. And the buffer size has to be increased for it to perform except we're four major versions behind and we can't even see it. So huge hypothesis. I am so sorry to try and make you read it. I won't. But essentially what it says is",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "all that stuff I just said is causing the problem. We think and if we can just measure the hit rate and watch it, we can find out what's driving it up. We can sort of look at what happens before and prevent that. So the experiment is",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "upgrade four major releases. Uh not an easy task. If anybody anybody done an upgrade of a major release of Postgress, it's like downtime, difficulty, things break. they get it done and they start to see actually this is this is good. This is this is less wrong",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "and that's a great result. But this SR site reliability scientist site reliability scientist uh this SR was like nervous like I know the database isn't going down anymore but like that hit rate goes all the way down all the",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "time and we still don't go down. There's like sort of doubts but you move on. There's no fire to put out. So the team moves on and whole entire year. So that year goes by, the database is beautiful. We're we're good. We start to build up",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "some error budget. And so I br I wore the shirt today. We decide to test in prod and not live a lie. We've been running load tests and we say it's time we're going to push prod. We think we know that if that hit rate drops, we'll stop the test. We'll back",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "it out. Right? Traffic to 500% of normal. No problem. 2% drop in hit rate. It's beautiful. Everything is going great till it's not a few minutes later. Anybody? This is what happens. So, it looked okay, but then this is a different",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "graph. This is the aggregate reads and writes to the SLRU caches. These are these caches that sit between the system and those files on disk that have all those 32-bit integers. and they go up a lot. So, normal was near zero. It would",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "maybe spike to 100 or 200. We're in the millions now, folks. And if you recognize a quadratic growth curve, that's what you see there. Eventually, it does actually flatten out because we're essentially in a dead state. We've reached the capacity of the",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "system to touch the disk. But, you know, obviously, this is bad. Open transactions are stuck. We f we have found the maximum number of open transactions we could do 4,000. Uh we found the maximum number of locks. We there's a lot of data here, but the",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "system is down. And in fact, what happened? I'll back up a little bit. Uh there were actually two incidents. So the the load test happens and we're able to like recover it quickly. Turn it off, turn it back on again. Still works. Great. Uh but a",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "couple weeks later it happened again. Nothing was happening on the system. It it was actually pretty disorienting. We had had a year with no events and there was no load tests going on and it goes back to dying. We couldn't figure out",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "why. But we noticed something. If you look that arrow on the right, a million became the new normal. For the next two weeks, the thing was doing a million SRU aggregate accesses all the time. Whereas before the load test had been none. This",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "was new learning. This was an aha moment. There's pressure that stays in the system. Even after you've cleared and turned off and turned back on everything, something is still sitting on disk making your life terrible. And",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "in fact, the event several weeks later was a longish running transaction. So we're back to this old chestnut. We've got old long-running transactions and we've got this pressure in the system building up. Now we're really learning. We've done the work. We've",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "done the science. We've gotten enough. So, hypothesis 4 is out. Even though that model got us an entire year of peace, we had to we had to let go of it because we found this was great learning. Hit rate doesn't matter. I mean hit rate probably matters in some",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "scenarios not for us. The the most important thing that we learned that day was we need to find out what what it what does matter and we did. It's that aggregate number. So hypothesis 5 was born. Aggregate multack cache pressure can increase to the point",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "where it overwhelms the systems ability to read rows multaxx on them. Vacuum freeze relieves the pressure by freezing old multx, removing the need to look up their XID members. What does that mean? I'm deep in the weeds, y'all. Like, help.",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "This is this is where we live now, actually. Uh, but our experiment was let's let's set the alert level at 200,000 per second. And remember that that new normal was a million. So, we tried to give ourselves a little space. I will say we created like an alert",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "fatigue generator at that point. The thing went over that threshold constantly. Uh I want to apologize to Reed on my team who was on call that first week. It was rough, but those alerts taught us. So we get an alert, we would run vacuum freeze, and the system",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "would stay in in total stasis. Uh in fact, we didn't have any downtime during that time. And in fact, the database has not gone down since then. Has any did anybody have the dashboard? Can I look at it? I don't think it's down right now",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "because we do have this model. But we did create this sort of like mechanical Turk like aggregate pressurees building up. Pull the lever. Uh so after a couple weeks, Reed in anger discovered that there's actually an answer for this. Autovacuum",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "has this setting. autovacuum multiXXM max freeze age. What does that mean? One of the things about multi-transaction lock IDs is they have an age. There's the there's a distance between when they were created and now. And as that grows, it's more likely that",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "you can get rid of that multitransaction lock. And so the the system by default at 400 million will vacuum that away. it will freeze that meaning it'll it'll mark it as this couldn't possibly be running right now so you don't have to",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "worry about it. The only reason they set it at 400 million and and this is in the comments in the code. Thank you for comments in the code Postgress developers is because it's a 32-bit integer. It wraps. So 400 million gives",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "enough time for the vacuum to finish before it will wrap around if you're on a high transaction system. We didn't have a wraparound problem. We weren't any coming anywhere near that age. We were running at like seven or eight million,",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "but setting it to 1.5 million seemed reasonable. Like, cool, we run at eight. Let's keep it down below one and a half. 1.5 million. Um, holy auto vacuum. It it this doesn't make sense. I'll try to explain it. The top was a normal day before that",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "setting. Uh, we would get little spikes where autovacuum would like loop a thousand times in in an hour. Um, we are now running like 40,000 an hour, maybe 50,000 an hour. Autovacuum is just constantly just like obsessed with our",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "tables, just vacuuming and vacuuming and vacuuming. And it like we got a little nervous, but the system doesn't go down. It's kind of great. And we wouldn't have known to do this if we didn't do all this science. So, I'm still kind of wrong about this.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "We're still kind of wrong about this. Hypothesis 5 probably will be invalidated someday. Uh we like actually have this like weird sick need for the system to go down. So we find out new stuff. I I don't want it to go down. Don't tell my bosses I said that.",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "But I but there's I don't know any other way to do it. Like we've done load tests and it just doesn't work the same without the production traffic. Like we can't break it in staging. We just it doesn't break. Put it in the test",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "harness and it it'll go to a billion. It's the user activity and the entropy that's coming from the users that's doing it. Which is why we want to do this science some more, but we can't until it breaks. So don't break database, but break a little.",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "So yeah, what what's hypothesis looking like? I'm not sure. I have all these questions. Our team has these questions why sometimes when we run a manual vacuum freeze instead of letting autovacuum do it, it does like way way better. No idea why. Talked to many",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "Postgress developers and AWS support people. Nobody. They're like, I don't know. Like it's weird. Postgress is weird. Multi multi-transaction locks. Actually, if you want to not make friends at a Postgress conference, talk",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "about multi-transaction locks. They're not happy about it. Um, we still don't really know why we have so many multitransaction locks. We know foreign keys make them, but they have enough value that we're going to keep them. Uh,",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "we know subtransactions might do them. We still don't know why. The system is stable, so we don't we're not allocating any of our excess budget uh to find out. Uh, also Postgress 17 did this cool thing where they made that cache work",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "better presumably because other people had problems like this. Maybe that's not why we're not going down too. Also, like are we just like wasting IO? Like you know IO isn't free on Aurora Postgress. No idea. So I want to leave you with this.",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "Please, please, please, I said this in the beginning. I'm going to say it again. Snap the graph and put it somewhere where it won't die. So we can have talks like this. Write things down. Write down what happened in the incident. I know you've got your",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "postmortem form and says, \"How did we get lucky?\" And and why or you're doing your five W's. Whatever your company needs you to do to file that document. I understand. But please also if you don't understand what happened, spend just a little more",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "time to write down your questions. Make a hypothesis. like do a detailed incident analysis and and share it with people and try to teach people about it because that's the only way you're going to get through some hard things like",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "this. Also, just like don't be afraid to be a little wrong. Like make a statement in a hypothesis that you know like ah this this probably isn't right but if it's a little bit right and a little wrong that'll help us learn. And one of the things that you",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "might have caught in here that I think is important, and I really didn't even understand this until I went back through this whole sequence of events, your error budget really can drive whether or not you're able to learn. In",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "the early stages, we were underwater. We couldn't really do the learning and we had to pay with pain and more downtime. We actually had to double down and go even deeper into error debt. But when we had enough, it took a lot of pushing to say, \"No,",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "we're going to actually burn some of that error budget to learn.\" Like, I'm not going to lie, some people still are a little unhappy that we just made an incident happen in in production. But those of us who understand that the next",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "six months of peace came from that, no, you've got to spend that era budget. That's all I have, folks. Thank you.",
+      "start": 696,
+      "duration": 6
+    }
+  ]
+}

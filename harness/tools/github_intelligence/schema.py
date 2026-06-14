@@ -17,17 +17,25 @@ Design constraints honored:
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from typing import Any, ClassVar, Iterable
 
 SCHEMA_VERSION = "github_intelligence.v1"
+SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def utc_now_iso() -> str:
     """Return current UTC time as ISO-8601 string (seconds resolution)."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def quote_identifier(value: str) -> str:
+    if not SQL_IDENTIFIER_RE.match(value):
+        raise ValueError(f"invalid SQL identifier: {value}")
+    return '"' + value.replace('"', '""') + '"'
 
 
 def _json_dump(value: Any) -> str | None:
@@ -600,9 +608,10 @@ def apply_schema(conn: sqlite3.Connection) -> None:
 def insert_row(conn: sqlite3.Connection, table: str, row: dict[str, Any]) -> None:
     cols = list(row.keys())
     placeholders = ",".join("?" for _ in cols)
-    col_list = ",".join(cols)
+    quoted_table = quote_identifier(table)
+    col_list = ",".join(quote_identifier(col) for col in cols)
     conn.execute(
-        f"INSERT OR REPLACE INTO {table}({col_list}) VALUES ({placeholders})",
+        "INSERT OR REPLACE INTO " + quoted_table + "(" + col_list + ") VALUES (" + placeholders + ")",
         [row[c] for c in cols],
     )
 
@@ -612,7 +621,7 @@ def fetch_rows(
 ) -> list[dict[str, Any]]:
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    sql = f"SELECT * FROM {table}"
+    sql = "SELECT * FROM " + quote_identifier(table)
     if where:
         sql += f" WHERE {where}"
     cur.execute(sql, list(params))

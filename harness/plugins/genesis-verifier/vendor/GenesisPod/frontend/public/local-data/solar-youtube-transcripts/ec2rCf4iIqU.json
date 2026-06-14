@@ -1,0 +1,1114 @@
+{
+  "videoId": "ec2rCf4iIqU",
+  "title": "Stanford CS221 | Autumn 2025 | Lecture 12: Bayesian Networks I",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 56972,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So welcome back, everyone.\nSo today we're going\nto switch gears a bit\nand talk about\nBayesian networks.\nAnd to motivate\nthis shift, let's\njust review what we've\ndone in this class so far.\nSo when we started, we\ntalked about the ingredients\nfor intelligence--\nso agent has to\nperceive the world.\nIt has to reason\nwith that knowledge.\nIt has to act, and\nit has to learn.\nSo what we started was\njust with machine learning,\nwhere we take percepts\nand return actions.\nSo we train these predictors--\nthey could be linear,\nor they could be\ndeep neural networks.\nBut the basic idea\nwas that you just\ntake whatever you sense\nin the environment,\nand then you just produce\na prediction or an action.\nAnd then over the\nlast weeks or so,\nwe looked at state-based\nmodels for reasoning.\nAnd the idea is that agents,\nin order to be intelligent,\ncan't just reactively\npredict based\non the environment-- it has to\ndo some thinking or planning.\nAnd so along these lines, we\nlooked at search problems.\nThese are models\nwhere the actions have\ndeterministic\nconsequences, so the agent\ncan think about finding\nthe minimum cost path.\nThen we looked at Markov\ndecision processes\nwhere the eight actions\nhave stochastic outcomes,\nbut the distribution over\nthat's outcomes is known,\nand then you can do things\nlike value iteration.\nAnd then we also\nlooked at games where\nwe know how the world\nworks, except where\nthere's an adversary\nwho's trying out to get us\nor more generally unknown\nopponent strategy,\nand we want to be conservative.\nAnd then we had to do\nthings like minimax.\nOK, so in each of\nthese cases, we\nlooked at both model-free\nand model-based approaches.\nSo model-free approaches\nessentially says we just need\nto know--\njust enough to know--\nwhat actions to take\nand how much utility\nit will produce.\nSo examples include\nclassification, regression,\nSARSA, Q-learning, TD learning.\nThese are all approaches to try\nto directly get at the actions\ngiven the state or\nthe environment.\nWe briefly looked at\nmodel-based methods as well.\nAnd the idea of\nmodel-based methods\nis that we're not\ncontent just to be\nable to predict the right\naction-- we actually\nhave to understand\nhow the world works.\nSo when we did search or we\ndid value iteration or minimax,\nthese are model-based\nin the sense\nthat we have a\nmodel of the world.\nWe understand-- if\nwe take this action,\nwe know what will happen, and\nthen that allows the plan.\nSo we take this action--\nthis will happen,\nand then we take that\naction-- this will happen\nand so on and so forth.\nSo in some sense, it's a more\npowerful way of doing things,\nbut it is harder\nbecause just being\nable to what action\nto take seems\nlike a simpler problem\nthan understanding\nhow the world works.\nSo model-free methods\nare direct and cheaper,\nwhich is why I think a lot of\npractical applications-- people\njust go to them\nbecause they're faster.\nBut model-based methods\nare more flexible.\nFor example, if you had a\nmodel of how the world works,\nyou can change the reward\nfunction on the fly\nand then have the\ntransitions the same,\nand then you compute\nthe optimal policy.\nWhereas if you had\na q-value, that\nsort of compiles down all the\ninformation about the rewards\nand transitions.\nSo the Q value doesn't know--\nam I taking this action\nbecause it's more likely that\nI'm going to get something good,\nor is it because the\nexpected outcome is more?\nSo if you have model-base,\nit gives you more power.\nSo then there's a\nquestion of, OK,\nso if we buy into this\nidea of modeling the world,\nhow should we represent\nthe state of the world?\nSeems like a very\ndaunting thing.\nSo that's going to be the\ntopic of Bayesian networks.\nSo Bayesian networks\nis going to be about\nhow you represent\nthe world and how\nyou reason about the world\nin the face of uncertainty.\nSo it's going to be a pretty\ndifferent shift in the way we\nthink about problems.\nAnd hopefully it will become\nclearer as we go along.\nSo to introduce\nBayesian networks,\nwe need to first introduce\nthe rules of probability.\nNow all of you should\nhave taken probability,\nso this hopefully\nshould be a review.\nBut I will do it in a slightly,\nmaybe unorthodox way, which\nwill make it more interesting.\nSo we want to represent\nthe state of the world\nby a set of variables.\nAnd these variables, also\ncalled random variables,\nare going to represent\nattributes of the world.\nSo as a very simple example,\nyou might have two variables--\nS which represents\nwhether the sun is shining\nor not-- so 1 means it\nis, and 0 means it's not.\nAnd another variable, R, which\nis whether it's raining or not.\nSo, given these\ntwo variables, we\ncan now characterize what\nstate the world could be in.\nAnd these are called\nassignments to random variables.\nSo if you have S\nequals 0, R equals\n0-- that means it's not\nsunny, and it's not raining.\nS equals 0, R equals 1-- it's\nnot sunny, but it is raining.\nS equals 1, R equals 0-- it's\nsunny, but it's not raining.\nAnd here, it's both\nsunny and raining.\nSo these are given\ntwo variables--\nyou just look at all\nthe possible values\nthat they could\ntake on, and those\nare your possible assignments.\nSo next step is that we want\nto associate each assignment\nwith a probability.\nSo we think about a\njoint distribution\nover a set of random variables\nas providing a probability\nfor each assignment.\nSo maybe the probability\nof S equals 0, R equals 0--\nso no sun, no rain--\nis 0.2.\nAnd this might be 0.08, 0.7,\nand the probability of it being\nsunny and rainy is\n0.02, which makes sense\nbecause it usually isn't sunny\nand rainy at the same time.\nAnd because we're in California,\nthe probability of sunny and not\nrainy is pretty high.\nAnd I guess if it's not\nsunny and it's not raining,\nit's probably\nnighttime or something.\nSo what I'm going to\ndo now is I'm going\nto represent this in code.\nSo I have this class\ncalled ProbTable,\nand it basically is a\nwrapper around NumPy array.\nSo in this NumPy\narray is a matrix.\nAnd you can think about the\nfirst element of the first axis\nof the matrix, meaning the\nrows, are the values of S,\n0, and the columns are--\nsorry-- the values of S, and\nthe columns are the values of R.\nSo just to be very, very clear\nabout this-- so you have S,\nand you have R, you have\n01, 01, and I think--\nwhat were the values here?\n0.2, 0.08, 0.7, and 0.02.\nSo this is matrix or\ntensor, as we'll see later,\nthat represents the\njoint probabilities\nNow in this blue,\nwhat I've done is\nI've rolled out\nthis into a matrix,\nbecause once we\nhave four variables,\nit's going to be really hard to\ndraw four-dimensional tensors.\nSo basically, this is\nequivalent representation\nwhere for every\nvariable assignment,\nI have a probability.\nSo the probability of\nsun and rain is 0.02.\nAll right.\nSo this is a joint distribution\nover all the variables.\nSo every assignment gets a\nnumber, which is a probability.\nAnd now the first operation\nis called marginalization,\nand marginalization\nintuitively just\ncollapses-- it\nignores a variable.\nAnd what I mean by ignoring\nthe variable is that it's\ngoing to collapse\nall assignments\nthat only differ in R. So if you\nhave probability of S equals 0--\nthat's S equals 0, R equals 0,\nplus S equals 0, R equals 1.\nWe don't care what value\nof R takes, because R\nis being marginalized out.\nSo we collapse these\ntwo assignments into one\nand add the probabilities--\nso that gives us 0.28.\nAnd then the\nprobability of S equals\n1 is you collapse these two\nassignments, which differ in R\nbut don't differ in\nS. So pictorially this\ncorresponds to combining\nthese first two rows--\nthat's probability of S equals\n0 and the second two rows,\nwhich is the probability\nof S equals 1.\nAnd if you marginalize\nmultiple variables,\nthen you're collapsing\npotentially many more rows\nas well.\nSo the output of marginalization\nis a table that is smaller.\nAnd here comes the cool part--\nso you thought you\nwere done with einops,\nbut it's coming back now.\nSo probability tables\nare just tensors.\nSo this thing on the board is a\nmatrix, but it's also a tensor.\nAnd therefore, we\ncan actually use\neinops to express computation.\nAnd it turns out all\nthe laws of probability\nare essentially all\ncovered by einops.\nSo hopefully this will give\nyou a deeper appreciation\nof iron einops.\nSo just to write\nout formally what\nthe marginal probability is--\nso this says that\nthe probability of S\nequals S is the summation\nover R, the variable you're\nmarginalizing out of the joint.\nSo this is for all\nvalues of S, and you're\nsumming over all values of R.\nSo if you remember einops, if\nyou see something like this,\nthen you should be able to\njust have a one-liner that\nrepresents that computation.\nAnd what I'm doing here is--\nso PSR is this table,\nthe joint distribution.\nI have a dot p because it's just\nthat the PSR is this probability\ntable, and dot p gives\nyou the underlying tensor.\nAnd that's what Einstein takes.\nSo it's a bit of just\nnotational nuisance,\nbut don't worry\nabout it too much.\nAnd then remember\nthe description says,\nI label the axes of this tensor.\nAnd so the first axis\nis s, second one is r,\nand then the output tensor\nhas the label s here.\nSo the way to interpret this\nis that for all values of s,\nI look at this,\nand I sum over r,\nor in general the variables\nthat don't show up\non the right-hand side.\nI know einops was a\nbit confusing at first,\nso maybe I'll just\npause and make sure\nthat people understand einops\nor marginal probabilities.\nAll right.\nSo the other major operation\nin probability is conditioning.\nSo intuitively, the way to think\nabout conditioning is that when\nyou condition on a partial\nassignment like R equals 1\nrain-- it's raining--\nmeans that you're only\nselecting the assignments that\nsatisfy that condition.\nSo the way we're\ngoing to do this\nis we're going to\nsay, well, look,\nthese are the\npossible assignments--\nR equals 1 means I'm only going\nto pay attention to the rows\nwhere R equals 1.\nSo there's two rows where\nR equals 1, where S is 0,\nand R is 1, and S\nequals 1, and R is 1.\nThe other two rows\njust don't matter.\nSo in general, I'm always\ngoing to be conditioning\non a particular value\nhere, which means\nI'm selecting a set of rows.\nAnd then I compute the\nprobability of the conditioning\nevent, which I'm going\nto call the \"evidence.\"\nSo I observe evidence.\nI look outside, and\nI see it's raining.\nAnd so now I want to\ncondition on that evidence\nto make other inferences.\nSo then I have to compute the\nprobability of this evidence,\nwhich is essentially the sum\nover all the assignments--\nof probabilities of\nall the assignments--\nthat are left after\nthe selection process.\nSo here I have 0, 1 and 1,\n1, which has probability 0.1.\nAnd then finally, I divide\nby this probability--\nso S equals 0 given R\nequals 1 is the selected\njoint probability divided by\nthis probability of evidence.\nAnd same for S equals 1.\nSo you can think about\nthis as a renormalization.\nSo first select based\non the evidence.\nSo I look at only the\nassignments that matter.\nBut these are really\nlow probabilities\nbecause the probability\nof rain itself is small.\nAnd so when you condition,\nyou're saying, if it rained,\nso that means you're\ndividing by the evidence.\nSo even if the probability\nof evidence is small,\nyou're like blowing up\nthese probabilities so\nthat they sum to 1.\nSo you can also use\neinops to compute\nthis conditional distribution.\nThere's just a few more\nsteps, but hopefully this math\nmakes it clear.\nSo the first thing\nwe're going to do\nis how do we do the selection?\nI'm going to introduce\nthis tensor, R1.\nSo this is basically saying,\nif I put in a value of R,\nit's going to tell me whether\nthe constraint is satisfied\nor not.\nSo I put in 0-- that's\na 0 because R is--\nthat's false.\nAnd if I put in 1,\nI get 1 or true,\nwhich means that it's true.\nSo then what I'm going to do\nis take my joint distribution,\nPSR--\nthis thing over here.\nAnd then I'm going to\nessentially multiply this\nby R1--\nand that's going to zero\nout a bunch of things.\nSo now I have two tensors here.\nAnd just to keep\ntrack of the axes--\nthe first tensor is just\nlabeled with s and r,\nand the second one is labeled\nwith R. And then the output is--\nI want s because I\ncould put r here,\nbut r is always going\nto be 1 because that's\nwhat I select it for.\nSo that gives me this quantity,\nwhich is what I had before.\nSo this is the\nselection of this,\nwith this evidence R equals\n1, where I simply drop the R--\nso R doesn't show up\non the right-hand side.\nAnd then it's basically\nthe same thing as before--\nwe compute the probability\nof the evidence.\nAnd the way you\ndo that in einops\nis you look at this probability\ntable, which is indexed by S.\nAnd then you don't\nhave an outquote, which\nmeans that it just sums\nover all the elements here,\nand that gives you 0.1.\nAnd then finally,\nyou just divide.\nSo this when you\ndivide probability of S\nequals s, R equals 1 divided\nby probability R equals 1,\nyou get probability of S equals\ns conditioned on R equals 1.\nAnd you can see that that\ngives you 0.8 and 0.2.\nThe question is, are you going\nto represent this last step\nwith any einsum?\nNow this is just a scalar,\nso you don't really\nneed anything fancy.\nSo the question is\nwhether this works\nfor discrete or\ncontinuous variables.\nSo everything we\ndo in this class\nwill have discrete\nrandom variables here--\nand you can use einsum.\nIf you have\ncontinuous variables,\nthen you need-- when\nyou do marginalization--\nyou have to do integrals.\nAnd conditioning with\nconditional variables\nbecomes a little bit\ndicey because you\ncan condition on basically\nprobability zero events.\nSo you have to be careful there.\nSo let me summarize.\nSo I think many of you probably\nhave experienced probability\nand done probability before.\nI think it is important\nto have the right kind\nof conceptual\nintuitions for what all\nthe probabilities represent.\nSo joint distribution--\nwe can think about this\nas a source of truth.\nRemember, we're modeling\nstates of a world.\nSo for every assignment,\nwhich is a state of the world,\nI have the probability\nthat that state occurs.\nAnd then everything derives\nfrom the joint distribution.\nSo marginalization--\nthe intuition\nis that you're collapsing\nassignments that only differ\nin the marginalized\nvariables, so you're\nignoring some variables.\nSo you're ignoring\ndifferences in some variables.\nAnd then conditioning--\nyou should think about it\nas you observe something in\nthe world, like it's raining,\nand you want to\ncondition on that,\nwhich means that you\nselect by the evidence,\ncompute the probability of\nevidence, and you divide.\nAnd that gives you the\nrenormalized probability\nof whatever you're interested\nin conditioned on that event.\nAnd finally, the probability\ntables are tensors.\nSo we'll be using einops to\nexpress these computations.\nSo now I introduce\nbasic probability.\nLet me talk a little bit\nabout probabilistic inference\nin general.\nHere's just another example.\nSo suppose you have four random\nvariables-- now, sunshine, rain,\ntraffic, and whether\nit's autumn or not.\nNow the joint distribution\nwill look like this--\nprobability of S,\nR, T, A. And what\ndo you do with this\njoint distribution?\nSo what you do with it is that\nyou can ask questions of it.\nFor example, if you're\ninterested in knowing\nwhat is the probability\nthat it's going to rain,\ngiven that there's going to be\ntraffic and also it's autumn?\nAnd the task of\nprobabilistic inference\nis to answer questions\nsuch as these based\non the joint distribution.\nSo an analogy you\nshould have in your head\nis that the joint distribution\nis like a SQL database.\nAnd probabilistic inference is\nessentially doing SQL queries\non that database.\nAnd there's actually a much\nformal relationship here,\nwhich I'm not going to get into.\nBut I think that's\nthe mental model.\nYou have your database\nwith all the facts\nand you just ask\nquestions-- what\nis the tallest building in\nEurope or something like that.\nSo what is the type of\nquestion we can answer?\nThey're all going\nto look like this.\nSo they're always going\nto have some evidence\nthat we're conditioning on.\nAnd the evidence\nselects a subset\nof the variables,\nsuch as T and A,\nand basically assigns\nthem to particular values.\nSo in this case, it's\ntraffic and autumn.\nAnd given the evidence,\nwe're interested in a query--\nrain, for example.\nSo in probability\nnotation, what we're\nasking for is the probability\nof rain given the evidence--\nT equals 1, A equals 1.\nAnd notice that not all the\nvariables are mentioned.\nThe variables that are not in\neither the evidence or the query\nare assumed to be\nmarginalized out.\nFor example, S here is sunshine.\nIt's not mentioned, so\nI'm going to remember\ncollapsed assignments\nthat have the same--\nthat don't have the\nsame value of S.\nSo now let me go\nthrough another example.\nNow what we're\ngoing to do is we're\ngoing to start introducing\nBayesian networks.\nSo far there's nothing\nBayesian networks about it\nbecause Bayesian networks is\nbuilt on top of probability,\nso we have to understand\nprobabilities first.\nAnd the whole point\nof Bayesian networks\nis that it will\nmake things easier\nto define joint distributions.\nSo that's where we're going.\nSo I'm going to start\nwith an example,\nand let's try to solve it\nusing a Bayesian network.\nLater I'm going\nto define formally\nwhat a Bayesian network\nis, but by that time\nyou hopefully you'll already\nunderstand through examples.\nSo this is a problem of\nearthquakes, burglaries,\nand alarms.\nSo we're going to assume that\nearthquakes and burglaries are\nindependent events, and each\nhappens with probability 0.05--\nso 5% chance, which is actually\nkind of high, but let's\ngo with that.\nSo you've installed an\nalarm in your house,\nand the alarm will\ngo off if there's\nan earthquake or a burglary.\nAnd suppose that you're\naway on a trip somewhere,\nbut of course, your alarm\nis hooked up to your phone\nand you see, oh,\nthere's an alarm.\nAnd suppose that this\nalarm-- it doesn't tell you\nwhy the alarm is going\noff-- it just tells you\nthat there's this alarm.\nSo then you probably know at\nthis point, something's wrong,\nbut you don't know what it is.\nSo now, here's the question--\nso suppose then you\npull up the news\nand you see that, oh,\nthere was actually\nan earthquake near where\nyou are-- your house was.\nSo how does hearing the\nnews change the probability\nof the burglary?\nSo I'm going to ask you--\nI'm going to take\na poll on this.\nSo there's three options--\nthe probability of burglary\ngiven that there's an earthquake\nand alarm--\ngoes down, it goes up,\nor it stays the same?\nSo this is what you\nmight be thinking.\nWell, intuitively it seems\nlike it should go down,\nbut then, they're supposed\nto be independent.\nSo if they're independent,\nwhy would it go down?\nBecause what do\nburglaries and earthquakes\nhave to do with each other?\nNothing, right?\nSo there's apparent\nparadox here,\nwhich we're going to resolve.\nSo just hang tight.\nSo the way we're\ngoing to resolve\nthis is to define\na Bayesian network,\nand then everything will\nbecome crystal clear.\nSo what we're going to do is\ndefine a joint distribution\nover earthquake,\nburglary, and alarm.\nAnd then what we want to\nknow is which is larger,\nor they're the same--\nthe probability of a burglary,\ngiven the alarm only,\nor the probability of\nburglary given the alarm,\nand there's an earthquake?\nSo now I've formally\nspecified what\nI'm interested in in terms\nof probabilistic inference.\nSo then we're going to\nsolve this problem using\nBayesian networks.\nSo we're going to\ndo two things--\nwe're going to construct\na joint distribution,\nand then once we do it, then we\ncan do probabilistic inference.\nAll right.\nSo let's first construct\nthe joint distribution.\nSo we could just write down\nthis huge table directly.\nSo I mean, it's not\nthat big-- there's\neight possible assignments\nto three variables,\ntwo to the third.\nSo we can just\nwrite them all down.\nBut it's going to\nbe much nicer to do\nthis in a more intuitive way.\nAnd the more intuitive\nway has four steps here.\nFirst, I'm going to\ndefine the variables.\nThen I'm going to connect the\nvariables with directed edges.\nThen I'm going to write down a\nlocal conditional probability\nfor each variable and then\nfinally multiply everything\ntogether to get the\njoint distribution.\nSo I'm going to do this\nin a more modular way.\nAnd I'm going to go\nthrough the four steps.\nBut that's the roadmap here.\nSo the first step is you\ndefine the variables.\nSo what are the variables?\nWell, there's B, which\nis, is there a burglary,\nE-- is there an earthquake,\nand A-- is an alarm going off?\nOK, done.\nUsually that's the easy part.\nStep two, we're going\nto connect the variables\nwith directed edges, which\njust suggests direct influence.\nAnd here I want to\nbe a bit careful\nbecause the natural\nthing would be\nto say it causes, but causality\nis a pretty tricky topic.\nSo technically, Bayesian\nnetworks do not automatically\nimply causality,\nbut if you want,\nyou can think\nabout it as a cause\nif it helps your intuition--\njust know that it's not\ncompletely formal.\nOK, so here are my\nthree variables.\nEach variable is a node.\nAnd the idea is that there's\nburglaries and the earthquakes.\nAnd then alarm depends on\nburglary or earthquake, right?\nSo alarm goes off\nif B or E. So that's\nwhy alarm is\nderived from B or E.\nSo now we have this probability.\nLet me just do it on\nthe board here just\nso we have it as a reference.\nSo we have probability\nof B, A, and--\nsorry-- B, E, A, and we\nhave these edges here.\nAnd then, so now, for\neach node, every variable,\nI need to specify\nhow it behaves.\nAnd here, I'm\ngoing to write down\na local conditional distribution\nof a node given its parent.\nSo here I have the\nprobability of a burglary.\nHere I have the probability\nof an earthquake.\nAnd then here I have\nthe probability of alarm\ngiven burglary and earthquake\nAnd for each of these, I need to\nspecify the probability table.\nSo I'm going to assume, based\non the problem statement,\nthat the probability of a rare\nevent is epsilon, which is 0.05.\nAnd so the first probability\nlocal distribution\nis probability of B equals b.\nSo the probability\nof no burglary\nis 0.95-- probability of\nburglary is 0.05 The same\nfor earthquake-- probability\nof no earthquake is 0.95,\nprobability of\nearthquake is 0.05.\nSo you can think about\neach of these tables\nas sitting on a node.\nAnd now here, just to\nexplain this a bit,\nso now I'm giving you the\nprobability of A given B and E.\nAnd in code I have this--\nyou can do this\ntrick, which gives you\na compact way of\nrepresenting this table.\nSo instead of specifying\nevery single combination,\nyou can write a function that\ncomputes every single value.\nAnd the function here is\nbasically called for every row,\nand it takes the value of B,\nvalue of E, and value of A\nand returns the probability.\nSo what this is doing\nis saying, let's see\nif A is equal to the prob\nB or E. So if it's equal,\nthen it has probability\n1, and if it's not equal,\nit has probability 0.\nSo for example, if B\nis 1, E is 0, A is 0--\n0 is not equal 1 or\n0, so that's a 0,\nwhereas 1 is equal\nto 1 or 0, so that's\na 1 So that's how all\nof these probabilities\nare filled out\ngiven this function.\nSo now I have these three local\nconditional distributions, one\nfor each of these variables.\nAnd that's the\nend of step three.\nStep four is defining\nthe joint distribution\nas a product of the local\nconditional distributions.\nAnd here this means, for\nevery possible assignment\nto B, E and A, the\njoint distribution\nis defined to be the product\nof the local conditional\ndistributions.\nAgain, whenever\nyou see something\nlike this where there's\na bunch of foralls\nand then some--\nremember, each of these\nis going to be\nrepresented as a tensor,\nand you multiply the\ntensors together,\nthen you can use einsum.\nAnd let's just see\nwhat's happening.\nSo we have p,b, p,e,\nand p,a given b and e.\nAnd I'm multiplying all\nthese things together--\nthat's what einsum does.\nAnd this string tells me how all\nthe indexes are going to behave.\nSo p, b-- this\ntensor corresponds\nto indexing b, this one\ncorresponds to indexing e,\nand then this one\nI have b, e, and a.\nAnd the output is b, e, and a.\nSo I'll just show you what\nthe result looks like--\nprobability of B,\nE, and A. I mean,\nthe numbers aren't\ntoo important,\nbut this basically is the\nproduct of these three\nprobability tables.\nAnd just to sanity check, the\nprobability of nothing happening\nis 0.9-- so that's reasonable.\nNothing usually happens.\nThe probability that there's\na burglary and an earthquake\nand your alarm goes\noff is pretty low.\nSo let me pause here.\nSo these are the four steps.\nAnd we've defined the\njoint distribution\nover all random variables,\nand that characterizes\nthe problem's setup precisely.\nThe next part is once I have\nthis joint distribution--\nthis is our database--\nnow I'm going to do the\nequivalent of SQL queries,\nand that's\nprobabilistic inference.\nSo now we can answer\nany queries we want.\nSo I'm going to do\na few, and we're\ngoing to look at what\nthe results tell us.\nSo first, let's just warm up\nwith something very simple.\nSo let's compute the\nprobability of a burglary.\nSo every one of these queries is\ngoing to begin with this joint\ndistribution--\nthat's our database--\nand do a bunch of\nmarginalization conditioning\nas needed.\nSo this is fairly\nstraightforward.\nI have this joint\ndistribution, and I\nerase e and a, which means\nI'm marginalizing out.\nAnd then that gives\nme probability of B.\nAnd you'll notice that\nthis is the exact same\nas the local conditional\ndistribution of B\nthat I had earlier,\nwhich is good.\nI want to take this opportunity\nto point out that I'm explicitly\ndifferentiating between these\nlocal conditional distributions,\nwhich I'm using a lowercase p,\nand the marginal distributions,\nwhich I use uppercase P. And\nthe way to think about this\nis that local conditional\ndistributions are just defined.\nI just define the\nlocal distribution--\nI just wrote it\ndown like up here.\nAnd these marginal\ndistributions are basically\nmathematically derived\nbased on the laws\nof probability from the joint.\nSo anytime you see\na big P, that means\nit's derived from the joint.\nSo these are mathematically\ntwo different objects.\nIt's not maybe\nobvious at first sight\nthat they should be\nthe same, but, they\nhappen to be the same in all\ncases, which is why sometimes\npeople just mix up the two.\nBut I think just if you want\nto understand rigorously\nwhere things are\ncoming from, there's\nthe local distributions\nthat define\nthe probabilities and then the\nmarginals, which are derived.\nSo the probability of burglary\nin this case is 0.05--\nso it's pretty low--\nthat's as advertised.\nAnd then now, let's do\nburglary-given alarm only.\nSo how do I do conditioning?\nWe've done this before.\nWe first select based\non the evidence.\nSo the evidence says\nA is equal to 1.\nI'm going to multiply a1,\nthe selection of tensor,\ninto the joint distribution.\nAnd furthermore, this\njoint distribution--\nand I'm going to multiply\nthis selection tensor here.\nAnd then here I'm also going\nto simultaneously just erase\ne and a, because I marginalize\nthem out because I'm only\ninterested in b.\nSo you can see why\neinsum is so powerful.\nBecause I'm doing\ntwo things here--\nI'm both selecting and also\nmarginalizing at the same time.\nSo this gives me this tensor.\nSo this is the probability of\nignoring earthquake, probability\nof a burglary and alarm.\nSo notice that the joint\ndistribution are always\nsmall values, because both\nburglaries and alarms are\npretty low probability.\nNow I need to convert this into\na conditional, so what I do--\nI compute the\nprobability of evidence,\nwhich means I'm adding\nthese two things up--\na b to nothing.\nAnd then I divide by the\nprobability of the evidence,\nand that gives me this.\nSo I'm going to take this tensor\nand I'm going to divide by 0.09.\nAnd usually when you divide\nby the evidence that bumps up\nall the scales, up all the\nprobabilities, because they\nhave to normalize to 1.\nNotice that these\ndon't sum to 1.\nThey would sum to\n1 if you watch--\nyeah, these don't sum to 1.\nSo it's only when you divide\nby the probability of evidence\nthen you get a distribution.\nAnd just to remind you,\nwhen you see a probability,\nwhen you sum over the left-hand\nside, that's when you get to 1.\nThe right-hand side is--\nyou're not summing over that.\nSo the probability that there is\na burglary given that there is\nalarm is a little bit over 50%.\nThis sort of makes sense.\nYou see the alarm,\nso you're thinking,\nwell, it could be burglary\nor earthquake or maybe both.\nSo it should be pretty high.\nYou should be really\nworried at this point.\nSo burglary is much more likely.\nSo now, we come to the final--\neveryone's in their seats\nwaiting for the answer here.\nSo what's the\nprobability of burglary\ngiven that there's\nalarm and earthquake?\nSo here, I have two\npieces of evidence.\nSo I'm going to define these two\nselection tensors-- a1 and e1.\nAnd then I'm going to again\ndo this mega operation where\nI take the joint distribution\nprobability of B, E, and A.\nI take the selection\ntensor a1 and e1.\nAnd then I'm going to multiply\nthis to 0 out the rows where\nthe evidence is not true.\nAnd then I'm going\nto also drop e and a.\nAnd that gives me probability\nA is 1 and E is one.\nSo let's see what that gives us.\nIt gives us this, and then the\nrest is the same as before.\nCompute the probability of\nthe evidence, which means\nadd these two numbers\nup, and then divide\nby the probability\nof the evidence\nto give us the\nprobability of burglary\ngiven alarm and earthquake.\nAnd you notice that now\nthe probability of burglary\nhas indeed decreased to 0.05.\nSo the people who followed\nyour intuition were correct.\nAnd so now the\nquestion is, wait,\nwasn't there's thing\nabout independence here?\nSo why would burglaries or\nknowing about earthquakes\naffect burglaries?\nAnd this is the intuitive reason\nis that if you think about why\ndid the alarm or alarm sound?\nIt must have been because\nan earthquake or a burglary.\nAnd when you observe\nearthquake, then this\nexplains away the alarm.\nMeaning that-- oh, it's probably\nthe earthquake that's generating\nthe alarm, not the burglary.\nSo it takes the pressure\noff of the burglary\nand puts it on earthquake--\nthat's the intuitive reason why\nit holds.\nAnd the reason-- well, I\nmean, this is just math,\nso it's just true.\nBut in case you're\nstill wondering\nabout why there's this\nindependence-- what\nhappens to this independence?\nAnd the key thing\nhere is that B and E\nare not, or are\nindependent, if you\ndon't have A-- if\nyou don't observe\nA-- these are independent.\nBut when you observe\nvariables that\nare downstream of things\nthat are independent,\nand you observe them, that makes\nthe variables upstream-- not\nindependent anymore.\nAnd so the reason why I think\nBayesian networks are powerful\nis that people before, I think,\nthey really nailed these things\ndown probabilistically.\nThey had all these\nheuristic ways of reasoning\nabout uncertainty, and they were\nall inconsistent and broken.\nAnd only when you lay\nmathematical clarity to this,\nthen it sort of makes sense.\nSo this idea of explaining\naway is actually\nquite general and powerful.\nAnd a defining feature\nof Bayesian network.\nSo the general idea is that you\nhave two causes-- in this case,\nit's a burglary and earthquake--\npositively influencing\nan effect--\nA. So if you\ncondition on an effect\nand then you further condition\non one of the causes,\nthat reduces the probability\nof the other cause.\nIn other words, E explains\naway the evidence,\nand you don't need the\nother cause to explain.\nSo in symbols, the relationship\nbetween the probability\nof B conditioned on both\nother cause and effect\nis less than the probability\njust conditioned on the effect.\nAnd the cool thing is\nthat this is true even\nif the causes are independent.\nJust a quick note\nabout notation,\nI'll just emphasize this again.\nI'm using lowercase and\nuppercase deliberately here.\nLowercase names represent\nparticular values.\nSo for example, the probability\nof a random variable, uppercase,\nequals a particular value,\nwhich is a lowercase.\nSo that's convention.\nAnd then secondly, I'm\nusing lowercase \"p\"\nto denote the local\nconditional probabilities,\nwhich are given by\ndefinition and uppercase \"P\"\nto denote the marginals\nand conditionals,\nwhich are derived from the\njoint distribution by the laws\nof probability.\nSo I already mentioned this.\nAnd furthermore,\nif I write P of E,\nthat is the whole\nprobability table.\nAnd if I write P of E\nequals a particular value,\nthat is a probability,\nwhich is a number.\nTo summarize, what\nwe've done so far\nis we've defined a\njoint distribution\nvia this four-step\nprocedure-- you\ndefine what the random\nvariables are, what\nthe edges between\nthe random variables\nare for each\nnode/variable, define\na local conditional probability,\nand then multiply them together\nto produce a joint distribution.\nSo this is an intuitive\nway of defining\nthese joint distributions,\nrather than slavishly going\nthrough and writing\nout every probability.\nNow we also did probabilistic\ninference, which basically said\nselect assignment rows\nbased on the evidence,\ncompute the probability\nof the evidence,\nand then divide by\nthat probability.\nSo that's mechanically\nwhat happens.\nAnd then we also saw\nthat explaining away\nwas this really cool\nphenomenon that happens.\nIt's a qualitative\nreasoning pattern\nthat follows from the math.\nSo let's move on.\nLet's do another example.\nThis is going to be\nsimilar to alarm,\nbut it's four nodes\ninstead of three nodes.\nBut hopefully it'll just give\nyou-- reinforce these ideas\nif you see it another time.\nSo here the problem is,\nI guess, a lot of people\nare sick these days.\nSo if you're coughing\nand you have itchy eyes,\nwhat is the probability\nthat you have a cold?\nSo I should preface this with\nsaying I don't know anything\nabout the--\ndon't trust the\nmedical sciences.\nThis is just an example-- don't\ntake this as medical advice.\nSo let's model this problem\nusing a Bayesian network.\nSo step 1, define\nthe random variables.\nSo what's going on here?\nPotentially you have a cold--\neither you have a cold or you\ndon't, you have allergies,\nor you don't, you're\ncoughing, or you're not,\nand if you're itchy\neyes, or you're not.\nAnd of course, this\nis a simplification\nbecause there's degrees of\nwhich you can have these.\nBut again, this is\njust a toy example.\nStep two, connect the\nvariables with directed edges.\nSo again, using my very sketchy\nmedical prior knowledge,\nwe say that, well, cold\nand allergies, let's say,\nthey're just independent.\nSo there's nothing\nconnecting them.\nAnd so these are the\npotential problems.\nAnd the symptoms are you\ncough when either you\nhave a cold or allergies,\nand you have itchy eyes only\nwhen you have allergies.\nSo this is what it looks like.\nStep 3, write down the local\nconditional probabilities\nfor every variable.\nSo there's four\nvariables here, and we're\ngoing to go through each\nvariable and write it down.\nOK.\nHere we go.\nSo we have probability of C.\nSo for C I write down-- well,\ncolds are--\n10% chance you have a cold.\nAllergies-- 20% chance\nyou have allergies.\nThis is a little bit more\ncomplicated, but this is--\nwhat's the probability\nthat you have\na cough given your state\nof cold and allergies?\nSo this is a local\nconditional distribution\nwhere I'm conditioning\non c and a,\nand I want to know what\nthe probability of h is.\nSo here, what I've written\ndown this function as--\nwell, if h matches\nc or a, then that's\ngoing to happen\nwith probability 0.9\nand otherwise with\nprobability 0.1.\nSo before I just had 1 and 0.\nBut now, just to make\nthings a little bit,\nhedge our bets a\nlittle bit, we're\ngoing to make them a little\nbit smoother-- so 0.9 and 0.1.\nSo, for example,\njust to be clear,\nthis entry says that\nif you have a cold\nand you have no allergies,\nthen the probability\nyou have a cough is 0.9.\nAnd then the fourth\nvariable is I\ngiven a, so this is the\nprobability of itchy eyes given\nallergies.\nAnd I'm just going to\nassume that it's 0.9\nif the two are agree.\nSo probability of allergies--\nsorry-- itchy eyes\ngiven allergies is 0.9.\nThe probability of not itchy\neyes given allergies is 0.1.\nSo now I've defined these four\nlocal conditional distributions.\nI can define the\njoint distribution\nby just multiplying\nthem all together.\nAnd this gives us this\npretty horrendous mess.\nBut conceptually\nit's hopefully clear\nthat you just take the local\nconditional distributions,\nand you multiply\nthem all together,\nand you just have to\nmake sure that you\nput all the right indices here.\nSo for each of these four local\nconditional distributions,\nyou have to write down\nthe variables in the order\nthat it came.\nAnd just as a convention,\nthis is written h\ngiven c, a-- and I always write\nthe conditioning variables first\nand then the actual\nvariable itself last.\nSo that gives me this database\ntable of probabilities.\nAnd you can spot-check\nthings here.\nSo most of the time 0.6 of\nthe time nothing is happening,\nand the probability that you\nhave a lot of things going wrong\nis much lower.\nSo now we do\nprobabilistic inference.\nWe can ask any question we want.\nSo what is the probability\nof cold given cough?\nAnd I think I'm going to go\nthrough these a little bit\nfaster because it's\nthe same kind of idea.\nBut you can go through the\nlecture notes afterwards.\nSo you first select\nbased on the evidence\nand marginalize\nout the variables\nthat you're not interested in.\nSo we're only interested\nin cold and cough.\nSo allergies and\nitchy eyes-- just\nforget about it--\njust collapse them.\nSo this gives us the probability\nof cough and-- sorry--\ncold and cough equals 1.\nCompute the probability of\nthe evidence, which is just\nadding these up,\nand then dividing\nby the probability\nof the evidence\nto get a normalized answer.\nSo the answer is the probability\nthat you have a cold, given\nthat you have a cough, is 0.28.\nSo let's do another one.\nLet's compute the probability\nyou have a cold given you\nhave a cough and itchy eyes.\nSo now let me ask\nyou this question.\nSo this probability was 0.28--\nwhat do people think about\nif you have itchy eyes?\nDoes that increase,\ndecrease, or keep\nthe probability of\nthe cold the same?\nSo let's look here.\nSo this is a little\nbit tricky-- so I\nthink a lot of tenuous hands\nthere-- which is to be expected.\nThat's why we have math.\nAnd we can just--\nwe can do it.\nSo here-- I'll go\nthrough this quickly--\nyou select based\non the evidence.\nSo you multiply this joint\nprobability by h equals 1\nand I equals 1,\nand that gives you\na probability of over\nprobability of cold\nand h equals 1, I equals 1.\nCompute the probability\nof the evidence--\nsumming these two\nand then dividing.\nAnd you see that the probability\nof cold has gone down.\nSo at this point you're\nthinking, what's going on here?\nSo let me explain--\nactually let me ask\nyou this question--\nwhy is the probability of cold\nlower if you add itchy eyes?\nSo the probability of cold\ngiven just a cough is 0.27.\nAnd the probability of cold\ngiven cough and itchy eyes\nis 0.13.\nSo it's almost half.\nYeah, exactly.\nSo basically, this is an example\nof explaining away again.\nSo what was explaining away?\nYou have an effect.\nYou have two causes.\nBut the itchy eyes is not\na cause of this effect.\nThere's no edge from I to\nH, but I is connected to A.\nSo if you observe you have itchy\neyes, that actually increases\nthe probability of allergies.\nAnd now increasing the\nprobability of allergies\nnow explains away the cough.\nAnd why you're less\nlikely to have a cold.\nSo I think this is really neat\nhow you just define the Bayesian\nnetwork and all these kind of\nreasoning patterns pop out.\nI don't think anyone\nprobably would\nhave really good confidence to\njust intuitively think, well,\nif you have itchy\neyes, how much would\nthe probability\nof a cough change?\nBut if you have the\nBayesian network,\nit handles things for you.\nSo to summarize this,\nsame recipe here--\njoint distribution.\nOnce you define it, you can\ndo probabilistic inference.\nWe see that explaining\naway shows up again now\na little bit more complicated.\nAnd in general, I think\nyou could imagine,\nlet's say, a hundred-variable\nBayesian network,\nand you're conditioning on\n17 of the evidence variables.\nAnd all the variables are\ninteracting with each other.\nAnd intuitively, you\ncan think about them\nas propagating evidence.\nIf you observe one\nnode that suggests\nthe values of other nodes,\nbut then the other values\nwill also propagate, so it\ncan be rather complicated.\nAnd in general, computing\nthese quantities\nactually can be NP-hard.\nSo it's not actually a pretty\nsophisticated operation here.\nSo finally, we've seen two\nexamples of Bayesian networks.\nAlarm and a medical diagnosis.\nSo let me introduce\nthe general case here.\nSo in the general case, the\nsame four-step procedure--\nyou define a set of\nrandom variables-- often\nI'll denote these\nas X_1 through X_n.\nI define any directed acyclic\ngraph over the variables--\nso any graph-- but\nthere can be cycles.\nAnd for each node,\nX_i, I'm going\nto define a local\nconditional distribution--\nx_i given the parents of x_1--\nand then define the\njoint distribution\nby just multiplying all the\nlocal conditional distributions\ntogether.\nSo important reminders--\nbecause it is easy to make this\nmistake--\nyou have one local conditional\ndistribution per node, not edge.\nAnd also the local\nconditional distribution\ndepends on all the\nparents at once.\nSo don't forget to write\ndown probability of C,\njust because there's\nno edge from it.\nAnd don't write down probability\nof H given C times probability\nH given A--\nthat's incorrect.\nYou have to tie the\nparents together.\nIn the literature they call\nthis the parents are married.\nSo just maybe if that's a\nhelpful way to think about it.\nAnd then finally,\nnote the difference\nbetween local distributions\nand the joint distribution.\nAll right.\nSo then, when you do\nprobabilistic inference,\nyou're given this\nBayesian network,\nwhich defines this joint\ndistribution over all n\nvariables.\nThere's some evidence, usually\nwritten as E equals little e,\nwhere big E is a subset\nof an X's the variables.\nSo, for example, you can say\nI observe that X_3 and X_7 are\n0 and 1, respectively.\nAnd then you're interested in\na set of query variables, which\ncould be any other subset\nof nodes, like X_2 and X_4,\nand anything that's not\nmentioned, like X_1,\nand X_5, X_6, are assumed\nto be marginalized out.\nAnd the output is this\nprobability table,\nwhich gives us the probability\nof every assignment\nto Q conditioned on E equals e.\nSo Bayesian networks actually\nshow up in a bunch of places.\nUsually you don't\nthink about them.\nBut I'll just give\nyou some examples.\nFor example, autoregressive\nlanguage models.\nSo if we put on Bayesian\nnetwork hats, then\nautoregressive\nlanguage models model\nis actually a Bayesian network.\nSo the random variables\nare the tokens.\nSuppose you're going\nto generate T tokens.\nSo the tokens are\nX_1 through X_T.\nThere's edges from all previous\ntokens to a current token.\nThe local conditional\ndistribution\nis given by this transformer--\nusually in language\nmodeling-- and then\nthe joint distribution\nis still the same.\nIt's a product of x_t given\nall the previous x_ts.\nSo if you were to draw the\nnetwork for a language model,\nit would look\nsomething like this--\nso it just happens\nthat every variable\nis connected to all\nprevious variables\nand so on and so forth.\nSo typically, if you\nhave a language model,\nyou just sample forward.\nSo if you're given a prompt\nX_1, X_2, X_3, and you\nsample X_4 given the\nprevious and sample X_5\ngiven X_1 through X_4,\nX_6 given the past,\nand so on and so forth.\nThis is basically what you\ndo in language modeling.\nBut so now the\ninteresting thing is\nwhat would probabilistic\ninference mean here?\nSo probabilistic inference\nreally means kind of reversing.\nThe whole idea of\nprobabilistic inference,\nyou can reason about\nany subset of variables\ngiven other subset of variables.\nSo one thing you\nmight want to do\nis what's the probability of--\nsuppose I see a response--\nX_4, X_4, 5X6, I want to figure\nout what prompt generated that\nresponse.\nSo this has an application in\njailbreaking language models.\nSo for example, you could\nask, what is a given response?\nSure, here's how you make a\nbomb or something dangerous.\nAnd then you ask basically\nprobabilistic inferences\nfiguring out the prompt\nthat leads to the response.\nSo this is very uncommon, mostly\nbecause language models are\ndesigned to just go forward.\nBut it is interesting to\nnote that once you define\na joint distribution,\nyou can mathematically\ngo in any order you want.\nAnd going in different\norders actually\ngives you some\ninteresting insights.\nThe downside is that this\nis extremely computationally\nexpensive task.\nAnd it's, in general,\nexponentially hard,\nbut this paper has\nsome interesting ideas\non how you can make this faster\nusing variational inference.\nI just want to pop that\nexample there so that you\ncan see how this\ntopic might connect\nto some more modern ideas.\nIn the last 10 minutes, I'm\ngoing to talk about two things.\nOne is a different way to\nthink about Bayesian networks.\nAnd then that's going to\nallow us to do something\ncalled rejection sampling for\napproximate Bayesian inference.\nSo far, we've defined\nthese Bayesian networks\nas just writing down these\nlocal conditional distributions.\nAnd that's fine.\nThat's better than writing\ndown the whole probability\ntable, which no one really does\nfor a large number of variables.\nBut now we're going to define\nthese via probabilistic program.\nSo there's a whole field called\nprobabilistic programming, which\nexplores the interaction between\nprograms and distributions.\nSo we'll give you\na taste of this.\nAnd the ideas are fairly\nnatural and elegant.\nSo let's revisit our\nold alarm example.\nSo we have the burglary,\nearthquake, and alarm.\nAnd I'm going to define\na function, a program,\ncalled alarm.\nThat's just going to give\nme a random sample according\nto the joint distribution.\nSo how this is going to work\nis I'm going to set B equals\nto this Bernoulli 0.05-- and\nall Bernoulli does is it just\nreturns 1 with\nthis probability--\nso this is backed by np random.\nAnd then I'm going to set\nearthquake to be the same.\nSo this is a random function.\nAnd I'm going to\nset A equals B or E.\nAnd I'm going to just\nreturn the assignment.\nSo if I sample again, I think,\nI might not get anything other\nthan 000 because remember\nthe probability is 0.05,\nso it's pretty low.\nBut OK, so that's it.\nSo this is actually\na formal definition\nof a Bayesian network.\nIt's just unusual because\nit's just a program,\nbut it's one way you can define.\nAnd the thing I like\nabout this is it's\nreally transparent what's\ngoing on-- three lines of code.\nSo now, let's do\nprobabilistic inference.\nSo how would you do\nprobabilistic inference\nusing this probabilistic\nprogram which\nrepresents a Bayesian\nnetwork and therefore\njoint distribution?\nSuppose you wanted to\ncompute the probability of B\ngiven A equals 1.\nSo because we've written the\njoint distribution in a program,\nthis gives us a natural way to\ndo this probabilistic inference.\nAnd it's a way called\nrejection sampling.\nAnd the key idea\nhere is that I'm just\ngoing to draw a ton of\nsamples, just like this.\nI'm going to select the samples\nthat match a piece of evidence,\nand I'm going to record a\nhistogram over different queries\nof the samples I see.\nSo here I'm going to\ngeneralize the evidence.\nSo we've been thinking\nabout evidence\nas a particular assignment\nto a variable and a query\nto be like a particular\nset of variables,\nbut they can be any\nfunction really.\nSo the query I'm going to\nthink about is taking a sample\nand returning--\nso remember, a sample\nlooks like this.\nIt's a joint assignment\nto all the variables.\nAnd I'm going to just\nreturn some value.\nIn this case, I'm going\nto pluck out B because I'm\ninterested in probability of B.\nAnd the evidence is going to be\na function that takes a sample.\nAnd I'm going to return whether\nit matches the evidence.\nSo I'm going to look at--\npeek inside-- to look at the\nvalue of A that equals 1,\nthen I return true.\nSo evidence is a function that\ntests whether a sample satisfies\na particular criteria.\nSo now rejection sampling is\nliterally five lines of code--\nfor some definition of five.\nSo I'm going to keep\ntrack of counts here.\nSo I'm going to iterate\nnumber of samples times,\nI'm going to draw\na sample, and I'm\ngoing to test whether the\nevidence of that sample\nis satisfied.\nAnd then if it is, then\nI increment the counts.\nI don't think in this run\nI'll actually get a sample,\nbut if I did, it would\nincrement the-- oops, sorry--\nthe count.\nOh, I get one, I guess.\nAnd then I have a count of\nthe number of particular query\nvalues I see, and\nthen I normalize\nthat to get a probability,\nand I return it.\nSo in that case, it\nwasn't very interesting\nbecause I only got one value.\nBut if I do this 1,000 times,\nwe'll see that this gives me\nan estimate of the\nprobability of the query,\nthe probability of the\nquery given the evidence.\nSo remember the query\nhere was probability of B.\nSo the probability of B given\nA equals 1 given A equals 1\nis 0.56.\nSo remember the true number\nwas 0.51 or something.\nSo it's close, but\nit's not exactly right\nbecause this is just\na sampling algorithm.\nSo this algorithm can\nbe very inefficient,\nespecially when the evidence is\nrare, because you're essentially\nsampling from the prior.\nAnd if you have a rare\nevent, like the event happens\nwith probability 0.001,\nthen most of the time,\nyou're just going to\nwaste your time sampling.\nSo it's not a very\nefficient algorithm,\nbut mathematically I\nthink it's very clean.\nThere is a guarantee that\nif you are very patient\nand you increase the number\nof samples to infinity,\nthen this actually converges\nto the true probability.\nAnd in this class we've\nseen a lot of times\nwhere we're sampling, like\nwe do policy evaluation.\nWe just sample expectimax--\nwe can sample and so on.\nOK, let's do the medical\ndiagnosis example.\nSo in medical\ndiagnosis, remember\nwe're interested in the\nprobability of cold given\ncough equals 1.\nSo here is the four-line\nBayesian network-- so cough,\nallergies, and then--\nsorry-- cold, allergies,\ncough, and itchy eyes.\nSo again, very, very simple.\nAnd the query is\nC, and the evidence\nis testing whether\nH equals 1 or not.\nAnd then I do\nrejection sampling--\nI get the probability\nof cough equals 1\ngiven H equals 1 is 0.26,\nwhich is actually pretty\nclose to the right answer.\nAnd you see that this is\ncloser even with 200 samples\nbecause the probability of\nthese events are higher.\nHere's another fancier\nexample, and it\nshows you the power of\nprobabilistic programming\nor the succinctness.\nSo there's these things\ncalled hidden Markov models.\nThey look like this.\nThey can be used\nfor object tracking.\nSo imagine there is\nsome object, and H1,\nH2 represents the position of\nthat object at successive times.\nAnd then you don't see the\nobject position-- instead,\nyou get a noisy sensor\nreading of the object.\nAnd so the goal is, for\nexample, to figure out,\nlet's say, you observe E5--\nwhat is the probability of H3?\nSo this is fairly complicated.\nThere's a lot of\nthings happening here.\nBut rejection sampling\nis a fairly black box way\nof handling this.\nSo hidden Markov\nmodel-- here's what\nwe're going to do-- we're going\nto iterate for five steps,\nand for each step,\nwhat I'm going to do\nis I'm going to look\nat the previous step,\nand I'm going to add either 1\nwith probability of 0.5 or 0\nwith probability 0.5.\nSo 0.5 probability, I stay in\nthe same state-- probability\n0.5, I advance to\nthe next state.\nAnd then this E is basically\nthe noisy sensor observation\nwhere I have my true location.\nAnd I either add 1 or\nadd 0 depending on--\nand then you return basically\nthe sequence of H's and E's.\nOK.\nSo this gives you a sample.\nThe query here is I'm\ninterested in H2--\n2 because it's a 0-based\ninstead of 1-based based--\nand evidence E4, and\ntesting that equals 2.\nOK, so now if I do\nrejection sampling,\nI can estimate the probability\nof H3 given E5 equals 2.\nBasically, I infer that\nthe object most likely\nwas in position 1, but\nmaybe it was in position 0.\nSo to summarize, this\nsection was brief,\nbut I think it has a lot\nof important insights.\nThe probabilistic\nprogramming is a way--\nanother way-- to think about\nprograms as representations\nof distribution.\nSo this is a sort of\na pretty different way\nof thinking about\nprobability, which\nI think has some attractive\nfeatures, because once you\ncan sample, you can\ndo a lot of things.\nFor example, rejection\nsampling-- you\ncan just draw samples and then\ncompute, or estimate at least,\nthe probability\nof various queries\nthat you're interested in.\nSo quick, maybe discussion here.\nOne is that if you're used\nto thinking about building\nclassifiers, which we're all\nused to in modern machine\nlearning, using\nBayesian networks\nrequires a shift in mindset.\nSo, for example, if\nyou wanted to predict\nwhether you have a\ncold versus a cough,\nin traditional\nmachine learning, you\nwould say, OK, let me\ntrain a classifier that\nmaps my input into output.\nSo the input here is\nwhether I have a cough,\nand the output is\nwhether I have a cold.\nBut in Bayesian\nnetworks, you're often\ngoing from output to input.\nBecause the way you\nthink about it is, no, I\nam interested in\nthe cold, and I'm\ndefining a Bayesian network\nthat takes cold and generates\nwhat are the things I observe.\nAnd then you're using\nprobabilistic inference\nto go backwards.\nSo why would you do this?\nOne advantage is that it\nhandles missing information.\nSo for example, if your data\npoints have a missing value--\nsometimes your doctor didn't\nrecord whether you had itchy\neyes or not--\nBayesian models allow you\nto automatically take that\ninto account.\nIf you have prior knowledge\nabout how things work,\nlike you know your alarm\nsystem, what it reacts to,\nyou can just write down\nwhat it does instead\nof trying to learn that.\nYou can interpret all the\nintermediate variables here.\nIt gives you interpretability,\nwhich is often missing\nfrom big end-to-end systems.\nAnd then you can\nanswer questions\nabout causality, which is\nbeyond the scope of this class,\nbut Bayesian networks\ngive you a way to do that.\nOK, so to final summary--\nso probability--\nthere's joint distributions.\nYou can marginalize them.\nYou can condition.\nThese are all tensors--\nyou can use einops.\nBayesian networks gives\nyou a convenient way\nto define joint distributions.\nProbabilistic inference says,\ngive me a joint distribution,\nI can answer questions\nwhich look like probability\nof query-given evidence.\nAnd then finally, I showed\nyou probabilistic programs\nas a way to represent programs\nas joint distributions.\nAnd finally, rejection\nsampling, which\nis a very simple and generic\nway to do probabilistic\ninference in any\nBayesian network.\nBut it is very slow.\nAnd so next time we're going\nto try to improve the algorithm\nand look at other alternatives.",
+  "segments": [
+    {
+      "text": "So welcome back, everyone. So today we're going to switch gears a bit and talk about Bayesian networks. And to motivate this shift, let's just review what we've done in this class so far. So when we started, we talked about the ingredients for intelligence--",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "so agent has to perceive the world. It has to reason with that knowledge. It has to act, and it has to learn. So what we started was just with machine learning, where we take percepts and return actions. So we train these predictors-- they could be linear,",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "or they could be deep neural networks. But the basic idea was that you just take whatever you sense in the environment, and then you just produce a prediction or an action. And then over the last weeks or so, we looked at state-based models for reasoning.",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "And the idea is that agents, in order to be intelligent, can't just reactively predict based on the environment-- it has to do some thinking or planning. And so along these lines, we looked at search problems. These are models where the actions have",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "deterministic consequences, so the agent can think about finding the minimum cost path. Then we looked at Markov decision processes where the eight actions have stochastic outcomes, but the distribution over that's outcomes is known, and then you can do things",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "like value iteration. And then we also looked at games where we know how the world works, except where there's an adversary who's trying out to get us or more generally unknown opponent strategy, and we want to be conservative. And then we had to do",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "things like minimax. OK, so in each of these cases, we looked at both model-free and model-based approaches. So model-free approaches essentially says we just need to know-- just enough to know-- what actions to take and how much utility it will produce.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "So examples include classification, regression, SARSA, Q-learning, TD learning. These are all approaches to try to directly get at the actions given the state or the environment. We briefly looked at model-based methods as well. And the idea of",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "model-based methods is that we're not content just to be able to predict the right action-- we actually have to understand how the world works. So when we did search or we did value iteration or minimax, these are model-based in the sense that we have a",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "model of the world. We understand-- if we take this action, we know what will happen, and then that allows the plan. So we take this action-- this will happen, and then we take that action-- this will happen and so on and so forth.",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "So in some sense, it's a more powerful way of doing things, but it is harder because just being able to what action to take seems like a simpler problem than understanding how the world works. So model-free methods are direct and cheaper,",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "which is why I think a lot of practical applications-- people just go to them because they're faster. But model-based methods are more flexible. For example, if you had a model of how the world works, you can change the reward function on the fly",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "and then have the transitions the same, and then you compute the optimal policy. Whereas if you had a q-value, that sort of compiles down all the information about the rewards and transitions. So the Q value doesn't know-- am I taking this action",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "because it's more likely that I'm going to get something good, or is it because the expected outcome is more? So if you have model-base, it gives you more power. So then there's a question of, OK, so if we buy into this idea of modeling the world,",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "how should we represent the state of the world? Seems like a very daunting thing. So that's going to be the topic of Bayesian networks. So Bayesian networks is going to be about how you represent the world and how you reason about the world",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "in the face of uncertainty. So it's going to be a pretty different shift in the way we think about problems. And hopefully it will become clearer as we go along. So to introduce Bayesian networks, we need to first introduce the rules of probability.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "Now all of you should have taken probability, so this hopefully should be a review. But I will do it in a slightly, maybe unorthodox way, which will make it more interesting. So we want to represent the state of the world by a set of variables.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "And these variables, also called random variables, are going to represent attributes of the world. So as a very simple example, you might have two variables-- S which represents whether the sun is shining or not-- so 1 means it is, and 0 means it's not.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "And another variable, R, which is whether it's raining or not. So, given these two variables, we can now characterize what state the world could be in. And these are called assignments to random variables. So if you have S equals 0, R equals",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "0-- that means it's not sunny, and it's not raining. S equals 0, R equals 1-- it's not sunny, but it is raining. S equals 1, R equals 0-- it's sunny, but it's not raining. And here, it's both sunny and raining. So these are given two variables--",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "you just look at all the possible values that they could take on, and those are your possible assignments. So next step is that we want to associate each assignment with a probability. So we think about a joint distribution over a set of random variables",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "as providing a probability for each assignment. So maybe the probability of S equals 0, R equals 0-- so no sun, no rain-- is 0.2. And this might be 0.08, 0.7, and the probability of it being sunny and rainy is 0.02, which makes sense",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "because it usually isn't sunny and rainy at the same time. And because we're in California, the probability of sunny and not rainy is pretty high. And I guess if it's not sunny and it's not raining, it's probably nighttime or something. So what I'm going to",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "do now is I'm going to represent this in code. So I have this class called ProbTable, and it basically is a wrapper around NumPy array. So in this NumPy array is a matrix. And you can think about the first element of the first axis of the matrix, meaning the",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "rows, are the values of S, 0, and the columns are-- sorry-- the values of S, and the columns are the values of R. So just to be very, very clear about this-- so you have S, and you have R, you have 01, 01, and I think-- what were the values here?",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "0.2, 0.08, 0.7, and 0.02. So this is matrix or tensor, as we'll see later, that represents the joint probabilities Now in this blue, what I've done is I've rolled out this into a matrix, because once we have four variables, it's going to be really hard to",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "draw four-dimensional tensors. So basically, this is equivalent representation where for every variable assignment, I have a probability. So the probability of sun and rain is 0.02. All right. So this is a joint distribution over all the variables.",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "So every assignment gets a number, which is a probability. And now the first operation is called marginalization, and marginalization intuitively just collapses-- it ignores a variable. And what I mean by ignoring the variable is that it's going to collapse",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "all assignments that only differ in R. So if you have probability of S equals 0-- that's S equals 0, R equals 0, plus S equals 0, R equals 1. We don't care what value of R takes, because R is being marginalized out. So we collapse these",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "two assignments into one and add the probabilities-- so that gives us 0.28. And then the probability of S equals 1 is you collapse these two assignments, which differ in R but don't differ in S. So pictorially this corresponds to combining",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "these first two rows-- that's probability of S equals 0 and the second two rows, which is the probability of S equals 1. And if you marginalize multiple variables, then you're collapsing potentially many more rows as well. So the output of marginalization",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "is a table that is smaller. And here comes the cool part-- so you thought you were done with einops, but it's coming back now. So probability tables are just tensors. So this thing on the board is a matrix, but it's also a tensor. And therefore, we",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "can actually use einops to express computation. And it turns out all the laws of probability are essentially all covered by einops. So hopefully this will give you a deeper appreciation of iron einops. So just to write out formally what",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "the marginal probability is-- so this says that the probability of S equals S is the summation over R, the variable you're marginalizing out of the joint. So this is for all values of S, and you're summing over all values of R. So if you remember einops, if",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "you see something like this, then you should be able to just have a one-liner that represents that computation. And what I'm doing here is-- so PSR is this table, the joint distribution. I have a dot p because it's just that the PSR is this probability",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "table, and dot p gives you the underlying tensor. And that's what Einstein takes. So it's a bit of just notational nuisance, but don't worry about it too much. And then remember the description says, I label the axes of this tensor. And so the first axis",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "is s, second one is r, and then the output tensor has the label s here. So the way to interpret this is that for all values of s, I look at this, and I sum over r, or in general the variables that don't show up on the right-hand side. I know einops was a",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "bit confusing at first, so maybe I'll just pause and make sure that people understand einops or marginal probabilities. All right. So the other major operation in probability is conditioning. So intuitively, the way to think about conditioning is that when",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "you condition on a partial assignment like R equals 1 rain-- it's raining-- means that you're only selecting the assignments that satisfy that condition. So the way we're going to do this is we're going to say, well, look, these are the possible assignments--",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "R equals 1 means I'm only going to pay attention to the rows where R equals 1. So there's two rows where R equals 1, where S is 0, and R is 1, and S equals 1, and R is 1. The other two rows just don't matter. So in general, I'm always going to be conditioning",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "on a particular value here, which means I'm selecting a set of rows. And then I compute the probability of the conditioning event, which I'm going to call the \"evidence.\" So I observe evidence. I look outside, and I see it's raining. And so now I want to",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "condition on that evidence to make other inferences. So then I have to compute the probability of this evidence, which is essentially the sum over all the assignments-- of probabilities of all the assignments-- that are left after the selection process.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "So here I have 0, 1 and 1, 1, which has probability 0.1. And then finally, I divide by this probability-- so S equals 0 given R equals 1 is the selected joint probability divided by this probability of evidence. And same for S equals 1. So you can think about",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "this as a renormalization. So first select based on the evidence. So I look at only the assignments that matter. But these are really low probabilities because the probability of rain itself is small. And so when you condition, you're saying, if it rained,",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "so that means you're dividing by the evidence. So even if the probability of evidence is small, you're like blowing up these probabilities so that they sum to 1. So you can also use einops to compute this conditional distribution. There's just a few more",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "steps, but hopefully this math makes it clear. So the first thing we're going to do is how do we do the selection? I'm going to introduce this tensor, R1. So this is basically saying, if I put in a value of R, it's going to tell me whether",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "the constraint is satisfied or not. So I put in 0-- that's a 0 because R is-- that's false. And if I put in 1, I get 1 or true, which means that it's true. So then what I'm going to do is take my joint distribution, PSR-- this thing over here.",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "And then I'm going to essentially multiply this by R1-- and that's going to zero out a bunch of things. So now I have two tensors here. And just to keep track of the axes-- the first tensor is just labeled with s and r, and the second one is labeled",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "with R. And then the output is-- I want s because I could put r here, but r is always going to be 1 because that's what I select it for. So that gives me this quantity, which is what I had before. So this is the selection of this, with this evidence R equals",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "1, where I simply drop the R-- so R doesn't show up on the right-hand side. And then it's basically the same thing as before-- we compute the probability of the evidence. And the way you do that in einops is you look at this probability",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "table, which is indexed by S. And then you don't have an outquote, which means that it just sums over all the elements here, and that gives you 0.1. And then finally, you just divide. So this when you divide probability of S equals s, R equals 1 divided",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "by probability R equals 1, you get probability of S equals s conditioned on R equals 1. And you can see that that gives you 0.8 and 0.2. The question is, are you going to represent this last step with any einsum? Now this is just a scalar, so you don't really",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "need anything fancy. So the question is whether this works for discrete or continuous variables. So everything we do in this class will have discrete random variables here-- and you can use einsum. If you have continuous variables, then you need-- when",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "you do marginalization-- you have to do integrals. And conditioning with conditional variables becomes a little bit dicey because you can condition on basically probability zero events. So you have to be careful there. So let me summarize.",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "So I think many of you probably have experienced probability and done probability before. I think it is important to have the right kind of conceptual intuitions for what all the probabilities represent. So joint distribution-- we can think about this",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "as a source of truth. Remember, we're modeling states of a world. So for every assignment, which is a state of the world, I have the probability that that state occurs. And then everything derives from the joint distribution. So marginalization-- the intuition",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "is that you're collapsing assignments that only differ in the marginalized variables, so you're ignoring some variables. So you're ignoring differences in some variables. And then conditioning-- you should think about it as you observe something in",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "the world, like it's raining, and you want to condition on that, which means that you select by the evidence, compute the probability of evidence, and you divide. And that gives you the renormalized probability of whatever you're interested",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "in conditioned on that event. And finally, the probability tables are tensors. So we'll be using einops to express these computations. So now I introduce basic probability. Let me talk a little bit about probabilistic inference in general.",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "Here's just another example. So suppose you have four random variables-- now, sunshine, rain, traffic, and whether it's autumn or not. Now the joint distribution will look like this-- probability of S, R, T, A. And what do you do with this joint distribution?",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "So what you do with it is that you can ask questions of it. For example, if you're interested in knowing what is the probability that it's going to rain, given that there's going to be traffic and also it's autumn? And the task of probabilistic inference",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "is to answer questions such as these based on the joint distribution. So an analogy you should have in your head is that the joint distribution is like a SQL database. And probabilistic inference is essentially doing SQL queries on that database.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "And there's actually a much formal relationship here, which I'm not going to get into. But I think that's the mental model. You have your database with all the facts and you just ask questions-- what is the tallest building in Europe or something like that.",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "So what is the type of question we can answer? They're all going to look like this. So they're always going to have some evidence that we're conditioning on. And the evidence selects a subset of the variables, such as T and A, and basically assigns",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "them to particular values. So in this case, it's traffic and autumn. And given the evidence, we're interested in a query-- rain, for example. So in probability notation, what we're asking for is the probability of rain given the evidence--",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "T equals 1, A equals 1. And notice that not all the variables are mentioned. The variables that are not in either the evidence or the query are assumed to be marginalized out. For example, S here is sunshine. It's not mentioned, so I'm going to remember",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "collapsed assignments that have the same-- that don't have the same value of S. So now let me go through another example. Now what we're going to do is we're going to start introducing Bayesian networks. So far there's nothing Bayesian networks about it",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "because Bayesian networks is built on top of probability, so we have to understand probabilities first. And the whole point of Bayesian networks is that it will make things easier to define joint distributions. So that's where we're going.",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to start with an example, and let's try to solve it using a Bayesian network. Later I'm going to define formally what a Bayesian network is, but by that time you hopefully you'll already understand through examples. So this is a problem of",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "earthquakes, burglaries, and alarms. So we're going to assume that earthquakes and burglaries are independent events, and each happens with probability 0.05-- so 5% chance, which is actually kind of high, but let's go with that. So you've installed an",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "alarm in your house, and the alarm will go off if there's an earthquake or a burglary. And suppose that you're away on a trip somewhere, but of course, your alarm is hooked up to your phone and you see, oh, there's an alarm. And suppose that this",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "alarm-- it doesn't tell you why the alarm is going off-- it just tells you that there's this alarm. So then you probably know at this point, something's wrong, but you don't know what it is. So now, here's the question-- so suppose then you pull up the news",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "and you see that, oh, there was actually an earthquake near where you are-- your house was. So how does hearing the news change the probability of the burglary? So I'm going to ask you-- I'm going to take a poll on this. So there's three options--",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "the probability of burglary given that there's an earthquake and alarm-- goes down, it goes up, or it stays the same? So this is what you might be thinking. Well, intuitively it seems like it should go down, but then, they're supposed to be independent.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "So if they're independent, why would it go down? Because what do burglaries and earthquakes have to do with each other? Nothing, right? So there's apparent paradox here, which we're going to resolve. So just hang tight. So the way we're going to resolve",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "this is to define a Bayesian network, and then everything will become crystal clear. So what we're going to do is define a joint distribution over earthquake, burglary, and alarm. And then what we want to know is which is larger, or they're the same--",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "the probability of a burglary, given the alarm only, or the probability of burglary given the alarm, and there's an earthquake? So now I've formally specified what I'm interested in in terms of probabilistic inference. So then we're going to",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "solve this problem using Bayesian networks. So we're going to do two things-- we're going to construct a joint distribution, and then once we do it, then we can do probabilistic inference. All right. So let's first construct the joint distribution.",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "So we could just write down this huge table directly. So I mean, it's not that big-- there's eight possible assignments to three variables, two to the third. So we can just write them all down. But it's going to be much nicer to do",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "this in a more intuitive way. And the more intuitive way has four steps here. First, I'm going to define the variables. Then I'm going to connect the variables with directed edges. Then I'm going to write down a local conditional probability",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "for each variable and then finally multiply everything together to get the joint distribution. So I'm going to do this in a more modular way. And I'm going to go through the four steps. But that's the roadmap here. So the first step is you",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "define the variables. So what are the variables? Well, there's B, which is, is there a burglary, E-- is there an earthquake, and A-- is an alarm going off? OK, done. Usually that's the easy part. Step two, we're going to connect the variables",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "with directed edges, which just suggests direct influence. And here I want to be a bit careful because the natural thing would be to say it causes, but causality is a pretty tricky topic. So technically, Bayesian networks do not automatically imply causality,",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "but if you want, you can think about it as a cause if it helps your intuition-- just know that it's not completely formal. OK, so here are my three variables. Each variable is a node. And the idea is that there's burglaries and the earthquakes.",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "And then alarm depends on burglary or earthquake, right? So alarm goes off if B or E. So that's why alarm is derived from B or E. So now we have this probability. Let me just do it on the board here just so we have it as a reference. So we have probability",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "of B, A, and-- sorry-- B, E, A, and we have these edges here. And then, so now, for each node, every variable, I need to specify how it behaves. And here, I'm going to write down a local conditional distribution of a node given its parent. So here I have the",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "probability of a burglary. Here I have the probability of an earthquake. And then here I have the probability of alarm given burglary and earthquake And for each of these, I need to specify the probability table. So I'm going to assume, based",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "on the problem statement, that the probability of a rare event is epsilon, which is 0.05. And so the first probability local distribution is probability of B equals b. So the probability of no burglary is 0.95-- probability of burglary is 0.05 The same",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "for earthquake-- probability of no earthquake is 0.95, probability of earthquake is 0.05. So you can think about each of these tables as sitting on a node. And now here, just to explain this a bit, so now I'm giving you the probability of A given B and E.",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "And in code I have this-- you can do this trick, which gives you a compact way of representing this table. So instead of specifying every single combination, you can write a function that computes every single value. And the function here is",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "basically called for every row, and it takes the value of B, value of E, and value of A and returns the probability. So what this is doing is saying, let's see if A is equal to the prob B or E. So if it's equal, then it has probability",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "1, and if it's not equal, it has probability 0. So for example, if B is 1, E is 0, A is 0-- 0 is not equal 1 or 0, so that's a 0, whereas 1 is equal to 1 or 0, so that's a 1 So that's how all of these probabilities are filled out given this function.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "So now I have these three local conditional distributions, one for each of these variables. And that's the end of step three. Step four is defining the joint distribution as a product of the local conditional distributions. And here this means, for",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "every possible assignment to B, E and A, the joint distribution is defined to be the product of the local conditional distributions. Again, whenever you see something like this where there's a bunch of foralls and then some-- remember, each of these",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "is going to be represented as a tensor, and you multiply the tensors together, then you can use einsum. And let's just see what's happening. So we have p,b, p,e, and p,a given b and e. And I'm multiplying all these things together-- that's what einsum does.",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "And this string tells me how all the indexes are going to behave. So p, b-- this tensor corresponds to indexing b, this one corresponds to indexing e, and then this one I have b, e, and a. And the output is b, e, and a. So I'll just show you what",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "the result looks like-- probability of B, E, and A. I mean, the numbers aren't too important, but this basically is the product of these three probability tables. And just to sanity check, the probability of nothing happening is 0.9-- so that's reasonable.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "Nothing usually happens. The probability that there's a burglary and an earthquake and your alarm goes off is pretty low. So let me pause here. So these are the four steps. And we've defined the joint distribution over all random variables,",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "and that characterizes the problem's setup precisely. The next part is once I have this joint distribution-- this is our database-- now I'm going to do the equivalent of SQL queries, and that's probabilistic inference. So now we can answer any queries we want.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "So I'm going to do a few, and we're going to look at what the results tell us. So first, let's just warm up with something very simple. So let's compute the probability of a burglary. So every one of these queries is going to begin with this joint",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "distribution-- that's our database-- and do a bunch of marginalization conditioning as needed. So this is fairly straightforward. I have this joint distribution, and I erase e and a, which means I'm marginalizing out. And then that gives me probability of B.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "And you'll notice that this is the exact same as the local conditional distribution of B that I had earlier, which is good. I want to take this opportunity to point out that I'm explicitly differentiating between these local conditional distributions,",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "which I'm using a lowercase p, and the marginal distributions, which I use uppercase P. And the way to think about this is that local conditional distributions are just defined. I just define the local distribution-- I just wrote it down like up here.",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "And these marginal distributions are basically mathematically derived based on the laws of probability from the joint. So anytime you see a big P, that means it's derived from the joint. So these are mathematically two different objects. It's not maybe",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "obvious at first sight that they should be the same, but, they happen to be the same in all cases, which is why sometimes people just mix up the two. But I think just if you want to understand rigorously where things are coming from, there's",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "the local distributions that define the probabilities and then the marginals, which are derived. So the probability of burglary in this case is 0.05-- so it's pretty low-- that's as advertised. And then now, let's do burglary-given alarm only.",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "So how do I do conditioning? We've done this before. We first select based on the evidence. So the evidence says A is equal to 1. I'm going to multiply a1, the selection of tensor, into the joint distribution. And furthermore, this joint distribution--",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "and I'm going to multiply this selection tensor here. And then here I'm also going to simultaneously just erase e and a, because I marginalize them out because I'm only interested in b. So you can see why einsum is so powerful. Because I'm doing",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "two things here-- I'm both selecting and also marginalizing at the same time. So this gives me this tensor. So this is the probability of ignoring earthquake, probability of a burglary and alarm. So notice that the joint distribution are always",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "small values, because both burglaries and alarms are pretty low probability. Now I need to convert this into a conditional, so what I do-- I compute the probability of evidence, which means I'm adding these two things up-- a b to nothing.",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "And then I divide by the probability of the evidence, and that gives me this. So I'm going to take this tensor and I'm going to divide by 0.09. And usually when you divide by the evidence that bumps up all the scales, up all the probabilities, because they",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "have to normalize to 1. Notice that these don't sum to 1. They would sum to 1 if you watch-- yeah, these don't sum to 1. So it's only when you divide by the probability of evidence then you get a distribution. And just to remind you,",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "when you see a probability, when you sum over the left-hand side, that's when you get to 1. The right-hand side is-- you're not summing over that. So the probability that there is a burglary given that there is alarm is a little bit over 50%.",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "This sort of makes sense. You see the alarm, so you're thinking, well, it could be burglary or earthquake or maybe both. So it should be pretty high. You should be really worried at this point. So burglary is much more likely. So now, we come to the final--",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "everyone's in their seats waiting for the answer here. So what's the probability of burglary given that there's alarm and earthquake? So here, I have two pieces of evidence. So I'm going to define these two selection tensors-- a1 and e1.",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "And then I'm going to again do this mega operation where I take the joint distribution probability of B, E, and A. I take the selection tensor a1 and e1. And then I'm going to multiply this to 0 out the rows where the evidence is not true. And then I'm going",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "to also drop e and a. And that gives me probability A is 1 and E is one. So let's see what that gives us. It gives us this, and then the rest is the same as before. Compute the probability of the evidence, which means add these two numbers up, and then divide",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "by the probability of the evidence to give us the probability of burglary given alarm and earthquake. And you notice that now the probability of burglary has indeed decreased to 0.05. So the people who followed your intuition were correct. And so now the",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "question is, wait, wasn't there's thing about independence here? So why would burglaries or knowing about earthquakes affect burglaries? And this is the intuitive reason is that if you think about why did the alarm or alarm sound? It must have been because",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "an earthquake or a burglary. And when you observe earthquake, then this explains away the alarm. Meaning that-- oh, it's probably the earthquake that's generating the alarm, not the burglary. So it takes the pressure off of the burglary",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "and puts it on earthquake-- that's the intuitive reason why it holds. And the reason-- well, I mean, this is just math, so it's just true. But in case you're still wondering about why there's this independence-- what happens to this independence?",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "And the key thing here is that B and E are not, or are independent, if you don't have A-- if you don't observe A-- these are independent. But when you observe variables that are downstream of things that are independent, and you observe them, that makes",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "the variables upstream-- not independent anymore. And so the reason why I think Bayesian networks are powerful is that people before, I think, they really nailed these things down probabilistically. They had all these heuristic ways of reasoning",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "about uncertainty, and they were all inconsistent and broken. And only when you lay mathematical clarity to this, then it sort of makes sense. So this idea of explaining away is actually quite general and powerful. And a defining feature of Bayesian network.",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "So the general idea is that you have two causes-- in this case, it's a burglary and earthquake-- positively influencing an effect-- A. So if you condition on an effect and then you further condition on one of the causes, that reduces the probability",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "of the other cause. In other words, E explains away the evidence, and you don't need the other cause to explain. So in symbols, the relationship between the probability of B conditioned on both other cause and effect is less than the probability",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "just conditioned on the effect. And the cool thing is that this is true even if the causes are independent. Just a quick note about notation, I'll just emphasize this again. I'm using lowercase and uppercase deliberately here. Lowercase names represent",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "particular values. So for example, the probability of a random variable, uppercase, equals a particular value, which is a lowercase. So that's convention. And then secondly, I'm using lowercase \"p\" to denote the local conditional probabilities,",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "which are given by definition and uppercase \"P\" to denote the marginals and conditionals, which are derived from the joint distribution by the laws of probability. So I already mentioned this. And furthermore, if I write P of E, that is the whole",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "probability table. And if I write P of E equals a particular value, that is a probability, which is a number. To summarize, what we've done so far is we've defined a joint distribution via this four-step procedure-- you define what the random",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "variables are, what the edges between the random variables are for each node/variable, define a local conditional probability, and then multiply them together to produce a joint distribution. So this is an intuitive way of defining these joint distributions,",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "rather than slavishly going through and writing out every probability. Now we also did probabilistic inference, which basically said select assignment rows based on the evidence, compute the probability of the evidence, and then divide by that probability.",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "So that's mechanically what happens. And then we also saw that explaining away was this really cool phenomenon that happens. It's a qualitative reasoning pattern that follows from the math. So let's move on. Let's do another example. This is going to be",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "similar to alarm, but it's four nodes instead of three nodes. But hopefully it'll just give you-- reinforce these ideas if you see it another time. So here the problem is, I guess, a lot of people are sick these days. So if you're coughing",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "and you have itchy eyes, what is the probability that you have a cold? So I should preface this with saying I don't know anything about the-- don't trust the medical sciences. This is just an example-- don't take this as medical advice.",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "So let's model this problem using a Bayesian network. So step 1, define the random variables. So what's going on here? Potentially you have a cold-- either you have a cold or you don't, you have allergies, or you don't, you're coughing, or you're not,",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "and if you're itchy eyes, or you're not. And of course, this is a simplification because there's degrees of which you can have these. But again, this is just a toy example. Step two, connect the variables with directed edges. So again, using my very sketchy",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "medical prior knowledge, we say that, well, cold and allergies, let's say, they're just independent. So there's nothing connecting them. And so these are the potential problems. And the symptoms are you cough when either you have a cold or allergies,",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "and you have itchy eyes only when you have allergies. So this is what it looks like. Step 3, write down the local conditional probabilities for every variable. So there's four variables here, and we're going to go through each variable and write it down. OK.",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "Here we go. So we have probability of C. So for C I write down-- well, colds are-- 10% chance you have a cold. Allergies-- 20% chance you have allergies. This is a little bit more complicated, but this is-- what's the probability that you have",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "a cough given your state of cold and allergies? So this is a local conditional distribution where I'm conditioning on c and a, and I want to know what the probability of h is. So here, what I've written down this function as-- well, if h matches",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "c or a, then that's going to happen with probability 0.9 and otherwise with probability 0.1. So before I just had 1 and 0. But now, just to make things a little bit, hedge our bets a little bit, we're going to make them a little bit smoother-- so 0.9 and 0.1.",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "So, for example, just to be clear, this entry says that if you have a cold and you have no allergies, then the probability you have a cough is 0.9. And then the fourth variable is I given a, so this is the probability of itchy eyes given allergies.",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "And I'm just going to assume that it's 0.9 if the two are agree. So probability of allergies-- sorry-- itchy eyes given allergies is 0.9. The probability of not itchy eyes given allergies is 0.1. So now I've defined these four local conditional distributions.",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "I can define the joint distribution by just multiplying them all together. And this gives us this pretty horrendous mess. But conceptually it's hopefully clear that you just take the local conditional distributions, and you multiply them all together,",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "and you just have to make sure that you put all the right indices here. So for each of these four local conditional distributions, you have to write down the variables in the order that it came. And just as a convention, this is written h",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "given c, a-- and I always write the conditioning variables first and then the actual variable itself last. So that gives me this database table of probabilities. And you can spot-check things here. So most of the time 0.6 of the time nothing is happening,",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "and the probability that you have a lot of things going wrong is much lower. So now we do probabilistic inference. We can ask any question we want. So what is the probability of cold given cough? And I think I'm going to go through these a little bit",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "faster because it's the same kind of idea. But you can go through the lecture notes afterwards. So you first select based on the evidence and marginalize out the variables that you're not interested in. So we're only interested in cold and cough.",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "So allergies and itchy eyes-- just forget about it-- just collapse them. So this gives us the probability of cough and-- sorry-- cold and cough equals 1. Compute the probability of the evidence, which is just adding these up, and then dividing",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "by the probability of the evidence to get a normalized answer. So the answer is the probability that you have a cold, given that you have a cough, is 0.28. So let's do another one. Let's compute the probability you have a cold given you",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "have a cough and itchy eyes. So now let me ask you this question. So this probability was 0.28-- what do people think about if you have itchy eyes? Does that increase, decrease, or keep the probability of the cold the same? So let's look here.",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "So this is a little bit tricky-- so I think a lot of tenuous hands there-- which is to be expected. That's why we have math. And we can just-- we can do it. So here-- I'll go through this quickly-- you select based on the evidence. So you multiply this joint",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "probability by h equals 1 and I equals 1, and that gives you a probability of over probability of cold and h equals 1, I equals 1. Compute the probability of the evidence-- summing these two and then dividing. And you see that the probability",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "of cold has gone down. So at this point you're thinking, what's going on here? So let me explain-- actually let me ask you this question-- why is the probability of cold lower if you add itchy eyes? So the probability of cold given just a cough is 0.27.",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "And the probability of cold given cough and itchy eyes is 0.13. So it's almost half. Yeah, exactly. So basically, this is an example of explaining away again. So what was explaining away? You have an effect. You have two causes. But the itchy eyes is not",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "a cause of this effect. There's no edge from I to H, but I is connected to A. So if you observe you have itchy eyes, that actually increases the probability of allergies. And now increasing the probability of allergies now explains away the cough.",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "And why you're less likely to have a cold. So I think this is really neat how you just define the Bayesian network and all these kind of reasoning patterns pop out. I don't think anyone probably would have really good confidence to",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "just intuitively think, well, if you have itchy eyes, how much would the probability of a cough change? But if you have the Bayesian network, it handles things for you. So to summarize this, same recipe here-- joint distribution. Once you define it, you can",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "do probabilistic inference. We see that explaining away shows up again now a little bit more complicated. And in general, I think you could imagine, let's say, a hundred-variable Bayesian network, and you're conditioning on 17 of the evidence variables.",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "And all the variables are interacting with each other. And intuitively, you can think about them as propagating evidence. If you observe one node that suggests the values of other nodes, but then the other values will also propagate, so it",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "can be rather complicated. And in general, computing these quantities actually can be NP-hard. So it's not actually a pretty sophisticated operation here. So finally, we've seen two examples of Bayesian networks. Alarm and a medical diagnosis.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "So let me introduce the general case here. So in the general case, the same four-step procedure-- you define a set of random variables-- often I'll denote these as X_1 through X_n. I define any directed acyclic graph over the variables-- so any graph-- but",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "there can be cycles. And for each node, X_i, I'm going to define a local conditional distribution-- x_i given the parents of x_1-- and then define the joint distribution by just multiplying all the local conditional distributions together.",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "So important reminders-- because it is easy to make this mistake-- you have one local conditional distribution per node, not edge. And also the local conditional distribution depends on all the parents at once. So don't forget to write down probability of C,",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "just because there's no edge from it. And don't write down probability of H given C times probability H given A-- that's incorrect. You have to tie the parents together. In the literature they call this the parents are married. So just maybe if that's a",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "helpful way to think about it. And then finally, note the difference between local distributions and the joint distribution. All right. So then, when you do probabilistic inference, you're given this Bayesian network, which defines this joint",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "distribution over all n variables. There's some evidence, usually written as E equals little e, where big E is a subset of an X's the variables. So, for example, you can say I observe that X_3 and X_7 are 0 and 1, respectively. And then you're interested in",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "a set of query variables, which could be any other subset of nodes, like X_2 and X_4, and anything that's not mentioned, like X_1, and X_5, X_6, are assumed to be marginalized out. And the output is this probability table, which gives us the probability",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "of every assignment to Q conditioned on E equals e. So Bayesian networks actually show up in a bunch of places. Usually you don't think about them. But I'll just give you some examples. For example, autoregressive language models. So if we put on Bayesian",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "network hats, then autoregressive language models model is actually a Bayesian network. So the random variables are the tokens. Suppose you're going to generate T tokens. So the tokens are X_1 through X_T. There's edges from all previous",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "tokens to a current token. The local conditional distribution is given by this transformer-- usually in language modeling-- and then the joint distribution is still the same. It's a product of x_t given all the previous x_ts. So if you were to draw the",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "network for a language model, it would look something like this-- so it just happens that every variable is connected to all previous variables and so on and so forth. So typically, if you have a language model, you just sample forward.",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "So if you're given a prompt X_1, X_2, X_3, and you sample X_4 given the previous and sample X_5 given X_1 through X_4, X_6 given the past, and so on and so forth. This is basically what you do in language modeling. But so now the interesting thing is",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "what would probabilistic inference mean here? So probabilistic inference really means kind of reversing. The whole idea of probabilistic inference, you can reason about any subset of variables given other subset of variables. So one thing you might want to do",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "is what's the probability of-- suppose I see a response-- X_4, X_4, 5X6, I want to figure out what prompt generated that response. So this has an application in jailbreaking language models. So for example, you could ask, what is a given response?",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "Sure, here's how you make a bomb or something dangerous. And then you ask basically probabilistic inferences figuring out the prompt that leads to the response. So this is very uncommon, mostly because language models are designed to just go forward.",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "But it is interesting to note that once you define a joint distribution, you can mathematically go in any order you want. And going in different orders actually gives you some interesting insights. The downside is that this is extremely computationally",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "expensive task. And it's, in general, exponentially hard, but this paper has some interesting ideas on how you can make this faster using variational inference. I just want to pop that example there so that you can see how this topic might connect",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "to some more modern ideas. In the last 10 minutes, I'm going to talk about two things. One is a different way to think about Bayesian networks. And then that's going to allow us to do something called rejection sampling for approximate Bayesian inference.",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "So far, we've defined these Bayesian networks as just writing down these local conditional distributions. And that's fine. That's better than writing down the whole probability table, which no one really does for a large number of variables.",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "But now we're going to define these via probabilistic program. So there's a whole field called probabilistic programming, which explores the interaction between programs and distributions. So we'll give you a taste of this. And the ideas are fairly",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "natural and elegant. So let's revisit our old alarm example. So we have the burglary, earthquake, and alarm. And I'm going to define a function, a program, called alarm. That's just going to give me a random sample according to the joint distribution.",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "So how this is going to work is I'm going to set B equals to this Bernoulli 0.05-- and all Bernoulli does is it just returns 1 with this probability-- so this is backed by np random. And then I'm going to set earthquake to be the same.",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "So this is a random function. And I'm going to set A equals B or E. And I'm going to just return the assignment. So if I sample again, I think, I might not get anything other than 000 because remember the probability is 0.05, so it's pretty low.",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "But OK, so that's it. So this is actually a formal definition of a Bayesian network. It's just unusual because it's just a program, but it's one way you can define. And the thing I like about this is it's really transparent what's",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "going on-- three lines of code. So now, let's do probabilistic inference. So how would you do probabilistic inference using this probabilistic program which represents a Bayesian network and therefore joint distribution? Suppose you wanted to",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "compute the probability of B given A equals 1. So because we've written the joint distribution in a program, this gives us a natural way to do this probabilistic inference. And it's a way called rejection sampling. And the key idea here is that I'm just",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "going to draw a ton of samples, just like this. I'm going to select the samples that match a piece of evidence, and I'm going to record a histogram over different queries of the samples I see. So here I'm going to generalize the evidence.",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "So we've been thinking about evidence as a particular assignment to a variable and a query to be like a particular set of variables, but they can be any function really. So the query I'm going to think about is taking a sample and returning--",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "so remember, a sample looks like this. It's a joint assignment to all the variables. And I'm going to just return some value. In this case, I'm going to pluck out B because I'm interested in probability of B. And the evidence is going to be",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "a function that takes a sample. And I'm going to return whether it matches the evidence. So I'm going to look at-- peek inside-- to look at the value of A that equals 1, then I return true. So evidence is a function that tests whether a sample satisfies",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "a particular criteria. So now rejection sampling is literally five lines of code-- for some definition of five. So I'm going to keep track of counts here. So I'm going to iterate number of samples times, I'm going to draw a sample, and I'm",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "going to test whether the evidence of that sample is satisfied. And then if it is, then I increment the counts. I don't think in this run I'll actually get a sample, but if I did, it would increment the-- oops, sorry-- the count. Oh, I get one, I guess.",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "And then I have a count of the number of particular query values I see, and then I normalize that to get a probability, and I return it. So in that case, it wasn't very interesting because I only got one value. But if I do this 1,000 times,",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "we'll see that this gives me an estimate of the probability of the query, the probability of the query given the evidence. So remember the query here was probability of B. So the probability of B given A equals 1 given A equals 1 is 0.56.",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "So remember the true number was 0.51 or something. So it's close, but it's not exactly right because this is just a sampling algorithm. So this algorithm can be very inefficient, especially when the evidence is rare, because you're essentially",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "sampling from the prior. And if you have a rare event, like the event happens with probability 0.001, then most of the time, you're just going to waste your time sampling. So it's not a very efficient algorithm, but mathematically I think it's very clean.",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "There is a guarantee that if you are very patient and you increase the number of samples to infinity, then this actually converges to the true probability. And in this class we've seen a lot of times where we're sampling, like we do policy evaluation.",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "We just sample expectimax-- we can sample and so on. OK, let's do the medical diagnosis example. So in medical diagnosis, remember we're interested in the probability of cold given cough equals 1. So here is the four-line Bayesian network-- so cough,",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "allergies, and then-- sorry-- cold, allergies, cough, and itchy eyes. So again, very, very simple. And the query is C, and the evidence is testing whether H equals 1 or not. And then I do rejection sampling-- I get the probability of cough equals 1",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "given H equals 1 is 0.26, which is actually pretty close to the right answer. And you see that this is closer even with 200 samples because the probability of these events are higher. Here's another fancier example, and it shows you the power of",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "probabilistic programming or the succinctness. So there's these things called hidden Markov models. They look like this. They can be used for object tracking. So imagine there is some object, and H1, H2 represents the position of",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "that object at successive times. And then you don't see the object position-- instead, you get a noisy sensor reading of the object. And so the goal is, for example, to figure out, let's say, you observe E5-- what is the probability of H3?",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "So this is fairly complicated. There's a lot of things happening here. But rejection sampling is a fairly black box way of handling this. So hidden Markov model-- here's what we're going to do-- we're going to iterate for five steps, and for each step,",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "what I'm going to do is I'm going to look at the previous step, and I'm going to add either 1 with probability of 0.5 or 0 with probability 0.5. So 0.5 probability, I stay in the same state-- probability 0.5, I advance to the next state.",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "And then this E is basically the noisy sensor observation where I have my true location. And I either add 1 or add 0 depending on-- and then you return basically the sequence of H's and E's. OK. So this gives you a sample. The query here is I'm",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "interested in H2-- 2 because it's a 0-based instead of 1-based based-- and evidence E4, and testing that equals 2. OK, so now if I do rejection sampling, I can estimate the probability of H3 given E5 equals 2. Basically, I infer that the object most likely",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "was in position 1, but maybe it was in position 0. So to summarize, this section was brief, but I think it has a lot of important insights. The probabilistic programming is a way-- another way-- to think about programs as representations of distribution.",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "So this is a sort of a pretty different way of thinking about probability, which I think has some attractive features, because once you can sample, you can do a lot of things. For example, rejection sampling-- you can just draw samples and then",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "compute, or estimate at least, the probability of various queries that you're interested in. So quick, maybe discussion here. One is that if you're used to thinking about building classifiers, which we're all used to in modern machine learning, using",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "Bayesian networks requires a shift in mindset. So, for example, if you wanted to predict whether you have a cold versus a cough, in traditional machine learning, you would say, OK, let me train a classifier that maps my input into output. So the input here is",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "whether I have a cough, and the output is whether I have a cold. But in Bayesian networks, you're often going from output to input. Because the way you think about it is, no, I am interested in the cold, and I'm defining a Bayesian network",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "that takes cold and generates what are the things I observe. And then you're using probabilistic inference to go backwards. So why would you do this? One advantage is that it handles missing information. So for example, if your data",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "points have a missing value-- sometimes your doctor didn't record whether you had itchy eyes or not-- Bayesian models allow you to automatically take that into account. If you have prior knowledge about how things work, like you know your alarm",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "system, what it reacts to, you can just write down what it does instead of trying to learn that. You can interpret all the intermediate variables here. It gives you interpretability, which is often missing from big end-to-end systems. And then you can",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "answer questions about causality, which is beyond the scope of this class, but Bayesian networks give you a way to do that. OK, so to final summary-- so probability-- there's joint distributions. You can marginalize them. You can condition.",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "These are all tensors-- you can use einops. Bayesian networks gives you a convenient way to define joint distributions. Probabilistic inference says, give me a joint distribution, I can answer questions which look like probability of query-given evidence.",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "And then finally, I showed you probabilistic programs as a way to represent programs as joint distributions. And finally, rejection sampling, which is a very simple and generic way to do probabilistic inference in any Bayesian network. But it is very slow.",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "And so next time we're going to try to improve the algorithm and look at other alternatives.",
+      "start": 1314,
+      "duration": 6
+    }
+  ]
+}

@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GenesisPod 架构演进 · 2025.11 – 2026.06</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --bg2:#eef1f6; --panel:#ffffff; --line:#e0e5ed;
+    --ink:#1b2333; --mut:#5a6678; --dim:#9aa5b4;
+    --acc:#2f63ff; --acc2:#0fae74; --warn:#cf8324; --bad:#e23d5a; --good:#0fae74;
+    --mono:"SF Mono",ui-monospace,"Cascadia Code","Consolas",monospace;
+    --sans:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden}
+  #deck{height:100vh;width:100vw;position:relative}
+  .slide{position:absolute;inset:0;padding:4.2vh 5.5vw;display:none;flex-direction:column;
+    animation:fade .45s ease;overflow:hidden}
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  h1{font-size:clamp(28px,4.4vw,62px);line-height:1.08;letter-spacing:-.02em;font-weight:800}
+  h2{font-size:clamp(22px,2.9vw,40px);font-weight:750;letter-spacing:-.01em;margin-bottom:2.4vh;
+    display:flex;align-items:center;gap:14px}
+  h2 .no{font-family:var(--mono);font-size:.55em;color:var(--acc);font-weight:600;
+    border:1px solid var(--line);padding:3px 10px;border-radius:8px;background:var(--panel)}
+  .sub{color:var(--mut);font-size:clamp(14px,1.35vw,20px);font-weight:500}
+  .acc{color:var(--acc)} .acc2{color:var(--acc2)} .warn{color:var(--warn)} .bad{color:var(--bad)} .good{color:var(--good)}
+  .mono{font-family:var(--mono)}
+  .grow{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+  /* progress + chrome */
+  #bar{position:fixed;left:0;top:0;height:3px;background:linear-gradient(90deg,var(--acc),var(--acc2));z-index:50;transition:width .35s}
+  #cnt{position:fixed;right:18px;bottom:14px;font-family:var(--mono);font-size:12px;color:var(--dim);z-index:50}
+  #hint{position:fixed;left:18px;bottom:14px;font-size:12px;color:var(--dim);z-index:50}
+  /* title slide */
+  .title-wrap{height:100%;display:flex;flex-direction:column;justify-content:center;gap:3vh}
+  .kicker{font-family:var(--mono);color:var(--acc);letter-spacing:.18em;font-size:clamp(12px,1.2vw,16px);text-transform:uppercase}
+  .title-meta{display:flex;gap:36px;flex-wrap:wrap;margin-top:1vh}
+  .tm{display:flex;flex-direction:column;gap:4px}
+  .tm b{font-size:clamp(22px,2.6vw,38px);font-weight:800;font-family:var(--mono)}
+  .tm span{color:var(--mut);font-size:13px}
+  /* generic cards */
+  .cards{display:grid;gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 2px 10px rgba(27,35,51,.05)}
+  .card h3{font-size:clamp(15px,1.5vw,21px);margin-bottom:8px;display:flex;align-items:center;gap:9px}
+  .card p{color:var(--mut);font-size:clamp(12px,1.15vw,15.5px);line-height:1.55}
+  .pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--mut)}
+  /* timeline */
+  .tl{display:flex;flex-direction:column;gap:0;position:relative;padding-left:30px}
+  .tl::before{content:"";position:absolute;left:9px;top:8px;bottom:8px;width:2px;background:var(--line)}
+  .tlrow{position:relative;padding:9px 0;display:grid;grid-template-columns:130px 1fr;gap:18px;align-items:baseline}
+  .tlrow::before{content:"";position:absolute;left:-26px;top:15px;width:11px;height:11px;border-radius:50%;
+    background:var(--acc);box-shadow:0 0 0 4px var(--bg)}
+  .tlrow .d{font-family:var(--mono);font-size:13px;color:var(--acc)}
+  .tlrow .t b{font-size:clamp(14px,1.4vw,18px)}
+  .tlrow .t span{color:var(--mut);font-size:clamp(12px,1.1vw,14px);display:block;margin-top:2px}
+  /* layer stack */
+  .stack{display:flex;flex-direction:column;gap:9px}
+  .layer{border:1px solid var(--line);border-radius:12px;padding:12px 18px;display:grid;
+    grid-template-columns:78px 1fr;gap:18px;align-items:center;background:var(--panel);box-shadow:0 2px 10px rgba(27,35,51,.05)}
+  .layer .lv{font-family:var(--mono);font-weight:800;font-size:clamp(15px,1.6vw,22px)}
+  .layer .nm b{font-size:clamp(14px,1.4vw,18px)} .layer .nm span{color:var(--mut);font-size:clamp(11px,1.05vw,13.5px);display:block;margin-top:2px}
+  .L4{border-left:4px solid #c084fc} .L3{border-left:4px solid #5b8cff}
+  .L25{border-left:4px solid #36d399} .L2{border-left:4px solid #ffb454} .L1{border-left:4px solid #8b97ab}
+  /* bars (commit chart) */
+  .chart{display:flex;align-items:flex-end;gap:14px;height:38vh;padding:0 8px}
+  .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%}
+  .col .barwrap{flex:1;width:100%;display:flex;align-items:flex-end}
+  .col .b{width:100%;border-radius:6px 6px 0 0;background:linear-gradient(180deg,var(--acc),#2a4a9e)}
+  .col.peak .b{background:linear-gradient(180deg,var(--bad),#a83248)}
+  .col .v{font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .col .m{font-family:var(--mono);font-size:11px;color:var(--dim)}
+  /* split */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:22px;flex:1;min-height:0}
+  .split.good h2,.col-good h3{color:var(--good)}
+  ul.clean{list-style:none;display:flex;flex-direction:column;gap:11px}
+  ul.clean li{position:relative;padding-left:24px;color:var(--ink);font-size:clamp(13px,1.25vw,16.5px);line-height:1.5}
+  ul.clean li::before{content:"";position:absolute;left:2px;top:8px;width:8px;height:8px;border-radius:2px}
+  ul.good li::before{background:var(--good)} ul.bad li::before{background:var(--bad);border-radius:50%}
+  ul.clean li b{font-weight:700} ul.clean li span{color:var(--mut)}
+  .col-good,.col-bad{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;overflow-y:auto}
+  .col-good{border-top:3px solid var(--good)} .col-bad{border-top:3px solid var(--bad)}
+  .col-good h3,.col-bad h3{font-size:clamp(17px,1.7vw,23px);margin-bottom:16px}
+  /* stat row */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:0 2px 10px rgba(27,35,51,.05)}
+  .stat b{display:block;font-family:var(--mono);font-size:clamp(26px,3.2vw,46px);font-weight:800;line-height:1}
+  .stat span{color:var(--mut);font-size:13px;display:block;margin-top:8px}
+  .note{background:var(--bg2);border:1px dashed var(--line);border-radius:10px;padding:12px 16px;
+    color:var(--mut);font-size:clamp(12px,1.1vw,14.5px);line-height:1.5;margin-top:auto}
+  .note b{color:var(--ink)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;flex:1;min-height:0}
+  .verdict{font-size:clamp(15px,1.5vw,20px);line-height:1.6;color:var(--ink)}
+  .verdict b{color:var(--acc)}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 9px;border-radius:6px;margin:0 4px 4px 0}
+  .tg-r{background:rgba(255,107,129,.13);color:var(--bad);border:1px solid rgba(255,107,129,.3)}
+  .tg-f{background:rgba(91,140,255,.13);color:var(--acc);border:1px solid rgba(91,140,255,.3)}
+  .tg-g{background:rgba(54,211,153,.13);color:var(--good);border:1px solid rgba(54,211,153,.3)}
+  small.cap{color:var(--dim);font-size:12px;font-family:var(--mono)}
+  .arrow{color:var(--dim);margin:0 6px}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="deck">
+
+  <!-- 1 TITLE -->
+  <section class="slide active">
+    <div class="title-wrap">
+      <div class="kicker">Architecture Evolution · Git Forensics</div>
+      <h1>从研究工具到<span class="acc">单人公司 OS</span><br>一个 AI 平台的七个月架构演进</h1>
+      <div class="sub">基于 8,037 次提交的全量历史复盘 &nbsp;·&nbsp; DeepDive Engine → GenesisPod</div>
+      <div class="title-meta">
+        <div class="tm"><b>8,037</b><span>commits</span></div>
+        <div class="tm"><b>7</b><span>个月 · 2025.11→2026.06</span></div>
+        <div class="tm"><b>9</b><span>架构纪元</span></div>
+        <div class="tm"><b>5→L1</b><span>分层 · L4/L3/L2.5/L2/L1</span></div>
+        <div class="tm"><b>319+</b><span>合并 PR</span></div>
+      </div>
+      <div class="note" style="margin-top:2vh;max-width:780px">
+        <b>阅读说明</b>：本稿既是编年史，也是一次专业审视。<span class="tg-g tag">绿=亮点</span><span class="tg-r tag">红=债务/风险</span> 标记我的独立判断，非仓库自述。
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 OVERVIEW NUMBERS -->
+  <section class="slide">
+    <h2><span class="no">01</span>这是一座怎样的代码山</h2>
+    <div class="grow">
+      <div class="stats" style="margin-bottom:22px">
+        <div class="stat"><b class="acc">8,037</b><span>总提交</span></div>
+        <div class="stat"><b class="bad">49%</b><span>fix（3,943 次）</span></div>
+        <div class="stat"><b class="acc2">24%</b><span>feat（1,935 次）</span></div>
+        <div class="stat"><b class="warn">10%</b><span>refactor（807 次）</span></div>
+      </div>
+      <div class="cards" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="card"><h3>提交结构</h3><p>fix : feat ≈ <b class="bad">2.0 : 1</b>。修复量是新功能的两倍——高频迭代下的缺陷与返工压力清晰可见，是后文「重构债务」判断的第一个证据。</p></div>
+        <div class="card"><h3>治理强度</h3><p>refactor 807 + chore 497 + docs 292 ≈ <b>20%</b> 提交不产出新功能，全部投向结构与规范。对一个 7 个月的项目而言异常之高。</p></div>
+        <div class="card"><h3>质量基建</h3><p>test 216 + perf 32 + ci 5。测试占比 <b class="warn">2.7%</b>——相对架构治理的投入，自动化测试是明显的洼地。</p></div>
+      </div>
+      <div class="note"><b>方法论：</b>数据来自 <span class="mono">git log</span> 全量解析（提交类型前缀分类 + 按月聚合 + 关键里程碑检索），非抽样。</div>
+    </div>
+  </section>
+
+  <!-- 3 MONTHLY CHART -->
+  <section class="slide">
+    <h2><span class="no">02</span>提交节奏：一次反常的「五月搬家潮」</h2>
+    <div class="grow">
+      <div class="chart">
+        <div class="col"><div class="barwrap"><div class="b" style="height:29%"></div></div><div class="v">610</div><div class="m">11月</div></div>
+        <div class="col"><div class="barwrap"><div class="b" style="height:55%"></div></div><div class="v">1151</div><div class="m">12月</div></div>
+        <div class="col"><div class="barwrap"><div class="b" style="height:68%"></div></div><div class="v">1422</div><div class="m">1月</div></div>
+        <div class="col"><div class="barwrap"><div class="b" style="height:38%"></div></div><div class="v">793</div><div class="m">2月</div></div>
+        <div class="col"><div class="barwrap"><div class="b" style="height:35%"></div></div><div class="v">735</div><div class="m">3月</div></div>
+        <div class="col"><div class="barwrap"><div class="b" style="height:38%"></div></div><div class="v">785</div><div class="m">4月</div></div>
+        <div class="col peak"><div class="barwrap"><div class="b" style="height:100%"></div></div><div class="v">2088</div><div class="m">5月</div></div>
+        <div class="col"><div class="barwrap"><div class="b" style="height:22%"></div></div><div class="v">453</div><div class="m">6月</div></div>
+      </div>
+      <div class="note"><b class="bad">5 月单月 2,088 次提交（占全程 26%）</b>，几乎全部是 <span class="mono">refactor(harness): MECE-W1…W17</span> 这类「目录归位搬家」。业务价值产出 vs 重构投入比，是本稿最重要的审视点之一（见 ⑦ 与「债务」页）。</div>
+    </div>
+  </section>
+
+  <!-- 4 NINE EPOCHS -->
+  <section class="slide">
+    <h2><span class="no">03</span>九个架构纪元 · 全景</h2>
+    <div class="grow">
+      <div class="tl" style="padding-left:30px">
+        <div class="tlrow"><div class="d">2025.11</div><div class="t"><b>① 创世单体</b><span>DeepDive Engine — 深度研究 / 视频评论核心起步，单体结构</span></div></div>
+        <div class="tlrow"><div class="d">2025.12–01</div><div class="t"><b>② 引擎抽象</b><span>能力下沉 capability sinking · TaskProfile 统一 LLM 调用 · RAG 迁入 Engine · 删 ai-agents</span></div></div>
+        <div class="tlrow"><div class="d">2026.01–02</div><div class="t"><b>③ 品牌动荡</b><span>DeepDive → AI Teams Engine → Raven → Genesis.ai，三个月四次 rebrand</span></div></div>
+        <div class="tlrow"><div class="d">2026.02</div><div class="t"><b>④ Facade 治理</b><span>三层 Facade 强制 · God Facade 拆 5 域 · 137 消费方迁移 · ESLint 边界看护</span></div></div>
+        <div class="tlrow"><div class="d">2026.02–03</div><div class="t"><b>⑤ Kernel 实验</b><span>ai-kernel（KernelContext/Memory/ProgressTracker）—— 一次短命的分层尝试</span></div></div>
+        <div class="tlrow"><div class="d">2026.04.22</div><div class="t"><b>⑥ Harness 诞生</b><span>删 ai-kernel，引入 Harness：ReAct loop · SKILL.md · subagent 隔离 · checkpoint（6 阶段）</span></div></div>
+        <div class="tlrow"><div class="d">2026.05</div><div class="t"><b>⑦ L2.5 定型 + MECE 大重构</b><span>Harness 独立成层 · W1–W17 波次归位 11 顶层聚合 · credentials L2→L1</span></div></div>
+        <div class="tlrow"><div class="d">2026.05–06</div><div class="t"><b>⑧ 看护锁定</b><span>三层护栏 ESLint+spec+CI · 自评 9.8/10 合规 · platform 改名</span></div></div>
+        <div class="tlrow"><div class="d">2026.06</div><div class="t"><b>⑨ 单人公司 OS</b><span>self-driven agent team · plan→build→execute→deliver 全自动链路</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 EPOCH 1-2 -->
+  <section class="slide">
+    <h2><span class="no">04</span>① 创世 → ② 引擎抽象：把能力从应用里「下沉」</h2>
+    <div class="two">
+      <div class="cards" style="align-content:start">
+        <div class="card"><h3 class="acc2">① 单体起步 · 2025.11</h3><p>以「DeepDive Engine」之名落地：深度研究、多步骤规划报告、YouTube 评论。所有 AI 能力与业务逻辑耦合在应用模块内。</p></div>
+        <div class="card"><h3 class="acc2">② AI Engine 抽象 · 2025.12–2026.01</h3><p>关键转折：提出 <b>capability sinking（能力下沉）</b>——把领域无关的服务从 AI Teams 抽进 AI Engine；RAG 核心迁入；删除 ai-agents 冗余。App 变薄、Engine 变厚的主线就此确立。</p></div>
+      </div>
+      <div class="cards" style="align-content:start">
+        <div class="card"><h3 class="acc">TaskProfile：去硬编码的支点</h3><p>2026.01 引入 <span class="mono">TaskProfile</span> 语义化参数（creativity/outputLength），统一所有模块经 <span class="mono">chat()</span> 入口调用 LLM。从此「<span class="mono">model:"gpt-4o"</span>/<span class="mono">temperature:0.7</span>」硬编码被制度性禁止——这条红线沿用至今。</p></div>
+        <div class="card"><h3 class="acc">数据库三合一</h3><p>移除 MongoDB / Neo4j / Qdrant，统一到 PostgreSQL 16（结构化 + JSONB + 图关系）+ Redis 7，宣称成本 <b class="good">-70%~75%</b>。一次果断的减法。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 EPOCH 3-4 -->
+  <section class="slide">
+    <h2><span class="no">05</span>③ 品牌动荡 + ④ Facade 治理：边界开始硬化</h2>
+    <div class="two">
+      <div class="col-bad">
+        <h3 class="bad">③ 四次 rebrand 的代价</h3>
+        <ul class="clean bad">
+          <li><b>DeepDive Engine</b> <span class="arrow">→</span> AI Teams Engine（01.06）</li>
+          <li><span class="arrow">→</span> <b>Raven</b> + flock logo（01.30）<span>当天即 revert</span></li>
+          <li><span class="arrow">→</span> <b>Genesis.ai</b> + 松鼠 logo（02.16，108 文件清理）</li>
+          <li><span class="arrow">→</span> 最终 <b>GenesisPod</b></li>
+        </ul>
+        <div class="note" style="margin-top:18px">品牌反复横跳消耗了可观精力，且多次 revert。<b>教训沉淀：</b>此后品牌名一律走 <span class="mono">config.brand.*</span>，禁止硬编码——把动荡转化成了一条规范。</div>
+      </div>
+      <div class="col-good">
+        <h3 class="good">④ 三层 Facade 边界（架构成熟的真正起点）</h3>
+        <ul class="clean good">
+          <li><b>强制 Facade 导入</b><span>ai-app 禁止穿透 ai-engine 内部路径</span></li>
+          <li><b>God Facade 拆解</b><span>单个 38 参数巨型 Facade → 5 个领域 Facade</span></li>
+          <li><b>137 个消费方迁移</b><span>一次性把全量调用切到域 Facade</span></li>
+          <li><b>ESLint no-restricted-imports</b><span>IDE 实时 + pre-commit 拦截违规导入</span></li>
+        </ul>
+        <div class="note" style="margin-top:18px">这是项目第一次把「架构约定」变成「机器可执行的拦截」——奠定了后续看护体系。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 EPOCH 5-6 -->
+  <section class="slide">
+    <h2><span class="no">06</span>⑤ Kernel 实验 → ⑥ Harness 诞生：Agent 运行时归位</h2>
+    <div class="two">
+      <div class="cards" style="align-content:start">
+        <div class="card" style="border-left:4px solid var(--bad)"><h3 class="bad">⑤ ai-kernel：一次短命的层（02–04）</h3><p>引入 KernelContext / ProgressTracker / Memory 想做「内核层」，深度集成进各 App。但定位与 ai-engine 重叠、边界说不清——<b>仅存活约两个月</b>。</p></div>
+        <div class="card" style="border-left:4px solid var(--good)"><h3 class="good">2026.04.22：删 kernel，立 harness</h3><p>同一天，ai-kernel 被并入 engine/runtime 并删除，<b>Harness 抽象层</b>正式诞生。承认前一次分层错误、果断推倒重来。</p></div>
+      </div>
+      <div class="col-good">
+        <h3 class="good">⑥ Harness 六阶段一次成型</h3>
+        <ul class="clean good">
+          <li><b>P1</b> Harness 抽象层骨架</li>
+          <li><b>P2</b> ReAct loop + tool invoker + memory bridge</li>
+          <li><b>P3</b> SKILL.md 系统：parser/registry/loader/activator</li>
+          <li><b>P4</b> subagent spawner + 3 级隔离</li>
+          <li><b>P5</b> 上下文工程：compactor + pruner + manager</li>
+          <li><b>P6</b> checkpoint / resume + skill learner</li>
+        </ul>
+        <div class="note" style="margin-top:14px">明显借鉴 Claude Code 的 agent 运行时范式（SKILL.md、subagent 隔离、context 压缩）。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 EPOCH 7 MECE -->
+  <section class="slide">
+    <h2><span class="no">07</span>⑦ MECE 大重构：17 个波次，把一切「归位」</h2>
+    <div class="grow">
+      <div class="two">
+        <div>
+          <p class="verdict" style="margin-bottom:16px">2026.05 用 <b class="warn">W1–W17</b> 波次把 harness 拆成 <b>11 个全业界标准词顶层聚合</b>，engine 收敛为 <b>12 个聚合</b>。核心准则——</p>
+          <ul class="clean good">
+            <li><b>engine 不知 agent/mission</b><span>无状态基元；harness 才懂 agent/mission</span></li>
+            <li><b>MCP 属 engine 不属 harness</b><span>与 OpenAPI/function 同层的 tool 适配器</span></li>
+            <li><b>同名概念全项目唯一</b><span>tools 只在 engine，SkillRegistry 只 1 个</span></li>
+            <li><b>顶层全用业界标准词</b><span>禁造 kernel/runtime/process/governance</span></li>
+          </ul>
+        </div>
+        <div class="cards" style="align-content:start">
+          <div class="card"><h3>典型波次（搬家而非新功能）</h3><p class="mono" style="font-size:12.5px;line-height:1.9;color:var(--mut)">W6 governance/* 全归位 + 删目录<br>W8 process/* 全归位 + 删目录<br>W12 dissolve runtime facade<br>W13 rename kernel → agents<br>W14 move execution into runner<br>W16 relocate mission lifecycle</p></div>
+          <div class="card"><h3 class="warn">同时发生的跨层迁移</h3><p>credentials <b>L2→L1</b> 下沉（BYOK key 解析零 agent 状态）；planning 目录整体删除、能力迁入 harness/runtime；auto-dream、adaptive-replanner 等逐个跨层搬家。</p></div>
+        </div>
+      </div>
+      <div class="note"><b class="bad">审视：</b>结果是干净的，但「17 个波次 + 整月搬家」也暴露了——前几次分层抽象的一次到位率偏低，演进成本被推迟到了这里集中偿还。</div>
+    </div>
+  </section>
+
+  <!-- 9 CURRENT ARCH -->
+  <section class="slide">
+    <h2><span class="no">08</span>当前架构全景 · 五层单向依赖</h2>
+    <div class="grow">
+      <div class="stack">
+        <div class="layer L4"><div class="lv" style="color:#c084fc">L4</div><div class="nm"><b>Open API</b><span>对外 API 信任边界 · modules/open-api/</span></div></div>
+        <div class="layer L3"><div class="lv acc">L3</div><div class="nm"><b>AI Apps（19 模块）</b><span>research · teams · office · writing · ask · image · social · simulation · planning · library · explore · insight · playground · company · …</span></div></div>
+        <div class="layer L25"><div class="lv acc2">L2.5</div><div class="nm"><b>AI Harness（11 聚合）</b><span>agents · runner · teams · handoffs · memory · protocols · evaluation · guardrails · tracing · lifecycle · facade — 懂 agent/mission</span></div></div>
+        <div class="layer L2"><div class="lv warn">L2</div><div class="nm"><b>AI Engine（12 聚合）</b><span>llm · tools · rag · knowledge · content · routing · reliability · evaluation · skills · planning · safety · facade — 无 agent 状态的基元</span></div></div>
+        <div class="layer L1"><div class="lv" style="color:var(--mut)">L1</div><div class="nm"><b>Platform（基础设施）</b><span>credentials/BYOK · secret resolver · NestJS · Prisma · Redis</span></div></div>
+      </div>
+      <div class="note"><b>依赖方向严格单向：</b>L4→L3→L2.5→L2→L1。Harness 编排 Engine 基元，不反向依赖 App。<span class="bad">已删历史层：</span>ai-kernel（⑤）、intent-gateway（0 消费方空壳）、ai-engine/runtime。</div>
+    </div>
+  </section>
+
+  <!-- 10 GUARDRAILS -->
+  <section class="slide">
+    <h2><span class="no">09</span>⑧ 三层架构看护：把「合规」变成「可执行」</h2>
+    <div class="grow">
+      <div class="cards" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:18px">
+        <div class="card" style="border-top:3px solid var(--good)"><h3 class="good">① ESLint 实时拦截</h3><p><span class="mono">no-restricted-imports</span>：engine 不得 import harness；app 不得穿透内部路径。IDE 实时 + lint-staged pre-commit。</p></div>
+        <div class="card" style="border-top:3px solid var(--acc)"><h3 class="acc">② 架构 spec 测试</h3><p><span class="mono">verify:arch</span>：jest 整目录多套件，拦截 ESLint 漏掉的动态 import / 注释逃逸（拓扑/权限/词汇/能力多维）。</p></div>
+        <div class="card" style="border-top:3px solid var(--warn)"><h3 class="warn">③ pre-push + CI 门</h3><p><span class="mono">.husky/pre-push</span> 第 0 步跑 verify:arch；CI 的 arch-boundary job 汇入合并门，失败即拒合。</p></div>
+      </div>
+      <div class="two" style="flex:none">
+        <div class="note" style="margin:0"><b class="good">真正稀缺之处：</b>多数团队的分层只活在文档里。这里把它做成了三道机器闸门——这是本仓最值得肯定的工程资产。</div>
+        <div class="note" style="margin:0;border-color:rgba(255,107,129,.4)"><b class="bad">但要诚实：</b>借鉴 Claude Code 的「10 条反向洞察」目前 <b>全部 honor-only</b>（仅人工 review）；85% 覆盖率阈值也未真正进 CI。「9.8/10 合规」含一定自证成分。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 EPOCH 9 -->
+  <section class="slide">
+    <h2><span class="no">10</span>⑨ 终局转向：从「给人用的工具」到「自驱动的公司」</h2>
+    <div class="two">
+      <div class="cards" style="align-content:start">
+        <div class="card" style="border-left:4px solid var(--acc2)"><h3 class="acc2">self-driven agent team · 2026.06</h3><p>AI Ask 里一句话触发完整链路：<b class="mono">plan → build → execute → deliver</b>。自动组队、HITL 审批门、durable event journal、detached 后台调度、dead-pod 孤儿检测。</p></div>
+        <div class="card"><h3>复用而非重造</h3><p>关键提交：<span class="mono">refactor(self-driven): reuse engine/harness, drop hand-rolled election + approval</span>——并加 <span class="mono">test(arch)</span> 守护它不再重新发明 engine/harness 能力。前期架构投资在这里开始兑现。</p></div>
+      </div>
+      <div class="cards" style="align-content:start">
+        <div class="card"><h3 class="acc">产品野心的上移轨迹</h3><p style="line-height:1.9">研究工具 <span class="arrow">→</span> AI 应用平台 <span class="arrow">→</span> Agent 运行时（Harness）<span class="arrow">→</span> <b>单人公司 OS（One-Person-Company）</b>。每一层都建立在前一层的架构基建之上。</p></div>
+        <div class="card"><h3 class="good">健康信号</h3><p>6 月提交回落到 453（5 月的 ~1/5），重心从「搬家」明确转回「业务」（self-driven / org-chart / mission gallery）。架构进入相对稳定期。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 SCORECARD GOOD/BAD -->
+  <section class="slide">
+    <h2><span class="no">11</span>专业审视 · 做对的 vs 欠下的</h2>
+    <div class="split">
+      <div class="col-good">
+        <h3 class="good">✓ 真正的工程资产</h3>
+        <ul class="clean good">
+          <li><b>意图明确的分层 + MECE 准则</b><span>engine 无 agent 状态、概念全项目唯一，边界讲得清</span></li>
+          <li><b>三层自动化看护</b><span>把架构合规从「靠自觉」变成「可执行」，稀缺</span></li>
+          <li><b>能力下沉主线稳定</b><span>App 薄 / Engine·Harness 厚，self-driven 验证了复用红利</span></li>
+          <li><b>果断的减法</b><span>三库合一(-70%)、删 kernel/intent-gateway 空壳</span></li>
+          <li><b>去硬编码红线</b><span>TaskProfile + 空字符串 fallback，沿用至今未破</span></li>
+          <li><b>向 SOTA 学习</b><span>系统性借鉴 Claude Code 运行时与 10 条反向洞察</span></li>
+        </ul>
+      </div>
+      <div class="col-bad">
+        <h3 class="bad">✗ 待偿的债务</h3>
+        <ul class="clean bad">
+          <li><b>重构/返工占比过高</b><span>fix:feat≈2:1；refactor 807；kernel 建了又删、planning 整删、17 波次——抽象一次到位率低</span></li>
+          <li><b>五月搬家潮</b><span>单月 26% 提交是纯目录归位，业务产出比偏低</span></li>
+          <li><b>分层认知负荷</b><span>L1–L5+L2.5；engine↔harness 边界需整篇文档+spec 才守得住</span></li>
+          <li><b>测试洼地</b><span>test 仅 2.7%，与架构治理投入严重不匹配</span></li>
+          <li><b>护栏含自证</b><span>10 条反向洞察全 honor-only；覆盖率阈值未进 CI</span></li>
+          <li><b>文档驱动的脆弱性</b><span>数千行 CLAUDE.md + 大量 redesign 文档，与代码同步成本高、新人陡峭</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13 RECOMMENDATIONS -->
+  <section class="slide">
+    <h2><span class="no">12</span>研判与建议 · 从「搬家」转向「沉淀」</h2>
+    <div class="grow">
+      <div class="cards" style="grid-template-columns:1fr 1fr">
+        <div class="card" style="border-left:4px solid var(--good)"><h3 class="good">1 · 冻结结构，进入维护期</h3><p>分层已趋稳、6 月重构回落——明确宣布<b>结构冻结</b>，把 W1–W17 式的大搬家划上句号。再动结构需走 ADR + 收益论证。</p></div>
+        <div class="card" style="border-left:4px solid var(--acc)"><h3 class="acc">2 · 把 honor 护栏升级为 spec</h3><p>10 条反向洞察里的高频项（stop_reason 误判、prompt cache 破坏、跨线程状态污染）逐条加单测/spec；把 85% 覆盖率阈值真正接入 CI。让「9.8/10」名副其实。</p></div>
+        <div class="card" style="border-left:4px solid var(--warn)"><h3 class="warn">3 · 补测试洼地</h3><p>2.7% 的测试占比撑不住「自驱动公司」这种高自治系统。优先为 self-driven 链路（plan→build→execute）和 harness runner 建集成测试网。</p></div>
+        <div class="card" style="border-left:4px solid #c084fc"><h3 style="color:#c084fc">4 · 沉淀演进 ADR，止住反复</h3><p>kernel/品牌/分层都出现过「建了又删/改了又回退」。建立轻量 ADR 记录每次架构决策的<b>为何</b>，让下一次抽象一次到位，而非推迟到下一轮波次偿还。</p></div>
+      </div>
+      <div class="note" style="margin-top:18px"><b>一句话总结：</b>这是一个<b class="good">架构意识远超同龄项目</b>、但<b class="bad">为分层付出了高额学费</b>的代码库。基建已成，红利初现（self-driven）——接下来比拼的不是「再分一层」，而是<b class="acc">把已有结构守稳、把测试补齐、把决策沉淀</b>。</div>
+    </div>
+  </section>
+
+  <!-- 14 CLOSING -->
+  <section class="slide">
+    <div class="title-wrap">
+      <div class="kicker">End · One-Person-Company OS</div>
+      <h1>七个月，<span class="acc">8,037 次提交</span>，<br>一座从工具长成<span class="acc2">操作系统</span>的架构</h1>
+      <div class="verdict" style="max-width:880px;margin-top:1vh">
+        从 DeepDive 的单体研究工具，到能 <span class="mono">plan→build→execute→deliver</span> 的自驱动单人公司 OS——
+        中间是九个纪元、五个分层、三道护栏，以及一段诚实的「建了又删、搬了又归位」的学习曲线。
+        <br><br><b>架构的价值不在它有多少层，而在它能否守得住、跑得稳、还得起。</b>
+      </div>
+      <div class="title-meta" style="margin-top:2vh">
+        <div class="tm"><b class="good">资产</b><span>分层意图 · 自动看护 · 能力下沉</span></div>
+        <div class="tm"><b class="bad">债务</b><span>重构成本 · 测试洼地 · 护栏自证</span></div>
+        <div class="tm"><b class="acc">下一步</b><span>冻结结构 · 补测试 · 沉淀 ADR</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div id="cnt">1 / 14</div>
+<div id="hint">← → / 空格翻页 · F 全屏 · Home/End 跳转</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const bar=document.getElementById('bar'),cnt=document.getElementById('cnt');
+  let i=0;
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    bar.style.width=((i+1)/slides.length*100)+'%';
+    cnt.textContent=(i+1)+' / '+slides.length;
+  }
+  function next(){show(i+1)} function prev(){show(i-1)}
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){e.preventDefault();next()}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();prev()}
+    else if(e.key==='Home'){show(0)} else if(e.key==='End'){show(slides.length-1)}
+    else if(e.key==='f'||e.key==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}
+  });
+  let sx=0;
+  document.addEventListener('touchstart',e=>sx=e.touches[0].clientX,{passive:true});
+  document.addEventListener('touchend',e=>{const d=e.changedTouches[0].clientX-sx;if(Math.abs(d)>50)d<0?next():prev()},{passive:true});
+  document.addEventListener('click',e=>{if(e.clientX>window.innerWidth*0.6)next();else if(e.clientX<window.innerWidth*0.4)prev()});
+  show(0);
+</script>
+</body>
+</html>

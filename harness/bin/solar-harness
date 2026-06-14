@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""Solar Harness — Core Runtime CLI entrypoint.
+
+Provides wake/dispatch/status/trace/adopt commands wired into the
+core-runtime trace layer (B6_compat_integration).
+
+Usage:
+  solar-harness wake   <sprint_id> [--write-cache] [--json]
+  solar-harness dispatch <sprint_id> <node_id> [actor] [--json]
+  solar-harness status <sprint_id> [--json]
+  solar-harness trace  <sprint_id> [--json]
+  solar-harness adopt  <sprint_id> [--all] [--write-cache] [--json]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+# Code location: always relative to this script (bin/ → parent is harness root)
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_CODE_DIR = _SCRIPT_DIR.parent          # ~/.solar/harness (where tools/ lives)
+_TOOLS_DIR = _CODE_DIR / "tools"
+
+# Data location: from env var, defaulting to the same harness root
+_HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", str(_CODE_DIR))).expanduser()
+
+# Both entries needed: harness root for `from tools.X import`, tools/ for `from X import`
+sys.path.insert(0, str(_CODE_DIR))
+sys.path.insert(0, str(_TOOLS_DIR))
+
+
+def _cmd_wake(args: argparse.Namespace) -> dict:
+    from runtime_bridge import adopt_sprint
+
+    result = adopt_sprint(
+        args.sprint_id,
+        harness_dir=_HARNESS_DIR,
+        write_cache=getattr(args, "write_cache", False),
+    )
+    result["command"] = "wake"
+    return result
+
+
+def _cmd_dispatch(args: argparse.Namespace) -> dict:
+    from runtime_bridge import record_legacy_event
+
+    payload: dict = {"node_id": args.node_id}
+    actor = getattr(args, "actor", None) or "coordinator"
+    result = record_legacy_event(
+        args.sprint_id,
+        "dispatched",
+        actor,
+        payload,
+        harness_dir=_HARNESS_DIR,
+    )
+    result["command"] = "dispatch"
+    result["node_id"] = args.node_id
+    return result
+
+
+def _cmd_status(args: argparse.Namespace) -> dict:
+    sprints_dir = _HARNESS_DIR / "sprints"
+    status_path = sprints_dir / f"{args.sprint_id}.status.json"
+    status_data: dict = {}
+    if status_path.exists():
+        try:
+            status_data = json.loads(status_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    trace_data: list = []
+    try:
+        from core_runtime_trace import ExecutionTraceLedger
+        ledger = ExecutionTraceLedger(base_dir=str(_HARNESS_DIR / "run"))
+        trace_data = ledger.replay(args.sprint_id)
+    except Exception:
+        pass
+
+    return {
+        "sprint_id": args.sprint_id,
+        "status": status_data.get("status", "unknown"),
+        "status_json_found": status_path.exists(),
+        "status_fields": status_data,
+        "trace_count": len(trace_data),
+        "command": "status",
+    }
+
+
+def _cmd_trace(args: argparse.Namespace) -> dict:
+    try:
+        from core_runtime_trace import ExecutionTraceLedger
+        ledger = ExecutionTraceLedger(base_dir=str(_HARNESS_DIR / "run"))
+        traces = ledger.replay(args.sprint_id)
+        return {
+            "sprint_id": args.sprint_id,
+            "traces": traces,
+            "count": len(traces),
+            "command": "trace",
+        }
+    except Exception as exc:
+        return {
+            "sprint_id": args.sprint_id,
+            "traces": [],
+            "count": 0,
+            "error": str(exc),
+            "command": "trace",
+        }
+
+
+def _cmd_adopt(args: argparse.Namespace) -> dict:
+    from runtime_bridge import adopt_sprint, adopt_all
+
+    if getattr(args, "all", False):
+        return adopt_all(harness_dir=_HARNESS_DIR, write_cache=getattr(args, "write_cache", False))
+    return adopt_sprint(
+        args.sprint_id,
+        harness_dir=_HARNESS_DIR,
+        write_cache=getattr(args, "write_cache", False),
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Solar Harness core-runtime CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--json", action="store_true", help="Output JSON")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_wake = sub.add_parser("wake", help="Wake a sprint and adopt into runtime")
+    p_wake.add_argument("sprint_id")
+    p_wake.add_argument("--write-cache", action="store_true")
+
+    p_dispatch = sub.add_parser("dispatch", help="Record a dispatch event with trace")
+    p_dispatch.add_argument("sprint_id")
+    p_dispatch.add_argument("node_id")
+    p_dispatch.add_argument("actor", nargs="?", default="coordinator")
+
+    p_status = sub.add_parser("status", help="Query sprint status + trace count")
+    p_status.add_argument("sprint_id")
+
+    p_trace = sub.add_parser("trace", help="Replay execution traces for a sprint")
+    p_trace.add_argument("sprint_id")
+
+    p_adopt = sub.add_parser("adopt", help="Adopt sprint(s) into v2 runtime log")
+    p_adopt.add_argument("sprint_id", nargs="?")
+    p_adopt.add_argument("--all", action="store_true")
+    p_adopt.add_argument("--write-cache", action="store_true")
+
+    args = parser.parse_args()
+
+    handlers = {
+        "wake": _cmd_wake,
+        "dispatch": _cmd_dispatch,
+        "status": _cmd_status,
+        "trace": _cmd_trace,
+        "adopt": _cmd_adopt,
+    }
+
+    if args.cmd not in handlers:
+        parser.print_help()
+        sys.exit(1)
+
+    result = handlers[args.cmd](args)
+
+    if args.json or args.cmd in {"trace"}:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        ok = result.get("ok", True)
+        print(f"{'ok' if ok else 'FAIL'} {result}")
+
+
+if __name__ == "__main__":
+    main()

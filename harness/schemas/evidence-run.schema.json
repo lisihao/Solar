@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "solar.run_manifest.v1",
+  "title": "Solar Run Manifest",
+  "description": "Schema for run-manifest.json — the root evidence index for a materialized runs/<dag-id>/ directory.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "dag_id",
+    "sprint_id",
+    "created_at",
+    "updated_at",
+    "status",
+    "artifacts",
+    "nodes",
+    "reviews",
+    "scrubbing"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "solar.run_manifest.v1",
+      "description": "Schema version identifier — must be 'solar.run_manifest.v1'."
+    },
+    "dag_id": {
+      "type": "string",
+      "description": "DAG/sprint identifier; equals sprint_id in the current harness."
+    },
+    "sprint_id": {
+      "type": "string",
+      "description": "Sprint identifier."
+    },
+    "task_id": {
+      "type": ["string", "null"],
+      "description": "Task identifier for this run entry (optional)."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp when this manifest was first created."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of the last manifest update."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "running", "reviewing", "completed", "failed", "partial", "archived", "blocked"],
+      "description": "Run lifecycle status."
+    },
+    "repair_hint": {
+      "type": "string",
+      "description": "Human-readable repair hint written when materialization fails."
+    },
+    "artifacts": {
+      "type": "object",
+      "description": "Map of artifact role -> absolute file path for DAG-level artifacts.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "nodes": {
+      "type": "object",
+      "description": "Map of node-dir-name -> per-node artifact path map.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "task_yaml": { "type": "string" },
+          "operator_snapshot": { "type": "string" },
+          "result": { "type": "string" },
+          "stdout_log": { "type": "string" },
+          "stderr_log": { "type": "string" }
+        },
+        "additionalProperties": { "type": "string" }
+      }
+    },
+    "reviews": {
+      "type": "object",
+      "description": "Map of review-id -> review artifact path map.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "string" }
+      }
+    },
+    "scrubbing": {
+      "type": "object",
+      "description": "Scrubbing configuration applied to this manifest.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether scrubbing was enabled for this run."
+        }
+      },
+      "required": ["enabled"]
+    },
+    "scrubbed": {
+      "type": "boolean",
+      "description": "True if any fields in this artifact were redacted by the scrubber."
+    },
+    "scrubbed_fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of field names that were redacted (present only when scrubbed=true)."
+    },
+    "scrub_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp when scrubbing was applied."
+    },
+    "original_hash": {
+      "type": "string",
+      "description": "SHA-256 hex digest of the pre-scrub payload."
+    },
+    "scrub_blocked": {
+      "type": "boolean",
+      "description": "True if the scrubber could not complete and the artifact may contain unredacted content."
+    },
+    "scrub_blocked_reason": {
+      "type": "string",
+      "description": "Reason why scrubbing was blocked."
+    }
+  },
+  "additionalProperties": true,
+
+  "$defs": {
+    "node_task": {
+      "$id": "solar.node_task.v1",
+      "title": "Solar Node Task Envelope",
+      "description": "Schema for nodes/<node-id>/task.yaml — the task input envelope written at submit time.",
+      "type": "object",
+      "required": ["schema_version", "task_id", "sprint_id", "node_id", "objective"],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "solar.node_task.v1"
+        },
+        "task_id": { "type": "string" },
+        "sprint_id": { "type": "string" },
+        "node_id": { "type": "string" },
+        "objective": { "type": "string" },
+        "acceptance": {
+          "type": "array",
+          "items": {}
+        },
+        "constraints": { "type": "object" },
+        "context_packet_ref": { "type": ["string", "null"] },
+        "scrubbed": { "type": "boolean" },
+        "scrubbed_fields": { "type": "array", "items": { "type": "string" } },
+        "scrub_timestamp": { "type": "string" },
+        "original_hash": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "operator_snapshot": {
+      "$id": "solar.operator_snapshot.v1",
+      "title": "Solar Operator Snapshot",
+      "description": "Schema for nodes/<node-id>/operator_snapshot.json — the actor/model snapshot at dispatch time.",
+      "type": "object",
+      "required": ["schema_version", "actor_id", "logical_operator", "lease", "profile_ref", "scrubbed"],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "solar.operator_snapshot.v1"
+        },
+        "actor_id": { "type": "string" },
+        "logical_operator": { "type": "string" },
+        "model": { "type": ["string", "null"] },
+        "lease": { "type": "object" },
+        "profile_ref": { "type": "string" },
+        "capabilities": { "type": "array", "items": {} },
+        "scrubbed": { "type": "boolean" },
+        "scrubbed_fields": { "type": "array", "items": { "type": "string" } },
+        "scrub_timestamp": { "type": "string" },
+        "original_hash": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "node_result": {
+      "$id": "solar.node_result.v1",
+      "title": "Solar Node Result",
+      "description": "Schema for nodes/<node-id>/result.json — the execution result written by the actor.",
+      "type": "object",
+      "required": ["schema_version", "task_id", "node_id", "status", "artifact_refs"],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "solar.node_result.v1"
+        },
+        "task_id": { "type": "string" },
+        "node_id": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "running", "passed", "failed", "blocked", "timeout"]
+        },
+        "started_at": { "type": ["string", "null"] },
+        "completed_at": { "type": ["string", "null"] },
+        "artifact_refs": { "type": "object" },
+        "changed_files": { "type": "array", "items": { "type": "string" } },
+        "failure_class": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "review_decision": {
+      "$id": "solar.review_decision.v1",
+      "title": "Solar Review Decision",
+      "description": "Schema for reviews/<review-id>/review_decision.json — the verifier's decision.",
+      "type": "object",
+      "required": ["schema_version", "review_id", "dag_id", "verdict", "rationale", "evidence_refs", "created_at"],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "solar.review_decision.v1"
+        },
+        "review_id": { "type": "string" },
+        "dag_id": { "type": "string" },
+        "node_id": { "type": ["string", "null"] },
+        "verdict": {
+          "type": "string",
+          "enum": ["pass", "fail", "warn", "blocked"]
+        },
+        "rationale": { "type": "string" },
+        "evidence_refs": { "type": "array", "items": {} },
+        "required_followups": { "type": "array", "items": {} },
+        "created_at": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "final_report_backlinks": {
+      "$id": "solar.final_report_backlinks.v1",
+      "title": "Solar Final Report Backlinks",
+      "description": "Schema for final_report_backlinks.json — backlink map from final_report.md to node/review evidence.",
+      "type": "object",
+      "required": ["schema_version", "dag_id", "final_report_path", "node_refs", "review_refs", "evidence_chain_summary"],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "solar.final_report_backlinks.v1"
+        },
+        "dag_id": { "type": "string" },
+        "final_report_path": { "type": "string" },
+        "node_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["node_id", "evidence_path", "status"],
+            "properties": {
+              "node_id": { "type": "string" },
+              "evidence_path": { "type": "string" },
+              "result_ref": { "type": ["string", "null"] },
+              "review_ref": { "type": ["string", "null"] },
+              "status": { "type": "string" },
+              "backlink_line": { "type": ["integer", "null"] }
+            }
+          }
+        },
+        "review_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["review_id", "verdict", "evidence_refs", "review_path"],
+            "properties": {
+              "review_id": { "type": "string" },
+              "verdict": { "type": "string" },
+              "node_id": { "type": ["string", "null"] },
+              "evidence_refs": { "type": "array", "items": {} },
+              "review_path": { "type": "string" }
+            }
+          }
+        },
+        "evidence_chain_summary": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

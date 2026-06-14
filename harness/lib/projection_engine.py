@@ -78,6 +78,7 @@ class ProjectedState:
     last_event_ts: Optional[str] = None
     drift_detected: bool = False
     drift_reason: str = ""
+    node_statuses: Dict[str, str] = field(default_factory=dict)
 
 
 class ProjectionEngine:
@@ -104,6 +105,7 @@ class ProjectionEngine:
         activities: Dict[str, ActivityState] = {}
         seen_commands: Dict[str, str] = {}       # idem_key → activity_id
         duplicate_commands: List[str] = []
+        node_events: List[Dict[str, Any]] = []
         overall_round = 0
         event_count = 0
         last_ts: Optional[str] = None
@@ -118,6 +120,8 @@ class ProjectionEngine:
 
             if ts:
                 last_ts = ts
+            if etype.startswith("node.") or etype.startswith("verifier."):
+                node_events.append(ev)
 
             # Track duplicate commands via idempotency_key
             if etype == "command_issued" and idem:
@@ -166,6 +170,7 @@ class ProjectionEngine:
 
         # Derive overall sprint status from activities
         sprint_status = self._derive_sprint_status(activity_list, last_state_status)
+        node_statuses = self._project_node_statuses(node_events)
 
         # Drift check against on-disk status.json
         drift, drift_reason = self._check_drift(sprint_status)
@@ -181,6 +186,7 @@ class ProjectionEngine:
             last_event_ts=last_ts,
             drift_detected=drift,
             drift_reason=drift_reason,
+            node_statuses=node_statuses,
         )
 
     def write_status_cache(self, state: ProjectedState) -> None:
@@ -294,6 +300,41 @@ class ProjectionEngine:
                 )
         return False, ""
 
+    def _project_node_statuses(self, events: List[Dict[str, Any]]) -> Dict[str, str]:
+        by_node: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        for ev in events:
+            etype = ev.get("type", "")
+            node_id = ev.get("activity_id") or (ev.get("payload") or {}).get("node_id")
+            if not node_id:
+                continue
+            bucket = by_node.setdefault(str(node_id), {})
+            bucket[etype] = ev
+        statuses: Dict[str, str] = {}
+        for node_id, bucket in by_node.items():
+            result = bucket.get("node.result_submitted")
+            verdict = bucket.get("verifier.gate.verdict")
+            completed = bucket.get("node.completed")
+            if not result:
+                statuses[node_id] = "running"
+                continue
+            result_payload = result.get("payload") or {}
+            verdict_payload = (verdict or {}).get("payload") or {}
+            completed_payload = (completed or {}).get("payload") or {}
+            if not verdict:
+                statuses[node_id] = "result_submitted_awaiting_verifier"
+                continue
+            if verdict_payload.get("status") != "passed" or verdict_payload.get("trigger") != "post_result":
+                statuses[node_id] = "blocked_by_verifier"
+                continue
+            if verdict_payload.get("covered_result_id") != result_payload.get("result_id"):
+                statuses[node_id] = "result_submitted_awaiting_verifier"
+                continue
+            if completed and completed_payload.get("verifier_verdict_id") == verdict_payload.get("verdict_id"):
+                statuses[node_id] = "completed"
+                continue
+            statuses[node_id] = "verified_awaiting_completion"
+        return statuses
+
 
 # ------------------------------------------------------------------
 # CLI
@@ -368,6 +409,7 @@ def main() -> None:
         "drift_reason": state.drift_reason,
         "duplicate_commands": state.duplicate_commands,
         "stale_activities": state.stale_activities,
+        "node_statuses": state.node_statuses,
         "activities": [
             {
                 "activity_id": a.activity_id,

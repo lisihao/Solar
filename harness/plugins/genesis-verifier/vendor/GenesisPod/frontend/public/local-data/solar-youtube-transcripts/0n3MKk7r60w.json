@@ -1,0 +1,394 @@
+{
+  "videoId": "0n3MKk7r60w",
+  "title": "Scaling GitHub for your Agents — Sam Morrow, GitHub",
+  "channelName": "AI Engineer",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 18970,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "[music]\n>> All right. Hello, London.\n>> [applause]\n>> And I hope everyone's been enjoying the\nAI Engineer Europe so far. For there's\nso many amazing speakers. I've been like\nwatching talks and talking to people for\ndays now and it's been immense.\nI'm Sam. I lead development of GitHub's\nMCP server and yeah, I'm here to talk\nabout mostly challenges we've faced\nbuilding and scaling our remote server,\nhow we've overcome them,\nand uh before I will start, I just like\nI like messing with people. So, you\nknow, here quick show of hands,\nwho's used an MCP server?\nGood. Good.\nUh who's used GitHubs?\nWho has a hot take on GitHub?\n>> [laughter]\n>> And uh yeah, does anyone build a server\nor client?\nOh, nice. Quite a few. Um and yeah, has\nanyone contributed to the specification?\nOh. Oh, yeah. I got I got one. That's\nactually the first one, I think, other\nthan the MCP dev summit. There was quite\na lot of them. Uh\nbut um [snorts]\nyeah, anyway, it's really awesome to see\nso many hands. So, I'm glad that I've\nactually come to the right place. But\nyes, for GitHub, you know, our MCP\njourney started well, at least in public\nin April last year.\nAnd uh we actually open-sourced our\nlocal MCP in April last year.\nAnd we've just turned 1 year's old. So,\nI'm super stoked by that. But um yeah,\nback then, right, there was a tremendous\nbuzz.\nUh we were the most starred repo on\nGitHub of of the particular week. And uh\nlike the exposure meant we got a high\nvolume of public contributions,\nuh rapidly filling gaps in plat-\nplatform coverage that people kind of\nwanted to add tools and things. And you\nknow, not everything was perfect, right?\nAfter a month or so of new features,\nagents in some ways were getting worse\nat using GitHub and context windows were\ngetting blown out quicker.\nAnd uh you know, we picked, I think,\nover 100 tools. And certainly at the\ntime, that was just too many.\nUh LangChain had already produced\nresearch\nuh they published in February that year,\nyou know, of the exact kind of problems\nwe were seeing.\nMore tools don't make better agents, you\nknow, they get confused and forgetful.\nWell, I say more tools like more\ncontext and more tools shoved directly\ninto the context to be precise. But uh\nyeah, GitHub's a really expansive\nplatform. And we provided tools, you\nknow, for repos, issues, PRs, actions,\nprojects, like even more things.\nUh but the hard part of solving this was\nlike we didn't want to prevent users\nfrom having the tools individually that\nthey needed and they used. Uh and\nsuffice to say our user base is pretty\ndiverse.\nAnd probably even like on GitHub\nplatform at the moment, there might be\nlike one or two clauses as well. Uh\n[snorts] and for the record,\nuh there's a team of us who work on it.\nIt's not just me.\n>> [snorts]\n>> And my team is awesome.\nBut uh\nyeah, so\nto try and fix some of this, you know, I\nquick- quickly added this thing tool\nsets, which was, you know, a kind of\ngrouping concept of related product\ntools. And users could just pick which\nones they wanted and configure it. Uh I\nalso like added a dynamic tool selection\nthing uh where agents could discover\nsets of tools and then turn on in\nchunks. And uh we never released it, but\nI made a kind of rag version of the\nsame. Um you know, for kind of semantic\ntool search and discovery. But it\nlike what what do you think happened\neven in spite of all this stuff?\n>> [snorts]\n[laughter]\n>> Everyone used the default settings. It\nwas really annoying because like in a\nway we had all these elegant solutions.\nUh all they did was require users to\nactually, you know, configure the JSON a\nlittle bit. And most users just don't.\nmaybe it's even a partially a spec\nproblem cuz\nuh you know, for like every proposal so\nfar for grouping to the MCP\nspecification for various reasons has\nbeen rejected. And there have been\nseveral attempts. Uh\nand like in a sense, like every mode or\nconfiguration we add, you you know, one\ncould argue is papering over potential\ngaps. Uh like or gaps in client\nimplementations. So, like as an example,\nlike we have a read-only mode and\nuh roughly 17% of our users use it, but\nit maps one-to-one to the read-only uh\nsorry, yeah, the read-only hint\nannotation.\nBut like no client exposes that as a\nmethod of filtering servers. I think\nsome gateways now do, but anyway, it's a\nit's an interesting easy win for more\nenterprise use cases where people often\nonly want that.\n>> [snorts]\n>> But uh yeah, we needed to find better\nsolutions to context reduction. And uh\nyou don't need to worry too much about\nthe specifics. This is dated now. But uh\nlike we started trying to optimize and\nwe looked at the use the usage patterns\non our remote server. And initially, you\nknow, we cut the\namount of context used by\nfocusing the tools more specifically to\nthe general case. And based on usage to\nlike about 49% reduction of the initial\nload. And then we subsequently also\ngrouped CRUD tools and brought that down\neven more. And I think like I think you\nget about 40 tools if you use the\ndefault configuration. And then you can\nkind of expand or contract that based on\nyour own preference. But uh yeah,\nlike it's easy to customize. And uh\nwe've also like recently had a massive\npush to, you know, reduce output tokens\nof a lot of tools as well.\nAnd um in this example,\nyou know, just by tailoring exactly what\ncomes with the list pull requests, it's\nlike actually lost more than 75% of the\ntokens used in the output. So,\nyou know, in terms of how token hungry\nGitHub server is, like it's it's it's a\nmoving target. We're constantly changing\nthings that improve it. And uh if you\nhaven't used it in a while, like it's\nlikely very different from a few months\nago even. And um\nyeah, anyway, like and we haven't ruled\nout more advanced approaches like code\nmode. And we're always experimenting\ninternally. But uh\non the heels of this, we also dug into\nour data and we found some more\nopportunities.\n>> [snorts]\n>> So, yeah, like uh we made a big push to\nreduce tool failures as well. And the\nsuccess rate is roughly, I think, over\n95% at this point. But uh\nlike not all failure is preventable cuz\nagents don't necessarily know which\nrepos they have write permission on.\nThey still hallucinate. But uh\nwe've been able to identify significant\nnumbers of areas that could be overcome,\nmostly by encoding a sort of agent\nintent into our tool surface.\nAnd you know, you might have to make\nfive API calls to make it more robust.\nBut you know, in that case, we do that\nin the server side to reduce round trips\ncuz that, you know, saves context, saves\ntime, and usually um [snorts]\nmakes uh massively better experience,\nyou know, makes the agents more\nsuccessful.\nAnd yeah, we also started to run evals\nlast year. Um\nI'm not going to go into detail. The\nthat link takes you to a blog article\nthat my colleague senior wrote about\ndoing it. But uh\none of the gists is instead of\nmicro-optimizing\nindividual tool descriptions, you know,\nyou try to test them against each other\nto try and make sure that they're called\nat the right times and not called at the\nwrong times. So that in the pool of each\nother, they don't fight for like you\nknow, you like the perfect tool\ndescription that makes the agent call it\nall the time is terrible as is the\nreverse of that. So, you need to try and\nget that as tight as possible. Um\nBut yeah, this could be a whole other\ntalk.\nSecurity, on the other hand, is\nsomething that's like a kind of constant\nmenace in all of this. I've seen lots of\npeople talking about this.\nand it's a real problem in some ways for\nus because, you know, we've a lot of\npeople using plain text access tokens\nfor MCP in the wild.\nAnd uh usually they're stored somewhere\nthe agent can access.\nThey're frequently long-lived. They're\noften over-privileged. And they're kind\nof sat there just waiting to be abused.\nend users, like I I don't think they're\nchoosing this, you know, like it's it's\nactually hard to make configuration easy\nand secure at the same time. And clients\nhave to make use of system keyrings or\nencrypted storage. And like VS Code\ndoes. Uh but uh you know, the MCP spec\nalso provided a better way with remote\nHTTP, which, you know, is all the way\nback to April last year as well.\nUm [snorts]\nand we embraced this, of course. Um\nAnd we wanted to make secure connection\npath of least resistance. Uh we didn't\nwant users to have to download a local\nruntime.\nAnd you know, our remote server supports\nOAuth 2.1. And my team even helped add\nthe proof key for code exchange support,\nwhich is commonly known as PKCE, to\nGitHub's authorization server to improve\nthe security posture for client apps. Um\nbut as I said, we hoped OAuth would be\nthe path of least resistance. And again,\nperhaps some of you might know what\nhappened.\nEveryone expected us to support the\ndynamic client registration. And for us,\nlike it created more problems than it\nsolved because like\nif you implement it kind of properly,\nit's hard not to have unbounded growth\nof app databases and challenges of how\nyou would bucket them for rate limits\nand there isn't a reliable app identity.\nSo, we just considered it and rejected\nit and\nlike we feel like it's a\nwell-intentioned mistake and we're you\nknow, we're not the only authorization\nserver to not support this.\nAnd um\neven um\nlike MCP itself, right? It decided that\nclient ID metadata\nis probably the way to go and I can't\npromise that we're going to support it,\nbut I promise that I am trying to get us\nto support it and that should make\nlogging in like massively easier.\nBut um yeah, more on that in the future.\nAnd also, speaking of security, some of\nyou may have seen this.\nthis was a fun day.\n>> [laughter]\n>> But\nlike you know, Invariant Labs published\nthis and you know, like it's a correct\nsort of correctly done prompt injection\nexfil attack for getting private data\nout of GitHub and\num the thing is you know, they call it\nspecifically GitHub's MCP server out and\nI think that\nwe you know, we do provide the tools\nthat can enable that if you just kind of\nenable them all, but uh\nit applies to almost every agent setup\nwhether they use MCP or not or whether\nthey use GitHub MCP, you know, like the\nlethal trifecta stuff which I'm not\ngoing to rehash now cuz I think many of\nyou have probably seen it or you can\nlook it up like Simon's\nSimon Wilson's blog post on that's\nexcellent, but\nyou know,\nthe utility of agents is in conflict\ndirect conflict with kind of protecting\nthis stuff and it's like it's an active\nspace trying to work out how to prevent\nthese problems, but uh it's not solved\nand it's very much not unique to GitHub\nand we have users with wildly different\nrisk profiles, you know, like um\nwe you know, we even have people that\nhave like air-gapped GitHub Enterprise\nserver instances\nin like much more secure\nand then you know, obviously the\ncollaborators etc. are also\njust running straight to GitHub with\nlike you know, probably full token\naccess to the agent everything and\nthat's kind of also interesting, right?\nAnd like I'm\nI'm not naysaying any of this. It's just\nit's cool to kind of\nsee what people do and see if we can\nactually support the different use cases\nand security postures while everyone\nexperiments with this stuff.\nAnd uh\nwe also kind of use like lean on off to\nmanage tools as well. And this is\nsomething I'm pretty happy with. Um\nif you log into GitHub MCP with a PAT\ntoken that we just immediately filter\nthe tools down by the scopes that the\ntoken has. You\nuh you don't have to do anything other\nthan give it the token.\nOn OAuth, we support step-up OAuth. So,\nyou know, you can get a we could return\na scope challenge and then it will\ninteractively ask the user if they want\nto allow the scope.\nAnd if you do, then you can\nuh like continue the tool call. It\ndoesn't fail, which I think is also\nnice. And then VS Code, for example,\nsupports that and I initially worked on\nthis with them just because they already\nhave a token to use GitHub and what they\nwanted was that if their baked-in token\ndoesn't have permissions to use\neverything, that it instead of just\nfailing, there was a mechanism for\nusers having a clean install and then an\nupscoping later if they need it.\nAnd yeah, lastly, server tokens as well.\nLike they didn't have a like on actions\nand things, they didn't have a user.\nSo, user-specific tools are kind of out\nthere and then by removing those, we're\njust removing kind of constant sources\nof failure and wasted context at the\nsame time.\nwe run a completely sort of stateless\nserver setup and um\nwe have been using Redis for session\nstorage, you know, it's standard\nobservability and deep kind of stack.\nLike this is not a weird picture, but I\nguess one of the weird things for some\npeople is a lot of people are running a\nstateful MCP server process in the\nsingular and have kind of struggled with\nhow you get it into this shape.\nBut um\nfor us like we did a few things cuz it's\nvery dynamic, but like one of the fun\nthings we did is um\nwe uh\nwe actually make a brand new in the SDK\nsense a brand new server instance on\nevery single request and we add the\ntools to it at the start. So, whatever\nyour configuration is, it just builds\nthis and then you get what you've asked\nfor or what you're allowed to use cuz\nsome things have policies that impact\nwhether you've got tools or not. Um\nand\nyeah, like we've been able to scale to\nthis point we serve around 7 million\ntool calls a week. And we you know, we\ndon't have session affinity.\nUh the even the sessions we generally\nonly use them to identify that's the\nonly way to identify the self-reported\nclient identity that comes through MCP.\nSo, it's useful for us to understand\nlike what clients people are using the\nserver with. So,\nyeah, like we use sessions for that, but\nyeah, we also have a like wanted to\nbring experiments to all of you and\neveryone. And um [snorts]\nwe have this thing that's a Insiders\nmode and\nall it all it does is it it turns on\ncertain feature flags and things for\nexperiments that we're happy to just\nship to anyone who wants to use them.\nAnd uh this just takes you to the\ndocumentation, but um\nlike\nan example of something that we haven't\nreleased generally yet, but is on\nInsiders is our MCP apps and like just\nyou know, I I set up the example before\nI came in, but like it's quite nice when\nyou're talking to the agent to have the\nopportunity to kind of edit the\nAI-generated\nuh issue especially if you're you know,\nyou're working heavily in professional\nopen source stuff and you want to make\nsure that it's you posting and it's not\ngoing to get closed as a sort of\nbot-generated thing. It like this is a\nnice human in the loop thing that MCP\nenables and I I much you know, I I\nwasn't sure how much I would like it at\nfirst, but then I've come to love it\nbecause I kind of care about how\nmy issues and things are received by\npeople and this is just a really great\nway to make sure that I can I can check\nthat.\nSo, yeah, like in terms of where I think\nit's going like if something along these\nlines,\nI think [snorts] a near future, you\nknow, server discovery will hopefully be\nautomatic and tool tool use will\nprobably become more compositional like\nbash or piping tools into other tools,\nstreaming data through them or like you\nknow, Cloudflare's code mode approach or\nAnthropic's tool search tool API which\njust landed in Claude Code a couple of\nweeks ago.\nAnd OpenAI recently added a similar API\nas well. Sorry, OpenAI added a similar\nAPI, too. And uh\nI you know, I I fully expect that like\nthousands of tools will be normal very\nsoon. We're trying to iron out all the\nproblems that prevented it in the first\nplace and I'll probably reverse many of\nthe fewer tools decisions. And uh users\nhopefully won't even have to know what\nMCP is. They'll just convey what it is\nthey want to do and the\nOAuth setup and like you know, the\ntool selection things will become truly\nautonomous and I don't think we're that\nfar away from this, but we're we're kind\nof in this experimental phase where\nwe're not really there yet. But um\nI think harnesses like Pi are also\ninteresting because\nyou can build a weird client that maybe\noptimizes this in a really good way\nyourself. So, I would encourage people\nto experiment with crazy clients. I I\nfeel like\nyou never know, you could be like the\nnext\n>> [snorts]\n>> uh\nlike well, if you're super lucky, you\ncould be like the next Claude, right?\nYou could\npublish something that goes so viral it\ntotally changes the agentic game. Uh\nI wanted to end on a high and look at\nsome numbers.\nSo,\nlike GitHub itself, it's actually got\nover 11 million Docker downloads of our\nstandard IO server which is by not like\nby far not the most used version of it\neither. Um we've got 126 contributors\nnow\nand over 2,300 issues and PRs which it's\nbeen over seven a day like every single\nday for over a year now which I do look\nat almost every single thing eventually.\nSo, it's been like\n>> [laughter]\n>> quite a year. Um I mean I other some\nrepos have it even worse, but like I\nalso love it. So, I please keep doing\nit. Um\nAnd yeah, we've got almost 4,000 forks\nwhich blows my mind. I kind of want to\nknow like the weirder things that people\nhave done that they haven't contributed\nback. Uh [snorts]\nyeah, nearly 30,000 stars and uh we're\nfast approaching 8 million tool calls a\nweek. And GitHub itself is also facing a\nnew challenge.\n>> [snorts]\n>> This is really intense, right? And it\nshows no sign of slowing down.\nUh I still wanted you to keep opening\nissues and PRs for us. Like we will\ncope, but you know, this is new\nterritory and um\nuh you know, everything's like mildly on\nfire for everyone I think these days and\nit's just exciting and fun.\nBut uh yeah, thank you so much FOR\nHAVING ME.\n>> [applause]\n[applause]\n>> I THINK I GOT LIKE 30 SECONDS. I DON'T\nKNOW IF anyone has anything they want to\nask, but\nWhat's\nWhat's your take on piping tool calls?\nUm I you know what? I think like things\nlike trying out MCP CLIs and things like\nthat is a fun avenue. I don't think it's\nentirely ironed out, but like one thing\nyou can do take the read-only tools from\nsome MCP wrapped in a CLI and just give\nit a proper help and just see how see\nhow the agent does like stuff like that\nis surprisingly effective.\nAnd\nyou know, I like I said I want people to\nmess with this stuff. So I would\nencourage you to just try it if you're\ninterested.\nAll right, I'm 0 seconds. I will answer\nyou but in person if that's okay.\n>> [music]",
+  "segments": [
+    {
+      "text": "[music] >> All right. Hello, London. >> [applause] >> And I hope everyone's been enjoying the AI Engineer Europe so far. For there's so many amazing speakers. I've been like watching talks and talking to people for days now and it's been immense.",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "I'm Sam. I lead development of GitHub's MCP server and yeah, I'm here to talk about mostly challenges we've faced building and scaling our remote server, how we've overcome them, and uh before I will start, I just like I like messing with people. So, you",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "know, here quick show of hands, who's used an MCP server? Good. Good. Uh who's used GitHubs? Who has a hot take on GitHub? >> [laughter] >> And uh yeah, does anyone build a server or client? Oh, nice. Quite a few. Um and yeah, has",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "anyone contributed to the specification? Oh. Oh, yeah. I got I got one. That's actually the first one, I think, other than the MCP dev summit. There was quite a lot of them. Uh but um [snorts] yeah, anyway, it's really awesome to see",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "so many hands. So, I'm glad that I've actually come to the right place. But yes, for GitHub, you know, our MCP journey started well, at least in public in April last year. And uh we actually open-sourced our local MCP in April last year.",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "And we've just turned 1 year's old. So, I'm super stoked by that. But um yeah, back then, right, there was a tremendous buzz. Uh we were the most starred repo on GitHub of of the particular week. And uh like the exposure meant we got a high",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "volume of public contributions, uh rapidly filling gaps in plat- platform coverage that people kind of wanted to add tools and things. And you know, not everything was perfect, right? After a month or so of new features, agents in some ways were getting worse",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "at using GitHub and context windows were getting blown out quicker. And uh you know, we picked, I think, over 100 tools. And certainly at the time, that was just too many. Uh LangChain had already produced research uh they published in February that year,",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "you know, of the exact kind of problems we were seeing. More tools don't make better agents, you know, they get confused and forgetful. Well, I say more tools like more context and more tools shoved directly into the context to be precise. But uh",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "yeah, GitHub's a really expansive platform. And we provided tools, you know, for repos, issues, PRs, actions, projects, like even more things. Uh but the hard part of solving this was like we didn't want to prevent users from having the tools individually that",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "they needed and they used. Uh and suffice to say our user base is pretty diverse. And probably even like on GitHub platform at the moment, there might be like one or two clauses as well. Uh [snorts] and for the record, uh there's a team of us who work on it.",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "It's not just me. >> [snorts] >> And my team is awesome. But uh yeah, so to try and fix some of this, you know, I quick- quickly added this thing tool sets, which was, you know, a kind of grouping concept of related product",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "tools. And users could just pick which ones they wanted and configure it. Uh I also like added a dynamic tool selection thing uh where agents could discover sets of tools and then turn on in chunks. And uh we never released it, but",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "I made a kind of rag version of the same. Um you know, for kind of semantic tool search and discovery. But it like what what do you think happened even in spite of all this stuff? >> [snorts] [laughter] >> Everyone used the default settings. It",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "was really annoying because like in a way we had all these elegant solutions. Uh all they did was require users to actually, you know, configure the JSON a little bit. And most users just don't. maybe it's even a partially a spec problem cuz",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "uh you know, for like every proposal so far for grouping to the MCP specification for various reasons has been rejected. And there have been several attempts. Uh and like in a sense, like every mode or configuration we add, you you know, one",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "could argue is papering over potential gaps. Uh like or gaps in client implementations. So, like as an example, like we have a read-only mode and uh roughly 17% of our users use it, but it maps one-to-one to the read-only uh sorry, yeah, the read-only hint",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "annotation. But like no client exposes that as a method of filtering servers. I think some gateways now do, but anyway, it's a it's an interesting easy win for more enterprise use cases where people often only want that. >> [snorts]",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": ">> But uh yeah, we needed to find better solutions to context reduction. And uh you don't need to worry too much about the specifics. This is dated now. But uh like we started trying to optimize and we looked at the use the usage patterns",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "on our remote server. And initially, you know, we cut the amount of context used by focusing the tools more specifically to the general case. And based on usage to like about 49% reduction of the initial load. And then we subsequently also",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "grouped CRUD tools and brought that down even more. And I think like I think you get about 40 tools if you use the default configuration. And then you can kind of expand or contract that based on your own preference. But uh yeah,",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "like it's easy to customize. And uh we've also like recently had a massive push to, you know, reduce output tokens of a lot of tools as well. And um in this example, you know, just by tailoring exactly what comes with the list pull requests, it's",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "like actually lost more than 75% of the tokens used in the output. So, you know, in terms of how token hungry GitHub server is, like it's it's it's a moving target. We're constantly changing things that improve it. And uh if you",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "haven't used it in a while, like it's likely very different from a few months ago even. And um yeah, anyway, like and we haven't ruled out more advanced approaches like code mode. And we're always experimenting internally. But uh",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "on the heels of this, we also dug into our data and we found some more opportunities. >> [snorts] >> So, yeah, like uh we made a big push to reduce tool failures as well. And the success rate is roughly, I think, over 95% at this point. But uh",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "like not all failure is preventable cuz agents don't necessarily know which repos they have write permission on. They still hallucinate. But uh we've been able to identify significant numbers of areas that could be overcome, mostly by encoding a sort of agent",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "intent into our tool surface. And you know, you might have to make five API calls to make it more robust. But you know, in that case, we do that in the server side to reduce round trips cuz that, you know, saves context, saves time, and usually um [snorts]",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "makes uh massively better experience, you know, makes the agents more successful. And yeah, we also started to run evals last year. Um I'm not going to go into detail. The that link takes you to a blog article that my colleague senior wrote about",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "doing it. But uh one of the gists is instead of micro-optimizing individual tool descriptions, you know, you try to test them against each other to try and make sure that they're called at the right times and not called at the",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "wrong times. So that in the pool of each other, they don't fight for like you know, you like the perfect tool description that makes the agent call it all the time is terrible as is the reverse of that. So, you need to try and get that as tight as possible. Um",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "But yeah, this could be a whole other talk. Security, on the other hand, is something that's like a kind of constant menace in all of this. I've seen lots of people talking about this. and it's a real problem in some ways for",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "us because, you know, we've a lot of people using plain text access tokens for MCP in the wild. And uh usually they're stored somewhere the agent can access. They're frequently long-lived. They're often over-privileged. And they're kind",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "of sat there just waiting to be abused. end users, like I I don't think they're choosing this, you know, like it's it's actually hard to make configuration easy and secure at the same time. And clients have to make use of system keyrings or",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "encrypted storage. And like VS Code does. Uh but uh you know, the MCP spec also provided a better way with remote HTTP, which, you know, is all the way back to April last year as well. Um [snorts] and we embraced this, of course. Um",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "And we wanted to make secure connection path of least resistance. Uh we didn't want users to have to download a local runtime. And you know, our remote server supports OAuth 2.1. And my team even helped add the proof key for code exchange support,",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "which is commonly known as PKCE, to GitHub's authorization server to improve the security posture for client apps. Um but as I said, we hoped OAuth would be the path of least resistance. And again, perhaps some of you might know what happened.",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "Everyone expected us to support the dynamic client registration. And for us, like it created more problems than it solved because like if you implement it kind of properly, it's hard not to have unbounded growth of app databases and challenges of how",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "you would bucket them for rate limits and there isn't a reliable app identity. So, we just considered it and rejected it and like we feel like it's a well-intentioned mistake and we're you know, we're not the only authorization server to not support this.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "And um even um like MCP itself, right? It decided that client ID metadata is probably the way to go and I can't promise that we're going to support it, but I promise that I am trying to get us to support it and that should make",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "logging in like massively easier. But um yeah, more on that in the future. And also, speaking of security, some of you may have seen this. this was a fun day. >> [laughter] >> But like you know, Invariant Labs published this and you know, like it's a correct",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "sort of correctly done prompt injection exfil attack for getting private data out of GitHub and um the thing is you know, they call it specifically GitHub's MCP server out and I think that we you know, we do provide the tools",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "that can enable that if you just kind of enable them all, but uh it applies to almost every agent setup whether they use MCP or not or whether they use GitHub MCP, you know, like the lethal trifecta stuff which I'm not going to rehash now cuz I think many of",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "you have probably seen it or you can look it up like Simon's Simon Wilson's blog post on that's excellent, but you know, the utility of agents is in conflict direct conflict with kind of protecting this stuff and it's like it's an active",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "space trying to work out how to prevent these problems, but uh it's not solved and it's very much not unique to GitHub and we have users with wildly different risk profiles, you know, like um we you know, we even have people that",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "have like air-gapped GitHub Enterprise server instances in like much more secure and then you know, obviously the collaborators etc. are also just running straight to GitHub with like you know, probably full token access to the agent everything and",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "that's kind of also interesting, right? And like I'm I'm not naysaying any of this. It's just it's cool to kind of see what people do and see if we can actually support the different use cases and security postures while everyone experiments with this stuff.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "And uh we also kind of use like lean on off to manage tools as well. And this is something I'm pretty happy with. Um if you log into GitHub MCP with a PAT token that we just immediately filter the tools down by the scopes that the token has. You",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "uh you don't have to do anything other than give it the token. On OAuth, we support step-up OAuth. So, you know, you can get a we could return a scope challenge and then it will interactively ask the user if they want to allow the scope.",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "And if you do, then you can uh like continue the tool call. It doesn't fail, which I think is also nice. And then VS Code, for example, supports that and I initially worked on this with them just because they already have a token to use GitHub and what they",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "wanted was that if their baked-in token doesn't have permissions to use everything, that it instead of just failing, there was a mechanism for users having a clean install and then an upscoping later if they need it. And yeah, lastly, server tokens as well.",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "Like they didn't have a like on actions and things, they didn't have a user. So, user-specific tools are kind of out there and then by removing those, we're just removing kind of constant sources of failure and wasted context at the same time.",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "we run a completely sort of stateless server setup and um we have been using Redis for session storage, you know, it's standard observability and deep kind of stack. Like this is not a weird picture, but I guess one of the weird things for some",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "people is a lot of people are running a stateful MCP server process in the singular and have kind of struggled with how you get it into this shape. But um for us like we did a few things cuz it's very dynamic, but like one of the fun things we did is um we uh",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "we actually make a brand new in the SDK sense a brand new server instance on every single request and we add the tools to it at the start. So, whatever your configuration is, it just builds this and then you get what you've asked",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "for or what you're allowed to use cuz some things have policies that impact whether you've got tools or not. Um and yeah, like we've been able to scale to this point we serve around 7 million tool calls a week. And we you know, we don't have session affinity.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "Uh the even the sessions we generally only use them to identify that's the only way to identify the self-reported client identity that comes through MCP. So, it's useful for us to understand like what clients people are using the server with. So,",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "yeah, like we use sessions for that, but yeah, we also have a like wanted to bring experiments to all of you and everyone. And um [snorts] we have this thing that's a Insiders mode and all it all it does is it it turns on certain feature flags and things for",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "experiments that we're happy to just ship to anyone who wants to use them. And uh this just takes you to the documentation, but um like an example of something that we haven't released generally yet, but is on Insiders is our MCP apps and like just",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "you know, I I set up the example before I came in, but like it's quite nice when you're talking to the agent to have the opportunity to kind of edit the AI-generated uh issue especially if you're you know, you're working heavily in professional",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "open source stuff and you want to make sure that it's you posting and it's not going to get closed as a sort of bot-generated thing. It like this is a nice human in the loop thing that MCP enables and I I much you know, I I",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "wasn't sure how much I would like it at first, but then I've come to love it because I kind of care about how my issues and things are received by people and this is just a really great way to make sure that I can I can check that.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "So, yeah, like in terms of where I think it's going like if something along these lines, I think [snorts] a near future, you know, server discovery will hopefully be automatic and tool tool use will probably become more compositional like",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "bash or piping tools into other tools, streaming data through them or like you know, Cloudflare's code mode approach or Anthropic's tool search tool API which just landed in Claude Code a couple of weeks ago. And OpenAI recently added a similar API",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "as well. Sorry, OpenAI added a similar API, too. And uh I you know, I I fully expect that like thousands of tools will be normal very soon. We're trying to iron out all the problems that prevented it in the first place and I'll probably reverse many of",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "the fewer tools decisions. And uh users hopefully won't even have to know what MCP is. They'll just convey what it is they want to do and the OAuth setup and like you know, the tool selection things will become truly autonomous and I don't think we're that",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "far away from this, but we're we're kind of in this experimental phase where we're not really there yet. But um I think harnesses like Pi are also interesting because you can build a weird client that maybe optimizes this in a really good way",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "yourself. So, I would encourage people to experiment with crazy clients. I I feel like you never know, you could be like the next >> [snorts] >> uh like well, if you're super lucky, you could be like the next Claude, right? You could",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "publish something that goes so viral it totally changes the agentic game. Uh I wanted to end on a high and look at some numbers. So, like GitHub itself, it's actually got over 11 million Docker downloads of our standard IO server which is by not like",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "by far not the most used version of it either. Um we've got 126 contributors now and over 2,300 issues and PRs which it's been over seven a day like every single day for over a year now which I do look at almost every single thing eventually.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "So, it's been like >> [laughter] >> quite a year. Um I mean I other some repos have it even worse, but like I also love it. So, I please keep doing it. Um And yeah, we've got almost 4,000 forks which blows my mind. I kind of want to",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "know like the weirder things that people have done that they haven't contributed back. Uh [snorts] yeah, nearly 30,000 stars and uh we're fast approaching 8 million tool calls a week. And GitHub itself is also facing a new challenge. >> [snorts]",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": ">> This is really intense, right? And it shows no sign of slowing down. Uh I still wanted you to keep opening issues and PRs for us. Like we will cope, but you know, this is new territory and um uh you know, everything's like mildly on",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "fire for everyone I think these days and it's just exciting and fun. But uh yeah, thank you so much FOR HAVING ME. >> [applause] [applause] >> I THINK I GOT LIKE 30 SECONDS. I DON'T KNOW IF anyone has anything they want to ask, but What's",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "What's your take on piping tool calls? Um I you know what? I think like things like trying out MCP CLIs and things like that is a fun avenue. I don't think it's entirely ironed out, but like one thing you can do take the read-only tools from",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "some MCP wrapped in a CLI and just give it a proper help and just see how see how the agent does like stuff like that is surprisingly effective. And you know, I like I said I want people to mess with this stuff. So I would",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "encourage you to just try it if you're interested. All right, I'm 0 seconds. I will answer you but in person if that's okay. >> [music]",
+      "start": 450,
+      "duration": 6
+    }
+  ]
+}

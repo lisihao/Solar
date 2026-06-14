@@ -59,6 +59,7 @@ except Exception:  # pragma: no cover - older harness installs may not have it
     workflow_route = None  # type: ignore
 QMD_PROXY_HEALTH = HARNESS / "state" / "qmd-mcp-ipv4-health.json"
 TELEMETRY_ONLY_FINDINGS = {
+    "epic_activation_backpressure",
     "knowledge_context_sqlite_only",
     "knowledge_context_timeout",
     "knowledge_probe_failed",
@@ -113,6 +114,9 @@ TERMINAL_STATUSES = {"passed", "completed", "finalized", "done", "cancelled", "a
 GRAPH_READY_HANDOFFS = {"builder", "builder_main", "builder_parallel", "builder-lab"}
 GRAPH_EVAL_HANDOFFS = {"evaluator", "reviewer"}
 BUILDER_QUEUE_FINDINGS = {"ready_for_builder", "active_without_handoff", "pane_idle_with_pending_artifact"}
+EPIC_ACTIVE_CHILD_LIMIT = int(os.environ.get("SOLAR_EPIC_ACTIVE_CHILD_LIMIT", "12"))
+EPIC_ACTIVE_CHILD_STATUSES = {"active", "approved", "reviewing", "ready_for_review"}
+EPIC_ACTIVE_CHILD_PHASES = {"prd_ready", "planning_complete", "graph_dispatch_active", "handoff_ready", "builder_in_progress"}
 
 import sys
 sys.path.insert(0, str(HARNESS / "lib"))
@@ -130,12 +134,13 @@ try:
         parent_ready_check,
         validate_graph,
         blocked_external_prerequisites,
+        summarize_blocked_prerequisites,
         doctor_graph,
         node_status,
         sync_status_cache_from_graph,
     )
 except Exception:  # pragma: no cover - fallback for partially installed harnesses
-    load_graph = save_graph = enqueue_ready = parent_ready_check = validate_graph = blocked_external_prerequisites = doctor_graph = node_status = sync_status_cache_from_graph = None
+    load_graph = save_graph = enqueue_ready = parent_ready_check = validate_graph = blocked_external_prerequisites = summarize_blocked_prerequisites = doctor_graph = node_status = sync_status_cache_from_graph = None
 try:
     from prerequisite_resolver import iter_blocked
 except Exception:  # pragma: no cover - fallback for partially installed harnesses
@@ -226,6 +231,48 @@ def save_json(path: Path, data: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     tmp.replace(path)
+
+
+def epic_child_slice_from_sid(sid: str) -> str:
+    match = re.search(r"-s\d{2}-([a-z0-9-]+)$", sid)
+    return match.group(1) if match else "unknown"
+
+
+def is_active_epic_child_status(status: dict) -> bool:
+    if not (status.get("epic_id") or status.get("dependency_policy") == "activated_by_epic_dag"):
+        return False
+    state = str(status.get("status") or "").lower()
+    phase = str(status.get("phase") or "").lower()
+    if state in {"passed", "completed", "eval_passed", "cancelled", "canceled", "closed", "superseded", "interrupted"}:
+        return False
+    return state in EPIC_ACTIVE_CHILD_STATUSES or phase in EPIC_ACTIVE_CHILD_PHASES
+
+
+def epic_activation_pressure(limit: int | None = None) -> dict:
+    cap = max(0, int(EPIC_ACTIVE_CHILD_LIMIT if limit is None else limit))
+    active = []
+    for path in sorted(SPRINTS.glob("sprint-*.status.json")):
+        status = load_json(path)
+        if not is_active_epic_child_status(status):
+            continue
+        sid = str(status.get("sprint_id") or status.get("id") or path.name.removesuffix(".status.json"))
+        active.append(
+            {
+                "sid": sid,
+                "epic_id": str(status.get("epic_id") or ""),
+                "slice": str(status.get("slice") or epic_child_slice_from_sid(sid)),
+                "status": str(status.get("status") or ""),
+                "phase": str(status.get("phase") or ""),
+            }
+        )
+    remaining = max(0, cap - len(active))
+    return {
+        "limit": cap,
+        "active_count": len(active),
+        "remaining": remaining,
+        "active_sample": active[:12],
+        "backpressure": remaining <= 0,
+    }
 
 
 def load_state() -> dict:
@@ -1533,10 +1580,28 @@ def objective_for_role_handoff(sid: str, role: str) -> str:
     return f"请接手 {sid} 的 {role} handoff，并按 Solar Harness 标准产出对应 artifact。"
 
 
+def _task_graph_has_nodes(sid: str) -> bool:
+    path = SPRINTS / f"{sid}.task_graph.json"
+    if not path.exists():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    nodes = payload.get("nodes")
+    if isinstance(nodes, dict):
+        return bool(nodes)
+    if isinstance(nodes, list):
+        return bool(nodes)
+    return False
+
+
 def dispatch_role_handoff(sid: str, ftype: str) -> tuple[bool, dict]:
     role = role_for_handoff_finding(ftype)
     if not sid or not role:
         return False, {"reason": "not_role_pool_handoff"}
+    if role == "builder" and _task_graph_has_nodes(sid):
+        return False, {"reason": "builder_handoff_managed_by_task_graph", "role": role, "sprint_id": sid}
     cached = _role_pool_cache_get(role)
     if cached is not None:
         return False, {**cached, "cached": True}
@@ -1840,7 +1905,8 @@ def graph_workers() -> list[dict]:
         "lazy-import", "cli",
         "activation.proof", "negative_control", "runtime_artifacts",
         "autopilot.monitor", "autopilot.safe_apply", "pane.deadlock_detection",
-        "documentation", "schema", "state-machine", "storage", "sources",
+        "documentation", "schema", "schemas", "state-machine", "storage", "sources",
+        "structured-data", "structured-results",
         "algorithm_design", "solar-harness-control-plane", "architecture-writing",
         "code_impl", "test_generation", "test_execution",
         "code.review", "debug.systematic", "skill.methodology",
@@ -1873,13 +1939,15 @@ def graph_workers() -> list[dict]:
         "schema_design", "fixture_design", "mapping_design",
         "compatibility_design", "feedback_design", "gate_design",
         "metric_design", "replay_design", "shell_design", "synthesis",
-        "documentation", "schema", "architecture-writing", "architecture",
+        "documentation", "schema", "schemas", "architecture-writing", "architecture",
+        "structured-data", "structured-results",
         "document.convert", "document.markdown_extract", "report.compile",
         "research.long_report_compiler", "research.report_ast"
     }
     schema_skills = {
         "architecture-writing", "json-schema", "technical-writing", "markdown",
-        "architecture", "schema", "state-schema-design", "api-design", "data-modeling"
+        "architecture", "schema", "schemas", "state-schema-design", "api-design",
+        "data-modeling", "structured-data", "structured-results"
     }
 
     for pane in discover_worker_panes():
@@ -2124,6 +2192,8 @@ def set_epic_child_node_status(sid: str, node_status: str) -> bool:
 
 def inspect_epics() -> list[dict]:
     findings = []
+    activation_pressure = epic_activation_pressure()
+    backpressure_reported = False
     for meta_path in sorted(SPRINTS.glob("epic-*.epic.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         meta = load_json(meta_path)
         epic_id = meta.get("epic_id") or meta_path.name.removesuffix(".epic.json")
@@ -2161,6 +2231,22 @@ def inspect_epics() -> list[dict]:
                     })
                     continue
                 ready.append({"sid": child_sid, "node_id": node.get("id")})
+        if ready and activation_pressure and activation_pressure.get("backpressure"):
+            if not backpressure_reported:
+                findings.append(
+                    {
+                        "sid": str(epic_id),
+                        "type": "epic_activation_backpressure",
+                        "severity": "warn",
+                        "target": "",
+                        "message": "Global epic child WIP limit reached; suppressing new child activation.",
+                        "ready_children_suppressed": ready,
+                        "blocked_children": blocked,
+                        "activation_pressure": activation_pressure,
+                    }
+                )
+                backpressure_reported = True
+            continue
         if ready:
             findings.append(
                 {
@@ -2232,6 +2318,36 @@ def graph_status(sid: str) -> dict:
                 append_event(sid, "autopilot_graph_doctor_repaired", "warn", doctor)
         validation = validate_graph(graph) if validate_graph else {"ok": False, "errors": ["graph_scheduler_unavailable"]}
         parent = parent_ready_check(graph) if parent_ready_check else {"ready": False}
+        raw_blocked = blocked_external_prerequisites(graph) if blocked_external_prerequisites else []
+        blocked = (
+            summarize_blocked_prerequisites(raw_blocked)
+            if summarize_blocked_prerequisites
+            else raw_blocked
+        )
+        dispatch_ready = {}
+        ready_nodes: list[str] = []
+        dispatchable_nodes: list[str] = []
+        if graph_dispatch_ready is not None and not blocked:
+            try:
+                dispatch_ready = graph_dispatch_ready(str(path), dry_run=True, ttl=900)
+                enqueue = dispatch_ready.get("enqueue") if isinstance(dispatch_ready, dict) else {}
+                if not isinstance(enqueue, dict):
+                    enqueue = {}
+                assigned = enqueue.get("assigned") or []
+                enqueued = enqueue.get("enqueued") or enqueue.get("queued") or []
+                ready_nodes = [
+                    str(item.get("node") or item.get("node_id") or "")
+                    for item in assigned
+                    if isinstance(item, dict) and str(item.get("node") or item.get("node_id") or "")
+                ]
+                dispatchable_nodes = [
+                    str(item.get("node") or item.get("node_id") or "")
+                    for item in enqueued
+                    if isinstance(item, dict) and str(item.get("node") or item.get("node_id") or "")
+                ]
+            except Exception as exc:
+                dispatch_ready = {"ok": False, "error": str(exc)}
+        scheduler_state = "blocked" if blocked else ("ready" if ready_nodes or dispatchable_nodes else "idle")
         return {
             "exists": True,
             "path": str(path),
@@ -2240,6 +2356,11 @@ def graph_status(sid: str) -> dict:
             "doctor": doctor,
             "parent_ready": bool(parent.get("ready")),
             "parent": parent,
+            "scheduler_state": scheduler_state,
+            "blocked": blocked,
+            "ready_nodes": ready_nodes,
+            "dispatchable_nodes": dispatchable_nodes,
+            "graph_dispatch_ready": dispatch_ready,
         }
     except Exception as exc:
         return {"exists": True, "ready": False, "path": str(path), "valid": False, "error": str(exc)}

@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar.local/schemas/solar-core-runtime-ir.schema.json",
+  "title": "Solar Core Runtime IR Layer Schemas",
+  "description": "Schemas for the 9 IR layers of the Solar Capsule Evolution Optimizer core runtime.",
+  "definitions": {
+    "IntentIR": {
+      "type": "object",
+      "description": "User goal and task type expression.",
+      "required": ["intent_id", "goal", "task_type", "submitted_at"],
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {"type": "string", "minLength": 1},
+        "goal": {"type": "string", "minLength": 1},
+        "task_type": {
+          "type": "string",
+          "enum": ["design", "implement", "debug", "test", "research", "review", "optimize", "release", "migrate"]
+        },
+        "context_refs": {"type": "array", "items": {"type": "string"}},
+        "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
+        "submitted_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "SpecIR": {
+      "type": "object",
+      "description": "Boundary, success criteria, forbidden actions, evidence requirements.",
+      "required": ["spec_id", "intent_id", "success_criteria", "forbidden_actions", "evidence_requirements"],
+      "additionalProperties": false,
+      "properties": {
+        "spec_id": {"type": "string", "minLength": 1},
+        "intent_id": {"type": "string", "minLength": 1},
+        "success_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["criterion_id", "description", "verifiable"],
+            "additionalProperties": false,
+            "properties": {
+              "criterion_id": {"type": "string"},
+              "description": {"type": "string"},
+              "verifiable": {"type": "boolean"},
+              "threshold": {"type": ["number", "string", "null"]}
+            }
+          }
+        },
+        "forbidden_actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["action", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "action": {"type": "string"},
+              "reason": {"type": "string"},
+              "detection_method": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "evidence_requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["evidence_type", "required"],
+            "additionalProperties": false,
+            "properties": {
+              "evidence_type": {"type": "string"},
+              "required": {"type": "boolean"},
+              "format": {"type": ["string", "null"]},
+              "source": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "boundary_constraints": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "LogicalPlanIR": {
+      "type": "object",
+      "description": "Logical operator DAG node model.",
+      "required": ["plan_id", "intent_id", "nodes"],
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {"type": "string", "minLength": 1},
+        "intent_id": {"type": "string", "minLength": 1},
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/LogicalPlanNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "target"],
+            "additionalProperties": false,
+            "properties": {
+              "source": {"type": "string"},
+              "target": {"type": "string"},
+              "condition": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    },
+    "LogicalPlanNode": {
+      "type": "object",
+      "required": ["node_id", "logical_operator", "goal"],
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {"type": "string", "minLength": 1},
+        "logical_operator": {"type": "string", "minLength": 1},
+        "goal": {"type": "string", "minLength": 1},
+        "depends_on": {"type": "array", "items": {"type": "string"}},
+        "write_scope": {"type": "array", "items": {"type": "string"}},
+        "read_scope": {"type": "array", "items": {"type": "string"}},
+        "acceptance": {"type": "array", "items": {"type": "string"}},
+        "gate": {"type": ["string", "null"]}
+      }
+    },
+    "CapsuleIR": {
+      "type": "object",
+      "description": "Capability contract - capsule is NOT a prompt.",
+      "required": ["capsule_id", "capability_contract", "effect_refs"],
+      "additionalProperties": false,
+      "properties": {
+        "capsule_id": {"type": "string", "minLength": 1},
+        "capability_contract": {
+          "type": "object",
+          "required": ["provided_capabilities", "required_capabilities"],
+          "additionalProperties": false,
+          "properties": {
+            "provided_capabilities": {"type": "array", "items": {"type": "string"}},
+            "required_capabilities": {"type": "array", "items": {"type": "string"}},
+            "quality_constraints": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "effect_refs": {"type": "array", "items": {"type": "string"}},
+        "proof_obligation_refs": {"type": "array", "items": {"type": "string"}},
+        "version": {"type": "string"},
+        "schema_type": {"type": "string", "enum": ["skill", "mcp_tool", "verifier", "evaluator", "agent", "workflow"]}
+      }
+    },
+    "ToolEffectIR": {
+      "type": "object",
+      "description": "Side effects, permissions, approvals, reversibility.",
+      "required": ["effect_id", "effect_type", "permissions"],
+      "additionalProperties": false,
+      "properties": {
+        "effect_id": {"type": "string", "minLength": 1},
+        "effect_type": {
+          "type": "string",
+          "enum": ["file_write", "file_read", "shell_exec", "network_call", "git_operation", "secret_access", "resource_allocation"]
+        },
+        "permissions": {
+          "type": "object",
+          "required": ["access_level"],
+          "additionalProperties": false,
+          "properties": {
+            "access_level": {"type": "string", "enum": ["allowed", "read_only", "denied"]},
+            "requires_approval": {"type": "boolean"},
+            "approval_authority": {"type": ["string", "null"]}
+          }
+        },
+        "reversible": {"type": "boolean"},
+        "rollback_plan": {"type": ["string", "null"]},
+        "audit_trail": {"type": "boolean"}
+      }
+    },
+    "PhysicalPlanIR": {
+      "type": "object",
+      "description": "Operator binding, surface, quota, lease binding.",
+      "required": ["physical_plan_id", "logical_plan_id", "bindings"],
+      "additionalProperties": false,
+      "properties": {
+        "physical_plan_id": {"type": "string", "minLength": 1},
+        "logical_plan_id": {"type": "string", "minLength": 1},
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/OperatorBinding"
+          }
+        }
+      }
+    },
+    "OperatorBinding": {
+      "type": "object",
+      "required": ["node_id", "actor_id", "host_id", "surface"],
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {"type": "string", "minLength": 1},
+        "actor_id": {"type": "string", "minLength": 1},
+        "host_id": {"type": "string", "minLength": 1},
+        "surface": {
+          "type": "string",
+          "enum": ["tui", "headless", "local", "browser", "mcp", "managed_agent"]
+        },
+        "quota": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_duration_sec": {"type": "integer", "minimum": 1},
+            "token_budget": {"type": ["integer", "null"]},
+            "cost_cap": {"type": ["number", "null"]}
+          }
+        },
+        "lease": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ttl_sec": {"type": "integer", "minimum": 1},
+            "renewable": {"type": "boolean"},
+            "preemptible": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "PatchSourceIR": {
+      "type": "object",
+      "description": "Patch scope and artifact completeness.",
+      "required": ["patch_id", "scope", "artifacts"],
+      "additionalProperties": false,
+      "properties": {
+        "patch_id": {"type": "string", "minLength": 1},
+        "scope": {
+          "type": "object",
+          "required": ["files_added", "files_modified", "files_deleted"],
+          "additionalProperties": false,
+          "properties": {
+            "files_added": {"type": "array", "items": {"type": "string"}},
+            "files_modified": {"type": "array", "items": {"type": "string"}},
+            "files_deleted": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["artifact_type", "path"],
+            "additionalProperties": false,
+            "properties": {
+              "artifact_type": {"type": "string"},
+              "path": {"type": "string"},
+              "hash": {"type": ["string", "null"]},
+              "completeness_verified": {"type": "boolean"}
+            }
+          }
+        },
+        "source_node_id": {"type": ["string", "null"]}
+      }
+    },
+    "EvidenceIR": {
+      "type": "object",
+      "description": "Claims, artifacts, approvals, verifier results.",
+      "required": ["evidence_id", "claims", "artifacts"],
+      "additionalProperties": false,
+      "properties": {
+        "evidence_id": {"type": "string", "minLength": 1},
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["claim_type", "description", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "claim_type": {"type": "string", "enum": ["test_passed", "schema_valid", "coverage_met", "compat_verified", "performance_met", "security_passed"]},
+              "description": {"type": "string"},
+              "status": {"type": "string", "enum": ["proven", "disproven", "unverified"]},
+              "verifier_result": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["artifact_id", "path", "artifact_type"],
+            "additionalProperties": false,
+            "properties": {
+              "artifact_id": {"type": "string"},
+              "path": {"type": "string"},
+              "artifact_type": {"type": "string"},
+              "hash": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["approver", "approved", "timestamp"],
+            "additionalProperties": false,
+            "properties": {
+              "approver": {"type": "string"},
+              "approved": {"type": "boolean"},
+              "timestamp": {"type": "string", "format": "date-time"},
+              "notes": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    },
+    "RuntimeExecutionIR": {
+      "type": "object",
+      "description": "Lease, ack, timeline, failure, recovery.",
+      "required": ["execution_id", "dispatch_id", "operator_id", "surface", "timeline"],
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {"type": "string", "minLength": 1},
+        "dispatch_id": {"type": "string", "minLength": 1},
+        "logical_op": {"type": ["string", "null"]},
+        "capsule_id": {"type": ["string", "null"]},
+        "operator_id": {"type": "string", "minLength": 1},
+        "surface": {"type": "string", "enum": ["tui", "headless", "local", "browser", "mcp", "managed_agent"]},
+        "lease": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lease_id": {"type": "string"},
+            "acquired_at": {"type": "string", "format": "date-time"},
+            "expires_at": {"type": "string", "format": "date-time"},
+            "released_at": {"type": ["string", "null"], "format": "date-time"}
+          }
+        },
+        "ack": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ack_id": {"type": "string"},
+            "acknowledged_at": {"type": "string", "format": "date-time"},
+            "status": {"type": "string", "enum": ["pending", "acknowledged", "timeout", "rejected"]}
+          }
+        },
+        "timeline": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["event_type", "timestamp"],
+            "additionalProperties": false,
+            "properties": {
+              "event_type": {"type": "string"},
+              "timestamp": {"type": "string", "format": "date-time"},
+              "details": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "failure_mode": {"type": ["string", "null"]},
+        "recovery_plan": {"type": ["string", "null"]},
+        "cost": {"type": ["number", "null"]},
+        "duration_ms": {"type": ["number", "null"]},
+        "patch_scope": {"type": ["string", "null"]},
+        "artifact_completeness": {"type": ["boolean", "null"]}
+      }
+    }
+  }
+}

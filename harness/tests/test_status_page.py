@@ -242,6 +242,37 @@ class TestBuildCards:
         assert x_card.run_status == RunStatus.SUCCEEDED
         assert x_card.has_errors is False
 
+    def test_build_cards_with_dispatcher_metadata(self, tmp_path):
+        """Should fall back to dispatcher metadata if reports metadata is missing."""
+        reports_dir = tmp_path / "reports"
+        reports_dir.mkdir()
+        
+        # Create dispatcher metadata
+        run_dir = tmp_path / "run" / "operator_metadata" / "youtube"
+        run_dir.mkdir(parents=True)
+        
+        dispatcher_meta = {
+            "schema": "solar.operator_metadata.v1",
+            "line": "youtube",
+            "run_id": "youtube-run-789",
+            "mode": "single",
+            "dispatched_at": "2026-06-08T12:00:00Z",
+            "primary": {
+                "script": "scripts/youtube_influence_digest.py",
+                "role": "youtube",
+                "returncode": 0,
+                "success": True,
+                "duration_s": 120.5
+            }
+        }
+        (run_dir / "latest.metadata.json").write_text(json.dumps(dispatcher_meta))
+        
+        cards = build_cards(reports_dir)
+        youtube_card = next(c for c in cards if c.operator_id == "youtube")
+        assert youtube_card.run_status == RunStatus.SUCCEEDED
+        assert youtube_card.duration_display == "2.0m"
+        assert youtube_card.last_run == "2026-06-08T12:00:00Z"
+
     def test_build_cards_no_data(self, tmp_path):
         """Should handle missing metadata gracefully."""
         reports_dir = tmp_path / "reports"

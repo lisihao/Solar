@@ -1,0 +1,1189 @@
+{
+  "videoId": "fPESauMaJYA",
+  "title": "Stanford CS221 | Autumn 2025 | Lecture 5: Search I",
+  "channelName": "Stanford Online",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 60786,
+  "transcriptSource": "standard_caption",
+  "transcriptLanguage": "en-US",
+  "transcriptQualityTier": "T0",
+  "transcriptText": "All right.\nLet's begin.\nSo last week, we talked\nabout machine learning.\nAnd just recall, the\nlearning algorithm\nis something that takes\ntraining data, which\nis input/output pairs\nand returns a predictor.\nAnd the predictor is\nthe thing you go out\ninto the real world, which takes\ninputs' and outputs' outputs.\nAnd for regression,\nthat output is a number.\nFor classification, that\noutput is one of k options\nor a class, or a label.\nSo that's what we did\nin machine learning.\nNow, if you go back\nto the first lecture,\nrecall the ingredients\nof intelligence.\nWe have perception, reasoning,\naction, and learning.\nSo a predictor really covers\nthis latter bottom part.\nSo it's basically reflexively\nmapping percepts to actions.\nAnd we're learning\nthis mapping directly.\nSo if you think\nabout the neural nets\nthat we were learning, even\nif it's deep, it's probably--\nit's feedforward and it's fast.\nNow many problems\nin the real world\ndo require reasoning thinking,\nproblem solving, planning.\nThese are all related concepts.\nIf you want to solve\na hard math problem\nor solve a big, hard\nprogramming challenge,\nthese clearly are not\nreflexive operations\nyou should look at it, and\nthen you output the answer.\nSo this week's lecture is\ngoing to be about search.\nSearch is one form of\nthis type of reasoning\nwhen the world is deterministic.\nSo as a few concrete examples,\nfinding a sequence of\nmoves to solve a Rubik's cube.\nI guess, if you're a\nRubik's cube expert,\nmaybe this is reflex for\nyou, but for most people,\nthis requires a fair amount\nof search and problem\nsolving, or finding the\nshortest path from point A\nto point B. This is going to\nbe something that you explore\nin your homework.\nThis is something that\nrequires planning.\nYou have to figure\nout your route,\nand then you go down the\nroute, rather than just\nlooking at where you\nare and just making\na spontaneous decision.\nSo now you might\nwonder, OK, it's 2025,\nwhy are we talking about search?\nBecause wasn't the point that\nsymbolic AI actually started\nin 1950s and they\nwere all about search,\nhow you can solve checkers,\ngeneral problem solving,\nand so on.\nAnd that didn't really pan out.\nSo why are we\nbothering with this?\nShouldn't we just go\nall in on deep learning?\nSo is it relevant today?\nSo I want to pull a quote\nfrom this famous essay\nby Rich Sutton, which is a\nTuring Award winner, developed\na lot of the foundations of\nreinforcement learning called\nthe Bitter lesson,\nwhich I think has become\na little bit of a folklore.\nIt's a short essay.\nYou guys should go read it.\nIt has some, I think,\nuseful per perspectives.\nAnd in the essay, basically it\nsays that \"general methods that\nleverage computation are\nultimately the most effective,\nand by a large margin.\"\nSo a really rich is\npushing back against doing\na lot of handcrafting\npriors, because once you\nhave general methods\nand you have compute,\nthen it sort of washes away\nany sort of prior knowledge.\nNow, I mean, that's\ntrue in some limit.\nThere's obviously a time and\nplace for prior knowledge\nas well.\nBut putting that\naside, he also says\nthat the two methods that seem\nto scale arbitrarily in this way\nare search and learning.\nOK.\nSo he calls out search\nand learning are really\nthese pillars that if you\nbelieve in the bitter lesson,\nare the things that you\nshould pay attention to.\nAnd that's why we're\ntalking about search.\nSo search is\nincreasingly important.\nThink about test time compute\nand language models, which\nwe'll touch on in a bit later.\nThese are cases\nwhere you actually\njust need to do a bunch\nof compute at test time.\nAnd you need to organize\nthat compute somehow.\nThe only thing is\nthat search alone,\nthe point from the '50s, that\nsearch alone cannot do this.\nYou also need to learn learning.\nBut now, the last decade has\ntold us how to do learning\nand now we have really\npowerful models.\nAnd if you can couple\nthem with search,\nwhich people are\nstarting to do more,\nthen you have a really\npowerful combination.\nAnd you can tackle some of\nthe most challenging problems.\nOK.\nSo that's the motivation.\nFeel free to interrupt\nor ask questions.\nYeah.\nWhat is search?\nGreat question.\nI'm going to define\nit more narrowly.\nThe rest of this\nlecture is going\nto be about more of the nuts\nand bolts and how you do search.\nAnd hopefully,\nit'll become clear.\nSo let's formalize search\nusing this abstraction\ncalled a search problem.\nSo we'll do this\nthrough example.\nSo these are going to be\nfairly toy simple examples.\nAnd so the first\nexample is this.\nSo imagine, you have a\nstreet with blocks numbered 1\nthrough n.\nSo n is 6 here.\nSo each of these is a\ngrid lines as a block.\nAnd walking from block i to\nblock i plus 1 takes one minute.\nOr you have this\nmagic tram that you\ncan take from-- that\ngoes from i to 2 times i,\nand it takes two minutes.\nSo the question is, how\ndo you travel from 1\nto n, which is 6 in the\nleast amount of time?\nNow some of you are probably\nalready solving this\nand thinking about strategies.\nI want you to actually\nstop doing that.\nBecause that's not the\npoint of a search problem.\nThe point of a search problem\nis to formalize, convert\nthis natural language\ndescription into code\nso that you can have\na general method that\ncan solve these problems.\nAgain, remember,\nthe Bitter lesson.\nWe want general techniques that\ncan solve any search problem\nthat you kind of have it.\nOK.\nI mean, if you solve it\ntoo, that's great for you.\nBut we're going to have\nalgorithms that solve this.\nAnd we'll see if you're right.\nOK.\nSo we're going to\ndefine a search problem.\nThis is going to\nbe parameterized\nby the number of locations, n.\nAnd the problem is going\nto have a start state.\nSo the start state is this\nmember of the search problem\nthat tells you what\nstate you start at.\nSo the state that\nyou start out is 1.\nAnd the problem\nalso has a function\ncalled successors, which\nyou pass in any given state.\nAnd it tells you where\nyou can go, essentially.\nAnd so let's look at this.\nOK.\nSo one thing you can\ndo is you can walk.\nOK.\nSo you're at a\nparticular state, 1.\nSo you can take the\naction which is walk.\nIt cost 1.\nSo one minute, I'm translating\ncost to be time here.\nAnd then where do\nyou end up, you\nget dumped into state plus 1.\nSo you go from i to i plus 1.\nAnd this check is just to\nmake sure you don't walk off\nthe face of the Earth.\nIt's you.\nThe world stops\nat some locations.\nOK.\nSo you can also take a tram.\nSo here, the action is tram.\nThe cost is 2.\nIt takes two minutes\nto take this tram.\nAnd you end up in\nstate 2 times state.\nOK.\nSo successors is the\nlist of possible steps.\nSo a step consists-- each step\nconsists of the action, which\nis just a label, the\ncost of that action,\nand where do you get dumped\ninto, the next state.\nSo in this case, both walking\nand tram takes you to stay 2.\nBut in general, they obviously\nwill do different things.\nSo we have start state.\nWe have successors.\nAnd the final function that is\npart of the problem formulation\nis the function is end.\nSo the is end takes\narbitrary state and returns\nwhether you've reached\nthe destination\nand the search is done.\nSo here, we're\njust checking, did\nyou get to the number\nof locations or not?\nAnd in this case, the\nanswer is obviously false\nbecause we just started.\nOK.\nSo in general search problem\nhas the following components.\nYou have a start\nstate, that returns\ninitial state, successors,\nthat specifies what you can do,\nwhich includes the actions,\ntheir costs, the resulting\nstates that you end up in.\nAnd finally, we have is end,\nwhich takes a state and returns\nwhether state is an end state.\nAny questions about what\na search problem is?\nOK.\nSo now, given a search problem,\nwhat are we trying to do?\nThe objective is to\nfind a solution, which\nis a sequence of actions that\nminimizes the total cost.\nSo here's a possible\nsolution for n equals 10.\nSo you walk to state 2, you\ntake the transit state 4.\nYou walk to state 5, you\ntake the tram to state 10.\nOK.\nAnd this solution has\ncost 6 because that's\n1 plus 2 plus 1 plus 2 is 6.\nOK.\nSo this is one\npossible solution.\nThere are many other solutions.\nYou can walk all the way to 10.\nThat would be a cost of 10.\nAnd is this the best solution?\nHow many of you think\nthis is the best solution?\nHow many of you don't think\nthis is not the best solution?\nOK.\nWell, evenly split.\nSo we will see.\nOK.\nSo remember, it doesn't matter.\nWe're going to be lazy and have\nthe algorithm solve it for us.\nSo you don't have\nto work that hard.\nThe thing you have\nto get is make sure\nthat your search problem\nis defined properly.\nAnd then you're good to go.\nOK.\nSo let's do a slightly\nmore complicated example\nto just show you what\nstates are really about.\nSo suppose the magic\ntram requires tickets.\nAnd we only have a\nfixed number of tickets.\nAnd of course, this tram\nis probably in high demand.\nSo we're not going to let\nanyone just get on the tram.\nSo how do we change\nthe search problem\nto incorporate this constraint?\nSo let's see, what\ncan we do here?\nSo the state so far just\ncaptures where we are,\nthe current location.\nOK.\nBut we also need to keep\ntrack of the number of tickets\nwe have.\nSo what we're going\nto do is we're\ngoing to define another search\nproblem, limited travel search\nproblem, which is going\nto be parameterized\nby the number of locations\nand the number of tickets\nyou start out with.\nAnd now the start\nstate is this going\nto be the structure travel state\nthat has a location with one.\nAnd tickets equals the number of\ntickets that you started with.\nOK.\nSo states can be\ncomposite things.\nThey don't have to be integers.\nThey can be strings.\nIn general, in the\nimplementation,\nstates are going to be any\nsort of hashable object.\nSo what are successors\nlook like now?\nSo now, the successors\ntakes the travel state\nand has to return a\nlist of things to do.\nSo there's only two\nthings you can do.\nYou can walk or you\ncan take the tram.\nYou can always walk because\nyou don't need tickets to walk.\nAnd this is walk, has cost 1.\nAnd the new state\nis this travel state\nwhere the location\nhas bumped up by one.\nAnd still have the\nsame number of tickets\nbecause walking\ndoesn't take tickets.\nAnd now the second part of\nthis is you can take the tram,\nand the tram cost 2, you\nend up in the location\n2 times the location.\nAnd then oops, this wrapped.\nOK.\nHopefully, is that--\nOK.\nIt looks like it's\nnot going to unwrap.\nOK.\nThere we go.\nBut that's probably too small.\nIs that too small?\nOK.\nLet me make it bigger.\nSo anyway, this is\ntickets minus 1.\nSo we expanded one\nticket to take the tram.\nBut as a result, we're in\nlocation 2 times location.\nNow, there's one thing\nthat we need to do here.\nAnd what is that?\nSo there is a check here\nthat we need to make sure\nthat we actually have tickets.\nYou can only add the\nsuccessor if you have\nnon-zero number of tickets.\nOtherwise, it's\nthe same problem.\nYou just end up\ndecrementing this counter\nand you can have minus\n3 tickets and you go on.\nSo this is what I mean by\nget your search problem\ndefinition correct.\nBecause if you don't,\nthen the algorithm\nis going to find a way to\ncheat sort of game your system.\nYou can call this reward\nhacking if you want.\nOK.\nSo successors are\nwalk to location 2.\nAnd you still have one ticket,\nor take the tram to location 2\nand you have zero tickets.\nOK.\nAnd is end is just, have\nyou reach the destination?\nAnd notice that it doesn't\nlook at the number of tickets,\nwhich means that there are\npossibly more than one end\nstate.\nBecause you can have\nzero tickets left,\nlocation equals to unlock\nwith zero tickets, one ticket,\ntwo tickets, and so on.\nOK.\nSo in general, the state is\na really important notion\nwhen we talk about\nsearch problems\nand also MDPs and then games.\nThe state contains\nany information\nthat's needed to evaluate future\nactions, costs, and successors.\nOK.\nSo as another example, suppose\nwe put another constraint.\nThere are a lot of\nrules in this city here.\nIf you can't take the\ntram twice in a row.\nIf you want to enforce\nthis constraint,\nthe state needs to contain\nenough information so you\ncan even properly assess it.\nThe current state that we\ndon't-- only know our current\nlocation and the number\nof tickets we have.\nAnd that's not enough.\nWhat we have to do is we have\nto add to the state, which\nis another field in\nthe state structure,\nwhether the last action\nwas taking the tram.\nBecause if we know that, then\nif we last took the tram,\nwe can't take the tram.\nAnd if we don't, we\ndidn't take the tram,\nthen we can take the tram.\nOK.\nSo there's just going to be\nthis game, you have to play,\nwhere you take essentially\nlike word problems,\nand you have to map them\nonto this type of structure.\nWhat is the state?\nWhat are the successors\ncost, and actions?\nSo now you can ask, well, why\ndo I have to think about it?\nI thought the whole idea\nis I don't have to think.\nWhy don't we just include\neverything into the state,\nthe entire history\nof where we've been?\nAnd surely, that's\nenough information\nto evaluate the\nvalidity of actions\nand states and successors.\nYou could do that.\nBut as we'll see\nlater, some algorithms\nsuch as dynamic programming,\nscaling the number of states.\nSo if you have a million\nstates or an exponential number\nof states, then your\nalgorithm is going\nto be really, really slow.\nSo in general, you want to keep\nthe number of states small.\nOK.\nSo far, we focus on modeling.\nSo what modeling means here\nis representing the problem\nformally.\nSo there's no doubt in our mind\nwhat a solution looks like.\nAnd that solution\nin code should refer\nto correspond to your intuitive\nidea of what a good solution is.\nNow, the thing is\nthat as you build up\nthese search problems with\nmore and more constraints,\nmaybe you were clever and\nsolve the first transportation\nproblem.\nBut now if I tell you, well,\nhow do I go to 1 to 100,\nand you can't use--\ntake the tram twice,\nand you also have three tickets.\nI would be very shocked if\nsomeone immediately came up\nwith the answer in their head.\nBut the point is, who cares?\nWe have written\nit down formally,\nand now we're just going to\npass it off to a learning--\nnot a learning, an algorithm.\nOK.\nAny questions about\nmodeling, search problems,\ntrains, magic trams?\nYeah.\nDo you use some protocols\nfor [INAUDIBLE] the problems\nfor [INAUDIBLE] problems.\nFor example, if you use\ngenerally the easiest one,\nwe have the problem just to\nreach with walking or train.\nAnd we add something.\nHow we understand this can\nbe useful for [INAUDIBLE]\nSo I think the question is if\nyou look at the easiest problem\nand you add constraints, how\ndo you know this is useful?\nI mean, generally,\nwhen you're trying\nto solve a problem, whether it\nbe a machine learning or search,\neither you or\nsomeone comes to you\nwith a description of a problem.\nAnd you have to translate\nit into something\nthat's more formal.\nThat process of\nmodeling is often lossy.\nSometimes you don't get\nall the constraints right.\nAnd of course, this is a\nsort of idealized setting.\nBut you have to basically make\nsome sort of lossy modeling\nassumptions to get it\ninto a tractable form\nthere that the algorithms\ncan operate on.\nYou can't really have your\nsearch algorithms operate on,\njust like a kind of\nvague description.\nOK.\nSo we said, w don't care.\nBut OK, now we have to care\nabout it because we actually\ndo want to solve\nthese search problems.\nAnd who's going to\ndo it, except for us?\nSo let's start by solving\nthis problem exactly.\nOK.\nWe really want the\nminimum cost solution.\nLater, I'll show you\nhow you can cut corners\nif you're short on time.\nSo remember the goal,\ngiven a search problem,\nwhich defines states,\nactions, costs, and is end,\nI want to find a\nsequence of actions\nthat minimizes the total cost.\nOK.\nSo exhaustive search\njust says, simply try\nall the possibilities, all\npossible sequence of actions,\nand take the one that's best.\nOK.\nThis should work.\nNow there are many ways to\nenumerate all solutions.\nWe're going to choose one\nparticular formulation that\nwill allow us to\neffortlessly generalize\nto dynamic programming.\nAnd this will be\nalso the formulation\nthat generalizes\nto Markov decision\nprocesses, reinforcement\nlearning games, and so on.\nSo bear with me\nwhile I introduce\nwhat might seem a little bit\nmore machinery than we need.\nIt's because we're trying to\nthink a little bit farther\nahead.\nSo the key definition\nhere is future cost.\nSo a future cost is a\nfunction that takes a state\nand is the cost of\nthe minimum cost\nsolution from that\nstate to the end state.\nOK.\nSo here's a picture.\nLet me actually draw\nthis on the board.\nSo in general, you\nhave a start state.\nAnd just for now, I'll assume\nthat there's one end state.\nThere could be\nmultiple end states.\nAnd in general, from\nthe starting state,\nthere might be multiple actions.\nThe best way to I\nthink, understand\nthis is in terms\nof a graph, where\nthese actions could\nlead to other states\nand so on and so forth.\nAnd here's a random state here.\nSo let's call it S. And\nthe future cost is--\nthere could be millions\nof states here.\nThe future cost is\nif I started here,\nwhat is the total cost, the\nbest total cost of getting\nto the end?\nOK.\nAnd future cost is\nsomething that you can\napply to any given function.\nYou can apply it to the start.\nIf you apply it to the\nstart, that gives you\nthe solution to the problem.\nOK.\nSo how do you compute\nthis future cost?\nWell, let's take\nit step by step.\nSo in life, if you have to\nsolve a really hard problem,\nwhat do you do?\nYou have to take a first step.\nNo matter what solution,\nthere has to be a first step.\nOK.\nSo let's start here.\nWell, there's actually--\nOK.\nMany potential first steps\nhere that you could take.\nLet me just do this.\nSo I'm going to use S prime\nto denote the successors.\nAnd then what I'm\ngoing to do is I'm\ngoing to say this is\nsomeone else's problem.\nLike if I've computed the\nfuture cost from S prime to end,\nthen I can just\npiggyback off of that\nand say, well, I could have\ngone here with some cost.\nAnd then over here, I'm going to\nput maybe some squiggly thing.\nAnd this is the future\ncost of S prime.\nOK.\nSo one particular route\nis take this action,\nend up here, and then do the\noptimal thing to the end.\nOr I can take this action, do\nthe optimal thing to the end,\nor I can take this action and\ndo the optimal thing to the end.\nWhich one is the optimal one?\nWell, it's whatever\none minimizes\nthe cost over all possible\nfuture successors.\nSo the cost of this is\ncost plus future cost.\nThe cost of this cost plus this.\nThe cost of this action\nis this one plus that.\nAnd what we're going to\ndo is we're simply going\nto take the minimum over that.\nSo just writing out the\npseudocode for this recurrence.\nThe future cost of a\nstate is the minimum\nover all possible successors.\nAnd for each\nsuccessor I look at,\nit's the immediate\ncost of that, taking\nthat action, plus\nthe future cost\nfrom wherever I ended\nup to an end state.\nOK.\nLet me pause there to\naddress any questions.\nOK.\nHow many of you\nare good with this?\nOK, good.\nSo let's go through\nan example here.\nWe're going to look at our\nfamiliar travel search problem.\nAnd we're going to implement\nthis exhaustive search\nfunction here.\nI'm going to implement\nfour algorithms today.\nAnd for each one, I'm going to\nkeep track of number explored.\nSo this is the number of\nstates that we've looked at.\nAnd that'll give us\nidea of time complexity.\nSo we're going to define\nthis helper function called\nfuture solution.\nIt's essentially the\nfuture cost function.\nBut instead of just\nreturning a number,\nit returns a solution which\nremember also contains the cost.\nAnd that's because we don't just\ncare about solving the problem\nand returning a number,\noh, 42 is a cost.\nWell, what do I do?\nWhat actions do I take?\nYou also need the\nsequence of actions\nand that's encompassed\nin the solution.\nOK.\nSo I'm going to start\nat the start state.\nAnd I'm going to call this\nfuture solution function.\nAnd what I'm going to do,\nI've explored a state.\nI'm going to check.\nDid I get to the end.\nSo I haven't gotten\nto the end yet.\nSo then, I'm going to look at\nthe possible successors, walk\nor tram.\nAnd then I'm going to consider,\nfor each of the successor,\nthere's a--\nwhich is taking the first\nstep, which is walk.\nAnd then I'm going\nto recurse, if you\ncall future solution on\nfirst step.state, which is 2.\nSo I'm going to recurse.\nThat's going to take me to\nstate 2 in this recurrence.\nAnd then I'm going to\nlook at the successors.\nI can walk a tram.\nAnd then are you going\nto consider walk?\nAnd I'm going to recurse.\nAnd then I'm going\nto do this again.\nAnd eventually, I reach--\narrive at an end state.\nAnd at the end state,\nthe solution is--\nwhat's the future cost of end?\nZero.\nBecause I'm at the end.\nI don't need to do anything.\nIt doesn't cost me anything.\nAnd the steps is zero.\nI don't need to do anything.\nSo that's the base case.\nNow I pop back up and I--\nhere, I'm just going to--\nit's going to be hard to\nfollow all the details,\nbut I just want to give you the\nkind of rough shape of this.\nActually, let me just skip out\nof this because this is probably\nnot-- you can follow this\nto trace through this\nwhen you study this afterwards.\nBut hopefully the\nrecurrence is clear.\nSo let me just quickly\ngo through this.\nAt each state, if you're\nnot at the end state,\nyou look at all the\npossible successors.\nSo these are these\nthings coming out.\nAnd then for each\nsuccessor, you recursively\ncall future solution,\nwhich gives you these.\nAnd then what I'm doing is\nI'm going to just choose\nthe best solution, which is\nthe one that has the smallest\ncost at each state.\nSo in the end, I got\nwalk, walk, walk,\nwhich has a cost of 3 as\nthe best solution here.\nAnd I explored nine\nstates as a result. OK.\nOK.\nThese numbers are out of date.\nI had five states before,\nbut now nonetheless,\nthe number of states\nexplored, nine,\nis larger than the total number\nof states, which is four.\nOK.\nWhich means that we are\nexploring some states\nmore than once.\nSo we'll come back\nto this later.\nAny questions about\nexhaustive search?\nYeah.\nI don't know how big\nthe recursion is.\nSo that would be--\ndoes that become an issue\nwith Stack Overflow.\nYeah.\nSo the question is, how long\nis the recursion going to be?\nSo it is basically the\nlength of your solution.\nAnd in the worst\ncase, it's infinite.\nBecause if you have cycles,\nthen you can go around.\nI'll come back to that\npoint a little bit later.\nBut for now, let's just\nassume that's not that bad.\nSo let's try some\nlarger problems here.\nSo let's try 10 locations\nif I do exhaustive search.\nSo remember, this is a question\nI asked like that is walk,\ntram, walk, tram the\noptimal solution?\nAnd it turns out to be yes.\nAnd that it got a cost\nof 6, which is optimal.\nIt turns out to be\nmultiple optimal solutions.\nYou could also walk,\nwalk, walk, walk, tram.\nThe minimum cost solution\ndoesn't have to be unique.\nBut the minimum cost,\nobviously, is unique.\nSo here's another\none, 17 locations now.\nNow you see the\nnumber explored states\nis growing quite fast right.\nAnd in fact, it is going to\ngrow in general exponentially\nwith the number of\nlocations you have.\nWhich means that\nthe time complexity\nof doing exhaustive search\nis, worst case, exponential\nin the number of states.\nSo this is a pretty bad news.\nBecause even if you have,\nlet's just say, 100 states, 100\nlocations, it's going to take,\nI don't know, the exact number,\nbut it's going to\nbe it's probably not\ngoing to terminate anytime soon.\nOK.\nSo that's kind of rough.\nWhat about the\nmemory complexity?\nSo the good news is that\nthe memory is linear\nin the length of the solution.\nAnd it's basically\nwhat you have to keep\ntrack of is, this is done sort\nof implicitly through the stack\nin the recurrence is where\nbasically the stack represents\nthe path that you took\nto a particular state.\nOK.\nSo now, coming back to\nthis earlier question.\nWe are assuming that\nwe can't have cycles,\nbecause what happens if\nyou can go from state A\nto B to C and back\nto A is that you'll\nnotice that this\nfunction, as I've written,\nwon't actually terminate.\nBecause eventually, when\nyou go back to A and then\nyou go to B, C, A. B, C, A, B,\nC, A, and it just never ends.\nWell, it ends when\nyou run out of memory,\nbut mathematically,\nit doesn't end.\nAnd it's also not well defined.\nSo next week, we'll see how\nvalue iteration for Markov\ndecision processes\nactually gets around this\nand allows for cycles.\nActually, I'll show you better.\nI'll show you Wednesday how\nyou can get around this as well\nwith uniform cost search.\nBut in the meantime,\nwhat you can do\nis we can-- here's a trick.\nYou can add the number\nof steps into the state.\nOK.\nSo this eliminates all cycles.\nBecause you're always\nmoving forward in time.\nSo if you go A to B\nto C to A, now that A\nis going to be\ndifferent because you've\ntaken a number of\ndifferent number of steps.\nSo that's how one way\nyou can break cycles.\nNow you have to--\nstill doesn't prevent\nthe infinite looping.\nYou have to separately\ndefine is n to be true\nwhen the number of steps\nexceeds some threshold.\nSo now you're counting steps.\nYou can say like after\n100 steps, that's it.\nNo more.\nAnd then you can define\nin let's say infinite cost\nif you're exceeding\nthe threshold just\nto say that those states\nare essentially no good.\nYeah.\nThe first solution that\nyou're supposed to get to\nis also beyond this threshold.\nIs there a way to\nset that threshold\nso that we know that we might\narrive at a better solution?\nYeah.\nSo the question is\nbasically how do\nyou set this threshold\nbecause it's possible\nthat the optimal solution\nmight be beyond this threshold.\nThere's no general\nanswer to this\nexcept for just\nlook at the problem\nand figure out what\nyou need to do.\nGenerally, when the costs are\nall positive, you can have--\nessentially, if you look\nat the number of states,\nI think that should be a\npretty good upper bound.\nI mean, it's probably\ncan be very loose.\nSometimes, if you\nhave negative costs,\nthe optimal answer is actually--\ntechnically, if you\nfind a negative cycle,\nyou just keep on going\naround and your cost\ngoes down and down and down.\nBut that's degenerate.\nIf you detect that, then you\njust return minus infinity.\nYeah.\nIs that function necessarily\nhave to define success?\nSo yeah.\nSo the question\nis the n function\nhave to also now\ndetermine whether it's\nsuccessful or failure?\nYes, morally.\nThe way I implemented\nthis, again,\nis a little bit of a\ntrick, where you say\nis n is just going\nto return Boolean.\nIs it true or false?\nAnd then I'm going to put it\non the successors function\nto say like if I'm entering\nan n that state that is bad,\nmeaning that I'm\nexceeding the threshold,\nthen I'm going to give a\ncost of infinite there.\nNow when you're doing the min--\nwe're always trying to find--\nremember, find the minimum cost\nsolution.\nSo infinity is not going to\nbe the minimum cost solution\nif there's another solution.\nSo I'm sort of like\nhacking the framework\nto incorporate all\nthese constraints.\nBut this is part\nof the game here\nis that the states cost\nframework is fairly flexible.\nIt's a kind of a\ngame to figure out\nhow to pack various\nconstraints into this.\nOK.\nSo this 237 is not great.\nAnd it's going to get worse.\nSo how can we improve on the\nefficiency of exhaustive search?\nAny ideas?\nYeah.\nMake comparisons for\nthe best results.\nAnd [INAUDIBLE] now\n[INAUDIBLE] this\ncould result in the best result.\nThe suggestion is to\ncompare the current result\nwith the previous result. Well,\nI mean, the current approach--\nlet's see.\nI mean, do that comparison\nwent through this minimum?\nSo I am trying to find the cost.\nSo there's a solution\nthat minimizes the cost.\nThis min is doing a comparison.\nSo any ideas?\nAny other ideas?\nYeah.\nLike a lookup table.\nSo before you compute\nthe feature cost,\nyou look at the table to\nsee if it's computed before.\nAnd if it is, then--\nYeah.\nSo the suggestion here is\nyou make a lookup table\nand you see if you've computed\nthe future cost for a given\nstate.\nAnd if you have, then\ndon't do it again.\nYeah.\nSo that's exactly what\nwe're going to do.\nAnd the term for this is\ncalled dynamic programming.\nAnd the term, you\nmight find it strange,\nbut it comes from actually\nthe '50s, Richard Bellman,\nwho pioneered, defined\nMarkov decision processes,\nwhich we'll look at next\nweek, introduced this term.\nAnd the word dynamic means that\nit's sequential decision making,\nmultiple actions over time.\nIt's dynamic.\nThere's a temporal aspect to it.\nAnd programming just\nmeans optimization.\nYou're trying to find the\nminimum cost solution,\nfor example.\nOK.\nProgramming doesn't\nmean you're Python.\nThere's many ways to talk\nabout dynamic programming\nthe way I'm going to\nintroduce it, which\nis to have the minimum change\nfrom what we've already done,\nis essentially I\nthink about as just\nexhaustive search plus caching.\nAnd this is also\nknown in some circles,\nit's called memoization.\nAnd recall that backtracking\nsearch or exhaustive search\nexplores some states\nmore than once.\nAnd dynamic programming\nsays, well, if you already\nsaw a state, don't do it again.\nOK.\nSo here's what\nwe're going to do.\nIt's going to be--\nthe dynamic program\nfunction is going to be\nidentical to exhaustive search,\nexcept for I'm going to\nintroduce three lines of code,\nI think.\nOK.\nThey're going to be marked new.\nSo the first thing is\nwe're going to cache\nsolutions for each state.\nSo for each state, I'm\ngoing to cache the solution\nthat we've computed so far.\nAnd then in this recurrence,\nthe first thing I'm going to do\nis check if the state\nis already in the cache.\nAnd if it's already in the\ncache, then I just return it.\nAnd the second thing or the,\nI guess, the third change\nis down here is after I\ncomputed the best solution,\nI'm just going to cache it.\nEverything else, all\nof this is identical.\nIf you don't believe me,\nyou can do a diff yourself.\nOK.\nSo again, the three changes,\nintroduce the cache,\ncheck if there's a cache.\nIf there's a state is on a\ncache, and then at the end,\nput it in the cache\nif it's not there.\nOK.\nActually, this design\npattern is so prevalent\nthat you can even write Python\ndecorator that says at memoize,\nand it will wrap your\nfunction and memoize it.\nBut we didn't do that just\nto make it more transparent.\nOK.\nSo I ran this.\nAnd at the end, you can see\nwhat the cache looks like.\nIt has, for every state,\nthe future action.\nSo this is actually kind of\nnice because not only did you\nsolve the problem\nfor the start state,\nbut you can look at all the\nsolutions, the future solutions\nfrom every state.\nSo for one, remember\nthe cost is six.\nFrom two, it's five.\nFrom three, you\nwalk, walk, tram.\nFrom five, it's just\ntaking the tram.\nEven from six, it's\nwalk, walk, walk.\nAnd I guess, the\nrest of the way,\nit's walking because\notherwise, you overshoot.\nOK.\nYeah.\nSo it's best solution.\nYes.\nThe cache store is the best\nsolution from each state.\nWhere does it make\nthat comparison?\nSo the question is where\ndid it make the comparison\nto know that it's\nthe best solution?\nSo if you remember,\nthis is inherited\nfrom the exhaustive search.\nSo here, I'm looking at\nall possible successors.\nAnd I'm accumulating\nall the solutions.\nAnd here, I do the\nminimum by key.\nSo here, for every solution,\nI'm taking its cost\nand just taking the minimum.\nSo this is one way\nto write it, I think,\nwhich is a bit more functional.\nYou could have also written it.\nYou loop over, and you do\nthe explicit like less--\nif cost is less than the\nbest so far, then update\nthat, which is a bit more\nprocedural way of doing this.\nThis I find a little\nbit more elegant,\nbut it's the same thing.\nOK.\nAre we good with\ndynamic programming?\nSo let's try some\nlarger problems now.\nSo now, I have 17.\nNow the number\nexplored states should\nbe identical to the number\nof actual states here.\nBecause I'm not exploring\na state more than once,\nI can go up to 100 now and\nI can compute it for 100.\nSo let's just look\nat the solution.\nSo it's walk, walk, tram,\ntram, tram, walk, tram, tram.\nOK.\nSo it kind of makes sense.\nOne thing that's actually\nkind of fun about these search\nproblems is that you can\ndefine these problems.\nAnd then you look\nat the solution.\nAnd intuitively, you can see\nwhat you're supposed to do.\nLike you kind of want to get in\nposition to take these trams so\nthat you hop by powers of 2,\nbut you don't want to overshoot.\nSo then you have to line\nup exactly where it is.\nBut in general, you can think\nabout this as a fairly difficult\nreasoning problem, and you\nhave to think through all\nthe different possibilities.\nSo one of the things actually\nis nice is that you can just\nsolve these problems and\nyou look at the solution\nand you look at\nit, it's like, oh,\nthat's kind of clever because it\nmight not be as obvious as just\nlike doing a bunch of walks\nand then taking the tram.\nOK.\nSo let's discuss when would you\nwant to use dynamic programming.\nHopefully, I've solved\nthe dynamic programming\nis like, oh, wow, exponential\nimprovement in time complexity.\nThat's great.\nSo not quite so fast.\nThere's some caveats here.\nOne fact about\nlife is that memory\nis more precious than time.\nWell, life meaning\ncomputer life, I guess.\nYou can always run a program for\nlonger, but memory doesn't grow.\nSo if you want to run\ndynamic programming,\nit's going to take memory\na total number of states.\nAnd your computer is only\nhas so much memory in it.\nAnd once you fill\nit up, then you just\ncan't run dynamic\nprogramming at all.\nI mean, you can do\nthings write to disk,\nbut that gets really slow and\nyou don't want to do that.\nOK.\nSo that's when you can then\nuse dynamic programming is\nwhen the number of\nstates is actually fits.\nSo if your number of\nstates is like a trillion,\nprobably it's not\ngoing to shouldn't\ndo dynamic programming.\nOK.\nNow the question is that you\ncan do dynamic programming,\nwhen does it actually provide\nspeedups over exhaustive search?\nAnd the intuition here\nis that it's useful\nwhen essentially there's a lot\nof ways to reach a given state.\nIf every action takes\nyou to a new state,\nthen you might as well\ndo exhaustive search,\nbecause essentially,\nthe cache is always\nyou're going to\nhave a cache miss.\nSo maybe I'll just\ndraw two pictures here.\nIf your situation\nlooks like that,\nwhere you have your start\nstate, and then basically all\nyour solutions look like this.\nThey're all independent.\nThen should you do\ndynamic programming here?\nNo.\nright?\nWhereas if you have your--\nlet's say you have\nyour state and then--\nso typically, you\nmight see these kind\nof lattice patterns,\nwhere at each state,\nyou can essentially\ngo like this,\nthen you should use\ndynamic programming here\nbecause the total number of\nstates is essentially linear.\nBut the number of paths\nthrough this is exponential.\nOK.\nSo there are many\nways to reach a state.\nThat means dynamic programming\nis going to have leverage.\nSo unfortunately,\na lot of problems\nactually do look like this.\nLater, we'll see that if you\ngenerate from a language model,\nessentially it kind of looks\nlike that because every sequence\nis kind of unique.\nWe'll come back to that later.\nOK.\nSo dynamic programming is just\nexhaustive search plus caching.\nAnd remember, exhaustive\nsearch, the key idea\nis future cost, which\ndefines its recurrence\nand allows you to break down\na problem into subproblems.\nAnd then you should\nuse dynamic programming\nwhen the number of\nstates fits in memory.\nAnd there's a lot of ways\nto go between states.\nYeah.\nSo [INAUDIBLE] the\nmemory complexity\nlike exhaustive search\nwas linear to [INAUDIBLE]\nthe solution.\n[INAUDIBLE] program is linear\nto the size of the state.\nThen, if those two\nare both linear,\nhow much efficiency is there?\nSo just to repeat.\nSo the memory complexity\nof exhaustive search\nis essentially the length\nof the longest solution.\nAnd the memory complexity\nof dynamic programming\nis the number of states.\nAnd so the question is\nif both are linear, then\nwhat is the speed advantage?\nIf both are linear,\nyou probably should--\nwhich is the case I\nthink in these cases,\nthen you should use\ndynamic programming\nbecause linear in memory means\nthat dynamic programming is\nessentially going to be linear\nor maybe quadratic time.\nWhereas exhaustive search can\nbe exponential time still.\nSo let's move on.\nSo, so far, we've computed the\nexact minimum cost solution.\nAnd the time complexity is at\nleast the number of states.\nIf you're doing\ndynamic programming,\nit's the number of states.\nIf you're doing\nexhaustive search,\nit could be exponential in that.\nSo large number.\nSo what if the state contains\nthe set of locations?\nSo remember, the state\nis the information\nyou need to be able to assess\nthe validity of the solution\nor even determine what\nthe cost and actions are.\nAnd sometimes you need to\nstore the set of location.\nIf you need to\nremember all the places\nyou've been so far, so you\ndon't repeat the location\nor something.\nThere's also, what if this\nwas a sequence of words\ngenerated so far?\nThere's a lot of\nsequences of words.\nSo you're not going\nto cache all of them.\nSo in that case, exact search\nis going to be intractable.\nAnd so now, we have to\nmove to approximate search.\nAnd the key idea is that we're\njust going to heuristically look\nat a subset of the actions.\nAnd as a result, we\nmight miss something.\nBut oh, well, we can't\ndo anything about it.\nThere's no guarantees here.\nSo this is now we're entering\nthe realm of just heuristics.\nBut often, these heuristics\ncan work well in practice.\nYour mileage will depend on\nyour exact problem setting.\nSo I'm going to look at two\nalgorithms, best of n and beam\nsearch.\nOK.\nSo these are going to be\nfairly simple ideas here.\nSo the simplest idea is to\njust choose random actions\nuntil we reach the end state.\nDo this n times and\ntake the best solution.\nThat's best of n.\nYou might have heard\nbest of n somewhere\nand it's like, oh, what\nis that fancy algorithm.\nNo, that's it.\nOK.\nSo let's do this example here.\nTravel problem\nwith 10 locations.\nI'm going to take\nthis opportunity\nto define some forward\nlooking terminology.\nSo a policy is a function that\nmaps a state to an action.\nIt can be deterministic.\nIt can be random.\nOK.\nWe usually see policies\nin reinforcement learning.\nBut we can actually talk about\npolicies in search as well.\nBecause search is actually going\nto be a special case of Markov\ndecision processes, which\nare the thing that you\ndo in reinforcement learning.\nOK.\nSo a policy map\nstates to action.\nSo let's start at say one.\nAnd let's define\na uniform policy,\nwhich is one particular policy.\nWhat it does is\ngiven a state, it\nlooks at the\npossible successors.\nAnd it just chooses one\nuniformly at random.\nOK.\nPretty simple.\nAnd so every time\nyou call it, you\nmight get a different answer.\nSo sometimes you get walk,\nsometimes you get tram.\nHopefully, you get\nroughly half and half.\nSo that's a policy.\nNow we can apply a policy from\nthe start state to an end state\nto get a solution.\nAnd that's what I'm\ngoing to call a rollout.\nAgain, borrowing terminology\nfrom reinforcement learning.\nOK.\nSo a rollout, you start at state\nwhile we're not at the end.\nAnd I also have this capped\nso that it just in case you\ninfinite loop or something.\nI'm going to take a step\naccording to the policy.\nAnd I'm going to just\nkeep track of the steps.\nAnd I'm going to\nadvance the state.\nSo I took this step.\nNow state is going to be 2.\nAnd so as I go through this,\nI'm going to take the tram,\ntake the tram, take walk, walk.\nOK.\nSo now I'm at the end.\nAnd now I have this solution\nwhich is that has sampled,\nwhich is tram, tram, tram,\nwalk, walk, has cost of 8.\nOK.\nI'm going to roll it out again.\nNow, it has 6.\nOK.\nI guess, I got lucky and it\ngot the minimum cost solution.\nRoll out again.\nLess lucky, I get a 9.\nOK.\nSo you get the idea.\nI just roll out a bunch of\nsolutions randomly trying\nactions, and then I'm just\ngoing to take the best one.\nAnd this is captured\nin this best\nof n function, which\nessentially just\nroll, does a bunch of rollouts.\nJust roll out, roll out,\nroll out, roll out, roll out.\nLet's jump here.\nAnd then I'm going to just\nchoose the best solution, which\nhas cost 6.\nOK.\nSo the guarantee here is\nthat as n goes to infinity,\nso the number of\nrollouts you do,\nthe solution will actually\nconverge to the minimum cost\nsolution, assuming\nyour policy tries\nhas positive probability\non all the actions.\nSo this is kind\nof nice because it\nsays there is a way to get\nto the minimum cost solution.\nNow, the bad news is that this\ncould take exponentially long.\nSo n might have to be like\ncentillion or something.\nOK.\nThe other nice thing\nabout best of n\nis that it is\nembarrassingly parallel.\nSo if you have 1,000 machines,\nyou can just go farm out\nyour search to each\nof the 1,000 machines.\nThey don't have to\ntalk to each other,\nthey just explore independently.\nAnd at the end of the\nday, you gather all the--\nyou see which one has\nfound the best solution.\nSo it's simplicity, and\nthe parallelism is actually\nwhy we actually talk about it.\nAnd it's not as bad\nas it might seem.\nAlso, if the policy is\ninformed, then it actually\ncan be pretty reasonable.\nRight now, the policy\nis just choosing actions\nat random, which is\nprobably not the best.\nBut later, we'll see,\nyou can define the policy\nto be a language model, which\nactually is pretty informed.\nAnd then best of n is\na pretty good baseline.\nSo because of this,\n[INAUDIBLE] make it [INAUDIBLE]\nto make it a parallel.\nSo it is [INAUDIBLE]\nfaster for you.\nSo you cut the length\nto make it parallels.\n[INAUDIBLE] 15 to 1 in parallel.\nYou can use other tools,\nbut not a lot of time.\nSo yeah.\nSo the idea is of\nbest of n is parallel.\nFrom the starting\nstate, you just\nroll out multiple\ntrajectories to the end\nand you just take the best.\nOK.\nAny other questions\nabout best event?\nYeah.\nWhat I assume that\neach of the [INAUDIBLE]\ndifferent types is complete.\nSo if we try to parallelize it,\nis there synchronization issues\nSo the observation is\nthat different paths are\ngoing to be different lengths.\nAnd are there any\nsynchronization issues?\nThere's no\nsynchronization issues\nbecause a worker that's\nrolling out if it ends early,\nit'll just go on to the\nnext one and try it again.\nThey don't have to\ncommunicate with each other.\nYeah.\nIt's going to be\nactually-- the point\nmight be more relevant\nfor beam search.\nSo hold on to that thought.\nSo let's talk about\nbeam search here.\nHow many of you have\nseen beam search before?\nOK.\nOnly a small number of you.\nOK.\nSo the idea is not\ntoo complicated.\nSo the essence of\nalgorithm is I'm\ngoing to keep track of a set of\nbeam width, which is a number,\nlet's say, 100\nsolutions from that\ncome from the starting state.\nI'm going to consider all\npossible actions from each\nof these partial solutions,\nevaluate their cost,\nand then keep the beam width.\nOK.\nSo the term beam comes from--\nwell, the analogy\nis like you have\nyou're in the driving in the\ndark and you have your beam.\nAnd that's basically\nwhat you see.\nSo as you advance the car,\nyour beam kind of shifts.\nBut it's only narrow right.\nExhaustive search is that--\nI guess, I don't\nknow, it's daytime\nor you have light everywhere\nand you see everything.\nBut when you're\ndriving in the dark,\nyou only see a little\nbit in front of you.\nOK.\nSo let me-- before\nI go into the code,\nI want to just\nmaybe draw a picture\nto give you the outlines\nof what this looks like.\nOK.\nSo the idea is you have\nyour start starting state\nand then you start\nby considering,\nlet's say, your beam width is 2.\nThat means you're going to\nonly keep track of two things.\nIf beam width were 1, that would\njust be the greedy algorithm.\nSo you start, and maybe\nthere's three actions.\nOK.\nSo you consider\nthese three actions.\nWell, three is greater than\ntwo, so one of them has to go.\nSo maybe this has a\ncost of 5, 2, and 3.\nYou're trying to find\nthe minimum cost path.\nSo you say, sorry, we\nkind of keep track of you.\nWe have a budget.\nThen you move on to these and\nyou consider possible actions\nfrom here.\nSo now, you have six different\ncandidates to choose from.\nAnd you're going\nto evaluate them.\nAnd then you're going\nto choose the best two.\nActually, let me just leave\nthis there for concreteness.\nAnd let me just X out that.\nOK.\nSo you're going to\ntake the top two.\nSo maybe it's this\none and this one.\nOK.\nSo then you cross that out.\nAnd then now two\nsurvive at every step.\nAnd now you're going to\ntry different actions.\nMaybe have four this time.\nAnd then you take\nthe top two, and then\ncross out the ones that don't\nsurvive and so on and so forth.\nOK.\nSo this is a schematic of\nwhat beam search is doing.\nAnd at the end, you basically\nhave two trajectories,\npaths through this\nto this graph,\nwhich then you take the best\none and you return that.\nYeah.\nNow [INAUDIBLE] one\nreaches the end earlier.\nOK.\nSo now you bring up the\nsynchronization thing.\nSo suppose that this is an\nend, this is an end state.\nSo now but this\none hasn't ended.\nSo you're just going to\ncontinue marching along.\nIn the implementation\nI show, we're\njust going to hold on to that.\nWe just pass this along.\nWe don't expand it\nanymore, but we just\nkeep it in the candidate list.\nSo let's look at\nthe code for this.\nOh, yeah.\nWhat are the nodes that\ndo that for a [INAUDIBLE]\nSo a question is, what\nhappens when nodes loop back\nor you end up in\ninfinite cycles?\nYou can.\nWhat we're going to\ndo is we're going\nto have a max steps that\nallows you to essentially--\nyou can start\nlooping, but you we're\nonly allowing you to\ndo it for 10 steps.\nOK.\nSo beam search, I'm going\nto start with this variable\ncalled candidates.\nAnd this is at every\niteration of the algorithm,\nI'm going to keep track\nof a list of solutions.\nAnd these are partial solutions\nthat go from the start state\nto the current step to\nsome state, I guess.\nOK.\nSo I'm going to take a number\nof steps, max steps forward.\nSo every solution has\nto complete a max steps.\nOtherwise, we're just\nnot going to consider it.\nOK.\nSo I'm going to build up\na new set of candidates.\nSo this is suppose I'm here.\nSo candidates.\nAnd this is going\nto be new candidate.\nSo I'm at a particular point.\nI want to build the next\ngeneration, so to speak.\nSo for each of the\nexisting candidates,\nI get the last state.\nAnd I'm going to check,\nis it at the end?\nIf it is, then I\njust keep it there.\nOtherwise, I'm going to try\nall the possible successors.\nAnd all I do is just append\nthe current candidate\nsteps with the successor step.\nOK.\nSo I do this for\nall the candidates.\nLet's see.\nThis does get a little bit--\nOK.\nSo in this case, in the tram\nproblem, new candidates.\nI have two candidates,\none is walk, one is tram.\nAnd then I look at this.\nI sort the candidates by cost,\nwhich is going to be walk, tram.\nAnd then I'm going to prune.\nHere, the beam width\nis, I believe, it was 2.\nAnd I had two candidates,\nso nothing gets chopped off.\nSo I'm going to continue.\nSo now I'm step one.\nMy candidates include these two.\nAnd I'm going to\nconsider new candidates.\nI'm just going to jump here.\nSo now I have a number,\nfour candidates.\nAnd with cost 2, 3, 3, 4.\nAnd I'm going to sort\nand I'm going to prune.\nSo I only keep the two\ncandidates with lowest cost,\n2 and 3.\nAnd I sort of broken ties a\nlittle bit arbitrarily here.\nOK.\nSo you hopefully,\nyou get the idea.\nSo I step, step, step.\nAnd at each point in time,\nI only have two candidates.\nAnd this one has\ngone to stage 6.\nThis one has gone to stage 10.\nOK.\nSo at the end of the\nday, my candidates,\nI have one with cost 6, one with\ncost 9, that make it to the end.\nAnd then I'm just going\nto return the best.\nSo candidate zero\nis the best one.\nSo one side effect\nof beam search\nis that you not only get the\nminimum cost path, but you get--\nor rather, you get\nan approximation\nof a minimum cost path.\nYou also get an approximation of\na second best and the third best\nup to the number of beam.\nSo you can get a little bit of\nsense of the alternatives here.\nAny questions about beam search?\nYeah.\nI guess, also related\nto the same thing\nagain, when you complete\na path, does that count\nas one of your beams ending,\nor do you regain that.\nSo say, we had two.\nOne of those threads\nterminates at the n step.\nNow does my other\nthread get two?\nSo the question\nis this one ended.\nAnd suppose, I\nhave two more here.\nBeam width is 2.\nSo do I keep--\nbasically, is this one\nof them and the others?\nIn this implementation,\nthis would get x out.\nIf you want, yeah, it doesn't\nreally matter that much.\nI mean, you could\ngive special cases\nand say, well, let's just\nput it off to the side.\nBut typically, you\ncan just add it.\nBecause that allows you\nto automatically compare\nthis with others.\nBecause just because it finished\ndoesn't mean it's better.\nYou might actually still\nwant to throw this out.\nOK.\nAny other questions\nabout beam search?\nYeah.\nWhat's a good beam width?\n10.\nNo, I mean, the honest\nanswer, I mean, it depends\non your problem, your budget.\nI mean, I've seen anything\nfrom 2 to 3, to 1,000.\nSo it really, I guess, depends.\nBut on the order of 10, I\nthink, is actually reasonable,\nat least in language settings.\nBeam search is also related to\nparticle filtering, for tracking\nand probabilistic models.\nAnd there, you can\nget, thousands of--\nequivalently,\nthousands of particles.\nYeah.\nIn the example where\nwe get to an end state\nwith a certain cost, and\nif the [INAUDIBLE] arrive\nas an even higher cost, that\nis intended to just stop,\n[INAUDIBLE] doing any better.\nSo I think the question\nis, if you got here\nand you got like a cost of\n6, and this is already 8,\nso then you just\nget rid of that.\nSo that's a good question.\nSo if all your costs\nare non-negative,\nthen you can just stop there.\nAnd you can prune early.\nIn general, you might\nnot have negative--\nyou might have negative costs,\nin which case you can't.\nBecause this, you might drop\nthat down to four later.\nYeah.\nSo it depends on your problem.\nOK.\nJust a few notes\nabout beam search.\nSo like I said before,\nif beam search is 1, then\nthis is also called\ngreedy search.\nAs beam width goes to\ninfinity, then beam search\nbecomes exhaustive search.\nYou're getting every--\nyou're basically not\nthrowing anything away.\nThis is a bad idea\nbecause not only\nare you doing exhaustive\nsearch, but you're also\nscaling the memory,\nexponentially, as well.\nTerrible idea.\nBeam search is deterministic,\nwhereas best of n is not.\nThat's stochastic.\nThere is also alluded to\nstochastic version called\nparticle filtering,\nwhich I'm not\nsure we'll get to in this class,\nbut feel free to look it up.\nBest of n incorporates\na policy as a prior.\nBeam search just\nuses a cost directly.\nSo depending on if you have a\ngood policy to guide the search,\nyou can use best of n.\nOtherwise, if you don't,\nthen you can use beam search.\nParticle filtering also allows\nyou to have a policy as a prior.\nSo best of n is\ngenerally simpler\nand more parallelizable\nthan beam search.\nSo anyway, those\nare some reasons.\nBoth are used pretty commonly.\nSo it depends on what\nyou're trying to do.\nOK.\nSo a final example is I'm\ngoing to talk about test time\ncompute in language model.\nSo this is going to be\nan exercise in showing\nhow much more real\nworld setting can\nbe adapted to the\nsearch problems\nthat we've been talking about.\nThere is a bit more\ncomplexity here\nbecause you have to do\nsome shenanigans to get\nHugging Face language\nmodels to behave,\nbut hopefully it\nwon't be too bad.\nSo remember, a language\nmodel is in the language\nof multi-class classification.\nIt's just a multi-class\nclassification probabilistic\nclassifier that takes\nas input, a prompt,\nand gives you a distribution\nover the next token.\nSo you can think about the next\ntoken as the set of classes.\nThere just happens to be\nprobably 100,000 classes.\nBut mathematically, it's\nexactly the same thing\nthat we saw last week.\nSometimes, you have\na verifier that\ntakes a response and a prompt,\nI guess, and returns a Boolean.\nDoes this response\nis correct or not?\nSo a typical setup\nhere is that the prompt\nis like a math problem.\nYour language model is going to\ngenerate a solution to that math\nproblem.\nAnd then you have\na verifier that\nchecks whether that\nsolution was correct or not.\nOK.\nAnd your goal is to\nproduce a response that\npasses the verifier and also is\nlikely under the language model.\nSo the idea of test time\ncompute, which I mean,\nhas been around\nfor a while, but I\nthink it really got\npopularized in the public eye\ndue to OpenAI's o1 series,\nis instead of just sampling\none answer, in general,\nlet's try to expand more\ncompute to get a better answer.\nSo a very simple way to do\nthis is best event sampling.\nNow I think most people when\nthey think test time compute,\nthey think chain of\nthought and other things.\nThat's absolutely one way to go.\nBut best of n is\nactually a pretty--\nit's a thing that people\nactually do a lot.\nThere's this paper\nof many papers, which\nshows that best event\nsampling actually\nworks surprisingly well.\nSo you can use a small model,\ndo best event sampling a lot.\nAnd you can then--\nthat's competitive with\na much larger model.\nOK.\nSo let's cast this\nas a search problem.\nSo to define a search problem.\nRemember, we have to define what\nthe states and actions and costs\nare.\nSo the state is going\nto be a string, which\nis the prompt that was given,\nplus the prefix of the response\nthat we've generated so far.\nThe action is going to be\npredict the next token.\nAnd the cost is going\nto be the negative log\nprobability of the next token.\nSo because we want to minimize\ncost, that's going to be--\nwe want that to be equivalent\nto maximizing probability.\nAnd then if there's a verifier,\nI'm going to use this hack\nand say, well, I get\na free minus 100 cost\nif the verifier succeeds OK.\nSo this is an example with\na very, very small model\nthat runs on my laptop.\nSo we're not going to do\nanything too crazy here.\nSo I've taken, define a\nlanguage model search problem.\nThe prompt is parentheses\n3 plus 7 times.\nAnd all this does is I'm going\nto use the Qwen3 0.6 billion\nparameter language model.\nI'm going to define a tokenizer.\nAnd load a model\nfrom Hugging Face.\nSo we have to, first,\ndefine what a policy is.\nTo use best of n, you\nneed some sort of policy.\nWe're going to use a\nlanguage model policy.\nAnd the start state is just\ngoing to be the prompt.\nAnd what the policy does is it\ngenerates a bunch of successors.\nOK.\nSo let's look at what\nsuccessors looks like.\nThis is inside the\nproblem statement.\nI'm going to convert that\nstate into a set of tokens.\nThis is because a\nlanguage model speak\nin tokens, which are\nintegers, rather than strings.\nI'm going to compute\nthe probabilities.\nI'm going to skip all the\ndetails here, but you can read.\nThis is hopefully a connection\nto the previous lecture.\nWe're used to doing\nthings like softmax.\nI'm going to just take\nthe top k probability.\nSo these are the probabilities.\nThese are the token indices.\nAnd then I'm going\nto build a successor\nfor each of these tokens.\nSo I have an action\nwith a particular cost\nminus the logprob.\nAnd then the new state\nis going to be whatever.\nSo this, I think, all\nthis says is out of space.\nAnd then if it's a\ncomplete sentence,\nand it contains a\nnumber, then I'm\ngoing to give you a\nplus, minus 100 bonus.\nSo once all is done, I\nhave a bunch of successors.\nSo one successor\njust added a space.\nThis one added a space\nparen, x, square root, a.\nAnd you see the cost of these.\nNothing has produce\na valid sentence.\nSo I don't get the\nminus 100 bonus.\nOK.\nSo those are the successors.\nAnd if I take the cost and I\nconvert them into probabilities,\nI can sample from this\nprobability distribution,\nand I get return a\nparticular successor.\nSo this is a language\nmodel policy.\nIt's generated these\nsuccessors, take the cost,\ncompute the probabilities,\nand sample according\nto that probabilities.\nAnd I get a\nparticular successor.\nOK.\nSo that's one step.\nAll right.\nSo now, I can do best of n.\nAnd best of n, remember\njust runs the LLM policy\nusing this rollout.\nSo rollout once.\nSo each step in the rollout\nis appending a new token.\nSo I have space.\nI have two.\nAnd I have closing parentheses.\nAnd because this is a\nwell-formed expression,\nI get minus 100.\nAnd so remember,\nlow cost is good.\nSo that's one solution.\nIf I look at all the possible\nsolutions, I have this.\nI have this.\nThey often can be duplicates\nbecause again, you're\nsampling independently.\nSo there's some\nchance you're going\nto hit the same high\nprobability solutions.\nBut sometimes, I get a five.\nSometimes, I get a five.\nOK.\nSo in this case,\nI'm going to choose\nthe best solution which is\ngoing to be 3 plus 7 times 2.\nOK.\nSo I chose this solution.\nAnd that's the result\nof best of n sampling.\nOK.\nSo in practice,\nyou wouldn't want\nto implement things this way.\nYou would do a lot of tricks\nto speed up inference,\nbut this is just an\nillustrative example\nof how I think we're\nconnecting the very\nclassic search with more\nmodern language models.\nOK.\nSo just to summarize, we've\nintroduced search problems,\nwhich formally defines the\nstates actions and costs, where\nobjective is to find a solution,\nwhich is a sequence of actions\nthat minimizes the total cost.\nWe looked at a bunch of\ndifferent algorithms.\nIf you're really particular\nand want exact solutions,\nyou can do exhaustive\nsearch, but that\nis generally exponential time.\nYou can do caching, which gives\nyou dynamic programming, which\ncan give you exponential\nfast speedups,\nbut you have to fit the\nnumber of states into memory.\nAnd then we also have best of\nn, which is like throwing darts\nin parallel, or\nbeam search, which\nis like that car beam\nwhich allows you to find,\nhopefully, good solutions.\nBut both of these are heuristic\nand sometimes they might fail,\nand you have to just\nbe aware of that.\nAgain, the synergy between\nsearch and learning, I think,\nis rather interesting.\nSo you can think about the\ncost are learned from data.\nSo the cost in the\nlanguage model example\nwere the language model\nprobabilities, which\nis obviously all kind\nof machine learning,\nsupervised learning on\nlarge amounts of data.\nAnd then the idea of\nsearch, where it plugs in\nis you're trying to find the\nbest solution given these costs.\nAnd I think this is generally a\npretty good recipe for building\nkind of robust systems in AI.\nNext time, we're\ngoing to revisit what\nhappens when there are cycles.\nThis time, we just said, well,\nlook at a max number of steps\nand just give up.\nBut there's actually going to\nbe some nice things you can do.\nAnd we'll see that on Wednesday.\nOK.",
+  "segments": [
+    {
+      "text": "All right. Let's begin. So last week, we talked about machine learning. And just recall, the learning algorithm is something that takes training data, which is input/output pairs and returns a predictor. And the predictor is the thing you go out",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "into the real world, which takes inputs' and outputs' outputs. And for regression, that output is a number. For classification, that output is one of k options or a class, or a label. So that's what we did in machine learning. Now, if you go back",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "to the first lecture, recall the ingredients of intelligence. We have perception, reasoning, action, and learning. So a predictor really covers this latter bottom part. So it's basically reflexively mapping percepts to actions. And we're learning",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "this mapping directly. So if you think about the neural nets that we were learning, even if it's deep, it's probably-- it's feedforward and it's fast. Now many problems in the real world do require reasoning thinking, problem solving, planning.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "These are all related concepts. If you want to solve a hard math problem or solve a big, hard programming challenge, these clearly are not reflexive operations you should look at it, and then you output the answer. So this week's lecture is",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "going to be about search. Search is one form of this type of reasoning when the world is deterministic. So as a few concrete examples, finding a sequence of moves to solve a Rubik's cube. I guess, if you're a Rubik's cube expert, maybe this is reflex for",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "you, but for most people, this requires a fair amount of search and problem solving, or finding the shortest path from point A to point B. This is going to be something that you explore in your homework. This is something that requires planning.",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "You have to figure out your route, and then you go down the route, rather than just looking at where you are and just making a spontaneous decision. So now you might wonder, OK, it's 2025, why are we talking about search? Because wasn't the point that",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "symbolic AI actually started in 1950s and they were all about search, how you can solve checkers, general problem solving, and so on. And that didn't really pan out. So why are we bothering with this? Shouldn't we just go all in on deep learning?",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "So is it relevant today? So I want to pull a quote from this famous essay by Rich Sutton, which is a Turing Award winner, developed a lot of the foundations of reinforcement learning called the Bitter lesson, which I think has become",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "a little bit of a folklore. It's a short essay. You guys should go read it. It has some, I think, useful per perspectives. And in the essay, basically it says that \"general methods that leverage computation are ultimately the most effective,",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "and by a large margin.\" So a really rich is pushing back against doing a lot of handcrafting priors, because once you have general methods and you have compute, then it sort of washes away any sort of prior knowledge. Now, I mean, that's true in some limit.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "There's obviously a time and place for prior knowledge as well. But putting that aside, he also says that the two methods that seem to scale arbitrarily in this way are search and learning. OK. So he calls out search and learning are really",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "these pillars that if you believe in the bitter lesson, are the things that you should pay attention to. And that's why we're talking about search. So search is increasingly important. Think about test time compute and language models, which",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "we'll touch on in a bit later. These are cases where you actually just need to do a bunch of compute at test time. And you need to organize that compute somehow. The only thing is that search alone, the point from the '50s, that search alone cannot do this.",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "You also need to learn learning. But now, the last decade has told us how to do learning and now we have really powerful models. And if you can couple them with search, which people are starting to do more, then you have a really powerful combination.",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "And you can tackle some of the most challenging problems. OK. So that's the motivation. Feel free to interrupt or ask questions. Yeah. What is search? Great question. I'm going to define it more narrowly. The rest of this lecture is going",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "to be about more of the nuts and bolts and how you do search. And hopefully, it'll become clear. So let's formalize search using this abstraction called a search problem. So we'll do this through example. So these are going to be fairly toy simple examples.",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "And so the first example is this. So imagine, you have a street with blocks numbered 1 through n. So n is 6 here. So each of these is a grid lines as a block. And walking from block i to block i plus 1 takes one minute. Or you have this magic tram that you",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "can take from-- that goes from i to 2 times i, and it takes two minutes. So the question is, how do you travel from 1 to n, which is 6 in the least amount of time? Now some of you are probably already solving this and thinking about strategies.",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "I want you to actually stop doing that. Because that's not the point of a search problem. The point of a search problem is to formalize, convert this natural language description into code so that you can have a general method that can solve these problems.",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "Again, remember, the Bitter lesson. We want general techniques that can solve any search problem that you kind of have it. OK. I mean, if you solve it too, that's great for you. But we're going to have algorithms that solve this. And we'll see if you're right.",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "OK. So we're going to define a search problem. This is going to be parameterized by the number of locations, n. And the problem is going to have a start state. So the start state is this member of the search problem that tells you what state you start at.",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "So the state that you start out is 1. And the problem also has a function called successors, which you pass in any given state. And it tells you where you can go, essentially. And so let's look at this. OK. So one thing you can do is you can walk. OK.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "So you're at a particular state, 1. So you can take the action which is walk. It cost 1. So one minute, I'm translating cost to be time here. And then where do you end up, you get dumped into state plus 1. So you go from i to i plus 1.",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "And this check is just to make sure you don't walk off the face of the Earth. It's you. The world stops at some locations. OK. So you can also take a tram. So here, the action is tram. The cost is 2. It takes two minutes to take this tram. And you end up in",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "state 2 times state. OK. So successors is the list of possible steps. So a step consists-- each step consists of the action, which is just a label, the cost of that action, and where do you get dumped into, the next state. So in this case, both walking",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "and tram takes you to stay 2. But in general, they obviously will do different things. So we have start state. We have successors. And the final function that is part of the problem formulation is the function is end. So the is end takes",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "arbitrary state and returns whether you've reached the destination and the search is done. So here, we're just checking, did you get to the number of locations or not? And in this case, the answer is obviously false because we just started. OK.",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "So in general search problem has the following components. You have a start state, that returns initial state, successors, that specifies what you can do, which includes the actions, their costs, the resulting states that you end up in.",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "And finally, we have is end, which takes a state and returns whether state is an end state. Any questions about what a search problem is? OK. So now, given a search problem, what are we trying to do? The objective is to find a solution, which",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "is a sequence of actions that minimizes the total cost. So here's a possible solution for n equals 10. So you walk to state 2, you take the transit state 4. You walk to state 5, you take the tram to state 10. OK. And this solution has cost 6 because that's",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "1 plus 2 plus 1 plus 2 is 6. OK. So this is one possible solution. There are many other solutions. You can walk all the way to 10. That would be a cost of 10. And is this the best solution? How many of you think this is the best solution?",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "How many of you don't think this is not the best solution? OK. Well, evenly split. So we will see. OK. So remember, it doesn't matter. We're going to be lazy and have the algorithm solve it for us. So you don't have to work that hard. The thing you have",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "to get is make sure that your search problem is defined properly. And then you're good to go. OK. So let's do a slightly more complicated example to just show you what states are really about. So suppose the magic tram requires tickets. And we only have a",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "fixed number of tickets. And of course, this tram is probably in high demand. So we're not going to let anyone just get on the tram. So how do we change the search problem to incorporate this constraint? So let's see, what can we do here?",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "So the state so far just captures where we are, the current location. OK. But we also need to keep track of the number of tickets we have. So what we're going to do is we're going to define another search problem, limited travel search problem, which is going",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "to be parameterized by the number of locations and the number of tickets you start out with. And now the start state is this going to be the structure travel state that has a location with one. And tickets equals the number of tickets that you started with.",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "OK. So states can be composite things. They don't have to be integers. They can be strings. In general, in the implementation, states are going to be any sort of hashable object. So what are successors look like now? So now, the successors",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "takes the travel state and has to return a list of things to do. So there's only two things you can do. You can walk or you can take the tram. You can always walk because you don't need tickets to walk. And this is walk, has cost 1. And the new state",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "is this travel state where the location has bumped up by one. And still have the same number of tickets because walking doesn't take tickets. And now the second part of this is you can take the tram, and the tram cost 2, you end up in the location",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "2 times the location. And then oops, this wrapped. OK. Hopefully, is that-- OK. It looks like it's not going to unwrap. OK. There we go. But that's probably too small. Is that too small? OK. Let me make it bigger. So anyway, this is tickets minus 1.",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "So we expanded one ticket to take the tram. But as a result, we're in location 2 times location. Now, there's one thing that we need to do here. And what is that? So there is a check here that we need to make sure that we actually have tickets.",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "You can only add the successor if you have non-zero number of tickets. Otherwise, it's the same problem. You just end up decrementing this counter and you can have minus 3 tickets and you go on. So this is what I mean by get your search problem",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "definition correct. Because if you don't, then the algorithm is going to find a way to cheat sort of game your system. You can call this reward hacking if you want. OK. So successors are walk to location 2. And you still have one ticket,",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "or take the tram to location 2 and you have zero tickets. OK. And is end is just, have you reach the destination? And notice that it doesn't look at the number of tickets, which means that there are possibly more than one end state. Because you can have",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "zero tickets left, location equals to unlock with zero tickets, one ticket, two tickets, and so on. OK. So in general, the state is a really important notion when we talk about search problems and also MDPs and then games. The state contains any information",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "that's needed to evaluate future actions, costs, and successors. OK. So as another example, suppose we put another constraint. There are a lot of rules in this city here. If you can't take the tram twice in a row. If you want to enforce this constraint,",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "the state needs to contain enough information so you can even properly assess it. The current state that we don't-- only know our current location and the number of tickets we have. And that's not enough. What we have to do is we have",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "to add to the state, which is another field in the state structure, whether the last action was taking the tram. Because if we know that, then if we last took the tram, we can't take the tram. And if we don't, we didn't take the tram,",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "then we can take the tram. OK. So there's just going to be this game, you have to play, where you take essentially like word problems, and you have to map them onto this type of structure. What is the state? What are the successors cost, and actions?",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "So now you can ask, well, why do I have to think about it? I thought the whole idea is I don't have to think. Why don't we just include everything into the state, the entire history of where we've been? And surely, that's enough information to evaluate the",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "validity of actions and states and successors. You could do that. But as we'll see later, some algorithms such as dynamic programming, scaling the number of states. So if you have a million states or an exponential number of states, then your",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "algorithm is going to be really, really slow. So in general, you want to keep the number of states small. OK. So far, we focus on modeling. So what modeling means here is representing the problem formally. So there's no doubt in our mind",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "what a solution looks like. And that solution in code should refer to correspond to your intuitive idea of what a good solution is. Now, the thing is that as you build up these search problems with more and more constraints, maybe you were clever and",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "solve the first transportation problem. But now if I tell you, well, how do I go to 1 to 100, and you can't use-- take the tram twice, and you also have three tickets. I would be very shocked if someone immediately came up with the answer in their head.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "But the point is, who cares? We have written it down formally, and now we're just going to pass it off to a learning-- not a learning, an algorithm. OK. Any questions about modeling, search problems, trains, magic trams? Yeah. Do you use some protocols",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "for [INAUDIBLE] the problems for [INAUDIBLE] problems. For example, if you use generally the easiest one, we have the problem just to reach with walking or train. And we add something. How we understand this can be useful for [INAUDIBLE]",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "So I think the question is if you look at the easiest problem and you add constraints, how do you know this is useful? I mean, generally, when you're trying to solve a problem, whether it be a machine learning or search, either you or someone comes to you",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "with a description of a problem. And you have to translate it into something that's more formal. That process of modeling is often lossy. Sometimes you don't get all the constraints right. And of course, this is a sort of idealized setting.",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "But you have to basically make some sort of lossy modeling assumptions to get it into a tractable form there that the algorithms can operate on. You can't really have your search algorithms operate on, just like a kind of vague description. OK.",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "So we said, w don't care. But OK, now we have to care about it because we actually do want to solve these search problems. And who's going to do it, except for us? So let's start by solving this problem exactly. OK. We really want the minimum cost solution.",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "Later, I'll show you how you can cut corners if you're short on time. So remember the goal, given a search problem, which defines states, actions, costs, and is end, I want to find a sequence of actions that minimizes the total cost. OK. So exhaustive search",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "just says, simply try all the possibilities, all possible sequence of actions, and take the one that's best. OK. This should work. Now there are many ways to enumerate all solutions. We're going to choose one particular formulation that will allow us to",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "effortlessly generalize to dynamic programming. And this will be also the formulation that generalizes to Markov decision processes, reinforcement learning games, and so on. So bear with me while I introduce what might seem a little bit",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "more machinery than we need. It's because we're trying to think a little bit farther ahead. So the key definition here is future cost. So a future cost is a function that takes a state and is the cost of the minimum cost solution from that",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "state to the end state. OK. So here's a picture. Let me actually draw this on the board. So in general, you have a start state. And just for now, I'll assume that there's one end state. There could be multiple end states. And in general, from",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "the starting state, there might be multiple actions. The best way to I think, understand this is in terms of a graph, where these actions could lead to other states and so on and so forth. And here's a random state here. So let's call it S. And",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "the future cost is-- there could be millions of states here. The future cost is if I started here, what is the total cost, the best total cost of getting to the end? OK. And future cost is something that you can apply to any given function.",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "You can apply it to the start. If you apply it to the start, that gives you the solution to the problem. OK. So how do you compute this future cost? Well, let's take it step by step. So in life, if you have to solve a really hard problem, what do you do?",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "You have to take a first step. No matter what solution, there has to be a first step. OK. So let's start here. Well, there's actually-- OK. Many potential first steps here that you could take. Let me just do this. So I'm going to use S prime",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "to denote the successors. And then what I'm going to do is I'm going to say this is someone else's problem. Like if I've computed the future cost from S prime to end, then I can just piggyback off of that and say, well, I could have gone here with some cost.",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "And then over here, I'm going to put maybe some squiggly thing. And this is the future cost of S prime. OK. So one particular route is take this action, end up here, and then do the optimal thing to the end. Or I can take this action, do",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "the optimal thing to the end, or I can take this action and do the optimal thing to the end. Which one is the optimal one? Well, it's whatever one minimizes the cost over all possible future successors. So the cost of this is cost plus future cost.",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "The cost of this cost plus this. The cost of this action is this one plus that. And what we're going to do is we're simply going to take the minimum over that. So just writing out the pseudocode for this recurrence. The future cost of a state is the minimum",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "over all possible successors. And for each successor I look at, it's the immediate cost of that, taking that action, plus the future cost from wherever I ended up to an end state. OK. Let me pause there to address any questions. OK. How many of you",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "are good with this? OK, good. So let's go through an example here. We're going to look at our familiar travel search problem. And we're going to implement this exhaustive search function here. I'm going to implement four algorithms today.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "And for each one, I'm going to keep track of number explored. So this is the number of states that we've looked at. And that'll give us idea of time complexity. So we're going to define this helper function called future solution. It's essentially the",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "future cost function. But instead of just returning a number, it returns a solution which remember also contains the cost. And that's because we don't just care about solving the problem and returning a number, oh, 42 is a cost. Well, what do I do?",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "What actions do I take? You also need the sequence of actions and that's encompassed in the solution. OK. So I'm going to start at the start state. And I'm going to call this future solution function. And what I'm going to do, I've explored a state.",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "I'm going to check. Did I get to the end. So I haven't gotten to the end yet. So then, I'm going to look at the possible successors, walk or tram. And then I'm going to consider, for each of the successor, there's a-- which is taking the first",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "step, which is walk. And then I'm going to recurse, if you call future solution on first step.state, which is 2. So I'm going to recurse. That's going to take me to state 2 in this recurrence. And then I'm going to look at the successors. I can walk a tram.",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "And then are you going to consider walk? And I'm going to recurse. And then I'm going to do this again. And eventually, I reach-- arrive at an end state. And at the end state, the solution is-- what's the future cost of end? Zero. Because I'm at the end.",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "I don't need to do anything. It doesn't cost me anything. And the steps is zero. I don't need to do anything. So that's the base case. Now I pop back up and I-- here, I'm just going to-- it's going to be hard to follow all the details,",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "but I just want to give you the kind of rough shape of this. Actually, let me just skip out of this because this is probably not-- you can follow this to trace through this when you study this afterwards. But hopefully the recurrence is clear.",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "So let me just quickly go through this. At each state, if you're not at the end state, you look at all the possible successors. So these are these things coming out. And then for each successor, you recursively call future solution, which gives you these.",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "And then what I'm doing is I'm going to just choose the best solution, which is the one that has the smallest cost at each state. So in the end, I got walk, walk, walk, which has a cost of 3 as the best solution here. And I explored nine",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "states as a result. OK. OK. These numbers are out of date. I had five states before, but now nonetheless, the number of states explored, nine, is larger than the total number of states, which is four. OK. Which means that we are exploring some states",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "more than once. So we'll come back to this later. Any questions about exhaustive search? Yeah. I don't know how big the recursion is. So that would be-- does that become an issue with Stack Overflow. Yeah. So the question is, how long",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "is the recursion going to be? So it is basically the length of your solution. And in the worst case, it's infinite. Because if you have cycles, then you can go around. I'll come back to that point a little bit later. But for now, let's just",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "assume that's not that bad. So let's try some larger problems here. So let's try 10 locations if I do exhaustive search. So remember, this is a question I asked like that is walk, tram, walk, tram the optimal solution? And it turns out to be yes.",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "And that it got a cost of 6, which is optimal. It turns out to be multiple optimal solutions. You could also walk, walk, walk, walk, tram. The minimum cost solution doesn't have to be unique. But the minimum cost, obviously, is unique. So here's another",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "one, 17 locations now. Now you see the number explored states is growing quite fast right. And in fact, it is going to grow in general exponentially with the number of locations you have. Which means that the time complexity of doing exhaustive search",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "is, worst case, exponential in the number of states. So this is a pretty bad news. Because even if you have, let's just say, 100 states, 100 locations, it's going to take, I don't know, the exact number, but it's going to be it's probably not",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "going to terminate anytime soon. OK. So that's kind of rough. What about the memory complexity? So the good news is that the memory is linear in the length of the solution. And it's basically what you have to keep track of is, this is done sort",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "of implicitly through the stack in the recurrence is where basically the stack represents the path that you took to a particular state. OK. So now, coming back to this earlier question. We are assuming that we can't have cycles, because what happens if",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "you can go from state A to B to C and back to A is that you'll notice that this function, as I've written, won't actually terminate. Because eventually, when you go back to A and then you go to B, C, A. B, C, A, B, C, A, and it just never ends.",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "Well, it ends when you run out of memory, but mathematically, it doesn't end. And it's also not well defined. So next week, we'll see how value iteration for Markov decision processes actually gets around this and allows for cycles.",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "Actually, I'll show you better. I'll show you Wednesday how you can get around this as well with uniform cost search. But in the meantime, what you can do is we can-- here's a trick. You can add the number of steps into the state. OK.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "So this eliminates all cycles. Because you're always moving forward in time. So if you go A to B to C to A, now that A is going to be different because you've taken a number of different number of steps. So that's how one way you can break cycles.",
+      "start": 594,
+      "duration": 6
+    },
+    {
+      "text": "Now you have to-- still doesn't prevent the infinite looping. You have to separately define is n to be true when the number of steps exceeds some threshold. So now you're counting steps. You can say like after 100 steps, that's it. No more.",
+      "start": 600,
+      "duration": 6
+    },
+    {
+      "text": "And then you can define in let's say infinite cost if you're exceeding the threshold just to say that those states are essentially no good. Yeah. The first solution that you're supposed to get to is also beyond this threshold. Is there a way to",
+      "start": 606,
+      "duration": 6
+    },
+    {
+      "text": "set that threshold so that we know that we might arrive at a better solution? Yeah. So the question is basically how do you set this threshold because it's possible that the optimal solution might be beyond this threshold. There's no general answer to this",
+      "start": 612,
+      "duration": 6
+    },
+    {
+      "text": "except for just look at the problem and figure out what you need to do. Generally, when the costs are all positive, you can have-- essentially, if you look at the number of states, I think that should be a pretty good upper bound. I mean, it's probably",
+      "start": 618,
+      "duration": 6
+    },
+    {
+      "text": "can be very loose. Sometimes, if you have negative costs, the optimal answer is actually-- technically, if you find a negative cycle, you just keep on going around and your cost goes down and down and down. But that's degenerate. If you detect that, then you",
+      "start": 624,
+      "duration": 6
+    },
+    {
+      "text": "just return minus infinity. Yeah. Is that function necessarily have to define success? So yeah. So the question is the n function have to also now determine whether it's successful or failure? Yes, morally. The way I implemented this, again,",
+      "start": 630,
+      "duration": 6
+    },
+    {
+      "text": "is a little bit of a trick, where you say is n is just going to return Boolean. Is it true or false? And then I'm going to put it on the successors function to say like if I'm entering an n that state that is bad, meaning that I'm exceeding the threshold,",
+      "start": 636,
+      "duration": 6
+    },
+    {
+      "text": "then I'm going to give a cost of infinite there. Now when you're doing the min-- we're always trying to find-- remember, find the minimum cost solution. So infinity is not going to be the minimum cost solution if there's another solution. So I'm sort of like",
+      "start": 642,
+      "duration": 6
+    },
+    {
+      "text": "hacking the framework to incorporate all these constraints. But this is part of the game here is that the states cost framework is fairly flexible. It's a kind of a game to figure out how to pack various constraints into this. OK. So this 237 is not great.",
+      "start": 648,
+      "duration": 6
+    },
+    {
+      "text": "And it's going to get worse. So how can we improve on the efficiency of exhaustive search? Any ideas? Yeah. Make comparisons for the best results. And [INAUDIBLE] now [INAUDIBLE] this could result in the best result. The suggestion is to",
+      "start": 654,
+      "duration": 6
+    },
+    {
+      "text": "compare the current result with the previous result. Well, I mean, the current approach-- let's see. I mean, do that comparison went through this minimum? So I am trying to find the cost. So there's a solution that minimizes the cost.",
+      "start": 660,
+      "duration": 6
+    },
+    {
+      "text": "This min is doing a comparison. So any ideas? Any other ideas? Yeah. Like a lookup table. So before you compute the feature cost, you look at the table to see if it's computed before. And if it is, then-- Yeah. So the suggestion here is you make a lookup table",
+      "start": 666,
+      "duration": 6
+    },
+    {
+      "text": "and you see if you've computed the future cost for a given state. And if you have, then don't do it again. Yeah. So that's exactly what we're going to do. And the term for this is called dynamic programming. And the term, you might find it strange,",
+      "start": 672,
+      "duration": 6
+    },
+    {
+      "text": "but it comes from actually the '50s, Richard Bellman, who pioneered, defined Markov decision processes, which we'll look at next week, introduced this term. And the word dynamic means that it's sequential decision making, multiple actions over time.",
+      "start": 678,
+      "duration": 6
+    },
+    {
+      "text": "It's dynamic. There's a temporal aspect to it. And programming just means optimization. You're trying to find the minimum cost solution, for example. OK. Programming doesn't mean you're Python. There's many ways to talk about dynamic programming",
+      "start": 684,
+      "duration": 6
+    },
+    {
+      "text": "the way I'm going to introduce it, which is to have the minimum change from what we've already done, is essentially I think about as just exhaustive search plus caching. And this is also known in some circles, it's called memoization.",
+      "start": 690,
+      "duration": 6
+    },
+    {
+      "text": "And recall that backtracking search or exhaustive search explores some states more than once. And dynamic programming says, well, if you already saw a state, don't do it again. OK. So here's what we're going to do. It's going to be-- the dynamic program",
+      "start": 696,
+      "duration": 6
+    },
+    {
+      "text": "function is going to be identical to exhaustive search, except for I'm going to introduce three lines of code, I think. OK. They're going to be marked new. So the first thing is we're going to cache solutions for each state. So for each state, I'm",
+      "start": 702,
+      "duration": 6
+    },
+    {
+      "text": "going to cache the solution that we've computed so far. And then in this recurrence, the first thing I'm going to do is check if the state is already in the cache. And if it's already in the cache, then I just return it. And the second thing or the,",
+      "start": 708,
+      "duration": 6
+    },
+    {
+      "text": "I guess, the third change is down here is after I computed the best solution, I'm just going to cache it. Everything else, all of this is identical. If you don't believe me, you can do a diff yourself. OK. So again, the three changes, introduce the cache,",
+      "start": 714,
+      "duration": 6
+    },
+    {
+      "text": "check if there's a cache. If there's a state is on a cache, and then at the end, put it in the cache if it's not there. OK. Actually, this design pattern is so prevalent that you can even write Python decorator that says at memoize, and it will wrap your",
+      "start": 720,
+      "duration": 6
+    },
+    {
+      "text": "function and memoize it. But we didn't do that just to make it more transparent. OK. So I ran this. And at the end, you can see what the cache looks like. It has, for every state, the future action. So this is actually kind of nice because not only did you",
+      "start": 726,
+      "duration": 6
+    },
+    {
+      "text": "solve the problem for the start state, but you can look at all the solutions, the future solutions from every state. So for one, remember the cost is six. From two, it's five. From three, you walk, walk, tram. From five, it's just taking the tram.",
+      "start": 732,
+      "duration": 6
+    },
+    {
+      "text": "Even from six, it's walk, walk, walk. And I guess, the rest of the way, it's walking because otherwise, you overshoot. OK. Yeah. So it's best solution. Yes. The cache store is the best solution from each state. Where does it make that comparison?",
+      "start": 738,
+      "duration": 6
+    },
+    {
+      "text": "So the question is where did it make the comparison to know that it's the best solution? So if you remember, this is inherited from the exhaustive search. So here, I'm looking at all possible successors. And I'm accumulating all the solutions.",
+      "start": 744,
+      "duration": 6
+    },
+    {
+      "text": "And here, I do the minimum by key. So here, for every solution, I'm taking its cost and just taking the minimum. So this is one way to write it, I think, which is a bit more functional. You could have also written it. You loop over, and you do",
+      "start": 750,
+      "duration": 6
+    },
+    {
+      "text": "the explicit like less-- if cost is less than the best so far, then update that, which is a bit more procedural way of doing this. This I find a little bit more elegant, but it's the same thing. OK. Are we good with dynamic programming? So let's try some",
+      "start": 756,
+      "duration": 6
+    },
+    {
+      "text": "larger problems now. So now, I have 17. Now the number explored states should be identical to the number of actual states here. Because I'm not exploring a state more than once, I can go up to 100 now and I can compute it for 100. So let's just look",
+      "start": 762,
+      "duration": 6
+    },
+    {
+      "text": "at the solution. So it's walk, walk, tram, tram, tram, walk, tram, tram. OK. So it kind of makes sense. One thing that's actually kind of fun about these search problems is that you can define these problems. And then you look at the solution.",
+      "start": 768,
+      "duration": 6
+    },
+    {
+      "text": "And intuitively, you can see what you're supposed to do. Like you kind of want to get in position to take these trams so that you hop by powers of 2, but you don't want to overshoot. So then you have to line up exactly where it is.",
+      "start": 774,
+      "duration": 6
+    },
+    {
+      "text": "But in general, you can think about this as a fairly difficult reasoning problem, and you have to think through all the different possibilities. So one of the things actually is nice is that you can just solve these problems and you look at the solution",
+      "start": 780,
+      "duration": 6
+    },
+    {
+      "text": "and you look at it, it's like, oh, that's kind of clever because it might not be as obvious as just like doing a bunch of walks and then taking the tram. OK. So let's discuss when would you want to use dynamic programming. Hopefully, I've solved",
+      "start": 786,
+      "duration": 6
+    },
+    {
+      "text": "the dynamic programming is like, oh, wow, exponential improvement in time complexity. That's great. So not quite so fast. There's some caveats here. One fact about life is that memory is more precious than time. Well, life meaning computer life, I guess.",
+      "start": 792,
+      "duration": 6
+    },
+    {
+      "text": "You can always run a program for longer, but memory doesn't grow. So if you want to run dynamic programming, it's going to take memory a total number of states. And your computer is only has so much memory in it. And once you fill it up, then you just",
+      "start": 798,
+      "duration": 6
+    },
+    {
+      "text": "can't run dynamic programming at all. I mean, you can do things write to disk, but that gets really slow and you don't want to do that. OK. So that's when you can then use dynamic programming is when the number of states is actually fits. So if your number of",
+      "start": 804,
+      "duration": 6
+    },
+    {
+      "text": "states is like a trillion, probably it's not going to shouldn't do dynamic programming. OK. Now the question is that you can do dynamic programming, when does it actually provide speedups over exhaustive search? And the intuition here is that it's useful",
+      "start": 810,
+      "duration": 6
+    },
+    {
+      "text": "when essentially there's a lot of ways to reach a given state. If every action takes you to a new state, then you might as well do exhaustive search, because essentially, the cache is always you're going to have a cache miss. So maybe I'll just",
+      "start": 816,
+      "duration": 6
+    },
+    {
+      "text": "draw two pictures here. If your situation looks like that, where you have your start state, and then basically all your solutions look like this. They're all independent. Then should you do dynamic programming here? No. right? Whereas if you have your--",
+      "start": 822,
+      "duration": 6
+    },
+    {
+      "text": "let's say you have your state and then-- so typically, you might see these kind of lattice patterns, where at each state, you can essentially go like this, then you should use dynamic programming here because the total number of states is essentially linear.",
+      "start": 828,
+      "duration": 6
+    },
+    {
+      "text": "But the number of paths through this is exponential. OK. So there are many ways to reach a state. That means dynamic programming is going to have leverage. So unfortunately, a lot of problems actually do look like this. Later, we'll see that if you",
+      "start": 834,
+      "duration": 6
+    },
+    {
+      "text": "generate from a language model, essentially it kind of looks like that because every sequence is kind of unique. We'll come back to that later. OK. So dynamic programming is just exhaustive search plus caching. And remember, exhaustive search, the key idea",
+      "start": 840,
+      "duration": 6
+    },
+    {
+      "text": "is future cost, which defines its recurrence and allows you to break down a problem into subproblems. And then you should use dynamic programming when the number of states fits in memory. And there's a lot of ways to go between states. Yeah. So [INAUDIBLE] the",
+      "start": 846,
+      "duration": 6
+    },
+    {
+      "text": "memory complexity like exhaustive search was linear to [INAUDIBLE] the solution. [INAUDIBLE] program is linear to the size of the state. Then, if those two are both linear, how much efficiency is there? So just to repeat. So the memory complexity",
+      "start": 852,
+      "duration": 6
+    },
+    {
+      "text": "of exhaustive search is essentially the length of the longest solution. And the memory complexity of dynamic programming is the number of states. And so the question is if both are linear, then what is the speed advantage? If both are linear,",
+      "start": 858,
+      "duration": 6
+    },
+    {
+      "text": "you probably should-- which is the case I think in these cases, then you should use dynamic programming because linear in memory means that dynamic programming is essentially going to be linear or maybe quadratic time. Whereas exhaustive search can",
+      "start": 864,
+      "duration": 6
+    },
+    {
+      "text": "be exponential time still. So let's move on. So, so far, we've computed the exact minimum cost solution. And the time complexity is at least the number of states. If you're doing dynamic programming, it's the number of states. If you're doing",
+      "start": 870,
+      "duration": 6
+    },
+    {
+      "text": "exhaustive search, it could be exponential in that. So large number. So what if the state contains the set of locations? So remember, the state is the information you need to be able to assess the validity of the solution or even determine what",
+      "start": 876,
+      "duration": 6
+    },
+    {
+      "text": "the cost and actions are. And sometimes you need to store the set of location. If you need to remember all the places you've been so far, so you don't repeat the location or something. There's also, what if this was a sequence of words generated so far?",
+      "start": 882,
+      "duration": 6
+    },
+    {
+      "text": "There's a lot of sequences of words. So you're not going to cache all of them. So in that case, exact search is going to be intractable. And so now, we have to move to approximate search. And the key idea is that we're just going to heuristically look",
+      "start": 888,
+      "duration": 6
+    },
+    {
+      "text": "at a subset of the actions. And as a result, we might miss something. But oh, well, we can't do anything about it. There's no guarantees here. So this is now we're entering the realm of just heuristics. But often, these heuristics can work well in practice.",
+      "start": 894,
+      "duration": 6
+    },
+    {
+      "text": "Your mileage will depend on your exact problem setting. So I'm going to look at two algorithms, best of n and beam search. OK. So these are going to be fairly simple ideas here. So the simplest idea is to just choose random actions",
+      "start": 900,
+      "duration": 6
+    },
+    {
+      "text": "until we reach the end state. Do this n times and take the best solution. That's best of n. You might have heard best of n somewhere and it's like, oh, what is that fancy algorithm. No, that's it. OK. So let's do this example here. Travel problem",
+      "start": 906,
+      "duration": 6
+    },
+    {
+      "text": "with 10 locations. I'm going to take this opportunity to define some forward looking terminology. So a policy is a function that maps a state to an action. It can be deterministic. It can be random. OK. We usually see policies in reinforcement learning.",
+      "start": 912,
+      "duration": 6
+    },
+    {
+      "text": "But we can actually talk about policies in search as well. Because search is actually going to be a special case of Markov decision processes, which are the thing that you do in reinforcement learning. OK. So a policy map states to action.",
+      "start": 918,
+      "duration": 6
+    },
+    {
+      "text": "So let's start at say one. And let's define a uniform policy, which is one particular policy. What it does is given a state, it looks at the possible successors. And it just chooses one uniformly at random. OK. Pretty simple. And so every time you call it, you",
+      "start": 924,
+      "duration": 6
+    },
+    {
+      "text": "might get a different answer. So sometimes you get walk, sometimes you get tram. Hopefully, you get roughly half and half. So that's a policy. Now we can apply a policy from the start state to an end state to get a solution. And that's what I'm",
+      "start": 930,
+      "duration": 6
+    },
+    {
+      "text": "going to call a rollout. Again, borrowing terminology from reinforcement learning. OK. So a rollout, you start at state while we're not at the end. And I also have this capped so that it just in case you infinite loop or something. I'm going to take a step",
+      "start": 936,
+      "duration": 6
+    },
+    {
+      "text": "according to the policy. And I'm going to just keep track of the steps. And I'm going to advance the state. So I took this step. Now state is going to be 2. And so as I go through this, I'm going to take the tram, take the tram, take walk, walk. OK.",
+      "start": 942,
+      "duration": 6
+    },
+    {
+      "text": "So now I'm at the end. And now I have this solution which is that has sampled, which is tram, tram, tram, walk, walk, has cost of 8. OK. I'm going to roll it out again. Now, it has 6. OK. I guess, I got lucky and it got the minimum cost solution.",
+      "start": 948,
+      "duration": 6
+    },
+    {
+      "text": "Roll out again. Less lucky, I get a 9. OK. So you get the idea. I just roll out a bunch of solutions randomly trying actions, and then I'm just going to take the best one. And this is captured in this best of n function, which essentially just",
+      "start": 954,
+      "duration": 6
+    },
+    {
+      "text": "roll, does a bunch of rollouts. Just roll out, roll out, roll out, roll out, roll out. Let's jump here. And then I'm going to just choose the best solution, which has cost 6. OK. So the guarantee here is that as n goes to infinity, so the number of",
+      "start": 960,
+      "duration": 6
+    },
+    {
+      "text": "rollouts you do, the solution will actually converge to the minimum cost solution, assuming your policy tries has positive probability on all the actions. So this is kind of nice because it says there is a way to get to the minimum cost solution.",
+      "start": 966,
+      "duration": 6
+    },
+    {
+      "text": "Now, the bad news is that this could take exponentially long. So n might have to be like centillion or something. OK. The other nice thing about best of n is that it is embarrassingly parallel. So if you have 1,000 machines, you can just go farm out",
+      "start": 972,
+      "duration": 6
+    },
+    {
+      "text": "your search to each of the 1,000 machines. They don't have to talk to each other, they just explore independently. And at the end of the day, you gather all the-- you see which one has found the best solution. So it's simplicity, and",
+      "start": 978,
+      "duration": 6
+    },
+    {
+      "text": "the parallelism is actually why we actually talk about it. And it's not as bad as it might seem. Also, if the policy is informed, then it actually can be pretty reasonable. Right now, the policy is just choosing actions at random, which is",
+      "start": 984,
+      "duration": 6
+    },
+    {
+      "text": "probably not the best. But later, we'll see, you can define the policy to be a language model, which actually is pretty informed. And then best of n is a pretty good baseline. So because of this, [INAUDIBLE] make it [INAUDIBLE] to make it a parallel.",
+      "start": 990,
+      "duration": 6
+    },
+    {
+      "text": "So it is [INAUDIBLE] faster for you. So you cut the length to make it parallels. [INAUDIBLE] 15 to 1 in parallel. You can use other tools, but not a lot of time. So yeah. So the idea is of best of n is parallel. From the starting state, you just",
+      "start": 996,
+      "duration": 6
+    },
+    {
+      "text": "roll out multiple trajectories to the end and you just take the best. OK. Any other questions about best event? Yeah. What I assume that each of the [INAUDIBLE] different types is complete. So if we try to parallelize it, is there synchronization issues",
+      "start": 1002,
+      "duration": 6
+    },
+    {
+      "text": "So the observation is that different paths are going to be different lengths. And are there any synchronization issues? There's no synchronization issues because a worker that's rolling out if it ends early, it'll just go on to the next one and try it again.",
+      "start": 1008,
+      "duration": 6
+    },
+    {
+      "text": "They don't have to communicate with each other. Yeah. It's going to be actually-- the point might be more relevant for beam search. So hold on to that thought. So let's talk about beam search here. How many of you have seen beam search before? OK.",
+      "start": 1014,
+      "duration": 6
+    },
+    {
+      "text": "Only a small number of you. OK. So the idea is not too complicated. So the essence of algorithm is I'm going to keep track of a set of beam width, which is a number, let's say, 100 solutions from that come from the starting state. I'm going to consider all",
+      "start": 1020,
+      "duration": 6
+    },
+    {
+      "text": "possible actions from each of these partial solutions, evaluate their cost, and then keep the beam width. OK. So the term beam comes from-- well, the analogy is like you have you're in the driving in the dark and you have your beam. And that's basically",
+      "start": 1026,
+      "duration": 6
+    },
+    {
+      "text": "what you see. So as you advance the car, your beam kind of shifts. But it's only narrow right. Exhaustive search is that-- I guess, I don't know, it's daytime or you have light everywhere and you see everything. But when you're driving in the dark,",
+      "start": 1032,
+      "duration": 6
+    },
+    {
+      "text": "you only see a little bit in front of you. OK. So let me-- before I go into the code, I want to just maybe draw a picture to give you the outlines of what this looks like. OK. So the idea is you have your start starting state and then you start by considering,",
+      "start": 1038,
+      "duration": 6
+    },
+    {
+      "text": "let's say, your beam width is 2. That means you're going to only keep track of two things. If beam width were 1, that would just be the greedy algorithm. So you start, and maybe there's three actions. OK. So you consider these three actions.",
+      "start": 1044,
+      "duration": 6
+    },
+    {
+      "text": "Well, three is greater than two, so one of them has to go. So maybe this has a cost of 5, 2, and 3. You're trying to find the minimum cost path. So you say, sorry, we kind of keep track of you. We have a budget. Then you move on to these and",
+      "start": 1050,
+      "duration": 6
+    },
+    {
+      "text": "you consider possible actions from here. So now, you have six different candidates to choose from. And you're going to evaluate them. And then you're going to choose the best two. Actually, let me just leave this there for concreteness.",
+      "start": 1056,
+      "duration": 6
+    },
+    {
+      "text": "And let me just X out that. OK. So you're going to take the top two. So maybe it's this one and this one. OK. So then you cross that out. And then now two survive at every step. And now you're going to try different actions. Maybe have four this time.",
+      "start": 1062,
+      "duration": 6
+    },
+    {
+      "text": "And then you take the top two, and then cross out the ones that don't survive and so on and so forth. OK. So this is a schematic of what beam search is doing. And at the end, you basically have two trajectories, paths through this to this graph,",
+      "start": 1068,
+      "duration": 6
+    },
+    {
+      "text": "which then you take the best one and you return that. Yeah. Now [INAUDIBLE] one reaches the end earlier. OK. So now you bring up the synchronization thing. So suppose that this is an end, this is an end state. So now but this one hasn't ended.",
+      "start": 1074,
+      "duration": 6
+    },
+    {
+      "text": "So you're just going to continue marching along. In the implementation I show, we're just going to hold on to that. We just pass this along. We don't expand it anymore, but we just keep it in the candidate list. So let's look at the code for this. Oh, yeah.",
+      "start": 1080,
+      "duration": 6
+    },
+    {
+      "text": "What are the nodes that do that for a [INAUDIBLE] So a question is, what happens when nodes loop back or you end up in infinite cycles? You can. What we're going to do is we're going to have a max steps that allows you to essentially-- you can start",
+      "start": 1086,
+      "duration": 6
+    },
+    {
+      "text": "looping, but you we're only allowing you to do it for 10 steps. OK. So beam search, I'm going to start with this variable called candidates. And this is at every iteration of the algorithm, I'm going to keep track of a list of solutions.",
+      "start": 1092,
+      "duration": 6
+    },
+    {
+      "text": "And these are partial solutions that go from the start state to the current step to some state, I guess. OK. So I'm going to take a number of steps, max steps forward. So every solution has to complete a max steps. Otherwise, we're just",
+      "start": 1098,
+      "duration": 6
+    },
+    {
+      "text": "not going to consider it. OK. So I'm going to build up a new set of candidates. So this is suppose I'm here. So candidates. And this is going to be new candidate. So I'm at a particular point. I want to build the next generation, so to speak.",
+      "start": 1104,
+      "duration": 6
+    },
+    {
+      "text": "So for each of the existing candidates, I get the last state. And I'm going to check, is it at the end? If it is, then I just keep it there. Otherwise, I'm going to try all the possible successors. And all I do is just append the current candidate",
+      "start": 1110,
+      "duration": 6
+    },
+    {
+      "text": "steps with the successor step. OK. So I do this for all the candidates. Let's see. This does get a little bit-- OK. So in this case, in the tram problem, new candidates. I have two candidates, one is walk, one is tram. And then I look at this.",
+      "start": 1116,
+      "duration": 6
+    },
+    {
+      "text": "I sort the candidates by cost, which is going to be walk, tram. And then I'm going to prune. Here, the beam width is, I believe, it was 2. And I had two candidates, so nothing gets chopped off. So I'm going to continue. So now I'm step one.",
+      "start": 1122,
+      "duration": 6
+    },
+    {
+      "text": "My candidates include these two. And I'm going to consider new candidates. I'm just going to jump here. So now I have a number, four candidates. And with cost 2, 3, 3, 4. And I'm going to sort and I'm going to prune. So I only keep the two",
+      "start": 1128,
+      "duration": 6
+    },
+    {
+      "text": "candidates with lowest cost, 2 and 3. And I sort of broken ties a little bit arbitrarily here. OK. So you hopefully, you get the idea. So I step, step, step. And at each point in time, I only have two candidates. And this one has gone to stage 6.",
+      "start": 1134,
+      "duration": 6
+    },
+    {
+      "text": "This one has gone to stage 10. OK. So at the end of the day, my candidates, I have one with cost 6, one with cost 9, that make it to the end. And then I'm just going to return the best. So candidate zero is the best one. So one side effect of beam search",
+      "start": 1140,
+      "duration": 6
+    },
+    {
+      "text": "is that you not only get the minimum cost path, but you get-- or rather, you get an approximation of a minimum cost path. You also get an approximation of a second best and the third best up to the number of beam. So you can get a little bit of",
+      "start": 1146,
+      "duration": 6
+    },
+    {
+      "text": "sense of the alternatives here. Any questions about beam search? Yeah. I guess, also related to the same thing again, when you complete a path, does that count as one of your beams ending, or do you regain that. So say, we had two. One of those threads",
+      "start": 1152,
+      "duration": 6
+    },
+    {
+      "text": "terminates at the n step. Now does my other thread get two? So the question is this one ended. And suppose, I have two more here. Beam width is 2. So do I keep-- basically, is this one of them and the others? In this implementation, this would get x out.",
+      "start": 1158,
+      "duration": 6
+    },
+    {
+      "text": "If you want, yeah, it doesn't really matter that much. I mean, you could give special cases and say, well, let's just put it off to the side. But typically, you can just add it. Because that allows you to automatically compare this with others.",
+      "start": 1164,
+      "duration": 6
+    },
+    {
+      "text": "Because just because it finished doesn't mean it's better. You might actually still want to throw this out. OK. Any other questions about beam search? Yeah. What's a good beam width? 10. No, I mean, the honest answer, I mean, it depends",
+      "start": 1170,
+      "duration": 6
+    },
+    {
+      "text": "on your problem, your budget. I mean, I've seen anything from 2 to 3, to 1,000. So it really, I guess, depends. But on the order of 10, I think, is actually reasonable, at least in language settings. Beam search is also related to",
+      "start": 1176,
+      "duration": 6
+    },
+    {
+      "text": "particle filtering, for tracking and probabilistic models. And there, you can get, thousands of-- equivalently, thousands of particles. Yeah. In the example where we get to an end state with a certain cost, and if the [INAUDIBLE] arrive",
+      "start": 1182,
+      "duration": 6
+    },
+    {
+      "text": "as an even higher cost, that is intended to just stop, [INAUDIBLE] doing any better. So I think the question is, if you got here and you got like a cost of 6, and this is already 8, so then you just get rid of that. So that's a good question.",
+      "start": 1188,
+      "duration": 6
+    },
+    {
+      "text": "So if all your costs are non-negative, then you can just stop there. And you can prune early. In general, you might not have negative-- you might have negative costs, in which case you can't. Because this, you might drop that down to four later. Yeah.",
+      "start": 1194,
+      "duration": 6
+    },
+    {
+      "text": "So it depends on your problem. OK. Just a few notes about beam search. So like I said before, if beam search is 1, then this is also called greedy search. As beam width goes to infinity, then beam search becomes exhaustive search. You're getting every--",
+      "start": 1200,
+      "duration": 6
+    },
+    {
+      "text": "you're basically not throwing anything away. This is a bad idea because not only are you doing exhaustive search, but you're also scaling the memory, exponentially, as well. Terrible idea. Beam search is deterministic, whereas best of n is not.",
+      "start": 1206,
+      "duration": 6
+    },
+    {
+      "text": "That's stochastic. There is also alluded to stochastic version called particle filtering, which I'm not sure we'll get to in this class, but feel free to look it up. Best of n incorporates a policy as a prior. Beam search just uses a cost directly.",
+      "start": 1212,
+      "duration": 6
+    },
+    {
+      "text": "So depending on if you have a good policy to guide the search, you can use best of n. Otherwise, if you don't, then you can use beam search. Particle filtering also allows you to have a policy as a prior. So best of n is generally simpler",
+      "start": 1218,
+      "duration": 6
+    },
+    {
+      "text": "and more parallelizable than beam search. So anyway, those are some reasons. Both are used pretty commonly. So it depends on what you're trying to do. OK. So a final example is I'm going to talk about test time compute in language model. So this is going to be",
+      "start": 1224,
+      "duration": 6
+    },
+    {
+      "text": "an exercise in showing how much more real world setting can be adapted to the search problems that we've been talking about. There is a bit more complexity here because you have to do some shenanigans to get Hugging Face language models to behave,",
+      "start": 1230,
+      "duration": 6
+    },
+    {
+      "text": "but hopefully it won't be too bad. So remember, a language model is in the language of multi-class classification. It's just a multi-class classification probabilistic classifier that takes as input, a prompt, and gives you a distribution over the next token.",
+      "start": 1236,
+      "duration": 6
+    },
+    {
+      "text": "So you can think about the next token as the set of classes. There just happens to be probably 100,000 classes. But mathematically, it's exactly the same thing that we saw last week. Sometimes, you have a verifier that takes a response and a prompt,",
+      "start": 1242,
+      "duration": 6
+    },
+    {
+      "text": "I guess, and returns a Boolean. Does this response is correct or not? So a typical setup here is that the prompt is like a math problem. Your language model is going to generate a solution to that math problem. And then you have a verifier that",
+      "start": 1248,
+      "duration": 6
+    },
+    {
+      "text": "checks whether that solution was correct or not. OK. And your goal is to produce a response that passes the verifier and also is likely under the language model. So the idea of test time compute, which I mean, has been around for a while, but I",
+      "start": 1254,
+      "duration": 6
+    },
+    {
+      "text": "think it really got popularized in the public eye due to OpenAI's o1 series, is instead of just sampling one answer, in general, let's try to expand more compute to get a better answer. So a very simple way to do this is best event sampling.",
+      "start": 1260,
+      "duration": 6
+    },
+    {
+      "text": "Now I think most people when they think test time compute, they think chain of thought and other things. That's absolutely one way to go. But best of n is actually a pretty-- it's a thing that people actually do a lot. There's this paper of many papers, which",
+      "start": 1266,
+      "duration": 6
+    },
+    {
+      "text": "shows that best event sampling actually works surprisingly well. So you can use a small model, do best event sampling a lot. And you can then-- that's competitive with a much larger model. OK. So let's cast this as a search problem.",
+      "start": 1272,
+      "duration": 6
+    },
+    {
+      "text": "So to define a search problem. Remember, we have to define what the states and actions and costs are. So the state is going to be a string, which is the prompt that was given, plus the prefix of the response that we've generated so far.",
+      "start": 1278,
+      "duration": 6
+    },
+    {
+      "text": "The action is going to be predict the next token. And the cost is going to be the negative log probability of the next token. So because we want to minimize cost, that's going to be-- we want that to be equivalent to maximizing probability.",
+      "start": 1284,
+      "duration": 6
+    },
+    {
+      "text": "And then if there's a verifier, I'm going to use this hack and say, well, I get a free minus 100 cost if the verifier succeeds OK. So this is an example with a very, very small model that runs on my laptop. So we're not going to do anything too crazy here.",
+      "start": 1290,
+      "duration": 6
+    },
+    {
+      "text": "So I've taken, define a language model search problem. The prompt is parentheses 3 plus 7 times. And all this does is I'm going to use the Qwen3 0.6 billion parameter language model. I'm going to define a tokenizer. And load a model from Hugging Face.",
+      "start": 1296,
+      "duration": 6
+    },
+    {
+      "text": "So we have to, first, define what a policy is. To use best of n, you need some sort of policy. We're going to use a language model policy. And the start state is just going to be the prompt. And what the policy does is it generates a bunch of successors. OK.",
+      "start": 1302,
+      "duration": 6
+    },
+    {
+      "text": "So let's look at what successors looks like. This is inside the problem statement. I'm going to convert that state into a set of tokens. This is because a language model speak in tokens, which are integers, rather than strings. I'm going to compute",
+      "start": 1308,
+      "duration": 6
+    },
+    {
+      "text": "the probabilities. I'm going to skip all the details here, but you can read. This is hopefully a connection to the previous lecture. We're used to doing things like softmax. I'm going to just take the top k probability. So these are the probabilities.",
+      "start": 1314,
+      "duration": 6
+    },
+    {
+      "text": "These are the token indices. And then I'm going to build a successor for each of these tokens. So I have an action with a particular cost minus the logprob. And then the new state is going to be whatever. So this, I think, all this says is out of space.",
+      "start": 1320,
+      "duration": 6
+    },
+    {
+      "text": "And then if it's a complete sentence, and it contains a number, then I'm going to give you a plus, minus 100 bonus. So once all is done, I have a bunch of successors. So one successor just added a space. This one added a space paren, x, square root, a.",
+      "start": 1326,
+      "duration": 6
+    },
+    {
+      "text": "And you see the cost of these. Nothing has produce a valid sentence. So I don't get the minus 100 bonus. OK. So those are the successors. And if I take the cost and I convert them into probabilities, I can sample from this probability distribution,",
+      "start": 1332,
+      "duration": 6
+    },
+    {
+      "text": "and I get return a particular successor. So this is a language model policy. It's generated these successors, take the cost, compute the probabilities, and sample according to that probabilities. And I get a particular successor. OK. So that's one step.",
+      "start": 1338,
+      "duration": 6
+    },
+    {
+      "text": "All right. So now, I can do best of n. And best of n, remember just runs the LLM policy using this rollout. So rollout once. So each step in the rollout is appending a new token. So I have space. I have two. And I have closing parentheses.",
+      "start": 1344,
+      "duration": 6
+    },
+    {
+      "text": "And because this is a well-formed expression, I get minus 100. And so remember, low cost is good. So that's one solution. If I look at all the possible solutions, I have this. I have this. They often can be duplicates because again, you're",
+      "start": 1350,
+      "duration": 6
+    },
+    {
+      "text": "sampling independently. So there's some chance you're going to hit the same high probability solutions. But sometimes, I get a five. Sometimes, I get a five. OK. So in this case, I'm going to choose the best solution which is going to be 3 plus 7 times 2. OK.",
+      "start": 1356,
+      "duration": 6
+    },
+    {
+      "text": "So I chose this solution. And that's the result of best of n sampling. OK. So in practice, you wouldn't want to implement things this way. You would do a lot of tricks to speed up inference, but this is just an illustrative example of how I think we're",
+      "start": 1362,
+      "duration": 6
+    },
+    {
+      "text": "connecting the very classic search with more modern language models. OK. So just to summarize, we've introduced search problems, which formally defines the states actions and costs, where objective is to find a solution, which is a sequence of actions",
+      "start": 1368,
+      "duration": 6
+    },
+    {
+      "text": "that minimizes the total cost. We looked at a bunch of different algorithms. If you're really particular and want exact solutions, you can do exhaustive search, but that is generally exponential time. You can do caching, which gives",
+      "start": 1374,
+      "duration": 6
+    },
+    {
+      "text": "you dynamic programming, which can give you exponential fast speedups, but you have to fit the number of states into memory. And then we also have best of n, which is like throwing darts in parallel, or beam search, which is like that car beam",
+      "start": 1380,
+      "duration": 6
+    },
+    {
+      "text": "which allows you to find, hopefully, good solutions. But both of these are heuristic and sometimes they might fail, and you have to just be aware of that. Again, the synergy between search and learning, I think, is rather interesting.",
+      "start": 1386,
+      "duration": 6
+    },
+    {
+      "text": "So you can think about the cost are learned from data. So the cost in the language model example were the language model probabilities, which is obviously all kind of machine learning, supervised learning on large amounts of data. And then the idea of",
+      "start": 1392,
+      "duration": 6
+    },
+    {
+      "text": "search, where it plugs in is you're trying to find the best solution given these costs. And I think this is generally a pretty good recipe for building kind of robust systems in AI. Next time, we're going to revisit what happens when there are cycles.",
+      "start": 1398,
+      "duration": 6
+    },
+    {
+      "text": "This time, we just said, well, look at a max number of steps and just give up. But there's actually going to be some nice things you can do. And we'll see that on Wednesday. OK.",
+      "start": 1404,
+      "duration": 6
+    }
+  ]
+}

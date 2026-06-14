@@ -1,0 +1,514 @@
+{
+  "videoId": "uSKCNDWuXjc",
+  "title": "Bazel for SONiC: What We've Learned and Contributed",
+  "channelName": "Open Compute Project",
+  "source": "solar-harness:youtube-transcript",
+  "transcriptStatus": "fetched",
+  "transcriptChars": 24855,
+  "transcriptSource": "youtube_auto_caption",
+  "transcriptLanguage": "en",
+  "transcriptQualityTier": "T1",
+  "transcriptText": "So, this talk is not going to be about\nhow to deploy or debug or use SONiC.\nIt's going to be a little bit different.\nIt's about what's going to happen before\nthat. It is how we test and validate new\nversions of SONiC.\nSo, hi. My name is Borja. I am from\nAspect Build. And for the last few\nmonths, I have been leading this effort\nto migrate and to modernize the build\nsystem that SONiC uses to to build\nitself.\nwe believe that the early results are\nvery promising. So, I'm here to share\nthem with you what we learned, the\nchallenges we had, and how we plan to\nmove forward.\nSo, first, uh\na little bit of context on how the\ncurrent SONiC build system works. It's\nreally simple. A build machine, either\nyou or CI, clones the SONiC build image\nrepository. Then, you build a SONiC\nslave container.\nThen, you load that container, and you\nrun the whatever component you want to\nbuild there. This is if you want to\nbuild a syncd, you run the syncd build\nin the slave container.\nUh so far, so good. But, as we are\nprobably all aware of, this has some\nseveral limitations.\nSo, the first one is that we don't have\nisolation. So, what even if we check out\nthe same commit, what I build on my\nmachine and what you build on your\nmachine might be different because of\nsubtle like compiler differences or\nheader mismatches or whatever version of\nlibraries we have to have installed.\nUm or whatever version of libraries the\nSONiC\nslave happens to download. And that\nleads to different builds.\nThen, we have\nuh reliability by extension. If I check\nout a commit previous in time, there's\nno guarantee that I will generate the\nsame commits today than I generated a\nyear ago on the same commit.\nUm the last one is performance, which is\na consequence of all of this. Because we\ncannot trust the build enough, we\nusually end up rebuilding everything\nfrom scratch, and that takes forever.\nAnd the last thing is visibility, which\nis kind of hanging in there, uh but we\ncannot easily tell which versions of\nwhich dependencies we have. So, it would\nbe very hard for me right now to\nvalidate whether a particular Sonic\nbuild was affected by the XE bug of\n2024, for example.\nXE attack. Um I'm sure you can also\nthink of many other um limitations, and\nI think can help with most of those.\nBut first some numbers, because we're\nhere to see results.\nSo, we have so far migrated 12\ncontainers\nuh from Sonic build image, including\nsome small ones, but also some big ones\nlike orca agent and syncd, and they are\nvalid being validated as we speak with\nso far very few issues.\nIn a very underpowered machine, I'm\ntalking very underpowered, eight cores,\n24 gigs of RAM, uh building all of the\nthat first part of code takes 30 minutes\nfrom start to finish.\nIncremental builds are where the gains\nare.\nSo, if you change let's say the database\nconfiguration, you can rebuild whatever\nwas affected in less than 2 seconds,\nbecause it's mostly plugging in a\ndifferent file in the same container.\nAnd that takes no time at all.\nUh if you change uh let's say you swap\nSAI implementations from vendor to\nvendor, that has taken us 5 minutes to\nbuild all of the 12 containers, because\nwe only build the containers that are\naffected like orca agent and syncd.\nSorry, so just syncd.\nif you actually change something in the\ncore of the source code, then we're\nlooking at 10 minutes, uh because we\nhave to recompile the source code and\nthen relink everything.\nI think these are pretty good numbers\nfor a very underpowered machines. We\nhave partners that are running this in\nbigger machines that are reporting much\nbetter numbers.\nBut uh\nI think these are impressive by\nthemselves.\nSo, how do we accomplish that? Uh Basil\nis a build system and has one core\nprinciple.\nYou should know every input to the\nbuild.\nAnd when I say every input, I mean every\ninput. And that's the hard part.\nYou should know the compiler. You should\nknow every header that goes into the\nbuild. You should know\nuh every dependency, every shared\nlibrary, and where it's going to be on\nthe disk.\nUm this is very hard to accomplish and\nwe'll go through some of the challenges\nlater.\nBut what it gives us is solutions to all\nof those limitations.\nSo, we have isolation and reliability\nalmost for free because we fingerprint\nevery input. We have this Basil keeps\nrecord of the sha of every file that\ngoes into the build.\nTherefore, we know that with the same\nfiles,\nwe know what we're going to produce and\nwe produce the same thing. So, part of\nthat, for example, is as we see here,\nwe don't fetch APT packages from APT\nupdate or we don't just install like we\ndid in the slave container. We fetch\nthem from a specific snapshot so that we\nalways get the same packages with the\nsame name. And this gives us\ndeterministic and predictability.\n>> [snorts]\n>> The next one is performance\nbecause this is so predictable, we can\ncache with a lot more confidence. So, we\ncan cache\nhuge swaths of our build tree. So, let's\nsay we have a test that runs a binary\nthat depends on several source files.\nWe may\nnot if we haven't changed the source\nfiles, we may not even need to recompile\nthe binary and we may even not need to\nto run the tests. So, here you can see\nthat I have a I'm running some tests and\nthey both pass, but then I change the\ndatabase configuration and I run the\ntests again with the exact same command\nand only the tests that depend on the\ndatabase configuration run. The rest are\ncached as successes.\nUh the times are made up, by the way.\nThey don't take 0.1 seconds. They They\ntake a long time.\nUm and the last one is we get visibility\nand because we know every input, we can\nask Basil very elaborate questions. Uh\nit has different tools for different\nlevels. So, we have\na checked-in log file that lists every\nthird-party dependency. This file is\nhuge. It's not meant for humans, but it\nis just JSON.\nUh so, if you really want to, you can\nlook at it.\nIf you are a human, you have a query\nengine that you can use to ask Basil\nquestions such as, \"Please give me\na dot graph representation of every path\nthat the Docker container has to depend\non any version of\nthe version that we have chosen of\nRedis.\" So, this command will print a\ndot graph of every Docker container and\nwhat the dependency resolution chain is\nto get to Redis.\nUh this is just an example. We can ask\nmuch more elaborate questions.\nAnd what we get for free is S-bomb\ngeneration. So, because we already have\nall of this information, generating an\nS-bomb file is a matter of just taking\nthe information that we have and putting\nit in a in the industry standard format\njust like building any other file.\nUm this is literally as all the code it\ntakes to generate a an S-bomb. Um\nthere's a caveat and that is that\nS-bombs are generated per language. So,\nthe Basil community is constantly\nworking to improve language support.\nUh but so far for the languages for the\nmajority of languages that Sony uses,\nwe should get as bumps relatively for\nfree.\nWe also get some more goodies in\naddition to working around these\nlimitations.\nUm Basil is a polyglot build system\nand Sonic works across many languages,\nright? So you have Sonic utilities,\nwhich is mostly Python.\nUh you have GNMI, which is mostly go,\nand you have\nI don't know, a random fork of libnl3\nthat is very old outer tools. So instead\nof having to learn all of these how to\nbuild everything to test it, you can\njust Basil build dot dot and it will\nbuild everything. Uh whatever\nuh it is in the source code, it will\nbuild it.\nAnd the Basil community strongly\nuh tries to maintain this invariant that\nthe only command you need to start in a\nrepo is Basil build dot dot dot. Not to\nread a readme file with a thousand\nlines. Basil build dot dot dot.\nThe more exciting benefit that we get\nfor free with Basil is remote caching\nand execution.\nSo because everything because we\nfingerprint every input,\nyou can imagine a server where\nit does keep all of the results of every\ncompilation. So a CI machine could run\nthe build for Sonic\nand then it would upload all of its\npartial results to the remote cache\nkeyed by their SHA.\nSo whenever a developer says, \"Hey, do\nyou have\nlibfoo.so, which I expect to have this\nSHA?\"\nUh because we know every input, so we\ncan predict the the output SHAs.\nUh the remote cache can say, \"Yes, I\nhave it. You don't have to build it.\"\nAnd you just download it.\nthis is extremely powerful and it's the\nmain benefit of it it's the main way we\ncut down on build time.\nHowever,\nchallenges. Listing every input is\nreally hard because we have to list\nevery input and it's really hard in the\ncase of Sonic because we have to\ninteract with tools that were not meant\nto list every input. GCC, as we will see\nlater,\nwas meant to read from /user to find\nlibraries to link with. It was meant to\ndo that. So, we have to\nteach those tools and wrap them so that\nthey conform to the basal ecosystem.\nAnd that's where most of the work comes\nfrom.\nThe first challenging input is the\ncompiler because we have to agree on\nwhich compiler we're going to use\nbecause if we use different compilers,\nthen we can just get out of here.\nThey're never going to match. If we use\ndifferent compilers, the the artifacts\nare never going to match.\nSo,\nwe just kind of picked one\nuh that was that built the bookworm\nversion of Sonic. And so, so far, we\npicked the GCC 12.0.5\nuh with an old enough GLibC to be\nuseful. This is not set in stone. We're\nstill experimenting. And in fact, we're\nadding some libraries that uh Sonic\nexpects there to be like libC, libGCC,\nlibstdc++. The standard libraries that\nthe project expects to be there.\nThis is not super interesting, but I\nwanted to say that we have to pick one\nfor everything.\nUm the next challenging input is APT\npackages.\nSo, APT packages we usually get them\nwith APT install and APT update, but APT\nupdate shifts over time, right? As more\npackages get released, as packages get\nupdated, you may get different results\nfrom an APT install tomorrow than you\ndid today.\nSo, we just pin to a snapshot. This is\nhow it looks in actual real code. So,\nyou can see here that we pin to a\nsnapshot from 2025.\nAnd then we just list the names of the\npackages that we would want to download.\nAnd so, we know exactly which version of\nXE we're getting and whether or not it's\nuncompromised.\n>> [sighs]\n>> Uh we do exactly the same with Python uh\nexcept there's an added challenge. So,\nfor Python, we have a a basal plugin\ncalled rules_py. It's all open source\nthat reads an industry standard log file\nproduced by Python tooling.\nSo, this log file is very similar to the\nbasal log file. It just verifies that\nyour resolved dependencies.\nUh however, the trick here is that some\nPython dependencies come with C\ndependencies built from source. So, your\nTensorFlows, your\nI don't remember which one was the last\none, but some Python dependencies need\nto need C code to be built from source.\nSo, we also have to inject the compiler\nthere so that we use the same compiler.\nIf we're not using the same compiler,\nwe're going to have cache misses and\nwe're going to have problems.\nthis\nI will admit leads to a lot of rough\nedges because Python dependencies each\nPython dependency has their own way of\nbeing compiled.\nBut uh we've done the work, and so far,\n12 containers work. Um\nour\nuh plan is to keep pushing forward.\nNow, for to grasp how really difficult\nthis is, I would like to give an example\nfor our paths.\nSo, the problem is that basal sandboxes\ndependencies to a directory on disk that\nyou're not supposed to know about. So,\nwhenever you run a test, basal knows\neverything you need to run a test, but\nit will CD to a directory you're not\nsupposed to know about. It will place\nall of the files there, and it will run\nthe test there. So, that it guarantees\nthat you're not accessing a resource\nthat you shouldn't be accessing. It's\nsandboxing everything.\nHowever, this has a problem because,\nlet's say, we have segment data that has\nbeen linked against the version of lib\nhybridis.\nAt run time, the loader tool will look\nin the default places where user live\nuser live on your architecture\nand it will not find anything because\nbase load is not one of those places.\nSo what we had to do\nis change the wrap the compilation so\nthat the elf binaries have set the uh\nhave an extra entry that will tell the\nloader to look in a path relative to\norigin. An origin is a special path in\nLD that will point to place relative to\nthe binary that is running or the\nlibrary that it's trying to load.\nSo now we don't need to know where base\nload has materialized it. We only we can\nsay\nfrom the place where this file is go up\na directory and then into live and\nthat's where you know it will be.\nAnd that base load is fine with.\nYou don't have to understand the whole\nexample just to realize this is the kind\nof thing that makes base load hard.\nUm what is the output? So the Sonic\nproject has as far as I understand it\nuh three different outputs. We have dev\npackages. So live switch common is a dev\npackage that is distributed as a dev\npackage that you are supposed to install\nand depend on.\n>> [snorts]\n>> Uh for us it's just a tar file and we\nuse entry to uh specify exactly where to\nreplicate the directory layout of an APT\npackage like creating root directories,\ngiving them permissions,\nexecutable permissions, creating links.\nWe just list them one by one.\nUm so far that's worked well.\nThen the second output are docker\ncontainers and docker containers are\njust lists of tars because each tar is a\nlayer. So this is looks remarkably\nsimilar to the docker files that are\nalready in Sonic with the image.\nso that shouldn't be a surprise.\nUh the last one is Well, this is a\ncorollary.\nUh the Sonic build does a really good\njob of supporting different platforms\nand device manufacturers and\narchitectures.\nUh it's built to support that, and it\ndoes the job really well. And we have\ntried to port that over to Basil.\nSo, you can build Docker Sing D Well,\nyou can run Docker Sing D, and this\ncommand will build anything it needs to\nbuild for uh the Docker image of Sing D\nand load it into your local Docker\nrepository.\nBut, uh you can also build it for a\nspecific platform. So, we have created\nconfigurations for right now only for VS\nand Broadcom because this is\nexperimental, but uh you can imagine how\nyou can have one configuration pair, at\nleast per platform, the same way you\nhave in Sonic build image right now, the\nplatform environment variable.\nAnd what this will do is it will uh set\nthe compilation target. So, it will tell\nanything that you compile, please\ncompile it for this, and also it will\ntell it which version of SAI to link\nagainst.\nbut\nwhat if\nthe versions of SAI we think\nare What if the versions of SAI in Sonic\nbuild image are not the ones you want to\nsync with? Maybe you want to link with\nYou have a vendor that gives you a\npre-built SAI, and you want to link\nagainst that. Well, if you wrap that\nshared library and those header files in\na Basil build,\nyou can just pass it. And you don't need\nto understand this flag. This flag is\nquite complicated, but the main point I\nwant to make here is that\nyou only have to pass the flag. You\ndon't have to modify the build.\nOkay.\nThat sounds cool.\nBut, where are we? What's next?\nSo, this is still an experimental\nproject.\nWe think it has legs. We\nWe're really impressed with the results.\nBut there's still so much work to do to\nport all of the capabilities. So, some\nof the things we want to implement in\nthe future are debug containers.\nRight now, the Sonic build does a really\ngood job of taking a binary that it's\nbuilt, stripping out the debug symbols,\nand putting each in a different layer so\nthat you can load the nice lean strip\nbinary into the switches, and if\nsomething goes wrong, just load the the\nlayer with the\nwith the debug symbols, and you can run\nGDB and all of that good stuff.\nWe're We're certain that this can be\nautomated in Basel in a nicer way, or in\nan equally nice way.\nBut we haven't done it yet cuz we're not\nthere yet.\nThe other thing we want to do is a full\nimage build that you can take and\ndeploy. So,\nI get all of the containers, create um\na file system, a Linux kernel, an EFI\nimage that you can load.\nAgain, we have designs for this.\nBut this is still fut- future work. And\nof course, we want to support more use\ncases and more platforms. So, for\nexample, right now, this only works for\nBookworm on\num x86 machines.\nWe would like to support uh\nTrixie, and we would like to support\nARM64 and um 32HF.\nSo, different architectures and\ndifferent vendors.\nFor that, of course, call to action. I\nwould like your support. Um we have a\nuh meetup uh build group that uh I think\nit's biweekly now.\nIf you're interested in the build of\nSonic or would like to contribute, or\nwould like more information, please join\nit.\nVery nice people.\nAnd lastly, I would like to acknowledge\nthis is not all my work. This is mostly\nnot my work. This is the work of many\npeople. So, I would like to say thank\nyou to Sachin and Mikhail for the\ngroundwork for this project. And to\nBrian, Jason, Jerry, Darren, and\nChongchi for um\nuh providing vital context and testing\nand validating of these images.\nThat is all I have for you today. Do you\nhave any questions?\n>> [applause]\n>> Did it\nHi. Uh this is Ganesan from Arista\nNetworks. Uh two questions. Uh you said\nthe cold start time is about 30 minutes\non a low power machine. How does it\ncompare to\nuh Sonic build image as it exists today?\nSonic build as it exists today. Uh\nI haven't run the full the all of those\ncontainers in that machine. So, I\nwouldn't really know how to compare. I\nknow that the build time is ranging in\nthe 2 hours, but honestly, I would be\nsurprised if\nthat 30 minutes number was very\ndifferent because we're doing very\nsimilar work, right? We're calling the\nsame We're calling the compiler and that\njust takes the time it takes. Okay. So,\nthat Yeah.\nUh the second question is you already\nbrought that up. Uh one of the\nchallenges with Sonic is that when they\nupgrade, um they kind of\nhave both two distros at the time. Uh\nsome containers are Trixie, some are uh\nuh Bookworm. And you\nkind of nice if you use the default\ncompiler for Trixie, you you have to\nhave two different set of dependencies\nbecause that's going to be a challenge.\nSo, uh do you have any thoughts of how\nyou have this mix of dependencies or\nwith Basil, we will avoid that\ncompletely? What's your thought? Uh yes.\nSo, Basil allows you to model that in\nthe sense that you can in the same\ncommand create\nSo, let's say uh as you saw before\nlet's take the example.\nI know the text is not great, but as you\ncan see here, we have bookworm\ndependencies.\nWe can have the same code or very\nsimilar code just below for Trixie\nand just name it a different thing.\nSo, we can have targets that on that\ndepend on the Trixie version and targets\nthat depend on the bookworm version.\nWe can also have targets that depend on\neither based on the configuration flag\nyou pass.\nAnd we can also have targets that do\nthat produce two artifacts, one for\nTrixie, one for bookworm. So,\num depending on the actual use case,\nBazel allows us to either create\ndifferent build graphs that ultimately\nproduce different artifacts\nuh we can tell Bazel, \"Hey, share as\nmuch as possible.\" But, the idea is that\nwe don't have to modify the build to\naccommodate for different uh the build\nsource code to accommodate for different\nuse cases. We just put both builds in\nthe in the source code and decide what\nwith a command line which one we want.\nA lot of questions.\nHey, it's Krzysztof Kosiński also with\nnetworks. So,\nI'm wondering like you mentioned uh\nBazel\nrelies on\nknowing all the inputs to generate all\nthe outputs.\nAnd it seems this property is\ntransitive, so that\nyou need to\nIs it true that you need to do\neverything with Bazel to the bottom up\nfrom from the ground to the top so that\nthis property is maintained or is there\na way\nto say, for example, we have a Python\nmodule that has external dependencies\nand like maybe they can switch from a\ndifferent switch a build system\nunderneath depending on the version of\nthis Python package. Like, do we need to\nimplement Basil build for every\ndependency or along the whole path or\nYeah, maybe that's the first first\nquestion. Yeah, that's a very common\nproblem. I know there's not\nIt depends on There is a range of\noptions. So, ideally, yes, but it takes\na lot of work. And the maintainers of\nthat particular module may be unwilling\nor unable to to create the the Basil\nbuild or maintain it. Um so, the Basil\ncommunity has several options in this\ncase.\nUh one is you could consume if they\nproduce something like a wheel or like a\npackage artifact that is source files\nplus\num plus a shared library, for example.\nYou can consume that uh like we do\nPython dependencies. So, if it's\nprecompiled,\nwe can say, \"Hey, we know this is going\nto be compiled with a different\ncompiler,\nbut we are but because it is stable,\nbecause we are taking it from a version,\nbecause we take the SHA of the entire\npack of the entire wheel, we know that\nthis is an input that we can trust and\nthat it will be cached.\" That is a um a\nway of doing it.\nAnother way would be um get There's a\nproject called Gazelle that can generate\nBasil builds for projects. And um\nthere's a range of how well it works\nwith different projects,\nbut if it works, that's what I would\nsuggest because it gives more\ngranularity.\nOkay, so your answer kind of leads to my\nnext question, which I was thinking\nabout before as well.\nIs there a way or\ndo we have a way\ntrust these underlying builds except for\nlike comparing SHAs or\nFor example, how to ensure that\nsomething is not relying on inputs that\nwe have not specified or how to detect\nthis situation. It's\nIt's impossible to do a 100%\nbecause you could have a Python build\nthat just reaches over the network.\nit's a trade-off between One thing you\ncould do is running a sandbox\nenvironment that doesn't have connection\nto the internet and that I know people\nwho do that and that's a very way to say\nif you run in an environment that\ndoesn't have connection to internet and\nalso doesn't have\nan operating system almost at all\nuh that's a very common way to ensure\nthat it doesn't reach outside of the\nsandbox.\nUh but in practice\nuh it's a trade-off. It's a trade-off of\ntime. Uh it's usually very expensive to\nensure that everything doesn't reach\nover the sandbox.\nI have a question like again, the second\ncondition on the standard box. So if I\nunderstood correctly, you don't need the\nDocker slave to build, right? So\neffectively and that is one of the\nthings that takes a long time to build\nthis thing. So effectively if you have\nconverted all the containers to\nuh move to Basil, uh\nyou essentially get rid of the Docker\nslaves for the building at least. Yeah,\nI haven't built this slave at all in\nthis migration. I don't have a copy of\nthe slave on my machine. Okay.\nHey, uh I have a question about the\nBasil cache. Yep. Uh it works on a per\ncomponent basis, right? So if I build\nfor example uh arc agent Yep. and then I\nwant to build sync D. Is it able to like\nreuse the cache from whatever arc agent\nbuilt? Ah, uh it doesn't work on a\ncomponent not on a per signing component\nbasis. It works at a the lower level\nlike that. It works on a per-file basis.\nSo, let's say that\nif I recall correctly, both Arch Agent\nand Sing D both depend on base bookworm,\nthe layer. So, base bookworm the whole\nthing will be shared\nuh between both of them. And if they\ndepended Let's say they depended on the\nsame database config. I know they don't,\nbut let's say they did,\nthey would also be cached. Or um\nif they depended on the same Python\ndependency that had some compiled\nthings, they would it would share the\ncache because the caching basically is a\ncontent-addressable storage, which means\nthat the keys are the shards of\nartifacts, and the values are the files\nor the contents of the files. So, Bazel\nessentially goes\nOh.\nUh Bazel essentially goes,\nuh \"Here are all the files I know I will\nneed. Which ones do I have already on\ndisk?\"\nAnd it goes to the file level.\nAnd I think my time is up. Thank you.\n>> [applause]\n>> Thank you.\nThank you.",
+  "segments": [
+    {
+      "text": "So, this talk is not going to be about how to deploy or debug or use SONiC. It's going to be a little bit different. It's about what's going to happen before that. It is how we test and validate new versions of SONiC. So, hi. My name is Borja. I am from",
+      "start": 0,
+      "duration": 6
+    },
+    {
+      "text": "Aspect Build. And for the last few months, I have been leading this effort to migrate and to modernize the build system that SONiC uses to to build itself. we believe that the early results are very promising. So, I'm here to share",
+      "start": 6,
+      "duration": 6
+    },
+    {
+      "text": "them with you what we learned, the challenges we had, and how we plan to move forward. So, first, uh a little bit of context on how the current SONiC build system works. It's really simple. A build machine, either you or CI, clones the SONiC build image",
+      "start": 12,
+      "duration": 6
+    },
+    {
+      "text": "repository. Then, you build a SONiC slave container. Then, you load that container, and you run the whatever component you want to build there. This is if you want to build a syncd, you run the syncd build in the slave container.",
+      "start": 18,
+      "duration": 6
+    },
+    {
+      "text": "Uh so far, so good. But, as we are probably all aware of, this has some several limitations. So, the first one is that we don't have isolation. So, what even if we check out the same commit, what I build on my machine and what you build on your",
+      "start": 24,
+      "duration": 6
+    },
+    {
+      "text": "machine might be different because of subtle like compiler differences or header mismatches or whatever version of libraries we have to have installed. Um or whatever version of libraries the SONiC slave happens to download. And that leads to different builds.",
+      "start": 30,
+      "duration": 6
+    },
+    {
+      "text": "Then, we have uh reliability by extension. If I check out a commit previous in time, there's no guarantee that I will generate the same commits today than I generated a year ago on the same commit. Um the last one is performance, which is",
+      "start": 36,
+      "duration": 6
+    },
+    {
+      "text": "a consequence of all of this. Because we cannot trust the build enough, we usually end up rebuilding everything from scratch, and that takes forever. And the last thing is visibility, which is kind of hanging in there, uh but we",
+      "start": 42,
+      "duration": 6
+    },
+    {
+      "text": "cannot easily tell which versions of which dependencies we have. So, it would be very hard for me right now to validate whether a particular Sonic build was affected by the XE bug of 2024, for example. XE attack. Um I'm sure you can also",
+      "start": 48,
+      "duration": 6
+    },
+    {
+      "text": "think of many other um limitations, and I think can help with most of those. But first some numbers, because we're here to see results. So, we have so far migrated 12 containers uh from Sonic build image, including some small ones, but also some big ones",
+      "start": 54,
+      "duration": 6
+    },
+    {
+      "text": "like orca agent and syncd, and they are valid being validated as we speak with so far very few issues. In a very underpowered machine, I'm talking very underpowered, eight cores, 24 gigs of RAM, uh building all of the that first part of code takes 30 minutes",
+      "start": 60,
+      "duration": 6
+    },
+    {
+      "text": "from start to finish. Incremental builds are where the gains are. So, if you change let's say the database configuration, you can rebuild whatever was affected in less than 2 seconds, because it's mostly plugging in a different file in the same container.",
+      "start": 66,
+      "duration": 6
+    },
+    {
+      "text": "And that takes no time at all. Uh if you change uh let's say you swap SAI implementations from vendor to vendor, that has taken us 5 minutes to build all of the 12 containers, because we only build the containers that are affected like orca agent and syncd.",
+      "start": 72,
+      "duration": 6
+    },
+    {
+      "text": "Sorry, so just syncd. if you actually change something in the core of the source code, then we're looking at 10 minutes, uh because we have to recompile the source code and then relink everything. I think these are pretty good numbers",
+      "start": 78,
+      "duration": 6
+    },
+    {
+      "text": "for a very underpowered machines. We have partners that are running this in bigger machines that are reporting much better numbers. But uh I think these are impressive by themselves. So, how do we accomplish that? Uh Basil is a build system and has one core",
+      "start": 84,
+      "duration": 6
+    },
+    {
+      "text": "principle. You should know every input to the build. And when I say every input, I mean every input. And that's the hard part. You should know the compiler. You should know every header that goes into the build. You should know",
+      "start": 90,
+      "duration": 6
+    },
+    {
+      "text": "uh every dependency, every shared library, and where it's going to be on the disk. Um this is very hard to accomplish and we'll go through some of the challenges later. But what it gives us is solutions to all of those limitations.",
+      "start": 96,
+      "duration": 6
+    },
+    {
+      "text": "So, we have isolation and reliability almost for free because we fingerprint every input. We have this Basil keeps record of the sha of every file that goes into the build. Therefore, we know that with the same files, we know what we're going to produce and",
+      "start": 102,
+      "duration": 6
+    },
+    {
+      "text": "we produce the same thing. So, part of that, for example, is as we see here, we don't fetch APT packages from APT update or we don't just install like we did in the slave container. We fetch them from a specific snapshot so that we",
+      "start": 108,
+      "duration": 6
+    },
+    {
+      "text": "always get the same packages with the same name. And this gives us deterministic and predictability. >> [snorts] >> The next one is performance because this is so predictable, we can cache with a lot more confidence. So, we can cache",
+      "start": 114,
+      "duration": 6
+    },
+    {
+      "text": "huge swaths of our build tree. So, let's say we have a test that runs a binary that depends on several source files. We may not if we haven't changed the source files, we may not even need to recompile the binary and we may even not need to",
+      "start": 120,
+      "duration": 6
+    },
+    {
+      "text": "to run the tests. So, here you can see that I have a I'm running some tests and they both pass, but then I change the database configuration and I run the tests again with the exact same command and only the tests that depend on the",
+      "start": 126,
+      "duration": 6
+    },
+    {
+      "text": "database configuration run. The rest are cached as successes. Uh the times are made up, by the way. They don't take 0.1 seconds. They They take a long time. Um and the last one is we get visibility and because we know every input, we can",
+      "start": 132,
+      "duration": 6
+    },
+    {
+      "text": "ask Basil very elaborate questions. Uh it has different tools for different levels. So, we have a checked-in log file that lists every third-party dependency. This file is huge. It's not meant for humans, but it is just JSON.",
+      "start": 138,
+      "duration": 6
+    },
+    {
+      "text": "Uh so, if you really want to, you can look at it. If you are a human, you have a query engine that you can use to ask Basil questions such as, \"Please give me a dot graph representation of every path that the Docker container has to depend on any version of",
+      "start": 144,
+      "duration": 6
+    },
+    {
+      "text": "the version that we have chosen of Redis.\" So, this command will print a dot graph of every Docker container and what the dependency resolution chain is to get to Redis. Uh this is just an example. We can ask much more elaborate questions.",
+      "start": 150,
+      "duration": 6
+    },
+    {
+      "text": "And what we get for free is S-bomb generation. So, because we already have all of this information, generating an S-bomb file is a matter of just taking the information that we have and putting it in a in the industry standard format",
+      "start": 156,
+      "duration": 6
+    },
+    {
+      "text": "just like building any other file. Um this is literally as all the code it takes to generate a an S-bomb. Um there's a caveat and that is that S-bombs are generated per language. So, the Basil community is constantly working to improve language support.",
+      "start": 162,
+      "duration": 6
+    },
+    {
+      "text": "Uh but so far for the languages for the majority of languages that Sony uses, we should get as bumps relatively for free. We also get some more goodies in addition to working around these limitations. Um Basil is a polyglot build system",
+      "start": 168,
+      "duration": 6
+    },
+    {
+      "text": "and Sonic works across many languages, right? So you have Sonic utilities, which is mostly Python. Uh you have GNMI, which is mostly go, and you have I don't know, a random fork of libnl3 that is very old outer tools. So instead",
+      "start": 174,
+      "duration": 6
+    },
+    {
+      "text": "of having to learn all of these how to build everything to test it, you can just Basil build dot dot and it will build everything. Uh whatever uh it is in the source code, it will build it. And the Basil community strongly",
+      "start": 180,
+      "duration": 6
+    },
+    {
+      "text": "uh tries to maintain this invariant that the only command you need to start in a repo is Basil build dot dot dot. Not to read a readme file with a thousand lines. Basil build dot dot dot. The more exciting benefit that we get",
+      "start": 186,
+      "duration": 6
+    },
+    {
+      "text": "for free with Basil is remote caching and execution. So because everything because we fingerprint every input, you can imagine a server where it does keep all of the results of every compilation. So a CI machine could run the build for Sonic",
+      "start": 192,
+      "duration": 6
+    },
+    {
+      "text": "and then it would upload all of its partial results to the remote cache keyed by their SHA. So whenever a developer says, \"Hey, do you have libfoo.so, which I expect to have this SHA?\" Uh because we know every input, so we can predict the the output SHAs.",
+      "start": 198,
+      "duration": 6
+    },
+    {
+      "text": "Uh the remote cache can say, \"Yes, I have it. You don't have to build it.\" And you just download it. this is extremely powerful and it's the main benefit of it it's the main way we cut down on build time. However, challenges. Listing every input is",
+      "start": 204,
+      "duration": 6
+    },
+    {
+      "text": "really hard because we have to list every input and it's really hard in the case of Sonic because we have to interact with tools that were not meant to list every input. GCC, as we will see later, was meant to read from /user to find",
+      "start": 210,
+      "duration": 6
+    },
+    {
+      "text": "libraries to link with. It was meant to do that. So, we have to teach those tools and wrap them so that they conform to the basal ecosystem. And that's where most of the work comes from. The first challenging input is the compiler because we have to agree on",
+      "start": 216,
+      "duration": 6
+    },
+    {
+      "text": "which compiler we're going to use because if we use different compilers, then we can just get out of here. They're never going to match. If we use different compilers, the the artifacts are never going to match. So, we just kind of picked one",
+      "start": 222,
+      "duration": 6
+    },
+    {
+      "text": "uh that was that built the bookworm version of Sonic. And so, so far, we picked the GCC 12.0.5 uh with an old enough GLibC to be useful. This is not set in stone. We're still experimenting. And in fact, we're adding some libraries that uh Sonic",
+      "start": 228,
+      "duration": 6
+    },
+    {
+      "text": "expects there to be like libC, libGCC, libstdc++. The standard libraries that the project expects to be there. This is not super interesting, but I wanted to say that we have to pick one for everything. Um the next challenging input is APT packages.",
+      "start": 234,
+      "duration": 6
+    },
+    {
+      "text": "So, APT packages we usually get them with APT install and APT update, but APT update shifts over time, right? As more packages get released, as packages get updated, you may get different results from an APT install tomorrow than you did today.",
+      "start": 240,
+      "duration": 6
+    },
+    {
+      "text": "So, we just pin to a snapshot. This is how it looks in actual real code. So, you can see here that we pin to a snapshot from 2025. And then we just list the names of the packages that we would want to download. And so, we know exactly which version of",
+      "start": 246,
+      "duration": 6
+    },
+    {
+      "text": "XE we're getting and whether or not it's uncompromised. >> [sighs] >> Uh we do exactly the same with Python uh except there's an added challenge. So, for Python, we have a a basal plugin called rules_py. It's all open source",
+      "start": 252,
+      "duration": 6
+    },
+    {
+      "text": "that reads an industry standard log file produced by Python tooling. So, this log file is very similar to the basal log file. It just verifies that your resolved dependencies. Uh however, the trick here is that some Python dependencies come with C",
+      "start": 258,
+      "duration": 6
+    },
+    {
+      "text": "dependencies built from source. So, your TensorFlows, your I don't remember which one was the last one, but some Python dependencies need to need C code to be built from source. So, we also have to inject the compiler there so that we use the same compiler.",
+      "start": 264,
+      "duration": 6
+    },
+    {
+      "text": "If we're not using the same compiler, we're going to have cache misses and we're going to have problems. this I will admit leads to a lot of rough edges because Python dependencies each Python dependency has their own way of being compiled.",
+      "start": 270,
+      "duration": 6
+    },
+    {
+      "text": "But uh we've done the work, and so far, 12 containers work. Um our uh plan is to keep pushing forward. Now, for to grasp how really difficult this is, I would like to give an example for our paths. So, the problem is that basal sandboxes",
+      "start": 276,
+      "duration": 6
+    },
+    {
+      "text": "dependencies to a directory on disk that you're not supposed to know about. So, whenever you run a test, basal knows everything you need to run a test, but it will CD to a directory you're not supposed to know about. It will place",
+      "start": 282,
+      "duration": 6
+    },
+    {
+      "text": "all of the files there, and it will run the test there. So, that it guarantees that you're not accessing a resource that you shouldn't be accessing. It's sandboxing everything. However, this has a problem because, let's say, we have segment data that has",
+      "start": 288,
+      "duration": 6
+    },
+    {
+      "text": "been linked against the version of lib hybridis. At run time, the loader tool will look in the default places where user live user live on your architecture and it will not find anything because base load is not one of those places. So what we had to do",
+      "start": 294,
+      "duration": 6
+    },
+    {
+      "text": "is change the wrap the compilation so that the elf binaries have set the uh have an extra entry that will tell the loader to look in a path relative to origin. An origin is a special path in LD that will point to place relative to",
+      "start": 300,
+      "duration": 6
+    },
+    {
+      "text": "the binary that is running or the library that it's trying to load. So now we don't need to know where base load has materialized it. We only we can say from the place where this file is go up a directory and then into live and",
+      "start": 306,
+      "duration": 6
+    },
+    {
+      "text": "that's where you know it will be. And that base load is fine with. You don't have to understand the whole example just to realize this is the kind of thing that makes base load hard. Um what is the output? So the Sonic project has as far as I understand it",
+      "start": 312,
+      "duration": 6
+    },
+    {
+      "text": "uh three different outputs. We have dev packages. So live switch common is a dev package that is distributed as a dev package that you are supposed to install and depend on. >> [snorts] >> Uh for us it's just a tar file and we",
+      "start": 318,
+      "duration": 6
+    },
+    {
+      "text": "use entry to uh specify exactly where to replicate the directory layout of an APT package like creating root directories, giving them permissions, executable permissions, creating links. We just list them one by one. Um so far that's worked well.",
+      "start": 324,
+      "duration": 6
+    },
+    {
+      "text": "Then the second output are docker containers and docker containers are just lists of tars because each tar is a layer. So this is looks remarkably similar to the docker files that are already in Sonic with the image. so that shouldn't be a surprise.",
+      "start": 330,
+      "duration": 6
+    },
+    {
+      "text": "Uh the last one is Well, this is a corollary. Uh the Sonic build does a really good job of supporting different platforms and device manufacturers and architectures. Uh it's built to support that, and it does the job really well. And we have",
+      "start": 336,
+      "duration": 6
+    },
+    {
+      "text": "tried to port that over to Basil. So, you can build Docker Sing D Well, you can run Docker Sing D, and this command will build anything it needs to build for uh the Docker image of Sing D and load it into your local Docker repository.",
+      "start": 342,
+      "duration": 6
+    },
+    {
+      "text": "But, uh you can also build it for a specific platform. So, we have created configurations for right now only for VS and Broadcom because this is experimental, but uh you can imagine how you can have one configuration pair, at",
+      "start": 348,
+      "duration": 6
+    },
+    {
+      "text": "least per platform, the same way you have in Sonic build image right now, the platform environment variable. And what this will do is it will uh set the compilation target. So, it will tell anything that you compile, please",
+      "start": 354,
+      "duration": 6
+    },
+    {
+      "text": "compile it for this, and also it will tell it which version of SAI to link against. but what if the versions of SAI we think are What if the versions of SAI in Sonic build image are not the ones you want to sync with? Maybe you want to link with",
+      "start": 360,
+      "duration": 6
+    },
+    {
+      "text": "You have a vendor that gives you a pre-built SAI, and you want to link against that. Well, if you wrap that shared library and those header files in a Basil build, you can just pass it. And you don't need to understand this flag. This flag is",
+      "start": 366,
+      "duration": 6
+    },
+    {
+      "text": "quite complicated, but the main point I want to make here is that you only have to pass the flag. You don't have to modify the build. Okay. That sounds cool. But, where are we? What's next? So, this is still an experimental project. We think it has legs. We",
+      "start": 372,
+      "duration": 6
+    },
+    {
+      "text": "We're really impressed with the results. But there's still so much work to do to port all of the capabilities. So, some of the things we want to implement in the future are debug containers. Right now, the Sonic build does a really",
+      "start": 378,
+      "duration": 6
+    },
+    {
+      "text": "good job of taking a binary that it's built, stripping out the debug symbols, and putting each in a different layer so that you can load the nice lean strip binary into the switches, and if something goes wrong, just load the the layer with the",
+      "start": 384,
+      "duration": 6
+    },
+    {
+      "text": "with the debug symbols, and you can run GDB and all of that good stuff. We're We're certain that this can be automated in Basel in a nicer way, or in an equally nice way. But we haven't done it yet cuz we're not there yet.",
+      "start": 390,
+      "duration": 6
+    },
+    {
+      "text": "The other thing we want to do is a full image build that you can take and deploy. So, I get all of the containers, create um a file system, a Linux kernel, an EFI image that you can load. Again, we have designs for this. But this is still fut- future work. And",
+      "start": 396,
+      "duration": 6
+    },
+    {
+      "text": "of course, we want to support more use cases and more platforms. So, for example, right now, this only works for Bookworm on um x86 machines. We would like to support uh Trixie, and we would like to support ARM64 and um 32HF. So, different architectures and",
+      "start": 402,
+      "duration": 6
+    },
+    {
+      "text": "different vendors. For that, of course, call to action. I would like your support. Um we have a uh meetup uh build group that uh I think it's biweekly now. If you're interested in the build of Sonic or would like to contribute, or",
+      "start": 408,
+      "duration": 6
+    },
+    {
+      "text": "would like more information, please join it. Very nice people. And lastly, I would like to acknowledge this is not all my work. This is mostly not my work. This is the work of many people. So, I would like to say thank you to Sachin and Mikhail for the",
+      "start": 414,
+      "duration": 6
+    },
+    {
+      "text": "groundwork for this project. And to Brian, Jason, Jerry, Darren, and Chongchi for um uh providing vital context and testing and validating of these images. That is all I have for you today. Do you have any questions? >> [applause] >> Did it",
+      "start": 420,
+      "duration": 6
+    },
+    {
+      "text": "Hi. Uh this is Ganesan from Arista Networks. Uh two questions. Uh you said the cold start time is about 30 minutes on a low power machine. How does it compare to uh Sonic build image as it exists today? Sonic build as it exists today. Uh",
+      "start": 426,
+      "duration": 6
+    },
+    {
+      "text": "I haven't run the full the all of those containers in that machine. So, I wouldn't really know how to compare. I know that the build time is ranging in the 2 hours, but honestly, I would be surprised if that 30 minutes number was very",
+      "start": 432,
+      "duration": 6
+    },
+    {
+      "text": "different because we're doing very similar work, right? We're calling the same We're calling the compiler and that just takes the time it takes. Okay. So, that Yeah. Uh the second question is you already brought that up. Uh one of the",
+      "start": 438,
+      "duration": 6
+    },
+    {
+      "text": "challenges with Sonic is that when they upgrade, um they kind of have both two distros at the time. Uh some containers are Trixie, some are uh uh Bookworm. And you kind of nice if you use the default compiler for Trixie, you you have to",
+      "start": 444,
+      "duration": 6
+    },
+    {
+      "text": "have two different set of dependencies because that's going to be a challenge. So, uh do you have any thoughts of how you have this mix of dependencies or with Basil, we will avoid that completely? What's your thought? Uh yes.",
+      "start": 450,
+      "duration": 6
+    },
+    {
+      "text": "So, Basil allows you to model that in the sense that you can in the same command create So, let's say uh as you saw before let's take the example. I know the text is not great, but as you can see here, we have bookworm dependencies.",
+      "start": 456,
+      "duration": 6
+    },
+    {
+      "text": "We can have the same code or very similar code just below for Trixie and just name it a different thing. So, we can have targets that on that depend on the Trixie version and targets that depend on the bookworm version. We can also have targets that depend on",
+      "start": 462,
+      "duration": 6
+    },
+    {
+      "text": "either based on the configuration flag you pass. And we can also have targets that do that produce two artifacts, one for Trixie, one for bookworm. So, um depending on the actual use case, Bazel allows us to either create different build graphs that ultimately",
+      "start": 468,
+      "duration": 6
+    },
+    {
+      "text": "produce different artifacts uh we can tell Bazel, \"Hey, share as much as possible.\" But, the idea is that we don't have to modify the build to accommodate for different uh the build source code to accommodate for different use cases. We just put both builds in",
+      "start": 474,
+      "duration": 6
+    },
+    {
+      "text": "the in the source code and decide what with a command line which one we want. A lot of questions. Hey, it's Krzysztof Kosiński also with networks. So, I'm wondering like you mentioned uh Bazel relies on knowing all the inputs to generate all the outputs.",
+      "start": 480,
+      "duration": 6
+    },
+    {
+      "text": "And it seems this property is transitive, so that you need to Is it true that you need to do everything with Bazel to the bottom up from from the ground to the top so that this property is maintained or is there a way to say, for example, we have a Python",
+      "start": 486,
+      "duration": 6
+    },
+    {
+      "text": "module that has external dependencies and like maybe they can switch from a different switch a build system underneath depending on the version of this Python package. Like, do we need to implement Basil build for every dependency or along the whole path or",
+      "start": 492,
+      "duration": 6
+    },
+    {
+      "text": "Yeah, maybe that's the first first question. Yeah, that's a very common problem. I know there's not It depends on There is a range of options. So, ideally, yes, but it takes a lot of work. And the maintainers of that particular module may be unwilling",
+      "start": 498,
+      "duration": 6
+    },
+    {
+      "text": "or unable to to create the the Basil build or maintain it. Um so, the Basil community has several options in this case. Uh one is you could consume if they produce something like a wheel or like a package artifact that is source files plus",
+      "start": 504,
+      "duration": 6
+    },
+    {
+      "text": "um plus a shared library, for example. You can consume that uh like we do Python dependencies. So, if it's precompiled, we can say, \"Hey, we know this is going to be compiled with a different compiler, but we are but because it is stable,",
+      "start": 510,
+      "duration": 6
+    },
+    {
+      "text": "because we are taking it from a version, because we take the SHA of the entire pack of the entire wheel, we know that this is an input that we can trust and that it will be cached.\" That is a um a way of doing it. Another way would be um get There's a",
+      "start": 516,
+      "duration": 6
+    },
+    {
+      "text": "project called Gazelle that can generate Basil builds for projects. And um there's a range of how well it works with different projects, but if it works, that's what I would suggest because it gives more granularity. Okay, so your answer kind of leads to my",
+      "start": 522,
+      "duration": 6
+    },
+    {
+      "text": "next question, which I was thinking about before as well. Is there a way or do we have a way trust these underlying builds except for like comparing SHAs or For example, how to ensure that something is not relying on inputs that",
+      "start": 528,
+      "duration": 6
+    },
+    {
+      "text": "we have not specified or how to detect this situation. It's It's impossible to do a 100% because you could have a Python build that just reaches over the network. it's a trade-off between One thing you could do is running a sandbox",
+      "start": 534,
+      "duration": 6
+    },
+    {
+      "text": "environment that doesn't have connection to the internet and that I know people who do that and that's a very way to say if you run in an environment that doesn't have connection to internet and also doesn't have an operating system almost at all",
+      "start": 540,
+      "duration": 6
+    },
+    {
+      "text": "uh that's a very common way to ensure that it doesn't reach outside of the sandbox. Uh but in practice uh it's a trade-off. It's a trade-off of time. Uh it's usually very expensive to ensure that everything doesn't reach over the sandbox.",
+      "start": 546,
+      "duration": 6
+    },
+    {
+      "text": "I have a question like again, the second condition on the standard box. So if I understood correctly, you don't need the Docker slave to build, right? So effectively and that is one of the things that takes a long time to build",
+      "start": 552,
+      "duration": 6
+    },
+    {
+      "text": "this thing. So effectively if you have converted all the containers to uh move to Basil, uh you essentially get rid of the Docker slaves for the building at least. Yeah, I haven't built this slave at all in this migration. I don't have a copy of",
+      "start": 558,
+      "duration": 6
+    },
+    {
+      "text": "the slave on my machine. Okay. Hey, uh I have a question about the Basil cache. Yep. Uh it works on a per component basis, right? So if I build for example uh arc agent Yep. and then I want to build sync D. Is it able to like",
+      "start": 564,
+      "duration": 6
+    },
+    {
+      "text": "reuse the cache from whatever arc agent built? Ah, uh it doesn't work on a component not on a per signing component basis. It works at a the lower level like that. It works on a per-file basis. So, let's say that if I recall correctly, both Arch Agent",
+      "start": 570,
+      "duration": 6
+    },
+    {
+      "text": "and Sing D both depend on base bookworm, the layer. So, base bookworm the whole thing will be shared uh between both of them. And if they depended Let's say they depended on the same database config. I know they don't, but let's say they did,",
+      "start": 576,
+      "duration": 6
+    },
+    {
+      "text": "they would also be cached. Or um if they depended on the same Python dependency that had some compiled things, they would it would share the cache because the caching basically is a content-addressable storage, which means that the keys are the shards of",
+      "start": 582,
+      "duration": 6
+    },
+    {
+      "text": "artifacts, and the values are the files or the contents of the files. So, Bazel essentially goes Oh. Uh Bazel essentially goes, uh \"Here are all the files I know I will need. Which ones do I have already on disk?\" And it goes to the file level.",
+      "start": 588,
+      "duration": 6
+    },
+    {
+      "text": "And I think my time is up. Thank you. >> [applause] >> Thank you. Thank you.",
+      "start": 594,
+      "duration": 6
+    }
+  ]
+}
