@@ -178,6 +178,7 @@ export class CompanyMissionService implements OnModuleInit {
       dimStatus: Map<string, "running" | "done" | "failed">;
     }
   >();
+  private readonly detachedRecoveryInFlight = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -513,8 +514,15 @@ export class CompanyMissionService implements OnModuleInit {
       where: { id: missionId, userId },
     });
     if (!src) throw new NotFoundException("Mission not found");
-    if (src.status !== "failed") {
-      throw new BadRequestException("只有失败任务可以从 checkpoint 继续。");
+    const isFailed = src.status === "failed";
+    const isDetachedRunning =
+      src.status === "running" && !this.abortControllers.has(missionId);
+    if (!isFailed && !isDetachedRunning) {
+      throw new BadRequestException(
+        src.status === "running"
+          ? "任务仍有运行中的 worker，不能重复继续。"
+          : "只有失败任务或断开的 running 任务可以从 checkpoint 继续。",
+      );
     }
 
     const result = this.asResultObject(src.result);
@@ -537,7 +545,11 @@ export class CompanyMissionService implements OnModuleInit {
     }
 
     const claimed = await this.prisma.companyMission.updateMany({
-      where: { id: missionId, userId, status: "failed" },
+      where: {
+        id: missionId,
+        userId,
+        status: isFailed ? "failed" : "running",
+      },
       data: {
         status: "queued",
         progress: Math.max(0, Math.min(src.progress ?? 0, 99)),
@@ -673,10 +685,12 @@ export class CompanyMissionService implements OnModuleInit {
     userId: string,
     teamId?: string,
   ): Promise<CompanyMission[]> {
-    return this.prisma.companyMission.findMany({
+    const missions = await this.prisma.companyMission.findMany({
       where: { userId, ...(teamId ? { teamId } : {}) },
       orderBy: { createdAt: "desc" },
     });
+    this.recoverDetachedRunningMissions(userId, missions);
+    return missions;
   }
 
   /** 删除一条 mission（按 userId 归属校验，防越权删他人任务）。 */
@@ -1897,6 +1911,43 @@ export class CompanyMissionService implements OnModuleInit {
       select: { result: true },
     });
     return this.asResultObject(row?.result);
+  }
+
+  private recoverDetachedRunningMissions(
+    userId: string,
+    missions: CompanyMission[],
+  ): void {
+    for (const mission of missions) {
+      if (mission.status !== "running") continue;
+      if (this.abortControllers.has(mission.id)) continue;
+      if (this.detachedRecoveryInFlight.has(mission.id)) continue;
+      const result = this.asResultObject(mission.result);
+      const checkpoint = result.__checkpoint as
+        | {
+            lastStepId?: string;
+          }
+        | undefined;
+      const dispatch = result.__dispatch as
+        | {
+            capabilityId?: string;
+          }
+        | undefined;
+      if (!checkpoint?.lastStepId || !dispatch?.capabilityId) continue;
+
+      this.detachedRecoveryInFlight.add(mission.id);
+      this.log.warn(
+        `[detached-recovery] ${mission.id} is running in DB but has no local worker; resume from checkpoint "${checkpoint.lastStepId}"`,
+      );
+      void this.resumeHeroMission(userId, mission.id)
+        .catch((err: unknown) => {
+          this.log.error(
+            `[detached-recovery] ${mission.id} resume failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        })
+        .finally(() => {
+          this.detachedRecoveryInFlight.delete(mission.id);
+        });
+    }
   }
 
   private async updateMission(

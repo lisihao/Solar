@@ -128,6 +128,46 @@ describe("company orphan 恢复（recoverOrphanMissions）", () => {
     expect(runHeroSpy).not.toHaveBeenCalled();
   });
 
+  it("刷新列表发现 running 但本 pod 无 worker → 自动从 checkpoint 接回", async () => {
+    const detached = {
+      id: "m-detached-running",
+      userId: "u1",
+      heroId: "h1",
+      title: "断线任务",
+      status: "running",
+      progress: 0,
+      result: {
+        __checkpoint: { lastStepId: "s2-leader-plan" },
+        __dispatch: {
+          capabilityId: "deep-insight",
+          preferredModelId: "deepseek-v4-pro",
+          extra: { depth: "deep" },
+        },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const { service, runHeroSpy } = makeService({
+      findMany: jest.fn().mockResolvedValue([detached]),
+      findFirst: jest.fn().mockResolvedValue(detached),
+      findUnique: jest.fn().mockResolvedValue({ ...detached, status: "queued" }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    });
+
+    const missions = await service.listMissions("u1");
+    await Promise.resolve();
+
+    expect(missions).toHaveLength(1);
+    expect(runHeroSpy).toHaveBeenCalledWith(
+      "m-detached-running",
+      "u1",
+      "deep-insight",
+      "断线任务",
+      "deepseek-v4-pro",
+      { depth: "deep" },
+    );
+  });
+
   it("可恢复（checkpoint + dispatch）→ 同 missionId 重跑", async () => {
     const orphan = {
       id: "m-resume",
