@@ -821,6 +821,32 @@ def _node_results(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return results if isinstance(results, dict) else {}
 
 
+def _blocked_by_missing_required_inputs(graph: dict[str, Any], node_id: str) -> bool:
+    result = _node_results(graph).get(node_id)
+    if not isinstance(result, dict):
+        return False
+    if str(result.get("blocking_reason") or "").strip() != "operator_pool_admission_failed":
+        return False
+    missing = result.get("missing_required_inputs")
+    return isinstance(missing, list) and bool(missing)
+
+
+def _blocked_by_repeated_transient_failure(graph: dict[str, Any], node_id: str) -> bool:
+    node = _node_map(graph).get(node_id)
+    if isinstance(node, dict) and str(node.get("blocking_reason") or "").strip() in {
+        "repeated_transient_operator_failure",
+        "compatibility_fallback_capability_mismatch",
+    }:
+        return True
+    result = _node_results(graph).get(node_id)
+    if not isinstance(result, dict):
+        return False
+    return str(result.get("blocking_reason") or "").strip() in {
+        "repeated_transient_operator_failure",
+        "compatibility_fallback_capability_mismatch",
+    }
+
+
 def _parse_ts(value: Any) -> datetime.datetime | None:
     if not value:
         return None
@@ -1260,10 +1286,13 @@ def _estimated_cost(node: dict[str, Any]) -> float:
 def graph_parallelism_metrics(graph: dict[str, Any]) -> dict[str, Any]:
     ids = _node_map(graph)
     source_nodes: list[str] = []
+    source_progress_nodes: list[str] = []
     missing_write_scope: list[str] = []
     for node_id, node in ids.items():
         if not _internal_depends_on(node):
             source_nodes.append(node_id)
+            if node_status(graph, node_id) in ACTIVE_STATUSES or node_status(graph, node_id) in TERMINAL_STATUSES:
+                source_progress_nodes.append(node_id)
         if "write_scope" not in node or not node.get("write_scope"):
             missing_write_scope.append(node_id)
     initial_ready: list[str] = []
@@ -1277,6 +1306,9 @@ def graph_parallelism_metrics(graph: dict[str, Any]) -> dict[str, Any]:
     return {
         "initial_ready_width": len(initial_ready),
         "initial_ready_nodes": initial_ready,
+        "initial_effective_width": len(initial_ready) + len(source_progress_nodes),
+        "source_progress_width": len(source_progress_nodes),
+        "source_progress_nodes": source_progress_nodes,
         "source_width": len(source_nodes),
         "source_nodes": source_nodes,
         "missing_write_scope_count": len(missing_write_scope),
@@ -1333,10 +1365,12 @@ def validate_graph(graph: dict[str, Any]) -> dict[str, Any]:
         or graph.get("min_ready_width")
         or 0
     )
-    if min_ready_width > 0 and parallelism.get("initial_ready_width", 0) < min_ready_width:
+    effective_initial_width = int(parallelism.get("initial_effective_width", parallelism.get("initial_ready_width", 0)) or 0)
+    if min_ready_width > 0 and effective_initial_width < min_ready_width:
         errors.append(
             "parallelism_quality:"
             f" initial_ready_width={parallelism.get('initial_ready_width', 0)}"
+            f" effective_initial_width={effective_initial_width}"
             f" < min_ready_width={min_ready_width}"
         )
 
@@ -1546,6 +1580,12 @@ def ready_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
     ready: list[dict[str, Any]] = []
     for node_id in topo_order(graph):
         status = node_status(graph, node_id)
+        if _blocked_by_repeated_transient_failure(graph, node_id):
+            continue
+        if status == "worker_blocked" and (
+            _blocked_by_missing_required_inputs(graph, node_id)
+        ):
+            continue
         if status in TERMINAL_STATUSES or status in ACTIVE_STATUSES:
             continue
         if status not in READY_STATUSES:
@@ -2440,6 +2480,7 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
         acquire = None
     from apo_plan_compiler import (  # noqa: WPS433
         compile_execution_plan_for_node,
+        execution_plan_artifact_paths,
         materialize_execution_plan_artifacts,
     )
 
@@ -2465,13 +2506,16 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
             )
             capsule_plan_ir = dict(compiled_plan.get("capsule_plan") or {})
             physical_plan_ir = dict(compiled_plan.get("physical_plan") or {})
-            plan_artifacts = materialize_execution_plan_artifacts(
-                sid,
-                node_id,
-                capsule_plan=capsule_plan_ir,
-                physical_plan=physical_plan_ir,
-                base_dir=SPRINTS_DIR,
-            )
+            if dry_run:
+                plan_artifacts = execution_plan_artifact_paths(sid, node_id, base_dir=SPRINTS_DIR)
+            else:
+                plan_artifacts = materialize_execution_plan_artifacts(
+                    sid,
+                    node_id,
+                    capsule_plan=capsule_plan_ir,
+                    physical_plan=physical_plan_ir,
+                    base_dir=SPRINTS_DIR,
+                )
             # Store APO supply-chain planning artifact for evidence ledger and downstream
             plan_artifacts["task_classification"] = compiled_plan.get("task_classification") or {}
             plan_artifacts["logical_workflow"] = compiled_plan.get("logical_workflow") or {}
@@ -2505,13 +2549,16 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
                 "attached_capsules": [],
                 "verifier_plans": [],
             }
-            plan_artifacts = materialize_execution_plan_artifacts(
-                sid,
-                node_id,
-                capsule_plan=capsule_plan_ir,
-                physical_plan=physical_plan_ir,
-                base_dir=SPRINTS_DIR,
-            )
+            if dry_run:
+                plan_artifacts = execution_plan_artifact_paths(sid, node_id, base_dir=SPRINTS_DIR)
+            else:
+                plan_artifacts = materialize_execution_plan_artifacts(
+                    sid,
+                    node_id,
+                    capsule_plan=capsule_plan_ir,
+                    physical_plan=physical_plan_ir,
+                    base_dir=SPRINTS_DIR,
+                )
         node["logical_plan_node"] = dict(compiled_plan.get("logical_plan_node") or {})
         node["capsule_plan_ir"] = capsule_plan_ir
         node["physical_plan_ir"] = physical_plan_ir

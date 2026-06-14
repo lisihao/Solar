@@ -24,7 +24,7 @@ ANTIGRAVITY_PROBE_PROMPT = "Reply with exactly: SOLAR_AGY_OK"
 RATE_LIMIT_RE = re.compile(
     r"RESOURCE_EXHAUSTED|\bquota(?:\s+exhausted)?\b|monthly usage limit|"
     r"rate[- ]?limit|\b429\b|too many requests|resets?\s+in|"
-    r"Upgrade your plan|You've hit .*limit|Individual quota reached|\bcapacity\b|"
+    r"Upgrade your plan|You've hit .*limit|Individual quota reached|"
     r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
     re.I,
 )
@@ -41,6 +41,14 @@ AUTH_RE = re.compile(
 )
 AUTH_SUCCESS_RE = re.compile(
     r"OAuth:\s*authenticated successfully|silent auth succeeded|Auth done received|authenticated via keyring",
+    re.I,
+)
+EXPLICIT_QUOTA_EVIDENCE_RE = re.compile(
+    r"RESOURCE_EXHAUSTED|\bquota(?:\s+exhausted)?\b|monthly usage limit|"
+    r"rate[- ]?limit|\b429\b|too many requests|resets?\s+(?:in|at|on)|"
+    r"Upgrade your plan|You've hit .*limit|Individual quota reached|"
+    r"usage pattern|fair usage policy|request frequency has been limited|"
+    r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
     re.I,
 )
 # Conversation bootstrap failure — distinct from auth: session exists but no active conversation.
@@ -364,6 +372,10 @@ def int_value(value: Any, default: int) -> int:
         return default
 
 
+def has_explicit_quota_evidence(text: str) -> bool:
+    return bool(EXPLICIT_QUOTA_EVIDENCE_RE.search(text or ""))
+
+
 def classify_failure_state(text: str) -> str:
     """Return a failure state string from operator output text.
 
@@ -632,23 +644,18 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
         reason = str(flow.get("last_block_reason") or state.get("last_error") or "").strip().lower()
         source = str(flow.get("last_block_source") or "").strip().lower()
         excerpt = str(flow.get("last_block_excerpt") or "").lower()
+        explicit_quota_evidence = has_explicit_quota_evidence(excerpt)
         weak_pane_cooldown = (
             runtime_state == "cooldown"
             and reason in {"pane_tui_rate_limit_fallback_ttl", "pane_tui_rate_limit"}
             and source.startswith("tmux_pane:")
-            and not any(
-                token in excerpt
-                for token in (
-                    "rate limit",
-                    "rate-limit",
-                    "rate_limit",
-                    "usage limit",
-                    "quota exhausted",
-                    "resource_exhausted",
-                    "api error",
-                    "/rate-limit-options",
-                )
-            )
+            and not explicit_quota_evidence
+        )
+        weak_failure_flow_cooldown = (
+            runtime_state == "cooldown"
+            and reason in {"rate_limit", "cooldown"}
+            and source == "failure_flow_control"
+            and not explicit_quota_evidence
         )
         if expires is not None and expires > now:
             if _is_claude_code_operator(str(operator_id), op):
@@ -673,23 +680,35 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
                         "expired_at": "claude_live_heartbeat_after_block",
                     })
                     continue
-            if weak_pane_cooldown:
+            if weak_pane_cooldown or weak_failure_flow_cooldown:
                 pass
             else:
                 kept.append({"operator_id": str(operator_id), "runtime_state": runtime_state, "expires_at": expires_raw})
                 continue
-        if expires is None and not weak_pane_cooldown:
+        if expires is None and not (weak_pane_cooldown or weak_failure_flow_cooldown):
             kept.append({"operator_id": str(operator_id), "runtime_state": runtime_state, "expires_at": expires_raw})
             continue
         _clear_registry_block(
             op,
             now=now,
-            reason="weak_pane_rate_limit_evidence" if weak_pane_cooldown else "expired_operator_block",
+            reason=(
+                "weak_pane_rate_limit_evidence"
+                if weak_pane_cooldown
+                else "weak_failure_flow_rate_limit_evidence"
+                if weak_failure_flow_cooldown
+                else "expired_operator_block"
+            ),
         )
         pruned.append({
             "operator_id": str(operator_id),
             "runtime_state": runtime_state,
-            "expired_at": "weak_pane_rate_limit_evidence" if weak_pane_cooldown else (expires_raw or "N/A"),
+            "expired_at": (
+                "weak_pane_rate_limit_evidence"
+                if weak_pane_cooldown
+                else "weak_failure_flow_rate_limit_evidence"
+                if weak_failure_flow_cooldown
+                else (expires_raw or "N/A")
+            ),
         })
     if pruned:
         _write_operator_registry(registry)
@@ -746,6 +765,17 @@ def _prune_dynamic_operator_status_blocks(
         weak_cooldown = runtime_state == "cooldown" and not reason and not evidence
         op = operators.get(operator_id) if isinstance(operators.get(operator_id), dict) else {}
         status_provider = str(status.get("effective_provider") or "").strip().lower()
+        registry_state = op.get("state") if isinstance(op.get("state"), dict) else {}
+        registry_flow = op.get("flow_control") if isinstance(op.get("flow_control"), dict) else {}
+        registry_pruned_at = _parse_time(registry_flow.get("last_pruned_at") or registry_state.get("last_pruned_at"))
+        status_updated_at = _parse_time(status.get("updated_at") or status.get("last_error_at") or status.get("created_at"))
+        registry_cleared_after_status = (
+            registry_pruned_at is not None
+            and status_updated_at is not None
+            and registry_pruned_at > status_updated_at
+            and str(op.get("quota_guard_state") or "").strip().lower() in {"", "ok", "ready"}
+            and str(registry_state.get("runtime_state") or "").strip().lower() in {"", "idle", "ok", "ready", "unknown"}
+        )
         claude_live_heartbeat = (
             (status_provider in {"anthropic", "claude", "claude-code"} or _is_claude_code_operator(operator_id, op))
             and _live_heartbeat_clears_claude_block(status)
@@ -765,6 +795,10 @@ def _prune_dynamic_operator_status_blocks(
         if weak_cooldown and health_ok:
             runtime.clear_operator_status(operator_id)
             pruned.append({"operator_id": operator_id, "runtime_state": runtime_state, "expired_at": "weak_no_evidence_health_ok"})
+            continue
+        if registry_cleared_after_status:
+            runtime.clear_operator_status(operator_id)
+            pruned.append({"operator_id": operator_id, "runtime_state": runtime_state, "expired_at": "registry_pruned_after_status_block"})
             continue
         if claude_live_heartbeat:
             runtime.clear_operator_status(operator_id)
@@ -787,24 +821,19 @@ def persist_operator_block(
     reason_l = str(reason or "").strip().lower()
     source_l = str(source or "").strip().lower()
     evidence_l = str(evidence_text or "").lower()
-    if reason_l in {"pane_tui_rate_limit_fallback_ttl", "pane_tui_rate_limit"} and source_l.startswith("tmux_pane:"):
-        explicit_rate_limit = any(
-            token in evidence_l
-            for token in (
-                "rate limit",
-                "rate-limit",
-                "rate_limit",
-                "usage limit",
-                "quota exhausted",
-                "resource_exhausted",
-                "api error",
-                "/rate-limit-options",
+    if (
+        (reason_l in {"pane_tui_rate_limit_fallback_ttl", "pane_tui_rate_limit"} and source_l.startswith("tmux_pane:"))
+        or (reason_l in {"rate_limit", "cooldown"} and source_l == "failure_flow_control")
+    ):
+        if not has_explicit_quota_evidence(evidence_l):
+            reject_reason = (
+                "weak_pane_rate_limit_evidence"
+                if source_l.startswith("tmux_pane:")
+                else "weak_failure_flow_rate_limit_evidence"
             )
-        )
-        if not explicit_rate_limit:
             return {
                 "ok": False,
-                "reason": "weak_pane_rate_limit_evidence",
+                "reason": reject_reason,
                 "operator_id": operator_id,
             }
 

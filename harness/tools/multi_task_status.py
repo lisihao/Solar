@@ -311,7 +311,8 @@ def get_actor_status_entry(
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        if lease_data.get("expires_at", "") > now_str:
+        expires_at = str(lease_data.get("expires_at") or "")
+        if expires_at and expires_at > now_str:
             lease_state = str(lease_data.get("state") or "leased")
         else:
             lease_state = "stale"

@@ -311,7 +311,8 @@ def _lease_state_for_actor(actor_id: str, lease_dir: Path = ACTOR_LEASE_DIR) -> 
     now_str = datetime.datetime.now(datetime.timezone.utc).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
-    if lease_data.get("expires_at", "") > now_str:
+    expires_at = str(lease_data.get("expires_at") or "")
+    if expires_at and expires_at > now_str:
         return str(lease_data.get("state") or "leased")
     return "stale"
 

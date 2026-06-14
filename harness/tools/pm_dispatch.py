@@ -47,6 +47,7 @@ OPERATOR_RESULTS_DIR = HARNESS_DIR / "run" / "operator-results"
 OPERATOR_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
 SPRINTS_DIR = Path(os.environ.get("SOLAR_HARNESS_SPRINTS_DIR", HARNESS_DIR / "sprints"))
 REPO_HARNESS_DIR = Path(__file__).resolve().parents[1]
+HEALTH_CACHE_SCHEMA_VERSION = 2
 PM_CAPACITY_PROBE_PREFIXES = (
     "pm-graph-dispatch-capacity-probe-",
     "pm-eval-capacity-probe-",
@@ -76,6 +77,8 @@ ROLE_ALIASES: dict[str, str] = {
 }
 
 NON_DISPATCHABLE_STATES = {"leased", "running", "draining", "cooldown", "quota_exhausted", "auth_expired", "disabled"}
+GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD = int(os.environ.get("SOLAR_GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD", "3"))
+GRAPH_TRANSIENT_FAILURE_BLOCK_WINDOW_SEC = int(os.environ.get("SOLAR_GRAPH_TRANSIENT_FAILURE_BLOCK_WINDOW_SEC", "900"))
 TRANSIENT_OPERATOR_FAILURE_RE = re.compile(
     r"runtime_state=(?:cooldown|quota_exhausted|auth_expired)|"
     r"Error loading config\.toml:\s+unknown variant [`'\"]?default[`'\"]?, expected [`'\"]?fast[`'\"]? or [`'\"]?flex[`'\"]?|"
@@ -180,6 +183,16 @@ def _load_concurrency_policy_module() -> Any | None:
 
 def _now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_utc_ts(value: Any) -> datetime.datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    except Exception:
+        return None
 
 
 def _short_id() -> str:
@@ -556,12 +569,22 @@ def _health_cache_path(operator_id: str) -> Path:
     return HARNESS_DIR / "run" / "operator-health" / f"{operator_id}.json"
 
 
+def _expand_operator_path(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    expanded = os.path.expandvars(raw.replace("$HARNESS_DIR", str(HARNESS_DIR)).replace("${HARNESS_DIR}", str(HARNESS_DIR)))
+    return str(Path(expanded).expanduser()) if expanded.startswith(("~", "/")) else expanded
+
+
 def _read_health_cache(operator_id: str, max_age_seconds: int) -> tuple[bool | None, str]:
     path = _health_cache_path(operator_id)
     if max_age_seconds <= 0 or not path.exists():
         return None, ""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        if int(data.get("schema_version", 0)) != HEALTH_CACHE_SCHEMA_VERSION:
+            return None, ""
         checked_at = float(data.get("checked_at_epoch", 0))
         if time.time() - checked_at <= max_age_seconds:
             return bool(data.get("ok")), str(data.get("reason") or "")
@@ -570,20 +593,64 @@ def _read_health_cache(operator_id: str, max_age_seconds: int) -> tuple[bool | N
     return None, ""
 
 
+def _read_any_health_cache(operator_id: str) -> tuple[bool | None, str]:
+    path = _health_cache_path(operator_id)
+    if not path.exists():
+        return None, ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if int(data.get("schema_version", 0)) != HEALTH_CACHE_SCHEMA_VERSION:
+            return None, ""
+        return bool(data.get("ok")), str(data.get("reason") or "")
+    except Exception:
+        return None, ""
+
+
 def _write_health_cache(operator_id: str, ok: bool, reason: str) -> None:
     path = _health_cache_path(operator_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "schema_version": HEALTH_CACHE_SCHEMA_VERSION,
         "operator_id": operator_id,
         "ok": ok,
         "reason": reason,
         "checked_at": _now(),
         "checked_at_epoch": time.time(),
     }
-    fd, tmp = tempfile.mkstemp(prefix=f"{operator_id}.", suffix=".tmp", dir=str(path.parent))
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, str(path))
+    tmp = ""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=f"{operator_id}.", suffix=".tmp", dir=str(path.parent))
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, str(path))
+    except Exception:
+        if tmp:
+            try:
+                Path(tmp).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _health_check_headers(op: dict[str, Any], health: dict[str, Any]) -> dict[str, str]:
+    headers = {"User-Agent": "solar-harness-health/1.0"}
+    configured = health.get("headers")
+    if isinstance(configured, dict):
+        for key, value in configured.items():
+            name = str(key or "").strip()
+            if name:
+                headers[name] = os.path.expandvars(str(value or ""))
+    model = str(op.get("model") or "").strip().lower()
+    key_ref = str(op.get("key_ref") or "").strip().lower()
+    if "thunderomlx" in model or key_ref == "local-thunderomlx":
+        token = os.environ.get("THUNDEROMLX_AUTH_TOKEN") or os.environ.get("LOCAL_LLM_API_KEY") or "local-thunderomlx"
+        headers.setdefault("Authorization", f"Bearer {token}")
+        headers.setdefault("x-api-key", token)
+    return headers
+
+
+def _is_sandbox_permission_health_error(reason: str) -> bool:
+    raw = str(reason or "").lower()
+    return "operation not permitted" in raw or "errno 1" in raw
 
 
 def _operator_external_health(op: dict[str, Any]) -> tuple[bool, str]:
@@ -591,7 +658,7 @@ def _operator_external_health(op: dict[str, Any]) -> tuple[bool, str]:
     operator_id = str(op.get("operator_id") or "")
     health = op.get("health_check") if isinstance(op.get("health_check"), dict) else {}
     if not health:
-        command_path = str(op.get("command_path") or "").strip()
+        command_path = _expand_operator_path(str(op.get("command_path") or ""))
         if command_path:
             exists = Path(command_path).exists() if command_path.startswith("/") else shutil.which(command_path) is not None
             return (True, "") if exists else (False, f"command_path_missing:{command_path}")
@@ -615,16 +682,24 @@ def _operator_external_health(op: dict[str, Any]) -> tuple[bool, str]:
             result = (False, "health_url_missing")
         else:
             try:
-                req = Request(url, headers={"User-Agent": "solar-harness-health/1.0"})
+                req = Request(url, headers=_health_check_headers(op, health))
                 with urlopen(req, timeout=timeout) as resp:
                     ok = 200 <= int(resp.status) < 500
                     result = (ok, f"http_status={resp.status}")
             except URLError as exc:
-                result = (False, f"http_unreachable:{exc.reason}")
+                reason = f"http_unreachable:{exc.reason}"
+                if _is_sandbox_permission_health_error(reason):
+                    cached = _read_any_health_cache(operator_id)
+                    return cached if cached[0] is not None else (True, "health_check_skipped:sandbox_permission")
+                result = (False, reason)
             except Exception as exc:
+                reason = f"http_unreachable:{type(exc).__name__}:{exc}"
+                if _is_sandbox_permission_health_error(reason):
+                    cached = _read_any_health_cache(operator_id)
+                    return cached if cached[0] is not None else (True, "health_check_skipped:sandbox_permission")
                 result = (False, f"http_unreachable:{type(exc).__name__}")
     elif kind == "command":
-        command_path = str(health.get("command_path") or op.get("command_path") or "").strip()
+        command_path = _expand_operator_path(str(health.get("command_path") or op.get("command_path") or ""))
         exists = Path(command_path).exists() if command_path.startswith("/") else shutil.which(command_path) is not None
         result = ((True, "") if exists else (False, f"command_path_missing:{command_path or 'N/A'}"))
     else:
@@ -702,7 +777,10 @@ def _shared_quota_block_for_operator(op: dict[str, Any]) -> dict[str, str]:
     for peer_id, peer_spec in operators.items():
         if str(peer_id) == operator_id or not isinstance(peer_spec, dict):
             continue
-        same_pool = billing_pool and str(peer_spec.get("billing_pool") or "").strip() == billing_pool
+        peer_provider = str(peer_spec.get("provider") or "").strip().lower()
+        same_pool_name = billing_pool and str(peer_spec.get("billing_pool") or "").strip() == billing_pool
+        same_provider_for_pool = not provider or not peer_provider or peer_provider == provider
+        same_pool = bool(same_pool_name and same_provider_for_pool)
         # Key refs often represent a broad login/API account. Propagate through
         # key_ref only when provider and model also match; otherwise independent
         # model budget pools such as GPT-5.5 and Codex Spark would block each
@@ -842,6 +920,59 @@ def _capsule_submit_metadata(node: dict[str, Any] | None) -> dict[str, Any]:
         "logical_operator": node.get("logical_operator", ""),
         "capsule_plan": capsule_plan,
     }
+
+
+def _resolve_sprint_artifact_path(raw: str) -> Path:
+    path = Path(str(raw or "")).expanduser()
+    if path.is_absolute():
+        return path
+    if path.parts and path.parts[0] == "sprints":
+        return HARNESS_DIR / path
+    return SPRINTS_DIR / path
+
+
+def _load_node_physical_plan(node: dict[str, Any] | None) -> dict[str, Any]:
+    if not node:
+        return {}
+    inline = node.get("physical_plan_ir") or node.get("physical_plan")
+    if isinstance(inline, dict):
+        return dict(inline)
+    artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
+    raw_path = str(
+        node.get("physical_plan_ir_path")
+        or artifacts.get("physical_plan_ir")
+        or artifacts.get("physical_plan_ir_path")
+        or ""
+    ).strip()
+    if not raw_path:
+        return {}
+    path = _resolve_sprint_artifact_path(raw_path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _capsule_submit_metadata_for_role(node: dict[str, Any] | None, role: str) -> dict[str, Any]:
+    metadata = _capsule_submit_metadata(node)
+    if normalize_role(role) != "evaluator":
+        return metadata
+    physical_plan = _load_node_physical_plan(node)
+    verifier_plans = physical_plan.get("verifier_plans") if isinstance(physical_plan.get("verifier_plans"), list) else []
+    for plan in verifier_plans:
+        if not isinstance(plan, dict):
+            continue
+        capsule_id = str(plan.get("capability_capsule_id") or "").strip()
+        if not capsule_id:
+            continue
+        metadata = dict(metadata)
+        metadata["capability_native"] = True
+        metadata["capability_capsule_id"] = capsule_id
+        metadata["dispatch_task_type"] = str(plan.get("task_type") or metadata.get("dispatch_task_type") or "")
+        metadata["evaluator_capsule_source"] = "physical_plan.verifier_plans"
+        return metadata
+    return metadata
 
 
 # ── 算子选择 ──────────────────────────────────────────────────────────────────
@@ -1096,6 +1227,12 @@ def select_operator_by_role(
     capsule_constraints = dict((resolved_capsule or {}).get("operator_constraints") or {})
     preferred_ops = set(capsule_constraints.get("preferred", []) or [])
     forbidden_ops = set(capsule_constraints.get("forbidden", []) or [])
+    env_excluded_ops = {
+        item.strip()
+        for item in os.environ.get("SOLAR_PM_OPERATOR_EXCLUDE_IDS", "").split(",")
+        if item.strip()
+    }
+    forbidden_ops.update(env_excluded_ops)
     default_profile = str(capsule_constraints.get("default_operator_profile") or "")
 
     # 1. 指定 operator 优先
@@ -1776,6 +1913,61 @@ def _node_handoff_path(sprint_id: str, node_id: str) -> Path:
     return SPRINTS_DIR / f"{sprint_id}.{node_id}-handoff.md"
 
 
+def _resolve_sprint_artifact_path(value: str) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = SPRINTS_DIR / path
+    return path
+
+
+def _node_has_fresh_terminal_eval_sidecar(
+    sprint_id: str,
+    node_id: str,
+    handoff_path: Path,
+    target: dict[str, Any],
+    result_entry: dict[str, Any],
+) -> bool:
+    candidates: list[Path] = [_node_eval_json_path(sprint_id, node_id)]
+    for source in (target, result_entry):
+        eval_json = _resolve_sprint_artifact_path(str(source.get("eval_json") or ""))
+        if eval_json is not None:
+            candidates.append(eval_json)
+        artifacts = source.get("artifacts") if isinstance(source.get("artifacts"), dict) else {}
+        eval_json = _resolve_sprint_artifact_path(str(artifacts.get("eval_json") or ""))
+        if eval_json is not None:
+            candidates.append(eval_json)
+
+    try:
+        handoff_mtime = handoff_path.stat().st_mtime
+    except OSError:
+        handoff_mtime = 0.0
+
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        if not path.exists() or path.stat().st_size <= 0:
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        verdict = str(payload.get("verdict") or payload.get("status") or "").strip().lower()
+        if verdict not in {"pass", "passed", "ok", "fail", "failed", "error", "errored"}:
+            continue
+        try:
+            if path.stat().st_mtime < handoff_mtime:
+                continue
+        except OSError:
+            continue
+        return True
+    return False
+
+
 def _node_has_active_or_dispatched_eval(sprint_id: str, node_id: str, node: dict[str, Any]) -> bool:
     active = _active_pm_record_for_node(sprint_id, node_id)
     if active and normalize_role(str(active.get("requested_role") or active.get("role") or "")) == "evaluator":
@@ -2186,12 +2378,13 @@ def cmd_submit(args: argparse.Namespace) -> int:
     dry_run: bool = bool(args.dry_run)
     context = str(args.context or "")
     task_graph_node = load_task_graph_node(sprint_id, node_id)
-    capsule_submit = _capsule_submit_metadata(task_graph_node)
+    capsule_submit = _capsule_submit_metadata_for_role(task_graph_node, role)
     logical_operator = str(capsule_submit.get("logical_operator") or (task_graph_node or {}).get("logical_operator") or "")
     if not task_type:
         task_type = str(capsule_submit.get("dispatch_task_type") or (task_graph_node or {}).get("type") or "")
 
     resolved_capsule: dict[str, Any] | None = None
+    capsule_admission_error = ""
     if capsule_submit.get("capability_capsule_id"):
         try:
             lib_dir = HARNESS_DIR / "lib"
@@ -2206,11 +2399,37 @@ def cmd_submit(args: argparse.Namespace) -> int:
                     "capability_capsule_id": capsule_submit["capability_capsule_id"],
                 }
             )
-        except Exception:
+        except Exception as exc:
+            message = str(exc)
+            if "admission_failed:" in message:
+                capsule_admission_error = message
+            else:
+                capsule_admission_error = ""
             resolved_capsule = None
 
     task_id = f"pm-{sprint_id}-{node_id}-{_short_id()}"
     result_path = str(SPRINTS_DIR / f"{sprint_id}.{node_id}.pm-result.md")
+
+    if capsule_admission_error:
+        failure_reason = f"capability_capsule_admission_failed: {capsule_admission_error}"
+        failure_record: dict[str, Any] = {
+            "task_id": task_id,
+            "sprint_id": sprint_id,
+            "node_id": node_id,
+            "operator_id": "",
+            "objective": objective,
+            "result_path": result_path,
+            "status": "failed_no_dispatchable_operator",
+            "submitted_at": _now(),
+            "failed_at": _now(),
+            "requested_role": normalize_role(role),
+            "failure_reason": failure_reason,
+            "capability_capsule_id": capsule_submit.get("capability_capsule_id", ""),
+            "logical_operator": logical_operator,
+        }
+        write_pm_task_record(task_id, failure_record)
+        print(f"ERROR: {failure_reason}", file=sys.stderr)
+        return 1
 
     # 1. 选算子
     operator_id, operator, fallback_reason = select_operator_by_role(
@@ -2908,7 +3127,9 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
         str(target.get("dispatch_id") or ""),
         str(target.get("pm_task_id") or ""),
     }
-    node_results = graph.get("node_results") if isinstance(graph.get("node_results"), dict) else {}
+    if not isinstance(graph.get("node_results"), dict):
+        graph["node_results"] = {}
+    node_results = graph["node_results"]
     result_entry = node_results.get(node_id) if isinstance(node_results.get(node_id), dict) else {}
     dispatch_ids.add(str(result_entry.get("dispatch_id") or ""))
     dispatch_ids.add(str(result_entry.get("pm_task_id") or ""))
@@ -2938,35 +3159,73 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
             "previous_dispatch": previous,
         }
     )
-    target["status"] = "pending"
+    history = target.get("dispatch_requeue_history")
+    if not isinstance(history, list):
+        history = []
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=max(0, GRAPH_TRANSIENT_FAILURE_BLOCK_WINDOW_SEC)
+    )
+    recent_failures = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("reason") or "") != "transient_operator_failure":
+            continue
+        ts = _parse_utc_ts(item.get("ts"))
+        if ts is None or ts >= cutoff:
+            recent_failures.append(item)
+    should_block = (
+        GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD > 0
+        and len(recent_failures) >= GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD
+    )
+    target["status"] = "worker_blocked" if should_block else "pending"
     target["updated_at"] = now
     target["requeue_reason"] = "transient_operator_failure"
+    if should_block:
+        target["blocking_reason"] = "repeated_transient_operator_failure"
+        target["transient_failure_blocked_at"] = now
+        target["transient_failure_block_count"] = len(recent_failures)
     for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
         target.pop(key, None)
 
-    if isinstance(result_entry, dict):
-        result_entry.setdefault("dispatch_requeue_history", []).append(
-            {
-                "ts": now,
-                "reason": "transient_operator_failure",
-                "task_id": task_id,
-                "operator_id": str(record.get("operator_id") or ""),
-            }
-        )
-        result_entry["status"] = "pending"
-        result_entry["updated_at"] = now
-        result_entry["requeue_reason"] = "transient_operator_failure"
-        for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
-            result_entry.pop(key, None)
+    result_entry.setdefault("dispatch_requeue_history", []).append(
+        {
+            "ts": now,
+            "reason": "transient_operator_failure",
+            "task_id": task_id,
+            "operator_id": str(record.get("operator_id") or ""),
+        }
+    )
+    result_entry["status"] = "worker_blocked" if should_block else "pending"
+    result_entry["updated_at"] = now
+    result_entry["requeue_reason"] = "transient_operator_failure"
+    if should_block:
+        result_entry["blocking_reason"] = "repeated_transient_operator_failure"
+        result_entry["failure_reason"] = reason[:1000]
+        result_entry["blocked_at"] = now
+        result_entry["transient_failure_block_count"] = len(recent_failures)
+    for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
+        result_entry.pop(key, None)
+    node_results[node_id] = result_entry
 
     graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    next_status = "worker_blocked" if should_block else "pending"
     state_sync = _sync_task_dag_state_node(
         sprint_id,
         node_id,
-        "pending",
-        note="transient operator failure requeue",
+        next_status,
+        note="repeated transient operator failure blocked" if should_block else "transient operator failure requeue",
     )
-    return {"ok": True, "released": True, "graph": str(graph_path), "sprint_id": sprint_id, "node_id": node_id, "state_sync": state_sync}
+    return {
+        "ok": True,
+        "released": True,
+        "blocked": should_block,
+        "reason": "repeated_transient_operator_failure" if should_block else "transient_operator_failure",
+        "graph": str(graph_path),
+        "sprint_id": sprint_id,
+        "node_id": node_id,
+        "state_sync": state_sync,
+    }
 
 
 def release_builder_assignment_on_transient_failure(record: dict[str, Any]) -> dict[str, Any]:
@@ -3359,6 +3618,16 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
         repair_completion = _is_terminal_repair_completion(record, target, result_entry, handoff_path)
     if task_id not in dispatch_ids and not repair_completion:
         return {"ok": False, "marked": False, "reason": "dispatch_mismatch", "node_id": node_id}
+
+    if repair_completion and _node_has_fresh_terminal_eval_sidecar(sprint_id, node_id, handoff_path, target, result_entry):
+        return {
+            "ok": True,
+            "marked": False,
+            "reason": "node_already_has_fresh_eval_verdict",
+            "graph": str(graph_path),
+            "node_id": node_id,
+            "status": target_status or result_status,
+        }
 
     now = _now()
     previous = {

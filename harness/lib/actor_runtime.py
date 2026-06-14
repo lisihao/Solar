@@ -591,8 +591,8 @@ class ActorRuntime:
         ).lower()
         gate = str(graph_node.get("gate") or "").upper()
         return (
-            logical_operator == "verifier"
-            or task_type == "verification"
+            logical_operator in {"verifier", "critic"}
+            or task_type in {"verification", "review"}
             or (gate == "G_REVIEW" and task_type == "review")
         )
 

@@ -210,6 +210,79 @@ def test_graph_drain_consumes_existing_assigned_builder_queue(monkeypatch, tmp_p
     assert calls == [(sid, False, 1, 900)]
 
 
+def test_graph_drain_does_not_consume_empty_assigned_builder_queue(monkeypatch, tmp_path):
+    controller = _load_controller()
+    sprints = tmp_path / "sprints"
+    queue_dir = tmp_path / "queue"
+    sprints.mkdir()
+    queue_dir.mkdir()
+    sid = "sprint-empty-assigned-queue"
+    queue_file = queue_dir / f"{sid}.jsonl"
+    queue_file.write_text("", encoding="utf-8")
+    _write_graph_with_nodes(
+        sprints,
+        sid,
+        [
+            {
+                "id": "B6",
+                "status": "assigned",
+                "assigned_to": "solar-harness-lab:0.3",
+                "dispatch_id": f"graph-{sid}-B6-20260606T223709Z",
+            }
+        ],
+    )
+
+    class FakeDispatcher:
+        @staticmethod
+        def load_graph(path):
+            return json.loads(Path(path).read_text(encoding="utf-8"))
+
+        @staticmethod
+        def _existing_node_handoff(sprint_id, node, graph):
+            return None
+
+        @staticmethod
+        def _node_eval_needed(graph, sprint_id, node, force=False):
+            return False
+
+        @staticmethod
+        def ready_nodes(graph):
+            return []
+
+        @staticmethod
+        def _queue_file(sprint_id):
+            return queue_dir / f"{sprint_id}.jsonl"
+
+        @staticmethod
+        def _is_graph_queue_item(item):
+            return "graph_node|" in str(item.get("intent") or "") or bool((item.get("payload") or {}).get("node"))
+
+        @staticmethod
+        def drain_queue(sprint_id, dry_run=False, max_items=0, ttl=900):
+            raise AssertionError("empty graph queue must not consume builder attempts")
+
+        @staticmethod
+        def dispatch_ready(path, dry_run=False, ttl=900, max_parallel=None):
+            raise AssertionError("assigned queue drain must not enqueue new ready work")
+
+    monkeypatch.setattr(controller, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(controller, "_load_graph_dispatcher", lambda: FakeDispatcher)
+
+    payload = controller.run_graph_drain(apply=True, max_graphs=5, max_evals=0, max_builders=1)
+
+    assert payload["counters"]["builder_queue_candidates"] == 0
+    assert payload["counters"]["builder_attempts"] == 0
+    assert payload["counters"]["builders_dispatched"] == 0
+    assert payload["counters"]["stale_builder_queue_assignments"] == 1
+    assert payload["counters"]["reconciled"] == 1
+    assert payload["actions"][0]["action_type"] == "graph_builder_stale_queue_reconcile"
+    assert payload["actions"][0]["payload"]["builder_queue_depth"] == 0
+    updated = json.loads((sprints / f"{sid}.task_graph.json").read_text(encoding="utf-8"))
+    assert updated["nodes"][0]["status"] == "pending"
+    assert "assigned_to" not in updated["nodes"][0]
+    assert updated["node_results"]["B6"]["blocking_reason"] == "stale_builder_queue_assignment_cleared"
+
+
 def test_graph_drain_reconciles_existing_eval_sidecar_without_new_eval_dispatch(monkeypatch, tmp_path):
     controller = _load_controller()
     sprints = tmp_path / "sprints"
@@ -527,6 +600,60 @@ def test_graph_drain_apply_does_not_count_unavailable_builder_retry(monkeypatch,
     assert payload["skipped"][0]["drain_reasons"] == ["assigned_pane_unavailable_retry_later"]
     assert payload["skipped"][0]["drain_details"][0]["dispatch_path"] == "actor_runtime"
     assert payload["skipped"][0]["drain_details"][0]["error"] == "pane hygiene blocked"
+
+
+def test_graph_drain_counts_actor_runtime_dispatch_without_instruction_file(monkeypatch, tmp_path):
+    controller = _load_controller()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    sid = "sprint-test"
+    _write_graph(sprints, sid)
+
+    class FakeDispatcher:
+        @staticmethod
+        def load_graph(path):
+            return json.loads(Path(path).read_text(encoding="utf-8"))
+
+        @staticmethod
+        def _existing_node_handoff(sprint_id, node, graph):
+            return None
+
+        @staticmethod
+        def ready_nodes(graph):
+            return [node for node in graph["nodes"] if node["id"] == "B2"]
+
+        @staticmethod
+        def dispatch_ready(path, dry_run=False, ttl=900, max_parallel=None):
+            return {
+                "ok": True,
+                "enqueue": {"enqueued": [{"node": "B2"}]},
+                "drain": {
+                    "ok": True,
+                    "processed": 1,
+                    "results": [
+                        {
+                            "ok": True,
+                            "node": "B2",
+                            "pane": "actor:builder-1",
+                            "dispatch_id": "graph-sprint-test-B2",
+                            "dispatch_path": "actor_runtime",
+                            "dispatch_mode": "actor_runtime",
+                        }
+                    ],
+                },
+            }
+
+    monkeypatch.setattr(controller, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(controller, "_load_graph_dispatcher", lambda: FakeDispatcher)
+
+    payload = controller.run_graph_drain(apply=True, max_graphs=5, max_evals=0, max_builders=1)
+
+    assert payload["counters"]["builder_candidates"] == 1
+    assert payload["counters"]["builders_dispatched"] == 1
+    assert payload["counters"]["drain_submitted"] == 1
+    assert payload["actions"][0]["action_type"] == "graph_builder_drain"
+    assert payload["actions"][0]["submitted"] == 1
+    assert payload["actions"][0]["payload"]["drain"]["results"][0]["dispatch_path"] == "actor_runtime"
 
 
 def test_graph_drain_includes_enqueue_details_for_no_dispatch(monkeypatch, tmp_path):

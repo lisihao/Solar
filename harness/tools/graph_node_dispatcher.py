@@ -1784,7 +1784,7 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
             continue
         status = node_status(graph, node_id)
         handoff_file = _existing_node_handoff(sid, node, graph)
-        eval_json_path = str(node.get("eval_json") or _eval_json_file(sid, node_id))
+        eval_json_path = str(_resolve_eval_json_path(sid, node_id, node))
         if not Path(eval_json_path).exists():
             backfilled_eval = _maybe_backfill_eval_json_from_md(sid, node_id)
             if backfilled_eval is not None:
@@ -2454,6 +2454,35 @@ def _eval_json_file(sid: str, node_id: str) -> Path:
     return SPRINTS_DIR / f"{sid}.{_safe_node_id(node_id)}-eval.json"
 
 
+def _resolve_eval_json_path(sid: str, node_id: str, node: dict[str, Any]) -> Path:
+    artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
+    raw = str(
+        node.get("eval_json")
+        or node.get("eval_json_path")
+        or artifacts.get("eval_json")
+        or artifacts.get("eval_json_path")
+        or ""
+    ).strip()
+    if not raw:
+        return _eval_json_file(sid, node_id)
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    if path.parts and path.parts[0] == "sprints":
+        return HARNESS_DIR / path
+    return SPRINTS_DIR / path
+
+
+def _eval_json_verdict(path: str | Path) -> str:
+    payload = _read_json_file_safe(path)
+    raw = str(payload.get("verdict") or payload.get("status") or "").strip().lower()
+    if raw in {"pass", "passed", "ok", "success", "succeeded"}:
+        return "PASS"
+    if raw in {"fail", "failed", "error", "errored"}:
+        return "FAIL"
+    return ""
+
+
 def _eval_peer_md_file(sid: str, node_id: str, index: int) -> Path:
     return SPRINTS_DIR / f"{sid}.{_safe_node_id(node_id)}-eval-q{index}.md"
 
@@ -2653,6 +2682,16 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
             SPRINTS_DIR / f"{sid}.{node_id}-patch.diff",
             SPRINTS_DIR / f"{sid}.{node_id}-patch-diff.md",
         ],
+        "design_md": [
+            SPRINTS_DIR / f"{sid}.{node_id}.design.md",
+            SPRINTS_DIR / f"{sid}.{node_id}-design.md",
+            SPRINTS_DIR / f"{sid}.{node_id}_design.md",
+        ],
+        "plan_md": [
+            SPRINTS_DIR / f"{sid}.{node_id}.plan.md",
+            SPRINTS_DIR / f"{sid}.{node_id}-plan.md",
+            SPRINTS_DIR / f"{sid}.{node_id}_plan.md",
+        ],
     }
     standard_artifacts = {key: candidates[0] for key, candidates in standard_artifact_candidates.items()}
     standard_presence = {
@@ -2685,6 +2724,8 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
         "guard_decision": standard_presence["guard_decision"],
         "resource_binding": standard_presence["resource_binding"],
         "bridged_artifact": standard_presence["bridged_artifact"],
+        "design_md": standard_presence["design_md"],
+        "plan_md": standard_presence["plan_md"],
         "test_log": bool(str(test_path) not in {"", "."} and test_path.exists()),
     }
     for artifact_key, artifact_value in artifacts.items():
@@ -2741,6 +2782,8 @@ def _proof_requirement_presence_key(requirement: str) -> str:
         "eval_md exists": "eval_md",
         "eval_json exists": "eval_json",
         "patch_diff exists": "patch_diff",
+        "design_md exists": "design_md",
+        "plan_md exists": "plan_md",
     }
     if text in mapping:
         return mapping[text]
@@ -5511,12 +5554,65 @@ def _evaluator_operator_pool_workers() -> list[dict[str, Any]]:
     return workers
 
 
+def _planner_operator_pool_workers(
+    worker_skills: list[str],
+    worker_capabilities: list[str],
+) -> list[dict[str, Any]]:
+    if not _operator_pool_role_available("planner"):
+        return []
+    worker = {
+        "pane": "operator-pool:planner.0",
+        "models": ["operator-pool", "opus", "gpt-5.5", "gemini-3.1-pro"],
+        "skills": worker_skills,
+        "capabilities": worker_capabilities,
+        "role": "planner",
+        "dispatch_role": "planner",
+        "host_role": "operator_pool",
+        "busy": False,
+        "title": "operator pool planner",
+        "unavailable_reason": "",
+        "quota_exhausted": [],
+        "rate_limit_operator_blocks": [],
+        "current_command": "",
+    }
+    _flatten_actorhost_bridge(
+        worker,
+        {
+            "actor_id": "N/A",
+            "host_id": "operator-pool",
+            "host_type": "operator_pool",
+            "lease_state": "idle",
+            "capability_match": {
+                "required": worker_capabilities,
+                "matched": worker_capabilities,
+                "missing": [],
+                "observed": worker_capabilities,
+            },
+            "compat_fallback": False,
+            "compat_maps_to": None,
+            "resolution_source": "operator_pool_virtual",
+            "canonical_host_type": True,
+        },
+    )
+    return [worker]
+
+
 def _graph_queue_dispatch_role(payload: dict[str, Any], node: dict[str, Any], assignment: dict[str, Any]) -> str:
+    pane_hint = str(assignment.get("pane") or payload.get("pane") or "").strip().lower()
     raw = (
         assignment.get("dispatch_role")
         or payload.get("dispatch_role")
         or node.get("dispatch_role")
         or node.get("role")
+        or (
+            "evaluator"
+            if pane_hint.startswith("operator-pool:evaluator")
+            else "planner"
+            if pane_hint.startswith("operator-pool:planner")
+            else "builder"
+            if pane_hint.startswith("operator-pool:builder")
+            else ""
+        )
         or "builder"
     )
     role = str(raw or "builder").strip().lower().replace("-", "_")
@@ -5786,12 +5882,14 @@ def _submit_builder_to_operator_pool(
         if node.get("fan_out_parent"):
             text_payload["section_isolation"] = True
             text_payload["section_id"] = node.get("section_id", "")
-    instruction_file.parent.mkdir(parents=True, exist_ok=True)
-    instruction_file.write_text(build_dispatch_text(text_payload, f"operator-pool:{dispatch_role}"), encoding="utf-8")
-    if not dry_run:
+    dispatch_text = build_dispatch_text(text_payload, f"operator-pool:{dispatch_role}")
+    if dry_run:
+        dispatch_preview = dispatch_text
+    else:
+        instruction_file.parent.mkdir(parents=True, exist_ok=True)
+        instruction_file.write_text(dispatch_text, encoding="utf-8")
         _inject_dispatch_context(instruction_file, sid=sid, pane=f"operator-pool:{dispatch_role}", dispatch_id=dispatch_id)
-
-    dispatch_preview = instruction_file.read_text(encoding="utf-8")
+        dispatch_preview = instruction_file.read_text(encoding="utf-8")
     if len(dispatch_preview) > 60000:
         dispatch_preview = (
             dispatch_preview[:60000]
@@ -6257,9 +6355,10 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             text_payload["section_isolation"] = True
             text_payload["section_id"] = node.get("section_id", "")
     instruction_file = _dispatch_file(sid, node_id)
-    instruction_file.parent.mkdir(parents=True, exist_ok=True)
-    instruction_file.write_text(build_dispatch_text(text_payload, pane), encoding="utf-8")
+    dispatch_text = build_dispatch_text(text_payload, pane)
     if not dry_run:
+        instruction_file.parent.mkdir(parents=True, exist_ok=True)
+        instruction_file.write_text(dispatch_text, encoding="utf-8")
         _inject_dispatch_context(instruction_file, sid=sid, pane=pane, dispatch_id=dispatch_id)
     if dry_run:
         return _flatten_actorhost_bridge({
@@ -6529,7 +6628,13 @@ def _discover_workers(dry_run: bool = False) -> list[dict[str, Any]]:
             _actorhost_bridge(pane=pane, required_capabilities=worker_capabilities),
         )
         workers.append(worker)
-    if not dry_run:
+    discover_operator_pool = (
+        not dry_run
+        or os.environ.get("SOLAR_GRAPH_DISPATCH_DISCOVER_OPERATOR_POOL_IN_DRY_RUN", "1").strip().lower()
+        not in {"0", "false", "no"}
+    )
+    if discover_operator_pool:
+        workers.extend(_planner_operator_pool_workers(worker_skills, worker_capabilities))
         workers.extend(_builder_operator_pool_workers(worker_skills, worker_capabilities))
         for evaluator in _evaluator_operator_pool_workers():
             worker = dict(evaluator)
@@ -6647,7 +6752,8 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
         return False
     if result_status in {"failed", "skipped"} and not force and not retry_requested:
         return False
-    if _eval_json_file(sid, node_id).exists() and not force and not repair_mode:
+    eval_json_path = _resolve_eval_json_path(sid, node_id, node)
+    if eval_json_path.exists() and _eval_json_verdict(eval_json_path) and not force and not repair_mode:
         return False
     if not force:
         recovered: list[dict[str, Any]] = []
@@ -7003,6 +7109,8 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             successful_assignments.append(dict(assignment))
             node["status"] = "reviewing"
             node["eval_dispatch_group_id"] = dispatch_group_id
+            for stale_key in ("eval_retry_reason", "eval_retry_detail", "eval_retry_requested_at"):
+                node.pop(stale_key, None)
             _store_eval_assignments(node, successful_assignments, _utc_now(), sprint_id=sid)
             save_graph(graph_path, graph)
             sent_records.append({
