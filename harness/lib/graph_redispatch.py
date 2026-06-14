@@ -96,8 +96,24 @@ def _human_review_append(rec: dict) -> None:
 
 
 def _failed_nodes(graph: dict) -> list[str]:
-    nr = graph.get("node_results", {})
-    return [n for n, v in nr.items() if isinstance(v, dict) and v.get("status") == "failed"]
+    node_ids: set[str] = set()
+    for node in graph.get("nodes", []) or []:
+        if isinstance(node, dict) and str(node.get("status") or "").lower() == "failed":
+            node_id = str(node.get("id") or "").strip()
+            if node_id:
+                node_ids.add(node_id)
+    for node_id, result in (graph.get("node_results") or {}).items():
+        if isinstance(result, dict) and str(result.get("status") or "").lower() == "failed":
+            node_ids.add(str(node_id))
+
+    failed: list[str] = []
+    for node_id in sorted(node_ids):
+        try:
+            if gs.node_status(graph, node_id) == "failed":
+                failed.append(node_id)
+        except Exception:
+            failed.append(node_id)
+    return failed
 
 
 def _node_obj(graph: dict, node_id: str) -> dict:
@@ -147,19 +163,39 @@ def _failure_evidence_from_payload(payload: object, *, summary: str, archive_pat
     return evidence
 
 
+def _archive_sidecar(path: pathlib.Path) -> pathlib.Path | None:
+    if not path.is_file():
+        return None
+    archive = path.with_suffix(
+        f"{path.suffix}.redispatched-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    )
+    try:
+        path.rename(archive)
+    except Exception:
+        return None
+    return archive
+
+
 def _clear_eval_artifacts(graph: dict, node_id: str) -> dict:
     """清上轮 eval 结果, 让重做是干净的 (否则 reconcile 会读到旧 FAIL verdict)。"""
     archived_eval_json: pathlib.Path | None = None
+    archived_eval_md: pathlib.Path | None = None
     archived_payload: object | None = None
     nr = graph.get("node_results", {}).get(node_id)
     if isinstance(nr, dict):
-        for k in ("eval_json", "eval_verdict", "verdict"):
+        for k in ("eval_json", "eval_md", "eval_md_path", "eval_verdict", "verdict"):
             nr.pop(k, None)
         if isinstance(nr.get("artifacts"), dict):
             nr["artifacts"].pop("eval_json", None)
+            nr["artifacts"].pop("eval_md", None)
+            nr["artifacts"].pop("eval_md_path", None)
     node = _node_obj(graph, node_id)
     if isinstance(node.get("artifacts"), dict):
         node["artifacts"].pop("eval_json", None)
+        node["artifacts"].pop("eval_md", None)
+        node["artifacts"].pop("eval_md_path", None)
+    for key in ("eval_json", "eval_md", "eval_md_path"):
+        node.pop(key, None)
     # 物理 eval 文件改名留痕 (不删, 可追溯)
     sid = graph.get("sprint_id") or graph.get("id") or ""
     if sid:
@@ -169,14 +205,13 @@ def _clear_eval_artifacts(graph: dict, node_id: str) -> dict:
                 archived_payload = json.loads(evp.read_text(encoding="utf-8"))
             except Exception:
                 archived_payload = None
-            try:
-                archived_eval_json = evp.with_suffix(
-                    f".json.redispatched-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
-                )
-                evp.rename(archived_eval_json)
-            except Exception:
-                pass
-    return {"archived_eval_json": archived_eval_json, "archived_payload": archived_payload}
+            archived_eval_json = _archive_sidecar(evp)
+        archived_eval_md = _archive_sidecar(SPRINTS_DIR / f"{sid}.{node_id}-eval.md")
+    return {
+        "archived_eval_json": archived_eval_json,
+        "archived_eval_md": archived_eval_md,
+        "archived_payload": archived_payload,
+    }
 
 
 def redispatch_failed_nodes(graph: dict, *, max_retry: int = DEFAULT_MAX_RETRY,
@@ -207,6 +242,8 @@ def redispatch_failed_nodes(graph: dict, *, max_retry: int = DEFAULT_MAX_RETRY,
                     summary=summary,
                     archive_path=archive_info.get("archived_eval_json"),
                 )
+                if archive_info.get("archived_eval_md"):
+                    node["last_failure_evidence"]["eval_md_archive"] = str(archive_info["archived_eval_md"])
                 _emit_event("dag_node_redispatched", {
                     "sprint_id": sid, "node_id": node_id, "retry": rc + 1,
                     "max_retry": max_retry, "fail_summary": summary[:140]})
