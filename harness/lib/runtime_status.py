@@ -35,8 +35,8 @@ STATUS_FIELDS: Dict[str, Dict[str, str]] = {
 }
 
 TERMINAL_GRAPH_FIELDS = {
-    "passed": ("open_nodes", "failed_nodes"),
-    "failed": ("open_nodes",),
+    "passed": ("open_nodes", "failed_nodes", "acceptance_verdict"),
+    "failed": ("open_nodes", "acceptance_verdict"),
 }
 TERMINAL_SPRINT_STATUSES = {"passed", "completed", "eval_passed", "failed", "cancelled", "archived", "skipped", "superseded"}
 

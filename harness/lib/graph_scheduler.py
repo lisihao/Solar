@@ -775,6 +775,7 @@ def sync_status_cache_from_graph(
         "",
     }
     already_graph_passed = str(current.get("task_graph_status") or "").lower() == "passed"
+    has_stale_acceptance_projection = "acceptance_verdict" in current
     acceptance_block = _acceptance_verdict_block_for_parent_pass(graph, graph_path)
     if acceptance_block.get("blocked"):
         current = _project_status_via_runtime(
@@ -801,6 +802,7 @@ def sync_status_cache_from_graph(
         and already_closed
         and already_graph_passed
         and (current.get("graph_parent_ready") or {}).get("ready") is True
+        and not has_stale_acceptance_projection
     ):
         result["reason"] = "already_synced"
         return result

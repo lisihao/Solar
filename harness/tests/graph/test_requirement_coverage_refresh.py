@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -223,3 +224,112 @@ def test_requirement_coverage_keeps_parent_failed_when_review_decision_fails(tmp
     assert bundle["coverage_report"]["summary"]["graph_complete"] is True
     assert bundle["acceptance_verdict"]["verdict"] == "FAIL"
     assert "review_decision_failed:S4" in bundle["acceptance_verdict"]["reasons"]
+
+
+def test_requirement_coverage_ignores_stale_machine_state_review_fail_after_repair(tmp_path, monkeypatch):
+    tools_dir = Path(__file__).resolve().parent.parent.parent / "tools"
+    sys.path.insert(0, str(tools_dir))
+
+    import requirement_coverage as rc
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+
+    sid = "sprint-test-stale-review-fail"
+    graph = {
+        "sprint_id": sid,
+        "nodes": [
+            {"id": "S1", "status": "passed", "requirement_ids": ["REQ-000"]},
+            {
+                "id": "S4",
+                "type": "review",
+                "status": "passed",
+                "requirement_ids": ["REQ-000"],
+                "validation": [{"kind": "artifact", "target": "review_decision.yaml", "required": True}],
+            },
+        ],
+    }
+    (sprints / f"{sid}.task_graph.json").write_text(json.dumps(graph), encoding="utf-8")
+    (sprints / f"{sid}.task_dag.state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "solar.task_graph_state.v1",
+                "sprint_id": sid,
+                "node_results": {"S1": {"status": "passed"}, "S4": {"status": "passed"}},
+                "node_repairs": {},
+                "gate_results": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sprints / f"{sid}.requirement_ir.json").write_text(
+        json.dumps(
+            {
+                "id": "req-test",
+                "requirements": [
+                    {
+                        "id": "REQ-000",
+                        "source_text": "All graph work closes out.",
+                        "success_criteria": ["all nodes effective-passed"],
+                        "verification_method": "task_graph_closeout",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    review_decision = sprints / f"{sid}.S4-review_decision.yaml"
+    review_decision.write_text(
+        "\n".join(
+            [
+                "schema_version: solar.review_decision.v1",
+                "verdict: FAIL",
+                "failed:",
+                "  - id: P1",
+                "    condition: Current canonical S4 proof sidecars existed before review.",
+                "    evidence: \"Initial ls showed S4-guard-decision.json and S4-handoff.md did not exist.\"",
+                "  - id: R1",
+                "    condition: Requirement acceptance validation is green.",
+                "    evidence: \"acceptance_compiler validate exited 1: coverage_ratio=0.0 < 1.0; REQ-000 final_status=partial.\"",
+                "  - id: R2",
+                "    condition: Session-native evaluation is terminal and green.",
+                "    evidence: \"solar-harness session evaluate reported status=active and warnings=[activity_without_terminal, non_terminal_status].\"",
+                "  - id: R3",
+                "    condition: Diff self-review is available.",
+                "    evidence: \"git status --short returned fatal: not a git repository.\"",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    old_time = 1_700_000_000
+    os.utime(review_decision, (old_time, old_time))
+
+    for suffix in [
+        "S4-handoff.md",
+        "S4-eval.md",
+        "S4-eval.json",
+        "S4-guard-decision.json",
+        "S4-resource-binding.json",
+        "S4-bridged-artifact.md",
+        "closure.json",
+        "coverage_report.json",
+        "status.json",
+    ]:
+        path = sprints / f"{sid}.{suffix}"
+        path.write_text("{}\n" if suffix.endswith(".json") else "ok\n", encoding="utf-8")
+        os.utime(path, (old_time + 10, old_time + 10))
+
+    bundle = rc.evaluate_sid(sid, sprints_dir=sprints, write=True)
+
+    assert bundle["coverage_report"]["summary"]["coverage_ratio"] == 1.0
+    assert bundle["coverage_report"]["summary"]["graph_complete"] is True
+    assert bundle["acceptance_verdict"]["verdict"] == "PASS"
+    assert "review_decision_failed:S4" not in bundle["acceptance_verdict"]["reasons"]
+    assert bundle["acceptance_verdict"]["ignored_review_decision_failures"] == [
+        {
+            "node_id": "S4",
+            "path": str(review_decision),
+            "reason": "stale_review_decision_superseded_by_current_repair_evidence",
+        }
+    ]
