@@ -1473,6 +1473,44 @@ def test_pm_reconcile_recovers_failed_contract_closeout_when_artifacts_arrive(mo
     assert record["reconcile_history"][-1]["reason"] == "failed_contract_closeout_recovered"
 
 
+def test_graph_node_dispatch_evaluator_closeout_requires_node_artifacts(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    sprint_id = "sprint-graph-node"
+    node_id = "S4"
+    (sprints / f"{sprint_id}.{node_id}-eval.md").write_text("# Eval\n", encoding="utf-8")
+    (sprints / f"{sprint_id}.{node_id}-eval.json").write_text(json.dumps({"verdict": "FAIL"}), encoding="utf-8")
+    record = {
+        "task_id": f"pm-{sprint_id}-{node_id}-abc123",
+        "sprint_id": sprint_id,
+        "node_id": node_id,
+        "requested_role": "evaluator",
+        "submitted_at": "2026-06-14T18:20:17Z",
+        "objective": "\n".join(
+            [
+                "你是 graph-dispatch evaluator。",
+                "Graph dispatch file: /tmp/dispatch.md",
+                f"# DAG Node Dispatch — {sprint_id} / {node_id}",
+                f"- 标准 proof sidecar: {sprints / f'{sprint_id}.{node_id}-guard-decision.json'}",
+                f"- 标准 proof sidecar: {sprints / f'{sprint_id}.{node_id}-resource-binding.json'}",
+                f"- 标准 proof sidecar: {sprints / f'{sprint_id}.{node_id}-bridged-artifact.md'}",
+                f"- Markdown: {sprints / f'{sprint_id}.{node_id}-eval.md'}",
+                f"- JSON: {sprints / f'{sprint_id}.{node_id}-eval.json'}",
+            ]
+        ),
+    }
+
+    closeout = pm_dispatch._pm_closeout_status(record)
+
+    assert closeout["ok"] is False
+    assert str(sprints / f"{sprint_id}.{node_id}-handoff.md") in closeout["missing_artifacts"]
+    assert str(sprints / f"{sprint_id}.{node_id}-guard-decision.json") in closeout["missing_artifacts"]
+    assert str(sprints / f"{sprint_id}.{node_id}-eval.json") not in closeout["missing_artifacts"]
+
+
 def test_pm_reconcile_cleans_failure_projection_on_completed_record(monkeypatch, tmp_path, capsys):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"

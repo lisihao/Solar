@@ -3540,6 +3540,8 @@ and an accepted repair can still have `effective_status=passed`.
 ## Rules
 
 - 只做本节点，不接手其他 DAG node。
+- 这是 `DAG Node Dispatch` 节点执行任务，不是 `DAG Node Evaluation Dispatch` 评审任务；不要只写 `*-eval.md/json` 当作节点交付。
+- 即使当前 worker 角色名是 `evaluator`，也必须先完成本节点 goal/acceptance，写本节点 handoff 和要求的 proof sidecars。
 - 只允许修改 `Write Scope` 里的文件/目录；需要扩大范围时写入 handoff 的 `Scope Change Request`，不要直接扩大。
 - 不要把 parent sprint 标成 passed。
 - 不要等待用户确认；遇到阻塞先写清楚证据和最小修复建议。

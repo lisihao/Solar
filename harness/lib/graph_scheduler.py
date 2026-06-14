@@ -465,6 +465,38 @@ def _status_path_for_graph(graph: dict[str, Any], graph_path: str | Path | None 
     return SPRINTS_DIR / f"{sid}.status.json"
 
 
+def _acceptance_verdict_block_for_parent_pass(
+    graph: dict[str, Any],
+    graph_path: str | Path | None = None,
+) -> dict[str, Any]:
+    sid = _sprint_id_for_graph(graph, graph_path)
+    if not sid:
+        return {"blocked": False, "reason": "missing_sprint_id"}
+    base_dir = Path(graph_path).expanduser().parent if graph_path else SPRINTS_DIR
+    verdict_path = base_dir / f"{sid}.acceptance_verdict.json"
+    if not verdict_path.exists():
+        return {"blocked": False, "reason": "acceptance_verdict_missing"}
+    try:
+        payload = json.loads(verdict_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "blocked": True,
+            "reason": "acceptance_verdict_unreadable",
+            "path": str(verdict_path),
+            "error": str(exc),
+        }
+    verdict = str(payload.get("verdict") or "").strip().upper()
+    if verdict and verdict != "PASS":
+        return {
+            "blocked": True,
+            "reason": "acceptance_verdict_not_pass",
+            "path": str(verdict_path),
+            "verdict": verdict,
+            "reasons": payload.get("reasons") if isinstance(payload.get("reasons"), list) else [],
+        }
+    return {"blocked": False, "reason": "acceptance_verdict_passed", "path": str(verdict_path), "verdict": verdict}
+
+
 def _status_has_terminal_evidence(sid: str, status: dict[str, Any] | None = None, graph_path: str | Path | None = None) -> bool:
     payload = status or {}
     state = str(payload.get("status", "")).lower()
@@ -673,6 +705,39 @@ def sync_status_cache_from_graph(
             )
             result.update({"updated": True, "status": current, "reason": "parent_reopened"})
             return result
+        current_status = str(current.get("status") or "").lower()
+        current_stage = str(current.get("stage") or current.get("phase") or "").lower()
+        current_graph_status = str(current.get("task_graph_status") or "").lower()
+        graph_inflight_hint = (
+            current_stage == "graph_in_progress"
+            or current_graph_status == "active"
+            or bool(current.get("graph_status_cache"))
+            or bool(current.get("task_graph"))
+        )
+        if current_status in {"cancelled", "canceled", "failed", "error", "failed_review"} and graph_inflight_hint:
+            current = _project_status_via_runtime(
+                status_path,
+                new_status="active",
+                actor=actor,
+                event="graph_parent_projection_reopened_terminal_drift",
+                graph_path=graph_path,
+                allow_reopen=True,
+                status_fields={
+                    "phase": "graph_in_progress",
+                    "stage": "graph_in_progress",
+                    "handoff_to": "builder_main",
+                    "target_role": "builder_main",
+                    "active_node": desired_active_node,
+                    "open_nodes": open_nodes,
+                    "failed_nodes": failed_nodes,
+                    "graph_parent_ready": parent,
+                    "task_graph_status": "active",
+                    "cancel_reason": None,
+                },
+                extra={"note": "task_graph is still active; reopening stale terminal legacy status projection"},
+            )
+            result.update({"updated": True, "status": current, "reason": "terminal_projection_reopened"})
+            return result
         projection_changed = any([
             current.get("active_node") != desired_active_node,
             list(current.get("open_nodes") or []) != list(open_nodes),
@@ -710,6 +775,27 @@ def sync_status_cache_from_graph(
         "",
     }
     already_graph_passed = str(current.get("task_graph_status") or "").lower() == "passed"
+    acceptance_block = _acceptance_verdict_block_for_parent_pass(graph, graph_path)
+    if acceptance_block.get("blocked"):
+        current = _project_status_via_runtime(
+            status_path,
+            new_status="failed_review",
+            actor=actor,
+            event="graph_parent_ready_blocked_by_acceptance_verdict",
+            graph_path=graph_path,
+            allow_reopen=True,
+            status_fields={
+                "phase": "eval_failed",
+                "stage": "acceptance_failed",
+                "active_node": None,
+                "graph_parent_ready": parent,
+                "task_graph_status": "passed",
+                "acceptance_verdict": acceptance_block,
+            },
+            extra={"note": "task_graph is ready but acceptance_verdict blocks parent pass"},
+        )
+        result.update({"updated": True, "status": current, "reason": "acceptance_verdict_blocked_parent_pass"})
+        return result
     if (
         already_passed
         and already_closed

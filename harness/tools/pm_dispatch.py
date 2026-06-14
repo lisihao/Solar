@@ -1980,6 +1980,31 @@ def _node_handoff_path(sprint_id: str, node_id: str) -> Path:
     return SPRINTS_DIR / f"{sprint_id}.{node_id}-handoff.md"
 
 
+def _is_graph_node_dispatch_record(record: dict[str, Any]) -> bool:
+    objective = str(record.get("objective") or "")
+    return "Graph dispatch file:" in objective and "# DAG Node Dispatch" in objective
+
+
+def _graph_node_dispatch_expected_artifacts(record: dict[str, Any]) -> list[Path]:
+    sprint_id = str(record.get("sprint_id") or "").strip()
+    node_id = str(record.get("node_id") or "").strip()
+    if not sprint_id or not node_id:
+        return []
+    objective = str(record.get("objective") or "")
+    expected: list[Path] = [_node_handoff_path(sprint_id, node_id)]
+    explicit_sidecars = {
+        "guard_decision": SPRINTS_DIR / f"{sprint_id}.{node_id}-guard-decision.json",
+        "resource_binding": SPRINTS_DIR / f"{sprint_id}.{node_id}-resource-binding.json",
+        "bridged_artifact": SPRINTS_DIR / f"{sprint_id}.{node_id}-bridged-artifact.md",
+        "eval_md": SPRINTS_DIR / f"{sprint_id}.{node_id}-eval.md",
+        "eval_json": SPRINTS_DIR / f"{sprint_id}.{node_id}-eval.json",
+    }
+    for path in explicit_sidecars.values():
+        if str(path) in objective:
+            expected.append(path)
+    return expected
+
+
 def _resolve_sprint_artifact_path(value: str) -> Path | None:
     raw = str(value or "").strip()
     if not raw:
@@ -2104,6 +2129,8 @@ def _pm_expected_artifacts(record: dict[str, Any]) -> list[Path]:
     node_id = str(record.get("node_id") or "").strip()
     if not sprint_id:
         return []
+    if _is_graph_node_dispatch_record(record):
+        return _graph_node_dispatch_expected_artifacts(record)
     if role == "planner":
         return [
             SPRINTS_DIR / f"{sprint_id}.plan.md",

@@ -106,6 +106,8 @@ def test_dispatch_text_shows_effective_status_for_accepted_repair(tmp_path: Path
     assert "## Dependency Status" in text
     assert "`S2`: effective_status=`passed`; raw_status=`failed`; accepted_repair=`S2R-EVAL2`" in text
     assert "Use `effective_status` for prerequisite decisions" in text
+    assert "不是 `DAG Node Evaluation Dispatch` 评审任务" in text
+    assert "不要只写 `*-eval.md/json` 当作节点交付" in text
 
 
 def test_test_runner_node_stays_on_builder_lane_despite_evaluator_pane_hint() -> None:

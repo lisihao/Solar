@@ -98,6 +98,96 @@ def test_sync_status_cache_repairs_stale_task_graph_status_for_passed_parent(tmp
     assert updated["active_node"] is None
 
 
+def test_sync_status_cache_blocks_parent_pass_when_acceptance_verdict_fails(tmp_path, monkeypatch):
+    import graph_scheduler as gs
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-test-acceptance-fail"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    status_path = sprints / f"{sid}.status.json"
+    graph = {
+        "sprint_id": sid,
+        "required_gates": ["G1"],
+        "nodes": [
+            {"id": "N1", "status": "passed", "depends_on": [], "gate": "G1"},
+            {"id": "N2", "status": "passed", "depends_on": ["N1"], "gate": "G1"},
+        ],
+        "node_results": {"N1": {"status": "passed"}, "N2": {"status": "passed"}},
+        "gate_results": {"G1": {"status": "passed"}},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    status_path.write_text(
+        json.dumps({"sprint_id": sid, "status": "active", "phase": "graph_in_progress", "history": []}),
+        encoding="utf-8",
+    )
+    (sprints / f"{sid}.acceptance_verdict.json").write_text(
+        json.dumps({"verdict": "FAIL", "reasons": ["review_decision_failed:N2"]}),
+        encoding="utf-8",
+    )
+
+    result = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_parent_ready_passed")
+
+    assert result["ok"] is True
+    assert result["reason"] == "acceptance_verdict_blocked_parent_pass"
+    updated = json.loads(status_path.read_text(encoding="utf-8"))
+    assert updated["status"] == "failed_review"
+    assert updated["stage"] == "acceptance_failed"
+    assert updated["acceptance_verdict"]["reasons"] == ["review_decision_failed:N2"]
+
+
+def test_sync_status_cache_reopens_stale_cancelled_inflight_projection(tmp_path, monkeypatch):
+    import graph_scheduler as gs
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-test-cancelled-drift"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    status_path = sprints / f"{sid}.status.json"
+    graph = {
+        "sprint_id": sid,
+        "title": "Active graph with stale cancelled status",
+        "required_gates": ["G1"],
+        "nodes": [
+            {"id": "N1", "status": "passed", "depends_on": [], "gate": "G1"},
+            {"id": "N2", "status": "reviewing", "depends_on": ["N1"], "gate": "G1"},
+        ],
+        "node_results": {"N1": {"status": "passed"}, "N2": {"status": "reviewing"}},
+        "gate_results": {},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    status_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": sid,
+                "status": "cancelled",
+                "phase": "cancelled",
+                "stage": "graph_in_progress",
+                "task_graph_status": "active",
+                "task_graph": str(graph_path),
+                "cancel_reason": "stale_queue_noise_cleanup",
+                "history": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_projection_refresh")
+
+    assert result["ok"] is True
+    assert result["updated"] is True
+    assert result["reason"] == "terminal_projection_reopened"
+    updated = json.loads(status_path.read_text(encoding="utf-8"))
+    assert updated["status"] == "active"
+    assert updated["phase"] == "graph_in_progress"
+    assert updated["active_node"] == "N2"
+    assert updated["cancel_reason"] is None
+
+
 def test_parent_ready_check_self_heals_stale_blocked_gate(tmp_path, monkeypatch):
     import graph_scheduler as gs
 
