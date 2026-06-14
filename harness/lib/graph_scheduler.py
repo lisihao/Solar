@@ -497,6 +497,46 @@ def _acceptance_verdict_block_for_parent_pass(
     return {"blocked": False, "reason": "acceptance_verdict_passed", "path": str(verdict_path), "verdict": verdict}
 
 
+def _closure_block_for_parent_pass(
+    graph: dict[str, Any],
+    graph_path: str | Path | None = None,
+) -> dict[str, Any]:
+    sid = _sprint_id_for_graph(graph, graph_path)
+    if not sid:
+        return {"blocked": False, "reason": "missing_sprint_id"}
+    base_dir = Path(graph_path).expanduser().parent if graph_path else SPRINTS_DIR
+    closure_path = base_dir / f"{sid}.closure.json"
+    if not closure_path.exists():
+        return {"blocked": False, "reason": "closure_missing"}
+    try:
+        payload = json.loads(closure_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "blocked": True,
+            "reason": "closure_unreadable",
+            "path": str(closure_path),
+            "error": str(exc),
+        }
+    status = str(payload.get("status") or "").strip().lower()
+    all_nodes_passed = payload.get("all_nodes_passed") is True
+    all_required_gates_passed = payload.get("all_required_gates_passed") is True
+    if status in {"passed", "pass"}:
+        return {"blocked": False, "reason": "closure_passed", "path": str(closure_path), "status": status}
+    if status == "closed" and all_nodes_passed and all_required_gates_passed:
+        return {"blocked": False, "reason": "legacy_closure_closed", "path": str(closure_path), "status": status}
+    if status:
+        return {
+            "blocked": True,
+            "reason": "closure_not_pass",
+            "path": str(closure_path),
+            "status": status,
+            "legacy_status": payload.get("legacy_status"),
+            "traceability_coverage": payload.get("traceability_coverage"),
+            "residual_risks": payload.get("residual_risks") if isinstance(payload.get("residual_risks"), list) else [],
+        }
+    return {"blocked": False, "reason": "closure_status_missing", "path": str(closure_path)}
+
+
 def _status_has_terminal_evidence(sid: str, status: dict[str, Any] | None = None, graph_path: str | Path | None = None) -> bool:
     payload = status or {}
     state = str(payload.get("status", "")).lower()
@@ -796,6 +836,27 @@ def sync_status_cache_from_graph(
             extra={"note": "task_graph is ready but acceptance_verdict blocks parent pass"},
         )
         result.update({"updated": True, "status": current, "reason": "acceptance_verdict_blocked_parent_pass"})
+        return result
+    closure_block = _closure_block_for_parent_pass(graph, graph_path)
+    if closure_block.get("blocked"):
+        current = _project_status_via_runtime(
+            status_path,
+            new_status="failed_review",
+            actor=actor,
+            event="graph_parent_ready_blocked_by_closure",
+            graph_path=graph_path,
+            allow_reopen=True,
+            status_fields={
+                "phase": "eval_failed",
+                "stage": "closure_failed",
+                "active_node": None,
+                "graph_parent_ready": parent,
+                "task_graph_status": "passed",
+                "closure_verdict": closure_block,
+            },
+            extra={"note": "task_graph is ready but closure evidence blocks parent pass"},
+        )
+        result.update({"updated": True, "status": current, "reason": "closure_blocked_parent_pass"})
         return result
     if (
         already_passed
