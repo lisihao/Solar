@@ -22,6 +22,17 @@ except Exception as exc:  # pragma: no cover - jsonschema optional in some envir
 
 
 SCHEMA_VERSION = "solar.closure_record.v1"
+EVAL_EVIDENCE_SUFFIXES = (".eval.json", ".eval.md", "-eval.json", "-eval.md")
+BLOCKING_EVAL_RESULTS = {
+    "block",
+    "blocked",
+    "error",
+    "fail",
+    "failed",
+    "needs_attention",
+    "reject",
+    "rejected",
+}
 TERMINAL_NODE_STATUSES = {
     "passed",
     "skipped",
@@ -83,7 +94,9 @@ class SprintArtifacts:
 
     def eval_paths(self) -> list[Path]:
         return sorted(
-            p for p in self.sprints_dir.glob(f"{self.sid}*.eval.*") if p.is_file() and ".eval." in p.name
+            p
+            for p in self.sprints_dir.glob(f"{self.sid}*")
+            if p.is_file() and _is_eval_evidence_path(p)
         )
 
     def all_candidates(self) -> list[Path]:
@@ -172,6 +185,29 @@ def _schema_status_from_legacy(status: str) -> str:
     return "pending"
 
 
+def _is_eval_evidence_path(path: Path) -> bool:
+    return any(path.name.endswith(suffix) for suffix in EVAL_EVIDENCE_SUFFIXES)
+
+
+def _evaluator_from_eval_path(sid: str, path: Path) -> str:
+    name = path.name
+    label = name
+    for prefix in (f"{sid}.", f"{sid}-", sid):
+        if label.startswith(prefix):
+            label = label[len(prefix) :]
+            break
+    for suffix in EVAL_EVIDENCE_SUFFIXES:
+        if label.endswith(suffix):
+            label = label[: -len(suffix)]
+            break
+    return label.strip(".-") or "unknown"
+
+
+def _eval_record_blocks_closure(record: EvidenceRecord) -> bool:
+    normalized = _status_text(record.result).replace("-", "_")
+    return normalized in BLOCKING_EVAL_RESULTS or normalized.startswith("fail")
+
+
 def _graph_completion(graph: dict[str, Any], state: dict[str, Any] | None) -> tuple[bool, bool]:
     nodes = graph.get("nodes") or [] if isinstance(graph, dict) else []
     node_results = (state or {}).get("node_results") if isinstance(state, dict) else {}
@@ -210,7 +246,7 @@ def _collect_eval_records(sid: str, artifacts: SprintArtifacts) -> list[Evidence
     records: list[EvidenceRecord] = []
     for path in artifacts.eval_paths():
         raw = _read_text(path)
-        evaluator = path.name.replace(f"{sid}.", "").split(".")[-2] or "unknown"
+        evaluator = _evaluator_from_eval_path(sid, path)
         result = "present"
         notes = ""
 
@@ -310,6 +346,9 @@ def _build_residual_risks(artifacts: SprintArtifacts, graph: dict[str, Any], sta
         risks.append("handoff.md missing")
     if not eval_records:
         risks.append("missing eval evidence")
+    for record in eval_records:
+        if _eval_record_blocks_closure(record):
+            risks.append(f"eval did not pass: {record.evaluator}={record.result}")
 
     if missing:
         for item in missing:
@@ -377,11 +416,14 @@ def compute_closure_payload(
     eval_payloads = [r.to_dict() for r in eval_records]
 
     evidence_policy = {
-        "required_artifacts": _build_required_artifacts(sid) + ["eval evidence (*.eval.md or *.eval.json)"],
+        "required_artifacts": _build_required_artifacts(sid)
+        + ["eval evidence (*.eval.md/*.eval.json or *-eval.md/*-eval.json)"],
         "missing_artifacts": [m for m in sorted(set(missing)) if "eval_evidence" != m],
     }
     if not eval_records:
-        evidence_policy["missing_artifacts"].append("eval evidence (*.eval.md or *.eval.json)")
+        evidence_policy["missing_artifacts"].append(
+            "eval evidence (*.eval.md/*.eval.json or *-eval.md/*-eval.json)"
+        )
 
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,

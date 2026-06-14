@@ -68,3 +68,42 @@ def test_closure_verify_returns_nonzero_for_incomplete_closeout(tmp_path):
     assert closure_json.exists()
     assert closure_md.exists()
     assert payload["status"] in {"pending", "failed"}
+
+
+def test_closure_collects_dispatch_eval_sidecar_suffix(tmp_path):
+    import contract_closure as cc
+
+    sid = "closure-schema-dispatch-eval"
+    sprints = _make_sprint(tmp_path, sid, complete=True)
+    (sprints / f"{sid}.V0.eval.json").unlink()
+    _write_json(
+        sprints / f"{sid}.PARENT-CLOSURE-EVAL-eval.json",
+        {"evaluator": "codex-evaluator", "verdict": "PASS"},
+    )
+
+    payload = cc.compute_closure_payload(sid, harness_dir=tmp_path, sprints_dir=sprints)
+
+    assert payload["status"] == "passed"
+    assert payload["traceability_coverage"] == 100.0
+    assert payload["evaluations"][0]["evaluator"] == "codex-evaluator"
+    assert payload["evaluations"][0]["result"] == "PASS"
+
+
+def test_closure_blocks_failed_dispatch_eval_sidecar(tmp_path):
+    import contract_closure as cc
+
+    sid = "closure-schema-dispatch-eval-fail"
+    sprints = _make_sprint(tmp_path, sid, complete=True)
+    (sprints / f"{sid}.V0.eval.json").unlink()
+    _write_json(
+        sprints / f"{sid}.PARENT-CLOSURE-EVAL-eval.json",
+        {"node_id": "PARENT-CLOSURE-EVAL", "verdict": "FAIL"},
+    )
+
+    payload = cc.compute_closure_payload(sid, harness_dir=tmp_path, sprints_dir=sprints)
+
+    assert payload["status"] == "pending"
+    assert payload["legacy_status"] == "needs_attention"
+    assert payload["traceability_coverage"] == 100.0
+    assert payload["evaluations"][0]["result"] == "FAIL"
+    assert any("eval did not pass" in risk for risk in payload["residual_risks"])

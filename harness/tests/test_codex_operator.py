@@ -88,6 +88,12 @@ def test_synthesize_eval_sidecars_from_pm_result(monkeypatch, tmp_path):
     assert payload["pm_result_path"] == str(result)
 
 
+def test_pm_result_verdict_accepts_markdown_chinese_pass_marker():
+    text = "## 结论摘要\n\nPARENT-CLOSURE-EVAL 判定: `PASS`。\n"
+
+    assert co._verdict_from_pm_result(text) == "PASS"
+
+
 def test_codex_exec_cmd_ignores_incompatible_user_config(tmp_path):
     output_file = tmp_path / "last.md"
 

@@ -140,7 +140,12 @@ def _missing_artifacts(paths: list[Path], started_wall: float) -> list[str]:
 
 
 def _verdict_from_pm_result(text: str) -> str:
-    upper = text.upper()
+    upper = (
+        text.upper()
+        .replace("`", "")
+        .replace("**", "")
+        .replace("：", ":")
+    )
     negative_markers = (
         "NOT ACCEPTABLE",
         "UNACCEPTABLE",
