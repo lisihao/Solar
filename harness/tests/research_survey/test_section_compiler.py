@@ -13,7 +13,7 @@ from research.survey.backends import LocalCommandWriterError, PanePacketSurveyWr
 from research.survey.planner import create_survey_plan, write_survey_plan
 from research.survey.schemas import validate_figure_spec, validate_section_render_card
 from research.survey.section_compiler import compile_section, compile_survey
-from research.survey.writing_loop import build_section_prompt_packet, run_ready_sections, run_section_revision_loop, watch_pane_responses
+from research.survey.writing_loop import _normalize_insight_markdown_headings, _write_prompt_packet, build_section_prompt_packet, run_ready_sections, run_section_revision_loop, watch_pane_responses
 
 
 def _append_jsonl(path, rows):
@@ -124,6 +124,38 @@ def test_compile_section_and_survey(tmp_path):
     assert human_summary["template_heading_count"] == 0
     assert human_summary["char_count"] < len(final_text)
     assert human_summary["execution_metrics"]["document_word_count"] > 0
+
+
+def test_section_prompt_packet_includes_claim_evidence_and_source_details(tmp_path):
+    _strong_insight_fixture(tmp_path)
+    packet = build_section_prompt_packet(tmp_path, "ch01/sec01", writer_backend="browser-agent-chatgpt")
+
+    assert packet["claim_details"]
+    assert packet["evidence_details"]
+    assert packet["source_details"]
+    assert packet["claim_details"][0]["claim_text"] == "agent runtime requires stateful execution and quality gates"
+    assert "agent runtime evidence supports thesis" in packet["evidence_details"][0]["content"]
+    assert packet["source_details"][0]["url"].startswith("https://example.com/")
+
+    section_dir = tmp_path / "sections" / "ch01" / "sec01"
+    _write_prompt_packet(section_dir, packet)
+    prompt_md = (section_dir / "prompt_packets" / "round_00.md").read_text(encoding="utf-8")
+    assert "## Required Claims" in prompt_md
+    assert "agent runtime requires stateful execution and quality gates" in prompt_md
+    assert "## Required Evidence" in prompt_md
+    assert "agent runtime evidence supports thesis" in prompt_md
+    assert "## Source Details" in prompt_md
+
+
+def test_normalize_insight_markdown_headings_accepts_bare_model_labels():
+    text = "本节判断\nA\n\n证据链\nB\n\n影响与行动\nC\n\n反证和观察\nD\n\nFigure Spec\nE\n\nSectionRender JSON\nF\n"
+    normalized = _normalize_insight_markdown_headings(text)
+    assert "## 本节判断" in normalized
+    assert "## 证据链" in normalized
+    assert "## 影响与行动" in normalized
+    assert "## 反证和观察" in normalized
+    assert "## Figure Spec" in normalized
+    assert "## SectionRender JSON" in normalized
 
 
 def test_compile_insight_survey_emits_section_render_cards(tmp_path):
@@ -704,3 +736,22 @@ def test_html_publisher_renders_section_render_card_fields(tmp_path):
     assert first_card["solar_absorption"]         # machine refs in sidecar
     assert first_card["prediction_packet_refs"]   # machine refs in sidecar
     assert first_card["citations"]                # machine refs in sidecar
+
+
+def test_insight_compile_keeps_final_md_human_clean_and_moves_audit_to_sidecar(tmp_path):
+    _strong_insight_fixture(tmp_path)
+    compile_section(tmp_path, "ch01/sec01")
+
+    compiled = compile_survey(tmp_path)
+
+    assert compiled["ok"] is True
+    assert compiled["final_md"].endswith("final.md")
+    assert compiled["final_machine_md"].endswith("final_machine.md")
+    assert (tmp_path / "final_machine.md").exists()
+    final_text = (tmp_path / "final.md").read_text(encoding="utf-8")
+    machine_text = (tmp_path / "final_machine.md").read_text(encoding="utf-8")
+    assert "## 核心判断" in final_text
+    assert "## Contribution Matrix" not in final_text
+    assert "## Contribution Matrix" in machine_text
+    for forbidden in ("source_type", "claim_id", "evidence_id", "Execution Metrics"):
+        assert forbidden not in final_text
