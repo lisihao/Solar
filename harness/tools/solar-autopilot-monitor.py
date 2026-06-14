@@ -104,7 +104,7 @@ RATE_LIMIT_OPTIONS_MODAL_RE = re.compile(
     r"What do you want to do\?[\s\S]{0,260}(?:/rate-limit-options|Upgrade your plan|Stop and wait for limit to reset)[\s\S]{0,120}Esc to cancel",
     re.I,
 )
-PANE_PROMPT_RESIDUE_RE = re.compile(r"^\s*❯(?![\s\u00a0]+Try\\s+\")[\s\u00a0]+[^\s\u00a0─]", re.M)
+PANE_PROMPT_RESIDUE_RE = re.compile(r"^\s*❯(?![\s\u00a0]+Try\s+\")[\s\u00a0]+[^\s\u00a0─]", re.M)
 SAFE_CONTINUE_PROMPT_RE = re.compile(r"^\s*❯[\s\u00a0]*(继续|continue|继续\s+N\d+|continue\s+N\d+)\s*$", re.I | re.M)
 SQLITE_ONLY_RE = re.compile(r"sqlite3\s+~?/?.*\.solar/solar\.db", re.I)
 CONTEXT_INJECT_RE = re.compile(r"solar-harness\s+context\s+inject|Solar Unified Context", re.I)
