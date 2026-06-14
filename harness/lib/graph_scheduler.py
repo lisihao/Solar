@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import shutil
@@ -301,6 +302,11 @@ def _attach_runtime_planes(
         graph["node_results"] = deepcopy(node_results)
     elif "node_results" not in graph:
         graph["node_results"] = {}
+    state_repairs = state.get("node_repairs") if isinstance(state.get("node_repairs"), dict) else {}
+    if state_repairs:
+        graph["node_repairs"] = deepcopy(state_repairs)
+    elif "node_repairs" not in graph:
+        graph["node_repairs"] = {}
     if gate_results:
         graph["gate_results"] = deepcopy(gate_results)
     elif "gate_results" not in graph:
@@ -339,6 +345,7 @@ def _runtime_state_from_graph(graph: dict[str, Any], *, graph_path: Path | None 
     base_state["sprint_id"] = sid
     base_state["graph_ref"] = f"{sid}.task_graph.json" if sid else str(graph_path or "")
     base_state["node_results"] = deepcopy(_node_results(graph))
+    base_state["node_repairs"] = deepcopy(_node_repairs(graph))
     gate_results = graph.get("gate_results") if isinstance(graph.get("gate_results"), dict) else {}
     base_state["gate_results"] = deepcopy(gate_results)
     node_status_projection: dict[str, dict[str, Any]] = {}
@@ -821,6 +828,11 @@ def _node_results(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return results if isinstance(results, dict) else {}
 
 
+def _node_repairs(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    repairs = graph.get("node_repairs") or {}
+    return repairs if isinstance(repairs, dict) else {}
+
+
 def _blocked_by_missing_required_inputs(graph: dict[str, Any], node_id: str) -> bool:
     result = _node_results(graph).get(node_id)
     if not isinstance(result, dict):
@@ -912,6 +924,14 @@ def _first_existing_path(candidates: list[Path]) -> Path | None:
         except Exception:
             continue
     return None
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _portable_artifact_ref(path: Path) -> str:
@@ -1118,6 +1138,171 @@ def _completion_gate_blocking_status(result: dict[str, Any]) -> str:
     return "result_submitted"
 
 
+def _accepted_repair(graph: dict[str, Any], node_id: str) -> dict[str, Any] | None:
+    repair = _node_repairs(graph).get(node_id)
+    if not isinstance(repair, dict):
+        return None
+    if str(repair.get("status") or "").lower() != "accepted":
+        return None
+    if not str(repair.get("repair_node_id") or "").strip():
+        return None
+    return repair
+
+
+def _eval_payload_passed(payload: dict[str, Any]) -> bool:
+    verdict = str(payload.get("verdict") or payload.get("status") or "").strip().lower()
+    return verdict in {"pass", "passed"}
+
+
+def _load_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"json_object_required:{path}")
+    return payload
+
+
+def _verify_pm_repair_record(pm_record: Path, eval_path: Path) -> dict[str, Any]:
+    payload = _load_json_object(pm_record)
+    if str(payload.get("status") or "").lower() != "completed":
+        raise ValueError(f"pm_record_not_completed:{pm_record}")
+    closeout = payload.get("closeout_status") if isinstance(payload.get("closeout_status"), dict) else {}
+    if closeout and closeout.get("ok") is not True:
+        raise ValueError(f"pm_record_closeout_not_ok:{pm_record}")
+    gate = payload.get("completion_gate") if isinstance(payload.get("completion_gate"), dict) else {}
+    if str(gate.get("status") or "").lower() != "completed":
+        raise ValueError(f"pm_record_gate_not_completed:{pm_record}")
+    result = gate.get("result") if isinstance(gate.get("result"), dict) else {}
+    verdict = gate.get("verdict") if isinstance(gate.get("verdict"), dict) else {}
+    if str(verdict.get("trigger") or "") != "post_result" or str(verdict.get("status") or "").lower() != "passed":
+        raise ValueError(f"pm_record_verdict_not_passed:{pm_record}")
+    recorded_eval = str(result.get("eval_path") or "").strip()
+    if recorded_eval:
+        try:
+            if Path(recorded_eval).expanduser().resolve() != eval_path.expanduser().resolve():
+                raise ValueError(f"pm_record_eval_path_mismatch:{pm_record}")
+        except FileNotFoundError:
+            raise ValueError(f"pm_record_eval_path_mismatch:{pm_record}") from None
+    return payload
+
+
+def accept_repair_result(
+    graph: dict[str, Any],
+    node_id: str,
+    repair_node_id: str,
+    *,
+    eval_json: str | Path,
+    pm_record: str | Path | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    _ensure_required_gate_node_mapping(graph)
+    ids = _node_map(graph)
+    if node_id not in ids:
+        raise ValueError(f"unknown node: {node_id}")
+    repair_node_id = str(repair_node_id or "").strip()
+    if not repair_node_id:
+        raise ValueError("repair_node_required")
+    existing = _accepted_repair(graph, node_id)
+    idempotent = bool(existing and str(existing.get("repair_node_id") or "") == repair_node_id)
+
+    raw_status = str((existing or {}).get("original_status") or ids[node_id].get("status") or "pending").lower()
+    if raw_status != "failed" and node_status(graph, node_id) != "failed":
+        raise ValueError(f"repair_accept_requires_failed_node:{node_id}")
+
+    eval_path = Path(eval_json).expanduser()
+    if not eval_path.exists():
+        raise ValueError(f"repair_eval_missing:{eval_path}")
+    eval_payload = _load_json_object(eval_path)
+    if not _eval_payload_passed(eval_payload):
+        raise ValueError(f"repair_eval_not_passed:{eval_path}")
+    eval_node = str(eval_payload.get("node_id") or "").strip()
+    if eval_node and eval_node != repair_node_id:
+        raise ValueError(f"repair_eval_node_mismatch:{eval_node}!={repair_node_id}")
+
+    pm_payload: dict[str, Any] = {}
+    if pm_record:
+        pm_payload = _verify_pm_repair_record(Path(pm_record).expanduser(), eval_path)
+    gate = pm_payload.get("completion_gate") if isinstance(pm_payload.get("completion_gate"), dict) else {}
+    gate_result = gate.get("result") if isinstance(gate.get("result"), dict) else {}
+    gate_verdict = gate.get("verdict") if isinstance(gate.get("verdict"), dict) else {}
+
+    sid = _sprint_id_for_graph(graph) or str(graph.get("id") or "graph")
+    eval_sha = _sha256_file(eval_path)
+    attempt_id = str(gate_result.get("attempt_id") or f"repair-{repair_node_id}")
+    result_id = str(gate_result.get("result_id") or f"repair_result_{node_id}_{repair_node_id}_{eval_sha[:12]}")
+    verdict_id = str(gate_verdict.get("verdict_id") or f"repair_verdict_{node_id}_{repair_node_id}_{eval_sha[:12]}")
+    covered_artifacts = gate_verdict.get("covered_artifacts") if isinstance(gate_verdict.get("covered_artifacts"), list) else [
+        {"path": str(eval_path), "sha256": eval_sha}
+    ]
+    verdict = dict(gate_verdict) if gate_verdict else {
+        "schema_version": "solar.verifier.result.v1",
+        "verdict_id": verdict_id,
+        "session_id": sid,
+        "node_id": repair_node_id,
+        "attempt_id": attempt_id,
+        "trigger": "post_result",
+        "status": "passed",
+        "covered_result_id": result_id,
+        "covered_attempt_id": attempt_id,
+        "covered_artifacts": covered_artifacts,
+    }
+    verdict["verdict_id"] = str(verdict.get("verdict_id") or verdict_id)
+    verdict["covered_result_id"] = str(verdict.get("covered_result_id") or result_id)
+    verdict["covered_attempt_id"] = str(verdict.get("covered_attempt_id") or attempt_id)
+    verdict["covered_artifacts"] = covered_artifacts
+
+    updated_at = _now()
+    repair_record = {
+        "status": "accepted",
+        "node_id": node_id,
+        "original_status": raw_status,
+        "repair_node_id": repair_node_id,
+        "eval_json": str(eval_path),
+        "eval_sha256": eval_sha,
+        "pm_record": str(Path(pm_record).expanduser()) if pm_record else "",
+        "accepted_at": str((existing or {}).get("accepted_at") or updated_at),
+    }
+    if note:
+        repair_record["note"] = note
+    graph.setdefault("node_repairs", {})
+    graph["node_repairs"][node_id] = repair_record
+
+    graph.setdefault("node_results", {})
+    graph["node_results"][node_id] = {
+        "status": raw_status,
+        "updated_at": updated_at,
+        "repair_status": "accepted",
+        "repaired_by": repair_node_id,
+        "result_id": result_id,
+        "attempt_id": attempt_id,
+        "completion_gate_required": True,
+        "completion_source": "repair_acceptance",
+        "completion_gate": {
+            "status": "completed",
+            "completion_source": "repair_acceptance",
+            "verdict_id": verdict["verdict_id"],
+            "covered_result_id": verdict["covered_result_id"],
+            "covered_attempt_id": verdict["covered_attempt_id"],
+            "verifier_artifact": str(eval_path),
+            "verdict": verdict,
+        },
+        "artifacts": {
+            "repair_eval_json": str(eval_path),
+        },
+    }
+    gate_name = ids[node_id].get("gate")
+    if gate_name:
+        graph.setdefault("gate_results", {})
+        graph["gate_results"][gate_name] = {
+            "status": "passed",
+            "node": node_id,
+            "reason": "accepted_repair",
+            "repair_node_id": repair_node_id,
+            "updated_at": updated_at,
+        }
+    parent = parent_ready_check(graph)
+    return {"ok": True, "accepted": not idempotent, "idempotent": idempotent, "node": node_id, "repair": repair_record, "parent": parent}
+
+
 def _parent_child_completion_gate(graph: dict[str, Any], node_ids: list[str]) -> dict[str, Any]:
     results = _node_results(graph)
     children = [
@@ -1221,6 +1406,8 @@ def _ensure_required_gate_node_mapping(graph: dict[str, Any]) -> int:
 
 def node_status(graph: dict[str, Any], node_id: str) -> str:
     _ensure_required_gate_node_mapping(graph)
+    if _accepted_repair(graph, node_id) is not None:
+        return "passed"
     results = _node_results(graph)
     node = _node_map(graph)[node_id]
     gate = node.get("gate")
@@ -3220,6 +3407,15 @@ def main() -> int:
     p.add_argument("--note")
     p.add_argument("--in-place", action="store_true")
 
+    p = sub.add_parser("accept-repair")
+    add_graph(p)
+    p.add_argument("--node", required=True)
+    p.add_argument("--repair-node", required=True)
+    p.add_argument("--eval-json", required=True)
+    p.add_argument("--pm-record")
+    p.add_argument("--note")
+    p.add_argument("--in-place", action="store_true")
+
     p = sub.add_parser("parent-check")
     add_graph(p)
 
@@ -3304,6 +3500,25 @@ def main() -> int:
                     graph,
                     args.graph,
                     event=f"graph_mark_{args.node}_{args.status}",
+                )
+            print(json.dumps(result, ensure_ascii=False))
+
+        elif args.cmd == "accept-repair":
+            graph = load_graph(args.graph)
+            result = accept_repair_result(
+                graph,
+                args.node,
+                args.repair_node,
+                eval_json=args.eval_json,
+                pm_record=args.pm_record,
+                note=args.note,
+            )
+            if args.in_place:
+                save_graph(args.graph, graph)
+                result["status_sync"] = sync_status_cache_from_graph(
+                    graph,
+                    args.graph,
+                    event=f"graph_accept_repair_{args.node}_{args.repair_node}",
                 )
             print(json.dumps(result, ensure_ascii=False))
 

@@ -4054,7 +4054,7 @@ PY
     echo "  $0 ragflow [doctor|config|search|evidence-pack|export-manifest]  RAGFlow raw evidence / retrieval adapter"
     echo "  $0 autopilot [status|apply|dispatch|loop|start|stop|service-status|queue]  自动监控断头 sprint/pane 并安全推进"
     echo "  $0 symphony [status|dry-run|workspace <sid>]  Symphony 调度"
-    echo "  $0 graph-scheduler [validate|ready|batches|enrich-capabilities|enrich-backlog|assign|enqueue-ready|mark|parent-check]  DAG 并行调度"
+    echo "  $0 graph-scheduler [validate|ready|batches|enrich-capabilities|enrich-backlog|assign|enqueue-ready|mark|accept-repair|parent-check]  DAG 并行调度"
     echo "  $0 architecture-guard validate --graph sprint.task_graph.json [--strict]  package-first 架构门禁"
     echo "  $0 workflow-guard route <sid> [--json]  PM→Planner→DAG Builder 门禁判定"
     echo "  $0 graph-dispatch [dispatch-ready|drain-queue]  DAG 节点级 pane 派发"
@@ -4945,7 +4945,7 @@ PLIST
     fi
     _graph_subcmd="${1:-help}"; shift || true
     case "$_graph_subcmd" in
-      validate|topo|layers|critical-path|ready|batches|enrich-capabilities|enrich-backlog|assign|mark|parent-check|doctor|enqueue-ready)
+      validate|topo|layers|critical-path|ready|batches|enrich-capabilities|enrich-backlog|assign|mark|accept-repair|parent-check|doctor|enqueue-ready)
         python3 "$_graph_py" "$_graph_subcmd" "$@"
         ;;
       help|--help|-h|"")
@@ -4964,6 +4964,7 @@ PLIST
         echo "  $0 graph-scheduler doctor         --graph sprint.task_graph.json [--repair --in-place]"
         echo "  $0 graph-scheduler enqueue-ready  --graph sprint.task_graph.json --workers workers.json [--lease] [--in-place]"
         echo "  $0 graph-scheduler mark           --graph sprint.task_graph.json --node S1 --status passed [--in-place]"
+        echo "  $0 graph-scheduler accept-repair  --graph sprint.task_graph.json --node S2 --repair-node S2R-EVAL2 --eval-json S2R-EVAL2-eval.json [--pm-record pm.json] [--in-place]"
         echo "  $0 graph-scheduler parent-check   --graph sprint.task_graph.json"
         ;;
       *)

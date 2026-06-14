@@ -1782,6 +1782,18 @@ def _cooldown_operator_after_contract_closeout(operator_id: str, closeout: dict[
         return {"ok": False, "reason": f"{type(exc).__name__}: {exc}", "operator_id": operator_id}
 
 
+def _accepted_repair_record(graph: dict[str, Any], node_id: str) -> dict[str, Any] | None:
+    repairs = graph.get("node_repairs") if isinstance(graph.get("node_repairs"), dict) else {}
+    record = repairs.get(node_id) if isinstance(repairs, dict) else None
+    if not isinstance(record, dict):
+        return None
+    if str(record.get("status") or "").lower() != "accepted":
+        return None
+    if not str(record.get("repair_node_id") or "").strip():
+        return None
+    return record
+
+
 def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path) -> list[dict[str, Any]]:
     sid = str(graph.get("sprint_id") or Path(graph_path).stem.replace(".task_graph", ""))
     repaired: list[dict[str, Any]] = []
@@ -1790,6 +1802,8 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
         if not node_id:
             continue
         status = node_status(graph, node_id)
+        if _accepted_repair_record(graph, node_id):
+            continue
         handoff_file = _existing_node_handoff(sid, node, graph)
         eval_json_path = str(_resolve_eval_json_path(sid, node_id, node))
         if not Path(eval_json_path).exists():
