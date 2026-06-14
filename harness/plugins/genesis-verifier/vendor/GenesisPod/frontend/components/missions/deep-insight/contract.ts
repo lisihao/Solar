@@ -987,6 +987,23 @@ export function fromCompanyMissionResult(
       ? input.events
       : (result.collab ?? []);
   const adapterEvents = normalizeCompanyEvents(rawEvents);
+  const resultMeta = result as Record<string, unknown>;
+  const checkpoint = resultMeta.__checkpoint as
+    | {
+        lastStepId?: unknown;
+      }
+    | undefined;
+  const dispatch = resultMeta.__dispatch as
+    | {
+        capabilityId?: unknown;
+      }
+    | undefined;
+  const canResume =
+    input.status === 'failed' &&
+    typeof checkpoint?.lastStepId === 'string' &&
+    checkpoint.lastStepId.length > 0 &&
+    typeof dispatch?.capabilityId === 'string' &&
+    dispatch.capabilityId.length > 0;
 
   return {
     id: input.id,
@@ -1015,7 +1032,7 @@ export function fromCompanyMissionResult(
     language: input.language ?? 'zh-CN',
     maxCredits: input.maxCredits,
     missionStatus: companyMissionStatus(input.status),
-    isResumable: false,
+    isResumable: canResume || undefined,
     themeSummary: result.themeSummary,
     completedAt: result.completedAt
       ? Date.parse(result.completedAt) || undefined

@@ -413,6 +413,15 @@ export class CompanyController {
     return this.missionService.rerunHeroMission(this.getUserId(req), id);
   }
 
+  @Post("missions/:id/resume")
+  @ApiOperation({ summary: "继续 Mission（同一任务从 checkpoint 恢复）" })
+  async resumeMission(
+    @Request() req: RequestWithUser,
+    @Param("id") id: string,
+  ) {
+    return this.missionService.resumeHeroMission(this.getUserId(req), id);
+  }
+
   // ── mission graph（知识图谱，平台共享构建器）────────────────────────────────
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })

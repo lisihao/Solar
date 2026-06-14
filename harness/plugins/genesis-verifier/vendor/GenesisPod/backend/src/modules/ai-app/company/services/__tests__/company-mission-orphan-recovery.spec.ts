@@ -12,6 +12,7 @@
 import { CompanyMissionService } from "../company-mission.service";
 
 interface PrismaMissionMock {
+  findFirst: jest.Mock;
   findMany: jest.Mock;
   updateMany: jest.Mock;
   update: jest.Mock;
@@ -25,6 +26,7 @@ function makeService(missionOverrides: Partial<PrismaMissionMock> = {}): {
   runHeroSpy: jest.SpyInstance;
 } {
   const companyMission: PrismaMissionMock = {
+    findFirst: jest.fn().mockResolvedValue(null),
     findMany: jest.fn().mockResolvedValue([]),
     updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     update: jest.fn().mockResolvedValue({}),
@@ -65,6 +67,67 @@ function callRecover(service: CompanyMissionService): Promise<void> {
 }
 
 describe("company orphan 恢复（recoverOrphanMissions）", () => {
+  it("手动继续失败任务 → 同 missionId 从 checkpoint 续跑", async () => {
+    const failedMission = {
+      id: "m-manual-resume",
+      userId: "u1",
+      heroId: "h1",
+      title: "深度研究 Y",
+      status: "failed",
+      progress: 70,
+      result: {
+        __checkpoint: { lastStepId: "S8-writer" },
+        __dispatch: {
+          capabilityId: "deep-insight-solar",
+          preferredModelId: "gpt-5.5",
+          extra: { depth: "deep", language: "zh-CN" },
+        },
+      },
+    };
+    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const { service, runHeroSpy } = makeService({
+      findFirst: jest.fn().mockResolvedValue(failedMission),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ ...failedMission, status: "queued" }),
+      updateMany,
+    });
+
+    const resumed = await service.resumeHeroMission("u1", "m-manual-resume");
+
+    expect(resumed.id).toBe("m-manual-resume");
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "m-manual-resume", userId: "u1", status: "failed" },
+      data: { status: "queued", progress: 70 },
+    });
+    expect(runHeroSpy).toHaveBeenCalledWith(
+      "m-manual-resume",
+      "u1",
+      "deep-insight-solar",
+      "深度研究 Y",
+      "gpt-5.5",
+      { depth: "deep", language: "zh-CN" },
+    );
+  });
+
+  it("手动继续失败任务但无 checkpoint → 拒绝继续", async () => {
+    const { service, runHeroSpy } = makeService({
+      findFirst: jest.fn().mockResolvedValue({
+        id: "m-no-checkpoint",
+        userId: "u1",
+        title: "T",
+        status: "failed",
+        progress: 0,
+        result: { __dispatch: { capabilityId: "deep-insight" } },
+      }),
+    });
+
+    await expect(
+      service.resumeHeroMission("u1", "m-no-checkpoint"),
+    ).rejects.toThrow("缺少可恢复 checkpoint");
+    expect(runHeroSpy).not.toHaveBeenCalled();
+  });
+
   it("可恢复（checkpoint + dispatch）→ 同 missionId 重跑", async () => {
     const orphan = {
       id: "m-resume",

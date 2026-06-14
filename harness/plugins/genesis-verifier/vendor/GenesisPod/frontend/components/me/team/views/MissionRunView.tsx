@@ -136,6 +136,7 @@ export function MissionRunView({
     deleteMission,
     cancelMission,
     rerunMission,
+    resumeMission,
     renameMission,
     setMissionProgress,
     loadMissions,
@@ -372,6 +373,32 @@ export function MissionRunView({
     // Fix 3: normalize events to expand company.agent:trace → tagged narrative entries
     // so MissionFlowView can render ThinkingCard / ToolCallChip.
     const normalizedReportEvents = normalizeCompanyEvents(reportMissionEvents);
+    const reportResultMeta =
+      reportMission.result &&
+      typeof reportMission.result === 'object' &&
+      !Array.isArray(reportMission.result)
+        ? (reportMission.result as Record<string, unknown>)
+        : {};
+    const checkpoint = reportResultMeta.__checkpoint as
+      | { lastStepId?: unknown }
+      | undefined;
+    const dispatch = reportResultMeta.__dispatch as
+      | { capabilityId?: unknown }
+      | undefined;
+    const canResume =
+      reportMission.status === 'failed' &&
+      typeof checkpoint?.lastStepId === 'string' &&
+      checkpoint.lastStepId.length > 0 &&
+      typeof dispatch?.capabilityId === 'string' &&
+      dispatch.capabilityId.length > 0;
+    const handleResume = () => {
+      void resumeMission(reportMission.id).then((id) => {
+        if (id) {
+          setActiveMissionId(id);
+          setReportMissionId(id);
+        }
+      });
+    };
     const detailView = fromCompanyMissionResult({
       id: reportMission.id,
       title: reportMission.title,
@@ -384,10 +411,21 @@ export function MissionRunView({
       // Fix 4: inject live cost while running (terminal uses result.usage from backend).
       liveUsage: liveUsageByMission[reportMission.id],
       actions: [
-        ...(rerunHeroId
+        ...(canResume
           ? [
               {
                 variant: 'primary' as const,
+                emoji: '↻',
+                label: '继续上次',
+                title: '从失败前保存的 checkpoint 继续同一 mission',
+                onClick: handleResume,
+              },
+            ]
+          : []),
+        ...(rerunHeroId
+          ? [
+              {
+                variant: canResume ? ('secondary' as const) : ('primary' as const),
                 emoji: '▶',
                 label: '复跑',
                 title:
@@ -427,12 +465,16 @@ export function MissionRunView({
         data={detailView}
         onBack={() => setReportMissionId(null)}
         onRerun={handleRerun}
-        // onUpdate: 用相同 topic 进入新建弹窗，预填 title
-        onUpdate={() => {
-          setTitle(reportMission.title);
-          setReportMissionId(null);
-          setDispatchOpen(true);
-        }}
+        // onUpdate: 可恢复时继续同一 mission；否则回到旧逻辑，打开新建弹窗。
+        onUpdate={
+          canResume
+            ? handleResume
+            : () => {
+                setTitle(reportMission.title);
+                setReportMissionId(null);
+                setDispatchOpen(true);
+              }
+        }
         // onSettings: 复用 onUpdate 流（预填 title 打开弹窗配置后再跑）
         onSettings={() => {
           setTitle(reportMission.title);

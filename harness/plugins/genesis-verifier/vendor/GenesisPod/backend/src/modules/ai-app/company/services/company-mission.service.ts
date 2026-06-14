@@ -502,6 +502,71 @@ export class CompanyMissionService implements OnModuleInit {
   }
 
   /**
+   * 继续 —— 失败任务不新建 mission，而是复用同一 missionId 从 checkpoint 续跑。
+   * 复跑保留历史；继续修复失败点。二者语义必须分开，避免用户刷新后重复产出多条任务。
+   */
+  async resumeHeroMission(
+    userId: string,
+    missionId: string,
+  ): Promise<CompanyMission> {
+    const src = await this.prisma.companyMission.findFirst({
+      where: { id: missionId, userId },
+    });
+    if (!src) throw new NotFoundException("Mission not found");
+    if (src.status !== "failed") {
+      throw new BadRequestException("只有失败任务可以从 checkpoint 继续。");
+    }
+
+    const result = this.asResultObject(src.result);
+    const checkpoint = result.__checkpoint as
+      | {
+          lastStepId?: string;
+        }
+      | undefined;
+    const dispatch = result.__dispatch as
+      | {
+          capabilityId?: string;
+          preferredModelId?: string;
+          extra?: HeroMissionExtra;
+        }
+      | undefined;
+    if (!checkpoint?.lastStepId || !dispatch?.capabilityId) {
+      throw new BadRequestException(
+        "该任务缺少可恢复 checkpoint 或派发参数，请使用复跑重新下发。",
+      );
+    }
+
+    const claimed = await this.prisma.companyMission.updateMany({
+      where: { id: missionId, userId, status: "failed" },
+      data: {
+        status: "queued",
+        progress: Math.max(0, Math.min(src.progress ?? 0, 99)),
+      },
+    });
+    if (claimed.count < 1) {
+      throw new BadRequestException("任务状态已变化，无法重复继续。");
+    }
+
+    void this.runHeroMission(
+      src.id,
+      userId,
+      dispatch.capabilityId,
+      src.title,
+      dispatch.preferredModelId ?? "",
+      dispatch.extra,
+    ).catch((err: unknown) => {
+      this.log.error(
+        `CompanyHero mission ${src.id} resume failed (outer catch): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+
+    const updated = await this.prisma.companyMission.findUnique({
+      where: { id: missionId },
+    });
+    return updated ?? { ...src, status: "queued" };
+  }
+
+  /**
    * Hero mission 执行：解析 capabilityId → 能力 runner → runViaCapability 真跑。
    * 复用团队能力路径的同一套 started/running + 结果持久化 + 事件桥。
    */
@@ -555,9 +620,14 @@ export class CompanyMissionService implements OnModuleInit {
       const message = err instanceof Error ? err.message : "unknown error";
       this.log.error(`CompanyHero mission ${missionId} failed: ${message}`);
 
+      const existingResult = await this.readMissionResultObject(missionId);
       await this.updateMission(missionId, {
         status: "failed",
-        result: { error: message, failedAt: new Date().toISOString() },
+        result: this.toInputJson({
+          ...existingResult,
+          error: message,
+          failedAt: new Date().toISOString(),
+        }),
       }).catch((dbErr: unknown) => {
         this.log.error(
           `Failed to persist failed status for ${missionId}: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`,
@@ -1039,11 +1109,13 @@ export class CompanyMissionService implements OnModuleInit {
     // failed —— 不伪装成功：真实 error 落库 + emit（前端失败空态据此显示真因）。
     // 仍带上已规划维度（标 failed），让"任务列表"展示尝试过的子任务而非空白。
     const message = result.error ?? "capability run failed";
+    const existingResult = await this.readMissionResultObject(missionId);
     // ★ 终态走仲裁：条件写（未取消才写）。能力核 abort 后返回 failed，但用户取消已置
     //   cancelled——此处守护避免把 cancelled 盖成 failed。
     const won = await this.finalizeIfNotCancelled(missionId, {
       status: "failed",
-      result: {
+      result: toJson({
+        ...existingResult,
         error: message,
         dimensions: dimNames,
         steps: toJson(dimSteps),
@@ -1055,7 +1127,7 @@ export class CompanyMissionService implements OnModuleInit {
           ...(extra ? { extra } : {}),
         }),
         failedAt: new Date().toISOString(),
-      },
+      }),
     });
     if (won) {
       await this.emit("company.mission:failed", missionId, userId, {
@@ -1805,6 +1877,26 @@ export class CompanyMissionService implements OnModuleInit {
       );
       return false;
     }
+  }
+
+  private asResultObject(result: unknown): Record<string, unknown> {
+    return result && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : {};
+  }
+
+  private toInputJson(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+
+  private async readMissionResultObject(
+    missionId: string,
+  ): Promise<Record<string, unknown>> {
+    const row = await this.prisma.companyMission.findUnique({
+      where: { id: missionId },
+      select: { result: true },
+    });
+    return this.asResultObject(row?.result);
   }
 
   private async updateMission(
