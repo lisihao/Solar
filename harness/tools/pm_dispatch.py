@@ -122,6 +122,45 @@ def _transient_operator_failure_text(record: dict[str, Any]) -> str:
             continue
     return "\n".join(parts).strip()
 
+
+def _apply_transient_operator_flow_control(record: dict[str, Any]) -> dict[str, Any]:
+    reason_text = _transient_operator_failure_text(record)
+    if not TRANSIENT_OPERATOR_FAILURE_RE.search(reason_text):
+        return {"ok": False, "applied": False, "reason": "not_transient_operator_failure"}
+    operator_id = str(record.get("operator_id") or "").strip()
+    task_id = str(record.get("task_id") or "").strip()
+    if not operator_id or not task_id:
+        return {"ok": False, "applied": False, "reason": "missing_operator_or_task_id"}
+    try:
+        lib_dir = HARNESS_DIR / "lib"
+        if str(lib_dir) not in sys.path:
+            sys.path.insert(0, str(lib_dir))
+        import operator_flow_control as ofc  # type: ignore
+    except Exception as exc:
+        return {"ok": False, "applied": False, "reason": f"flow_control_unavailable:{type(exc).__name__}", "error": str(exc)}
+
+    task_dir = HARNESS_DIR / "run" / "operator-results" / operator_id / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        result = ofc.apply_failure_flow_control(
+            task_dir,
+            operator_id=operator_id,
+            failure_text=reason_text,
+            rate_limit_cooldown_seconds=int(os.environ.get("SOLAR_OPERATOR_RATE_LIMIT_COOLDOWN_SECONDS", "3600")),
+            auth_cooldown_seconds=int(os.environ.get("SOLAR_OPERATOR_AUTH_COOLDOWN_SECONDS", "21600")),
+        )
+    except Exception as exc:
+        return {"ok": False, "applied": False, "reason": f"flow_control_apply_failed:{type(exc).__name__}", "error": str(exc)}
+    applied = str(result.get("runtime_state") or "") in {"cooldown", "quota_exhausted", "auth_expired"}
+    return {
+        "ok": bool(applied),
+        "applied": bool(applied),
+        "operator_id": operator_id,
+        "runtime_state": result.get("runtime_state", ""),
+        "expires_at": result.get("expires_at", ""),
+        "config_block": result.get("config_block"),
+    }
+
 RATE_LIMIT_PRUNER_LABEL = os.environ.get("SOLAR_RATE_LIMIT_PRUNER_LABEL", "com.solar.harness-rate-limit-pruner")
 OPERATOR_HEALTH_WATCHDOG_LABEL = os.environ.get("SOLAR_OPERATOR_HEALTH_WATCHDOG_LABEL", "com.solar.harness.operator-health-watchdog")
 CODE_EXEC_TASK_TYPES = {
@@ -4127,6 +4166,12 @@ def cmd_fail(args: argparse.Namespace) -> int:
     record["status"] = status
     record["failed_at"] = _now()
     record["failure_reason"] = str(args.reason or status).strip()[:2000]
+    flow_control = _apply_transient_operator_flow_control(record)
+    if flow_control.get("applied"):
+        record["operator_flow_control"] = flow_control
+        record.setdefault("reconcile_history", []).append(
+            {"ts": record["failed_at"], "action": "operator_flow_control", **flow_control}
+        )
     graph_requeue = _release_graph_node_on_transient_operator_failure(record)
     if graph_requeue.get("released"):
         record["graph_requeue"] = graph_requeue

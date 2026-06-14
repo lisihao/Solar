@@ -99,6 +99,77 @@ def test_redispatch_archives_eval_markdown_too(monkeypatch, tmp_path):
     assert graph["nodes"][0]["last_failure_evidence"]["eval_md_archive"] == str(md_archives[0])
 
 
+def test_redispatch_archives_stale_builder_sidecars(monkeypatch, tmp_path):
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gr, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(gr, "EVENTS_FILE", tmp_path / "events.jsonl")
+    monkeypatch.setattr(gr, "HUMAN_REVIEW_QUEUE", tmp_path / "human-review.jsonl")
+    monkeypatch.setattr(gr, "NOTIFY_SCRIPT", tmp_path / "missing-notify.sh")
+
+    def fake_set_node_status(graph, node_id, status, pane=None, dispatch_id=None, allow_reopen_failed=False):
+        graph["node_results"][node_id]["status"] = status
+        for node in graph["nodes"]:
+            if node["id"] == node_id:
+                node["status"] = status
+
+    monkeypatch.setattr(gr.gs, "set_node_status", fake_set_node_status)
+
+    sid = "sprint-one"
+    for suffix in (
+        "-dispatch.md",
+        "-dispatch.md.intent.json",
+        "-handoff.md",
+        ".pm-result.md",
+        "-bridged-artifact.md",
+        "-smoke-audit.json",
+        "-resource-binding.json",
+        "-guard-decision.json",
+    ):
+        (sprints / f"{sid}.N1{suffix}").write_text("stale", encoding="utf-8")
+    (sprints / f"{sid}.N1-eval.json").write_text('{"verdict":"FAIL","summary":"retry me"}', encoding="utf-8")
+    graph = {
+        "sprint_id": sid,
+        "nodes": [
+            {
+                "id": "N1",
+                "status": "failed",
+                "artifacts": {
+                    "handoff_md": f"{sid}.N1-handoff.md",
+                    "dispatch_md": f"{sid}.N1-dispatch.md",
+                    "resource_binding": f"{sid}.N1-resource-binding.json",
+                },
+            }
+        ],
+        "node_results": {
+            "N1": {
+                "status": "failed",
+                "eval_json": f"{sid}.N1-eval.json",
+                "artifacts": {
+                    "handoff_md": f"{sid}.N1-handoff.md",
+                    "pm_result": f"{sid}.N1.pm-result.md",
+                    "eval_json": f"{sid}.N1-eval.json",
+                },
+            }
+        },
+    }
+
+    result = gr.redispatch_failed_nodes(graph, max_retry=2, limit=5, apply=True)
+
+    assert result["redispatched"][0]["node_id"] == "N1"
+    assert not (sprints / f"{sid}.N1-handoff.md").exists()
+    assert not (sprints / f"{sid}.N1-dispatch.md").exists()
+    assert not (sprints / f"{sid}.N1.pm-result.md").exists()
+    assert list(sprints.glob(f"{sid}.N1-handoff.md.redispatched-*"))
+    assert list(sprints.glob(f"{sid}.N1-dispatch.md.redispatched-*"))
+    assert list(sprints.glob(f"{sid}.N1.pm-result.md.redispatched-*"))
+    assert "handoff_md" not in graph["nodes"][0]["artifacts"]
+    assert "pm_result" not in graph["node_results"]["N1"]["artifacts"]
+    sidecars = graph["nodes"][0]["last_failure_evidence"]["sidecar_archives"]
+    assert "handoff_md" in sidecars
+    assert "pm_result_md" in sidecars
+
+
 def test_redispatch_skips_accepted_repair_even_when_raw_result_failed(monkeypatch, tmp_path):
     sprints = tmp_path / "sprints"
     sprints.mkdir()

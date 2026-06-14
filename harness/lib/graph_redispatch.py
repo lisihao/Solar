@@ -176,28 +176,73 @@ def _archive_sidecar(path: pathlib.Path) -> pathlib.Path | None:
     return archive
 
 
+REDISPATCH_ARTIFACT_KEYS = {
+    "eval_json",
+    "eval_md",
+    "eval_md_path",
+    "eval_verdict",
+    "verdict",
+    "handoff_md",
+    "handoff",
+    "handoff_path",
+    "handoff_file",
+    "handoff_ref",
+    "handoff_artifact",
+    "pm_result",
+    "pm_result_md",
+    "pm_result_path",
+    "bridged_artifact",
+    "bridge_artifact",
+    "smoke_audit",
+    "resource_binding",
+    "guard_decision",
+    "dispatch_md",
+    "dispatch",
+}
+
+
+def _pop_redispatch_artifacts(container: object) -> None:
+    if not isinstance(container, dict):
+        return
+    for key in REDISPATCH_ARTIFACT_KEYS:
+        container.pop(key, None)
+    artifacts = container.get("artifacts")
+    if isinstance(artifacts, dict):
+        for key in REDISPATCH_ARTIFACT_KEYS:
+            artifacts.pop(key, None)
+
+
+def _archive_node_sidecars(sid: str, node_id: str) -> dict[str, str]:
+    archived: dict[str, str] = {}
+    candidates = {
+        "dispatch_md": SPRINTS_DIR / f"{sid}.{node_id}-dispatch.md",
+        "dispatch_intent_json": SPRINTS_DIR / f"{sid}.{node_id}-dispatch.md.intent.json",
+        "handoff_md": SPRINTS_DIR / f"{sid}.{node_id}-handoff.md",
+        "pm_result_md": SPRINTS_DIR / f"{sid}.{node_id}.pm-result.md",
+        "bridged_artifact_md": SPRINTS_DIR / f"{sid}.{node_id}-bridged-artifact.md",
+        "smoke_audit_json": SPRINTS_DIR / f"{sid}.{node_id}-smoke-audit.json",
+        "resource_binding_json": SPRINTS_DIR / f"{sid}.{node_id}-resource-binding.json",
+        "guard_decision_json": SPRINTS_DIR / f"{sid}.{node_id}-guard-decision.json",
+    }
+    for key, path in candidates.items():
+        archive = _archive_sidecar(path)
+        if archive:
+            archived[key] = str(archive)
+    return archived
+
+
 def _clear_eval_artifacts(graph: dict, node_id: str) -> dict:
-    """清上轮 eval 结果, 让重做是干净的 (否则 reconcile 会读到旧 FAIL verdict)。"""
+    """清上轮节点产物, 让重做是干净的 (否则 reconcile 会读到旧 handoff/eval)。"""
     archived_eval_json: pathlib.Path | None = None
     archived_eval_md: pathlib.Path | None = None
     archived_payload: object | None = None
     nr = graph.get("node_results", {}).get(node_id)
-    if isinstance(nr, dict):
-        for k in ("eval_json", "eval_md", "eval_md_path", "eval_verdict", "verdict"):
-            nr.pop(k, None)
-        if isinstance(nr.get("artifacts"), dict):
-            nr["artifacts"].pop("eval_json", None)
-            nr["artifacts"].pop("eval_md", None)
-            nr["artifacts"].pop("eval_md_path", None)
+    _pop_redispatch_artifacts(nr)
     node = _node_obj(graph, node_id)
-    if isinstance(node.get("artifacts"), dict):
-        node["artifacts"].pop("eval_json", None)
-        node["artifacts"].pop("eval_md", None)
-        node["artifacts"].pop("eval_md_path", None)
-    for key in ("eval_json", "eval_md", "eval_md_path"):
-        node.pop(key, None)
+    _pop_redispatch_artifacts(node)
     # 物理 eval 文件改名留痕 (不删, 可追溯)
     sid = graph.get("sprint_id") or graph.get("id") or ""
+    archived_sidecars: dict[str, str] = {}
     if sid:
         evp = SPRINTS_DIR / f"{sid}.{node_id}-eval.json"
         if evp.is_file():
@@ -207,9 +252,11 @@ def _clear_eval_artifacts(graph: dict, node_id: str) -> dict:
                 archived_payload = None
             archived_eval_json = _archive_sidecar(evp)
         archived_eval_md = _archive_sidecar(SPRINTS_DIR / f"{sid}.{node_id}-eval.md")
+        archived_sidecars = _archive_node_sidecars(str(sid), node_id)
     return {
         "archived_eval_json": archived_eval_json,
         "archived_eval_md": archived_eval_md,
+        "archived_sidecars": archived_sidecars,
         "archived_payload": archived_payload,
     }
 
@@ -244,6 +291,8 @@ def redispatch_failed_nodes(graph: dict, *, max_retry: int = DEFAULT_MAX_RETRY,
                 )
                 if archive_info.get("archived_eval_md"):
                     node["last_failure_evidence"]["eval_md_archive"] = str(archive_info["archived_eval_md"])
+                if archive_info.get("archived_sidecars"):
+                    node["last_failure_evidence"]["sidecar_archives"] = archive_info["archived_sidecars"]
                 _emit_event("dag_node_redispatched", {
                     "sprint_id": sid, "node_id": node_id, "retry": rc + 1,
                     "max_retry": max_retry, "fail_summary": summary[:140]})

@@ -1296,6 +1296,35 @@ def _scope_lines(values: Any) -> str:
     return "\n".join(f"- `{v}`" for v in values)
 
 
+def _dependency_status_lines(graph: dict[str, Any], node: dict[str, Any]) -> str:
+    deps = node.get("depends_on") or []
+    if isinstance(deps, str):
+        deps = [deps]
+    if not deps:
+        return "- N/A"
+
+    nodes_by_id = {str(item.get("id") or ""): item for item in graph.get("nodes", []) if isinstance(item, dict)}
+    results = graph.get("node_results") if isinstance(graph.get("node_results"), dict) else {}
+    lines: list[str] = []
+    for raw_dep in deps:
+        dep_id = str(raw_dep or "").strip()
+        if not dep_id:
+            continue
+        if dep_id.startswith("external:"):
+            lines.append(f"- `{dep_id}`: external prerequisite")
+            continue
+        dep_node = nodes_by_id.get(dep_id) or {}
+        result = results.get(dep_id) if isinstance(results, dict) else {}
+        raw_status = str(dep_node.get("status") or (result or {}).get("status") or "missing").strip().lower()
+        effective_status = str(node_status(graph, dep_id) or raw_status or "pending").strip().lower()
+        repair = _accepted_repair_record(graph, dep_id)
+        repair_note = ""
+        if repair:
+            repair_note = f"; accepted_repair=`{repair.get('repair_node_id')}`"
+        lines.append(f"- `{dep_id}`: effective_status=`{effective_status}`; raw_status=`{raw_status}`{repair_note}")
+    return "\n".join(lines) if lines else "- N/A"
+
+
 def _write_scope_preflight_block(sid: str, node: dict[str, Any]) -> str:
     """Warn builders when write-scope artifacts already exist from another sprint.
 
@@ -3410,6 +3439,7 @@ def build_dispatch_text(payload: dict[str, Any], pane: str) -> str:
     except Exception:
         graph_for_policy = {"nodes": [node]}
     architecture_block = dispatch_policy_block(node, graph_for_policy) if dispatch_policy_block else "## Architecture Guard\n\n- unavailable"
+    dependency_status_block = _dependency_status_lines(graph_for_policy, node)
     logical_plan_node = payload.get("logical_plan_node") if isinstance(payload.get("logical_plan_node"), dict) else {}
     capsule_plan_ir = payload.get("capsule_plan_ir") if isinstance(payload.get("capsule_plan_ir"), dict) else {}
     physical_plan_ir = payload.get("physical_plan_ir") if isinstance(payload.get("physical_plan_ir"), dict) else {}
@@ -3479,6 +3509,13 @@ Graph: `{graph_path}`
 ## Required Capabilities
 
 {_scope_lines(node.get("required_capabilities"))}
+
+## Dependency Status
+
+{dependency_status_block}
+
+Use `effective_status` for prerequisite decisions. A dependency with `raw_status=failed`
+and an accepted repair can still have `effective_status=passed`.
 
 ## Read Scope
 
@@ -5786,20 +5823,21 @@ def _graph_queue_dispatch_role(payload: dict[str, Any], node: dict[str, Any], as
 
 def _node_requires_builder_lane(node: dict[str, Any]) -> bool:
     """Some verification-suite nodes create tests, so they need builder writes first."""
-    write_scope = node.get("write_scope")
-    has_write_scope = isinstance(write_scope, list) and any(str(item).strip() for item in write_scope)
-    if not has_write_scope:
-        return False
     text = " ".join(
         str(value or "")
         for value in [
             node.get("id"),
+            node.get("type"),
+            node.get("task_type"),
+            node.get("dispatch_task_type"),
+            node.get("logical_operator"),
             node.get("goal"),
             " ".join(str(item) for item in (node.get("acceptance") or [])),
-            " ".join(str(item) for item in (node.get("required_capabilities") or [])),
         ]
     ).lower()
-    return any(token in text for token in ("verification_suite", "test", "pytest", "测试"))
+    if any(token in text for token in ("testrunner", "verification_suite", "pytest", "测试")):
+        return True
+    return re.search(r"\btests?\b", text) is not None
 
 
 def _graph_node_task_type(node: dict[str, Any]) -> str:

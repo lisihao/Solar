@@ -61,3 +61,64 @@ def test_reconcile_skips_accepted_repair_instead_of_replaying_old_failed_eval(tm
     assert graph["nodes"][0]["status"] == "failed"
     assert graph["node_results"]["S2"]["repair_status"] == "accepted"
     assert graph["node_results"]["S2"]["repaired_by"] == "S2R-EVAL2"
+
+
+def test_dispatch_text_shows_effective_status_for_accepted_repair(tmp_path: Path, monkeypatch) -> None:
+    sid = "repair-sprint"
+    graph_path = tmp_path / f"{sid}.task_graph.json"
+    node = {"id": "S3", "status": "pending", "depends_on": ["S2"], "write_scope": ["verify/"]}
+    graph = {
+        "sprint_id": sid,
+        "nodes": [
+            {"id": "S2", "status": "failed", "depends_on": [], "write_scope": ["impl/"]},
+            node,
+        ],
+        "node_repairs": {
+            "S2": {
+                "status": "accepted",
+                "repair_node_id": "S2R-EVAL2",
+                "original_status": "failed",
+            }
+        },
+        "node_results": {
+            "S2": {
+                "status": "failed",
+                "repair_status": "accepted",
+                "repaired_by": "S2R-EVAL2",
+            }
+        },
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    monkeypatch.setattr(graph_node_dispatcher, "SPRINTS_DIR", tmp_path)
+
+    text = graph_node_dispatcher.build_dispatch_text(
+        {
+            "sid": sid,
+            "sprint_id": sid,
+            "node": node,
+            "node_id": "S3",
+            "graph": str(graph_path),
+            "dispatch_id": "dispatch-1",
+        },
+        "operator-pool:builder",
+    )
+
+    assert "## Dependency Status" in text
+    assert "`S2`: effective_status=`passed`; raw_status=`failed`; accepted_repair=`S2R-EVAL2`" in text
+    assert "Use `effective_status` for prerequisite decisions" in text
+
+
+def test_test_runner_node_stays_on_builder_lane_despite_evaluator_pane_hint() -> None:
+    node = {
+        "id": "S3",
+        "type": "test",
+        "logical_operator": "TestRunner",
+        "dispatch_task_type": "tests",
+        "goal": "Run verification commands and collect execution evidence.",
+    }
+    payload = {"pane": "operator-pool:evaluator.0"}
+    assignment = {"pane": "operator-pool:evaluator.0"}
+
+    role = graph_node_dispatcher._graph_queue_dispatch_role(payload, node, assignment)
+
+    assert role == "builder"

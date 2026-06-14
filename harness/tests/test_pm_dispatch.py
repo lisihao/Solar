@@ -673,6 +673,41 @@ def test_transient_operator_failure_text_infers_operator_result_dir(tmp_path):
     assert pm_dispatch.TRANSIENT_OPERATOR_FAILURE_RE.search(text)
 
 
+def test_transient_operator_failure_applies_flow_control(tmp_path, monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    pm_dispatch.HARNESS_DIR = tmp_path
+    captured: dict[str, object] = {}
+
+    def fake_apply_failure_flow_control(task_dir, **kwargs):
+        captured["task_dir"] = task_dir
+        captured.update(kwargs)
+        return {
+            "runtime_state": "cooldown",
+            "expires_at": "2026-06-18T04:20:00Z",
+            "config_block": {"ok": True},
+        }
+
+    monkeypatch.setitem(
+        sys.modules,
+        "operator_flow_control",
+        types.SimpleNamespace(apply_failure_flow_control=fake_apply_failure_flow_control),
+    )
+
+    result = pm_dispatch._apply_transient_operator_flow_control(
+        {
+            "task_id": "task-1",
+            "operator_id": "spark-builder",
+            "failure_reason": "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. try again at Jun 18th, 2026 12:20 AM.",
+        }
+    )
+
+    assert result["applied"] is True
+    assert result["runtime_state"] == "cooldown"
+    assert captured["operator_id"] == "spark-builder"
+    assert "usage limit" in str(captured["failure_text"])
+    assert str(captured["task_dir"]).endswith("run/operator-results/spark-builder/task-1")
+
+
 def test_cmd_submit_reads_task_graph_capsule_metadata(monkeypatch):
     pm_dispatch = _load_pm_dispatch()
     with tempfile.TemporaryDirectory() as td:
