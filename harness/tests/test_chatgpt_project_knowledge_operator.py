@@ -90,6 +90,43 @@ def test_normalize_conversation_url_preserves_project_context():
     assert url == "https://chatgpt.com/g/g-p-abc-project/c/6a2c58e1-5798-83e8-a67c-3fdce1fb0396"
 
 
+def test_project_slug_and_id_from_url():
+    mod = _load_module()
+    slug = mod.project_slug_from_url("https://chatgpt.com/g/g-p-abc123-q2-paper/project")
+    assert slug == "g-p-abc123-q2-paper"
+    assert mod.project_id_from_slug(slug) == "g-p-abc123"
+
+
+def test_collect_sidebar_project_conversations_filters_target_project():
+    mod = _load_module()
+    data = {
+        "items": [
+            {
+                "gizmo": {"gizmo": {"id": "g-p-target", "display": {"name": "Q2"}}},
+                "conversations": [
+                    {"id": "c-1", "title": "目标一", "gizmo_id": "g-p-target"},
+                    {"id": "c-2", "title": "目标二", "gizmo_id": "g-p-target"},
+                ],
+            },
+            {
+                "gizmo": {"gizmo": {"id": "g-p-other", "display": {"name": "Other"}}},
+                "conversations": [
+                    {"id": "c-x", "title": "其它项目", "gizmo_id": "g-p-other"},
+                ],
+            },
+        ]
+    }
+    rows = mod.collect_sidebar_project_conversations(
+        data,
+        project_id="g-p-target",
+        project_slug="g-p-target-q2-paper",
+        limit=20,
+    )
+    assert [row["conversation_id"] for row in rows] == ["c-1", "c-2"]
+    assert rows[0]["url"] == "https://chatgpt.com/g/g-p-target-q2-paper/c/c-1"
+    assert rows[0]["source"] == "snorlax_sidebar_api"
+
+
 def test_project_discovery_expands_folded_conversation_lists():
     mod = _load_module()
     js = mod.CHATGPT_EXPAND_PROJECT_CONVERSATIONS_JS
