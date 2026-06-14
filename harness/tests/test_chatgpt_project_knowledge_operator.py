@@ -61,6 +61,27 @@ def test_build_qa_pairs_keeps_question_answer_markdown():
     assert pairs[1]["answer_markdown"] == "- 答案二"
 
 
+def test_build_qa_pairs_merges_consecutive_user_messages_before_answer():
+    mod = _load_module()
+    conversation = mod.normalize_conversation(
+        {
+            "conversation_id": "abc",
+            "url": "https://chatgpt.com/c/abc",
+            "messages": [
+                {"role": "user", "text": "补充一", "markdown": "补充一"},
+                {"role": "user", "text": "补充二", "markdown": "补充二"},
+                {"role": "assistant", "text": "统一回答", "markdown": "统一回答"},
+            ],
+        }
+    )
+    pairs = mod.build_qa_pairs(conversation)
+    assert len(pairs) == 1
+    assert pairs[0]["question_indices"] == [0, 1]
+    assert "补充一" in pairs[0]["question_markdown"]
+    assert "补充二" in pairs[0]["question_markdown"]
+    assert pairs[0]["answer_markdown"] == "统一回答"
+
+
 def test_write_artifacts_outputs_manifest_jsonl_markdown_and_html(tmp_path):
     mod = _load_module()
     conversation = mod.normalize_conversation(
@@ -78,12 +99,29 @@ def test_write_artifacts_outputs_manifest_jsonl_markdown_and_html(tmp_path):
     assert manifest["schema_version"] == "solar.chatgpt_project_knowledge.v1"
     assert manifest["conversation_count"] == 1
     assert manifest["qa_pair_count"] == 1
+    assert manifest["quality"]["status"] == "ok"
     assert (tmp_path / "manifest.json").exists()
     assert (tmp_path / "qa-pairs.jsonl").exists()
     assert "| A | B |" in (tmp_path / "abc" / "conversation.md").read_text(encoding="utf-8")
     assert "<!doctype html>" in (tmp_path / "abc" / "conversation.html").read_text(encoding="utf-8")
     row = json.loads((tmp_path / "qa-pairs.jsonl").read_text(encoding="utf-8").strip())
     assert row["conversation_id"] == "abc"
+
+
+def test_write_artifacts_marks_unanswered_pairs_as_warn(tmp_path):
+    mod = _load_module()
+    conversation = mod.normalize_conversation(
+        {
+            "conversation_id": "abc",
+            "url": "https://chatgpt.com/c/abc",
+            "messages": [
+                {"role": "user", "text": "问题", "markdown": "问题"},
+            ],
+        }
+    )
+    manifest = mod.write_artifacts([conversation], tmp_path, source={"mode": "fixture"})
+    assert manifest["quality"]["status"] == "warn"
+    assert manifest["quality"]["unanswered_pair_count"] == 1
 
 
 def test_logical_operator_registration_points_to_existing_actor_and_command():

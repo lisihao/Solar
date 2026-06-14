@@ -328,12 +328,22 @@ def normalize_message(raw: dict[str, Any], index: int) -> dict[str, Any]:
 
 
 def normalize_conversation(raw: dict[str, Any], *, source_url: str = "") -> dict[str, Any]:
-    messages = [
+    raw_messages = [
         normalize_message(item, idx)
         for idx, item in enumerate(raw.get("messages") or [])
         if isinstance(item, dict)
     ]
-    messages = [msg for msg in messages if msg["role"] in {"user", "assistant", "tool"} and (msg["text"] or msg["markdown"])]
+    messages: list[dict[str, Any]] = []
+    seen_messages: set[str] = set()
+    for msg in raw_messages:
+        if msg["role"] not in {"user", "assistant", "tool"} or not (msg["text"] or msg["markdown"]):
+            continue
+        key = f"{msg['role']}\n{msg.get('markdown') or msg.get('text') or ''}"
+        if key in seen_messages:
+            continue
+        seen_messages.add(key)
+        msg["index"] = len(messages)
+        messages.append(msg)
     url = normalize_conversation_url(str(raw.get("url") or source_url or ""))
     conversation_id = str(raw.get("conversation_id") or "")
     if not conversation_id:
@@ -354,6 +364,19 @@ def build_qa_pairs(conversation: dict[str, Any]) -> list[dict[str, Any]]:
     messages = conversation.get("messages") or []
     current_question: dict[str, Any] | None = None
     answer_parts: list[dict[str, Any]] = []
+
+    def merge_user_message(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base)
+        indices = list(merged.get("indices") or [merged.get("index")])
+        indices.append(extra.get("index"))
+        merged["indices"] = [item for item in indices if item is not None]
+        for key in ("text", "markdown", "html"):
+            left = str(merged.get(key) or "").strip()
+            right = str(extra.get(key) or "").strip()
+            if right and right != left:
+                joiner = "\n\n---\n\n" if key != "html" else "\n\n<hr/>\n\n"
+                merged[key] = (left + joiner + right).strip() if left else right
+        return merged
 
     def flush() -> None:
         nonlocal current_question, answer_parts
@@ -376,6 +399,7 @@ def build_qa_pairs(conversation: dict[str, Any]) -> list[dict[str, Any]]:
                 "conversation_title": conversation.get("title") or "",
                 "conversation_url": conversation.get("url") or "",
                 "question_index": current_question.get("index"),
+                "question_indices": current_question.get("indices") or [current_question.get("index")],
                 "answer_indices": [part.get("index") for part in answer_parts],
                 "question_text": current_question.get("text") or "",
                 "question_markdown": current_question.get("markdown") or current_question.get("text") or "",
@@ -392,6 +416,9 @@ def build_qa_pairs(conversation: dict[str, Any]) -> list[dict[str, Any]]:
     for msg in messages:
         role = msg.get("role")
         if role == "user":
+            if current_question and not answer_parts:
+                current_question = merge_user_message(current_question, msg)
+                continue
             flush()
             current_question = msg
             answer_parts = []
@@ -457,9 +484,12 @@ def write_artifacts(conversations: list[dict[str, Any]], out_dir: Path, *, sourc
     out_dir.mkdir(parents=True, exist_ok=True)
     all_pairs: list[dict[str, Any]] = []
     conversation_entries: list[dict[str, Any]] = []
+    empty_conversation_count = 0
     for conv in conversations:
         pairs = build_qa_pairs(conv)
         all_pairs.extend(pairs)
+        if not conv.get("messages"):
+            empty_conversation_count += 1
         conv_dir = out_dir / slugify(str(conv.get("conversation_id") or conv.get("title") or "conversation"))
         conv_dir.mkdir(parents=True, exist_ok=True)
         (conv_dir / "conversation.json").write_text(json.dumps(conv, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -480,12 +510,18 @@ def write_artifacts(conversations: list[dict[str, Any]], out_dir: Path, *, sourc
     with (out_dir / "qa-pairs.jsonl").open("w", encoding="utf-8") as fh:
         for pair in all_pairs:
             fh.write(json.dumps(pair, ensure_ascii=False) + "\n")
+    unanswered_pair_count = sum(1 for pair in all_pairs if not pair.get("has_answer"))
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": now_iso(),
         "source": source,
         "conversation_count": len(conversations),
         "qa_pair_count": len(all_pairs),
+        "quality": {
+            "status": "warn" if unanswered_pair_count or empty_conversation_count else "ok",
+            "unanswered_pair_count": unanswered_pair_count,
+            "empty_conversation_count": empty_conversation_count,
+        },
         "conversations": conversation_entries,
         "artifacts": {
             "conversations_json": str(out_dir / "conversations.json"),
@@ -505,6 +541,22 @@ def read_conversation_list(path: Path) -> list[str]:
     return values
 
 
+def ensure_json_object(value: Any, *, context: str) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except Exception as exc:
+            raise RuntimeError(f"{context}:evaluate_returned_non_json_string:{text[:200]}") from exc
+        if isinstance(data, dict):
+            return data
+    raise RuntimeError(f"{context}:evaluate_returned_{type(value).__name__}")
+
+
 def _load_chatgpt_wrapper() -> Any:
     script = ROOT / "scripts" / "browser_agent_chatgpt_wrapper.py"
     spec = importlib.util.spec_from_file_location("solar_chatgpt_wrapper_runtime", script)
@@ -520,7 +572,10 @@ async def _discover_project_conversations(page: Any, *, project_url: str, limit:
     seen: dict[str, dict[str, Any]] = {}
     discovery: dict[str, Any] = {}
     for _ in range(8):
-        discovery = await page.evaluate(CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS)
+        discovery = ensure_json_object(
+            await page.evaluate(CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS),
+            context="discover_project_conversations",
+        )
         for item in discovery.get("conversations") or []:
             url = normalize_conversation_url(str(item.get("url") or ""))
             if url:
@@ -529,7 +584,7 @@ async def _discover_project_conversations(page: Any, *, project_url: str, limit:
         if len(seen) >= limit:
             break
         await page.evaluate("() => window.scrollBy(0, Math.max(document.body.scrollHeight, 1600))")
-        await page.wait_for_timeout(1200)
+        await wait_page(page, 1200)
     conversations = list(seen.values())[:limit]
     discovery["conversations"] = conversations
     return discovery
@@ -548,6 +603,13 @@ async def goto_page(page: Any, url: str) -> None:
                 await page.navigate(url)
             else:
                 raise
+
+
+async def wait_page(page: Any, ms: int) -> None:
+    if hasattr(page, "wait_for_timeout"):
+        await page.wait_for_timeout(ms)
+    else:
+        await asyncio.sleep(max(0, ms) / 1000)
 
 
 async def run_browser_extraction(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -569,7 +631,7 @@ async def run_browser_extraction(args: argparse.Namespace) -> tuple[list[dict[st
             profile_directory = str(profile_policy.get("selected_profile_directory"))
         if profile_policy.get("user_data_dir"):
             user_data_dir = Path(str(profile_policy.get("user_data_dir"))).expanduser()
-    headless = wrapper._env_flag("BROWSER_AGENT_HEADLESS", wrapper._env_flag("TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS", True))
+    headless = wrapper._env_flag("BROWSER_AGENT_HEADLESS", "TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS", default=True)
     headed_allowed = wrapper._headed_run_allowed()
     profile_strategy = str(
         os.environ.get("BROWSER_AGENT_CHATGPT_PROFILE_STRATEGY")
@@ -636,8 +698,11 @@ async def run_browser_extraction(args: argparse.Namespace) -> tuple[list[dict[st
             raise RuntimeError("no_conversation_urls_found: provide --project-url, --conversation-url, or --conversation-list")
         for url in deduped[: args.limit]:
             await goto_page(page, url)
-            await page.wait_for_timeout(args.settle_ms)
-            raw = await page.evaluate(CHATGPT_EXTRACT_CONVERSATION_JS)
+            await wait_page(page, args.settle_ms)
+            raw = ensure_json_object(
+                await page.evaluate(CHATGPT_EXTRACT_CONVERSATION_JS),
+                context="extract_conversation",
+            )
             conv = normalize_conversation(raw, source_url=url)
             conversations.append(conv)
         source["conversation_urls"] = deduped[: args.limit]
