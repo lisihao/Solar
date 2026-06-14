@@ -18918,6 +18918,18 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 blocked_path.unlink()
             (report_dir / "transcripts.txt").write_text(phase_transcript_attachment(evidence_pack), encoding="utf-8")
             (report_dir / "transcripts-cleaned.txt").write_text(phase_transcript_attachment_clean(evidence_pack), encoding="utf-8")
+            mail_result: dict[str, Any] = {
+                "status": "skipped",
+                "recommended_by_plan": bool(spec.get("send_as_email")),
+                "auto_send_default": True,
+            }
+            if ai_influence_auto_send_enabled(args, "AI_INFLUENCE_PLANNED_REPORT_SEND_MAIL"):
+                mail_result = send_html_email(
+                    (report_dir / "report.html").read_text(encoding="utf-8"),
+                    f"AI Influence 专题：{spec.get('title') or report_id} — {date_str}",
+                    [report_dir / "transcripts.txt", report_dir / "transcripts-cleaned.txt"],
+                )
+            (report_dir / "mail-result.json").write_text(json.dumps(mail_result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             record_model_ledgers(
                 conn,
                 target_id=f"__ai_influence_planned_report__:{date_str}:{report_id}",
@@ -18929,9 +18941,9 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 result=result,
                 success=True,
             )
-            finish_run(conn, run_id, "ok", len(evidence_pack.get("videos") or []), 1, json.dumps({"report_id": report_id, "pipeline": result["pipeline"]}, ensure_ascii=False)[:900])
+            finish_run(conn, run_id, "ok", len(evidence_pack.get("videos") or []), 1, json.dumps({"report_id": report_id, "pipeline": result["pipeline"], "mail": mail_result}, ensure_ascii=False)[:900])
             ok_count += 1
-            print(f"[ai-influence-run-plan] ok report_id={report_id} chapters={len(jobs)} pipeline=report_ir_chapter_runtime")
+            print(f"[ai-influence-run-plan] ok report_id={report_id} chapters={len(jobs)} pipeline=report_ir_chapter_runtime mail={mail_result.get('status')}")
         except Exception as exc:
             (report_dir / "report.blocked.json").write_text(json.dumps({
                 "status": "blocked",

@@ -67,6 +67,37 @@ PY
 RADAR=( "$PYTHON" "$HARNESS_DIR/scripts/tech_hotspot_radar.py" --config "$CONFIG" --db "$DB" )
 
 echo "[hf-paper-weekly-report] start $(date) report_date=${REPORT_DATE}"
+REPORT_DIR="/Users/lisihao/Knowledge/_raw/tech-hotspot-radar/${REPORT_DATE}"
+if [[ "${HF_WEEKLY_REPORT_SKIP_IF_FRESH_MAIL:-true}" == "true" ]]; then
+  if "$PYTHON" - "$REPORT_DIR" <<'PY'
+import json
+import pathlib
+import sys
+
+report_dir = pathlib.Path(sys.argv[1])
+html_path = report_dir / "hf-paper-report.html"
+mail_path = report_dir / "mail-result.json"
+if not html_path.is_file():
+    raise SystemExit(1)
+try:
+    payload = json.loads(mail_path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+if str(payload.get("status") or "").lower() != "sent":
+    raise SystemExit(1)
+try:
+    if mail_path.stat().st_mtime + 1 < html_path.stat().st_mtime:
+        raise SystemExit(1)
+except OSError:
+    raise SystemExit(1)
+PY
+  then
+    echo "[hf-paper-weekly-report] existing fresh report+mail found; skip browser-agent compile date=${REPORT_DATE}"
+    echo "[hf-paper-weekly-report] ok $(date) report_date=${REPORT_DATE}"
+    exit 0
+  fi
+fi
+
 if "${RADAR[@]}" compile-hf-paper-report \
   --date "$REPORT_DATE" \
   --limit "${HF_WEEKLY_REPORT_LIMIT:-12}" \

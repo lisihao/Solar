@@ -75,6 +75,65 @@ def test_enqueue_and_single_worker_runs_fifo_with_bypass(tmp_path: Path):
     assert payload["done_count"] == 2
 
 
+def test_daily_sla_jobs_dequeue_before_low_priority_backfill(tmp_path: Path):
+    queue_dir = tmp_path / "queue"
+    out = tmp_path / "order.txt"
+    env = os.environ.copy()
+    env["BROWSER_AGENT_QUEUE_MIN_GAP_SECONDS"] = "0"
+
+    job_script = tmp_path / "job.py"
+    job_script.write_text(
+        "import pathlib, sys\n"
+        "pathlib.Path(sys.argv[1]).open('a', encoding='utf-8').write(sys.argv[2] + '\\n')\n",
+        encoding="utf-8",
+    )
+
+    for name in ("youtube-transcript-weekly-backfill", "github-trend-report-daily"):
+        subprocess.run(
+            [
+                sys.executable,
+                str(QUEUE),
+                "--queue-dir",
+                str(queue_dir),
+                "enqueue",
+                "--name",
+                name,
+                "--cwd",
+                str(tmp_path),
+                "--",
+                sys.executable,
+                str(job_script),
+                str(out),
+                name,
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+            env=env,
+        )
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(QUEUE),
+            "--queue-dir",
+            str(queue_dir),
+            "worker",
+            "--min-gap-seconds",
+            "0",
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+
+    assert out.read_text(encoding="utf-8").splitlines() == [
+        "github-trend-report-daily",
+        "youtube-transcript-weekly-backfill",
+    ]
+
+
 def test_enqueue_wait_replays_stdout_and_passes_stdin(tmp_path: Path):
     queue_dir = tmp_path / "queue"
     stdin_file = tmp_path / "stdin.txt"

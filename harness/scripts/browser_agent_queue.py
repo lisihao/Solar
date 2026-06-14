@@ -60,6 +60,18 @@ ENV_ALLOW_PREFIXES = (
     "YOUTUBE_",
 )
 
+DAILY_SLA_JOB_PREFIXES = (
+    "ai-influence-daily-digest",
+    "github-trend-report-daily",
+    "hf-paper-weekly-report",
+    "youtube-daily-ai-influence-report",
+)
+LOW_PRIORITY_JOB_PREFIXES = (
+    "deepdive-",
+    "tech-hotspot-hf-paper-report-section-",
+    "youtube-transcript-weekly-backfill",
+)
+
 
 def _utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -247,6 +259,17 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _job_priority(job: dict[str, Any]) -> int:
+    name = str(job.get("name") or "").strip()
+    if any(name.startswith(prefix) for prefix in DAILY_SLA_JOB_PREFIXES):
+        return 0
+    if name.startswith("youtube-weekly-ai-influence-report"):
+        return 20
+    if any(name.startswith(prefix) for prefix in LOW_PRIORITY_JOB_PREFIXES):
+        return 50
+    return 10
+
+
 def _read_result(queue_dir: Path, job_id: str) -> dict[str, Any] | None:
     for child in (queue_dir / "done" / f"{job_id}.json", queue_dir / "failed" / f"{job_id}.json"):
         if child.exists():
@@ -289,11 +312,12 @@ def _dequeue(queue_dir: Path) -> dict[str, Any] | None:
         rows = _read_jsonl(pending)
         if not rows:
             return None
-        job, rest = rows[0], rows[1:]
+        index, job = min(enumerate(rows), key=lambda pair: (_job_priority(pair[1]), pair[0]))
+        rest = rows[:index] + rows[index + 1:]
         tmp = pending.with_suffix(".jsonl.tmp")
         tmp.write_text("".join(_json_line(row) for row in rest), encoding="utf-8")
         tmp.replace(pending)
-        _append_event(queue_dir, {"event": "dequeued", "job_id": job.get("id"), "name": job.get("name")})
+        _append_event(queue_dir, {"event": "dequeued", "job_id": job.get("id"), "name": job.get("name"), "priority": _job_priority(job)})
         return job
 
 
@@ -392,6 +416,7 @@ def status(args: argparse.Namespace) -> int:
     pending = _read_jsonl(_pending_path(queue_dir))
     running_path = queue_dir / "running.json"
     running = json.loads(running_path.read_text(encoding="utf-8")) if running_path.exists() else None
+    pending_display = sorted(enumerate(pending), key=lambda pair: (_job_priority(pair[1]), pair[0]))
     done_count = len(list((queue_dir / "done").glob("*.json"))) if (queue_dir / "done").exists() else 0
     failed_count = len(list((queue_dir / "failed").glob("*.json"))) if (queue_dir / "failed").exists() else 0
     payload = {
@@ -400,10 +425,10 @@ def status(args: argparse.Namespace) -> int:
         "pending_count": len(pending),
         "pending": [
             _with_local_times(
-                {"id": row.get("id"), "name": row.get("name"), "created_at": row.get("created_at")},
+                {"id": row.get("id"), "name": row.get("name"), "created_at": row.get("created_at"), "priority": _job_priority(row)},
                 ("created_at",),
             )
-            for row in pending[:20]
+            for _, row in pending_display[:20]
         ],
         "running": _with_local_times(running, ("started_at", "finished_at")),
         "done_count": done_count,

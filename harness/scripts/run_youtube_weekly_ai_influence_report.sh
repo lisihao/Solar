@@ -167,9 +167,39 @@ echo "[youtube-daily-ai-influence-report] start $(date) report_date=${REPORT_DAT
 
 if [[ "${YOUTUBE_DAILY_REPORT_SKIP_IF_VALID:-true}" == "true" ]]; then
   if "${RADAR[@]}" validate-ai-influence-planned-reports --date "$REPORT_DATE" >/tmp/solar-youtube-daily-report-validate-${REPORT_DATE}.json 2>/dev/null; then
-    echo "[youtube-daily-ai-influence-report] existing valid report found; skip transcript ladder and browser planner/writer date=${REPORT_DATE}"
-    echo "[youtube-daily-ai-influence-report] done $(date) rc=${RC}"
-    exit "$RC"
+    if "$PYTHON" - "$SOLAR_KNOWLEDGE_DIR" "$REPORT_DATE" <<'PY'
+import json
+import pathlib
+import sys
+
+knowledge_dir = pathlib.Path(sys.argv[1])
+date_str = sys.argv[2]
+reports_root = knowledge_dir / "_raw" / "tech-hotspot-radar" / "ai-influence-planned" / date_str / "reports"
+report_dirs = [p for p in sorted(reports_root.iterdir()) if p.is_dir()] if reports_root.is_dir() else []
+valid_report_dirs = [p for p in report_dirs if (p / "report.html").is_file()]
+if not valid_report_dirs:
+    raise SystemExit(1)
+for report_dir in valid_report_dirs:
+    report_html = report_dir / "report.html"
+    mail_result = report_dir / "mail-result.json"
+    try:
+        payload = json.loads(mail_result.read_text(encoding="utf-8"))
+    except Exception:
+        raise SystemExit(1)
+    if str(payload.get("status") or "").lower() != "sent":
+        raise SystemExit(1)
+    try:
+        if mail_result.stat().st_mtime + 1 < report_html.stat().st_mtime:
+            raise SystemExit(1)
+    except OSError:
+        raise SystemExit(1)
+PY
+    then
+      echo "[youtube-daily-ai-influence-report] existing valid report+mail found; skip transcript ladder and browser planner/writer date=${REPORT_DATE}"
+      echo "[youtube-daily-ai-influence-report] done $(date) rc=${RC}"
+      exit "$RC"
+    fi
+    echo "[youtube-daily-ai-influence-report] existing valid report without sent mail; continue planner/writer mail path date=${REPORT_DATE}" >&2
   fi
 fi
 
