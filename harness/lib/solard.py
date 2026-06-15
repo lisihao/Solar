@@ -328,7 +328,7 @@ class GraphRedispatchReconciler(Reconciler):
                 gs.save_graph(tg, graph)
             redispatched += len(r["redispatched"])
             escalated += len(r["escalated"])
-            budget -= len(r["redispatched"])
+            budget -= len(r["redispatched"]) + len(r["escalated"])
             if r["redispatched"] or r["escalated"]:
                 sprints_touched += 1
 
