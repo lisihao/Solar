@@ -353,3 +353,80 @@ def test_autopilot_ready_decision_legacy_graph_defaults_are_deterministic():
             "ready": True,
         }
     ]
+
+
+def test_parallelism_gate_still_rejects_original_width_below_min():
+    import graph_scheduler as sched
+
+    graph = {
+        "sprint_id": "parallelism-too-narrow",
+        "quality_gates": {"parallelism": {"min_ready_width": 3}},
+        "nodes": [
+            {"id": "S1", "depends_on": [], "status": "pending", "write_scope": ["a.md"], "acceptance": ["done"]},
+            {"id": "S2", "depends_on": [], "status": "pending", "write_scope": ["b.md"], "acceptance": ["done"]},
+        ],
+    }
+
+    result = sched.validate_graph(graph)
+
+    assert result["ok"] is False
+    assert result["parallelism"]["initial_ready_width"] == 2
+    assert result["parallelism"]["initial_effective_width"] == 2
+    assert any("parallelism_quality:" in error for error in result["errors"])
+
+
+def test_parallelism_gate_counts_already_started_source_nodes():
+    import graph_scheduler as sched
+
+    graph = {
+        "sprint_id": "parallelism-source-started",
+        "quality_gates": {"parallelism": {"min_ready_width": 3}},
+        "nodes": [
+            {"id": "S1", "depends_on": [], "status": "dispatched", "write_scope": ["a.md"], "acceptance": ["done"]},
+            {"id": "S2", "depends_on": [], "status": "pending", "write_scope": ["b.md"], "acceptance": ["done"]},
+            {"id": "S3", "depends_on": [], "status": "pending", "write_scope": ["c.md"], "acceptance": ["done"]},
+        ],
+    }
+
+    result = sched.validate_graph(graph)
+
+    assert result["ok"] is True
+    assert result["parallelism"]["initial_ready_width"] == 2
+    assert result["parallelism"]["source_progress_width"] == 1
+
+
+def test_ready_nodes_excludes_worker_blocked_missing_required_inputs():
+    import graph_scheduler as sched
+
+    graph = {
+        "sprint_id": "blocked-missing-inputs",
+        "nodes": [
+            {"id": "S1", "depends_on": [], "status": "worker_blocked", "acceptance": ["done"]},
+            {"id": "S2", "depends_on": [], "status": "worker_blocked", "acceptance": ["done"]},
+            {"id": "S3", "depends_on": [], "status": "worker_blocked", "acceptance": ["done"]},
+            {
+                "id": "S4",
+                "depends_on": [],
+                "status": "pending",
+                "blocking_reason": "repeated_transient_operator_failure",
+                "acceptance": ["done"],
+            },
+        ],
+        "node_results": {
+            "S1": {
+                "status": "worker_blocked",
+                "blocking_reason": "operator_pool_admission_failed",
+                "missing_required_inputs": ["repo_path", "benchmark_log"],
+            },
+            "S2": {
+                "status": "worker_blocked",
+                "blocking_reason": "no_matching_worker",
+            },
+            "S3": {
+                "status": "worker_blocked",
+                "blocking_reason": "repeated_transient_operator_failure",
+            },
+        },
+    }
+
+    assert [node["id"] for node in sched.ready_nodes(graph)] == ["S2"]

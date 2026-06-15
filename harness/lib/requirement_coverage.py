@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,41 @@ from typing import Any
 
 PASS_STATES = {"passed"}
 PROGRESS_STATES = {"queued", "assigned", "dispatched", "in_progress", "reviewing"}
+HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", Path(__file__).resolve().parents[1]))
+HARNESS_LIB = HARNESS_DIR / "lib"
+if str(HARNESS_LIB) not in sys.path:
+    sys.path.insert(0, str(HARNESS_LIB))
+
+_GRAPH_SCHEDULER_MODULE: Any | None = None
+_GRAPH_SCHEDULER_IMPORT_ATTEMPTED = False
+
+
+def _graph_scheduler() -> Any | None:
+    global _GRAPH_SCHEDULER_IMPORT_ATTEMPTED, _GRAPH_SCHEDULER_MODULE
+    if _GRAPH_SCHEDULER_IMPORT_ATTEMPTED:
+        return _GRAPH_SCHEDULER_MODULE
+    _GRAPH_SCHEDULER_IMPORT_ATTEMPTED = True
+    try:
+        import graph_scheduler  # type: ignore
+
+        _GRAPH_SCHEDULER_MODULE = graph_scheduler
+    except Exception:
+        _GRAPH_SCHEDULER_MODULE = None
+    return _GRAPH_SCHEDULER_MODULE
 
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_task_graph(path: Path) -> dict[str, Any]:
+    scheduler = _graph_scheduler()
+    if scheduler is not None and hasattr(scheduler, "load_graph"):
+        try:
+            return scheduler.load_graph(path)
+        except Exception:
+            pass
+    return _load_json(path)
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -116,7 +148,12 @@ def build_requirement_trace(
             for node in nodes
             if req_id in (node.get("requirement_ids") or [])
         ] or [str(node.get("id")) for node in nodes]
-        statuses = [str((results.get(node_id) or {}).get("status") or node_map[node_id].get("status") or "pending") for node_id in mapped_nodes]
+        if req_id == "REQ-000":
+            for node in nodes:
+                node_id = str(node.get("id"))
+                if node_id not in mapped_nodes:
+                    mapped_nodes.append(node_id)
+        statuses = [_effective_node_status(graph, node_id, node_map[node_id]) for node_id in mapped_nodes]
         if mapped_nodes and all(status in PASS_STATES for status in statuses):
             final_status = "done"
         elif any(status in PASS_STATES or status in PROGRESS_STATES for status in statuses):
@@ -155,7 +192,7 @@ def build_coverage_report(trace: dict[str, Any], graph: dict[str, Any]) -> dict[
     for item in items:
         summary[item["final_status"]] = summary.get(item["final_status"], 0) + 1
     node_statuses = [
-        str((graph.get("node_results") or {}).get(str(node.get("id")), {}).get("status") or node.get("status") or "pending")
+        _effective_node_status(graph, str(node.get("id")), node)
         for node in (graph.get("nodes") or [])
     ]
     graph_complete = bool(node_statuses) and all(status in PASS_STATES for status in node_statuses)
@@ -175,21 +212,227 @@ def build_coverage_report(trace: dict[str, Any], graph: dict[str, Any]) -> dict[
     }
 
 
+def _effective_node_status(graph: dict[str, Any], node_id: str, node: dict[str, Any]) -> str:
+    scheduler = _graph_scheduler()
+    if scheduler is not None and hasattr(scheduler, "node_status"):
+        try:
+            return str(scheduler.node_status(graph, node_id) or "pending").lower()
+        except Exception:
+            pass
+    results = graph.get("node_results") or {}
+    result = results.get(node_id) if isinstance(results, dict) else None
+    if isinstance(result, dict) and str(result.get("repair_status") or "").lower() == "accepted":
+        return "passed"
+    if isinstance(result, dict):
+        return str(result.get("status") or node.get("status") or "pending").lower()
+    return str(node.get("status") or "pending").lower()
+
+
+def _review_decision_verdict(path: Path) -> str:
+    if not path.exists() or path.stat().st_size <= 0:
+        return ""
+    if path.suffix.lower() == ".json":
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return ""
+        return str(payload.get("verdict") or payload.get("status") or "").strip().upper()
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            raw = line.strip()
+            if not raw.lower().startswith("verdict:"):
+                continue
+            return raw.split(":", 1)[1].strip().strip("\"'").upper()
+    except Exception:
+        return ""
+    return ""
+
+
+def _read_review_decision_payload(path: Path) -> dict[str, Any]:
+    if not path.exists() or path.stat().st_size <= 0:
+        return {}
+    if path.suffix.lower() == ".json":
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+    try:
+        import yaml  # type: ignore
+
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+_STALE_REVIEW_FAILURE_SIGNATURES = (
+    "did not exist",
+    "coverage_ratio=0.0",
+    "coverage_ratio = 0.0",
+    "final_status=partial",
+    "status=active",
+    "activity_without_terminal",
+    "non_terminal_status",
+    "not a git repository",
+)
+
+
+def _review_failure_entries_are_stale_machine_state(path: Path) -> bool:
+    payload = _read_review_decision_payload(path)
+    failed = payload.get("failed")
+    if not isinstance(failed, list) or not failed:
+        return False
+    for item in failed:
+        if not isinstance(item, dict):
+            return False
+        text = " ".join(
+            str(item.get(key) or "")
+            for key in ("id", "condition", "evidence", "fix_hint")
+        ).lower()
+        if not any(signature in text for signature in _STALE_REVIEW_FAILURE_SIGNATURES):
+            return False
+    return True
+
+
+def _coverage_is_green(coverage_report: dict[str, Any]) -> bool:
+    summary = coverage_report.get("summary") if isinstance(coverage_report, dict) else {}
+    if not isinstance(summary, dict):
+        return False
+    return (
+        bool(summary.get("graph_complete"))
+        and int(summary.get("partial", 0) or 0) == 0
+        and int(summary.get("missing", 0) or 0) == 0
+        and float(summary.get("coverage_ratio", 0) or 0) >= 1.0
+    )
+
+
+def _review_repair_evidence_paths(sid: str, node_id: str, sprints_dir: Path) -> list[Path]:
+    names = [
+        f"{sid}.{node_id}-handoff.md",
+        f"{sid}.{node_id}-eval.md",
+        f"{sid}.{node_id}-eval.json",
+        f"{sid}.{node_id}-guard-decision.json",
+        f"{sid}.{node_id}-guard_decision.json",
+        f"{sid}.{node_id}-resource-binding.json",
+        f"{sid}.{node_id}-resource_binding.json",
+        f"{sid}.{node_id}-bridged-artifact.md",
+        f"{sid}.{node_id}-bridged_artifact.md",
+        f"{sid}.coverage_report.json",
+        f"{sid}.closure.json",
+        f"{sid}.task_dag.state.json",
+        f"{sid}.status.json",
+    ]
+    return [sprints_dir / name for name in names]
+
+
+def _review_decision_fail_is_stale_after_repair(
+    path: Path,
+    *,
+    sid: str,
+    node_id: str,
+    sprints_dir: Path,
+    coverage_report: dict[str, Any],
+) -> bool:
+    if not _coverage_is_green(coverage_report):
+        return False
+    if not _review_failure_entries_are_stale_machine_state(path):
+        return False
+    try:
+        decision_mtime = path.stat().st_mtime
+    except OSError:
+        return False
+    evidence_paths = _review_repair_evidence_paths(sid, node_id, sprints_dir)
+    required_current = [
+        sprints_dir / f"{sid}.{node_id}-handoff.md",
+        sprints_dir / f"{sid}.{node_id}-eval.json",
+        sprints_dir / f"{sid}.{node_id}-eval.md",
+    ]
+    if not all(candidate.exists() and candidate.stat().st_size > 0 for candidate in required_current):
+        return False
+    return any(
+        candidate.exists() and candidate.stat().st_mtime > decision_mtime + 0.001
+        for candidate in evidence_paths
+    )
+
+
+def _review_decision_failures(
+    graph: dict[str, Any],
+    sprints_dir: Path,
+    *,
+    coverage_report: dict[str, Any] | None = None,
+) -> tuple[list[str], list[dict[str, str]]]:
+    sid = str(graph.get("sprint_id") or "N/A")
+    failures: list[str] = []
+    ignored: list[dict[str, str]] = []
+    for node in graph.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or "").strip()
+        if not node_id:
+            continue
+        validates_review = str(node.get("type") or "").lower() == "review" or any(
+            str(step.get("target") or "").strip() == "review_decision.yaml"
+            for step in (node.get("validation") or [])
+            if isinstance(step, dict)
+        )
+        if not validates_review:
+            continue
+        paths = [
+            sprints_dir / f"{sid}.{node_id}-review_decision.yaml",
+            sprints_dir / f"{sid}.{node_id}-review_decision.yml",
+            sprints_dir / f"{sid}.{node_id}-review_decision.json",
+            sprints_dir / f"{sid}.review_decision.yaml",
+            sprints_dir / f"{sid}.review_decision.json",
+        ]
+        failed_paths = [
+            path
+            for path in paths
+            if _review_decision_verdict(path) in {"FAIL", "FAILED", "ERROR", "REJECTED"}
+        ]
+        current_failures = []
+        for path in failed_paths:
+            if coverage_report and _review_decision_fail_is_stale_after_repair(
+                path,
+                sid=sid,
+                node_id=node_id,
+                sprints_dir=sprints_dir,
+                coverage_report=coverage_report,
+            ):
+                ignored.append(
+                    {
+                        "node_id": node_id,
+                        "path": str(path),
+                        "reason": "stale_review_decision_superseded_by_current_repair_evidence",
+                    }
+                )
+                continue
+            current_failures.append(path)
+        if current_failures:
+            failures.append(node_id)
+    return failures, ignored
+
+
 def build_acceptance_verdict(
     requirement_ir: dict[str, Any],
     graph: dict[str, Any],
     coverage_report: dict[str, Any],
     *,
     requested_verdict: str = "pass",
+    review_decision_failures: list[str] | None = None,
+    ignored_review_decision_failures: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     summary = coverage_report.get("summary", {})
     graph_complete = bool(summary.get("graph_complete"))
     requested = requested_verdict.lower()
+    review_decision_failures = list(review_decision_failures or [])
+    ignored_review_decision_failures = list(ignored_review_decision_failures or [])
     ok = (
         requested == "pass"
         and graph_complete
         and int(summary.get("missing", 0)) == 0
         and int(summary.get("partial", 0)) == 0
+        and not review_decision_failures
     )
     reasons: list[str] = []
     if requested != "pass":
@@ -200,6 +443,8 @@ def build_acceptance_verdict(
         reasons.append("requirement_partial")
     if int(summary.get("missing", 0)) > 0:
         reasons.append("requirement_missing")
+    for node_id in review_decision_failures:
+        reasons.append(f"review_decision_failed:{node_id}")
     return {
         "schema_version": "solar.acceptance_verdict.v1",
         "sprint_id": graph.get("sprint_id", "N/A"),
@@ -208,6 +453,7 @@ def build_acceptance_verdict(
         "coverage_summary": summary,
         "verdict": "PASS" if ok else "FAIL",
         "reasons": reasons,
+        "ignored_review_decision_failures": ignored_review_decision_failures,
     }
 
 
@@ -288,14 +534,21 @@ def evaluate_sid(
             "lane_hint": requirement_ir.get("lane_hint", "delivery"),
         },
     )
-    graph = enrich_task_graph_defaults(_load_json(graph_path), requirement_ir, sprint_id=sid)
+    graph = enrich_task_graph_defaults(_load_task_graph(graph_path), requirement_ir, sprint_id=sid)
     trace = build_requirement_trace(requirement_ir, graph)
     coverage = build_coverage_report(trace, graph)
+    review_failures, ignored_review_failures = _review_decision_failures(
+        graph,
+        sprints_dir,
+        coverage_report=coverage,
+    )
     verdict = build_acceptance_verdict(
         requirement_ir,
         graph,
         coverage,
         requested_verdict=requested_verdict,
+        review_decision_failures=review_failures,
+        ignored_review_decision_failures=ignored_review_failures,
     )
     bundle = {
         "requirement_ir": requirement_ir,

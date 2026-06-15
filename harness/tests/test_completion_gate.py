@@ -202,3 +202,27 @@ def test_parent_ready_blocks_child_artifact_hash_drift(tmp_path):
 
     assert result["ready"] is False
     assert result["artifact_hash_mismatches"][0]["node_id"] == "N1"
+
+
+def test_parent_ready_resolves_relative_child_artifacts_from_sprints_dir(tmp_path):
+    graph_scheduler = load_graph_scheduler()
+    graph_scheduler.SPRINTS_DIR = tmp_path
+    artifact = tmp_path / "relative-handoff.md"
+    artifact.write_text("handoff\n", encoding="utf-8")
+    graph = {
+        "sprint_id": "parent-gate",
+        "nodes": [{"id": "N1", "status": "passed"}],
+        "node_results": {
+            "N1": _parent_gate_result(
+                artifacts=[{
+                    "path": artifact.name,
+                    "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                }],
+            )
+        },
+    }
+
+    result = graph_scheduler.parent_ready_check(graph)
+
+    assert result["ready"] is True
+    assert result["artifact_hash_mismatches"] == []

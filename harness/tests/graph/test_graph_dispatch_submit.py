@@ -69,8 +69,11 @@ def tmp_harness(tmp_path, monkeypatch):
 
     monkeypatch.setenv("HARNESS_DIR", str(tmp_path))
     import graph_node_dispatcher
+    import graph_scheduler
     monkeypatch.setattr(graph_node_dispatcher, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(graph_node_dispatcher, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(graph_scheduler, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(graph_scheduler, "HARNESS_DIR", tmp_path)
 
     return tmp_path, sprints, sid, graph
 
@@ -323,6 +326,72 @@ class TestSendToPaneLiteral:
         assert sent and sent[0][0] == "solar-harness-lab:0.0"
         assert ledger[0]["event"] == "actor_runtime_no_binding_compat_fallback"
 
+    def test_compatibility_fallback_blocks_capability_mismatch(self, tmp_harness, monkeypatch):
+        """Legacy pane fallback must not send work to a pane missing required capabilities."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        node = {
+            "id": "B7",
+            "goal": "Wire browser orchestration UI",
+            "required_capabilities": ["browser_use", "harness.status"],
+            "status": "pending",
+        }
+        graph["nodes"] = [node]
+        graph_path = sprints / f"{sid}.task_graph.json"
+        graph_path.write_text(json.dumps(graph), encoding="utf-8")
+        sent: list[tuple[str, Path]] = []
+        released: list[tuple[str, str, str]] = []
+
+        monkeypatch.setattr(gnd, "_pane_exists", lambda pane: True)
+        monkeypatch.setattr(gnd, "_assigned_pane_unavailable_reason", lambda pane: "")
+        monkeypatch.setattr(gnd, "_ensure_lease", lambda pane, sid_arg, dispatch_id, ttl, dry_run: {"acquired": True})
+        monkeypatch.setattr(gnd, "release_lease", lambda pane, dispatch_id, reason: released.append((pane, dispatch_id, reason)))
+        monkeypatch.setattr(gnd, "_send_to_pane", lambda pane, path, dry_run, **kwargs: sent.append((pane, Path(path))) or True)
+        monkeypatch.setattr(gnd, "_append_dispatch_ledger", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            gnd,
+            "_actorhost_bridge",
+            lambda **kwargs: {
+                "actor_id": "N/A",
+                "host_id": "N/A",
+                "host_type": "unknown",
+                "lease_state": "unknown",
+                "capability_match": {
+                    "required": ["browser_use", "harness.status"],
+                    "matched": [],
+                    "missing": ["browser_use", "harness.status"],
+                    "observed": [],
+                },
+            },
+        )
+
+        result = gnd.dispatch_queue_item(
+            {
+                "intent": "graph_node|node_id=B7",
+                "priority": 80,
+                "payload": {
+                    "sprint_id": sid,
+                    "graph": str(graph_path),
+                    "node": node,
+                    "assignment": {"pane": "solar-harness-lab:0.0"},
+                    "dispatch_id": "dispatch-B7",
+                },
+            },
+            dry_run=False,
+            ttl=900,
+        )
+
+        assert result["ok"] is False
+        assert result["reason"] == "compatibility_fallback_capability_mismatch"
+        assert sent == []
+        assert released == [("solar-harness-lab:0.0", "dispatch-B7", "compatibility_fallback_capability_mismatch")]
+        updated = gnd.load_graph(str(graph_path))
+        assert updated["nodes"][0]["status"] == "worker_blocked"
+        blocker = updated["node_results"]["B7"]
+        assert blocker["blocking_reason"] == "compatibility_fallback_capability_mismatch"
+        assert blocker["missing_capabilities"] == ["browser_use", "harness.status"]
+
     def test_existing_handoff_uses_node_artifacts_handoff_md(self, tmp_harness):
         """Evaluator dispatch should honor handoff paths stored in node artifacts."""
         tmp_path, sprints, sid, graph = tmp_harness
@@ -392,6 +461,119 @@ class TestSendToPaneLiteral:
         assert gnd.node_status(saved, "N1") == "passed"
         assert saved["nodes"][0]["status"] == "passed"
         assert discovery_calls == []
+
+    def test_successful_eval_dispatch_clears_stale_retry_reason(self, tmp_harness, monkeypatch):
+        """A fresh evaluator assignment must not keep stale retry blockers on the node."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        node = graph["nodes"][0]
+        node["status"] = "reviewing"
+        node["handoff_md"] = f"{sid}.N1-handoff.md"
+        node["eval_retry_reason"] = "eval_dispatched_without_artifact_or_active_lease"
+        node["eval_retry_detail"] = {"reason": "old_failure"}
+        graph["node_results"]["N1"] = {"status": "reviewing"}
+        (sprints / f"{sid}.N1-handoff.md").write_text("# handoff\n", encoding="utf-8")
+        (sprints / f"{sid}.task_graph.json").write_text(json.dumps(graph) + "\n", encoding="utf-8")
+
+        monkeypatch.setattr(
+            gnd,
+            "_discover_evaluators",
+            lambda *_: [
+                {
+                    "pane": "operator-pool:evaluator.0",
+                    "operator_id": "",
+                    "busy": False,
+                    "skills": ["review", "testing"],
+                    "capabilities": ["review", "testing"],
+                    "role": "evaluator",
+                    "dispatch_role": "evaluator",
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            gnd,
+            "_submit_eval_to_operator_pool",
+            lambda **kwargs: {
+                "ok": True,
+                "pane": "operator:mini-codex-gpt55-medium-builder-1",
+                "operator_id": "mini-codex-gpt55-medium-builder-1",
+                "pm_dispatch": {"pm_task_id": "pm-1"},
+            },
+        )
+        monkeypatch.setattr(gnd, "_write_submit_ack", lambda *args, **kwargs: None)
+        monkeypatch.setattr(gnd, "_inject_dispatch_context", lambda *args, **kwargs: None)
+
+        result = gnd.dispatch_node_evals(str(sprints / f"{sid}.task_graph.json"), dry_run=False, force=True, max_items=1)
+
+        saved = gnd.load_graph(sprints / f"{sid}.task_graph.json")
+        saved_node = saved["nodes"][0]
+        assert result["ok"] is True
+        assert result["dispatched"][0]["pane"] == "operator:mini-codex-gpt55-medium-builder-1"
+        assert "eval_retry_reason" not in saved_node
+        assert "eval_retry_detail" not in saved_node
+        assert saved_node["eval_assignments"][0]["pm_task_id"] == "pm-1"
+
+    def test_reconcile_resolves_relative_eval_json_artifact(self, tmp_harness, monkeypatch):
+        """Relative eval_json artifact paths must resolve under the sprints directory."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        node = graph["nodes"][0]
+        node["status"] = "reviewing"
+        node["handoff_md"] = f"{sid}.N1-handoff.md"
+        node["artifacts"] = {"eval_json": f"{sid}.N1-eval.json"}
+        graph["node_results"]["N1"] = {"status": "reviewing"}
+        (sprints / f"{sid}.N1-handoff.md").write_text("# handoff\n", encoding="utf-8")
+        (sprints / f"{sid}.N1-eval.json").write_text(
+            json.dumps({"verdict": "FAIL", "node_id": "N1"}) + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(gnd, "release_lease", lambda *a, **k: {"released": True})
+
+        repaired = gnd._reconcile_existing_dispatches(graph, sprints / f"{sid}.task_graph.json")
+
+        assert repaired == [
+            {
+                "node": "N1",
+                "status": "failed",
+                "reason": "eval_sidecar_exists",
+                "handoff": str(sprints / f"{sid}.N1-handoff.md"),
+                "eval_json": str(sprints / f"{sid}.N1-eval.json"),
+                "verdict": "FAIL",
+            }
+        ]
+        assert graph["nodes"][0]["status"] == "failed"
+        assert graph["node_results"]["N1"]["status"] == "failed"
+
+    def test_invalid_eval_json_does_not_block_eval_retry(self, tmp_harness):
+        """Malformed eval_json sidecars should not make a reviewing node look closed."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        node = graph["nodes"][0]
+        node["status"] = "reviewing"
+        node["handoff_md"] = f"{sid}.N1-handoff.md"
+        node["artifacts"] = {"eval_json": f"{sid}.N1-eval.json"}
+        graph["node_results"]["N1"] = {"status": "reviewing"}
+        (sprints / f"{sid}.N1-handoff.md").write_text("# handoff\n", encoding="utf-8")
+        (sprints / f"{sid}.N1-eval.json").write_text('{"verdict":"FAIL"}\nextra\n', encoding="utf-8")
+
+        assert gnd._node_eval_needed(graph, sid, node) is True
+
+    def test_proof_artifact_presence_accepts_planner_design_plan_sidecars(self, tmp_harness):
+        """Planner capsules write design/plan sidecars that must satisfy output_present."""
+        tmp_path, sprints, sid, graph = tmp_harness
+        import graph_node_dispatcher as gnd
+
+        node = graph["nodes"][0]
+        (sprints / f"{sid}.N1.design.md").write_text("# design\n", encoding="utf-8")
+        (sprints / f"{sid}.N1.plan.md").write_text("# plan\n", encoding="utf-8")
+
+        presence = gnd._proof_artifact_presence(sid, node)
+
+        assert presence["design_md"] is True
+        assert presence["plan_md"] is True
 
     def test_stale_submit_ack_without_live_lease_does_not_resurrect_dispatch(self, tmp_harness, monkeypatch):
         """Old ack files are not proof of a current dispatch after the lease expired."""
@@ -544,17 +726,16 @@ class TestSendToPaneLiteral:
 
         assert graph["nodes"][0]["status"] == "passed"
         assert graph["node_results"]["N1"]["status"] == "passed"
-        assert graph["nodes"][0]["eval_json"] == str(sprints / f"{sid}.N1-eval.json")
-        assert repaired == [
-            {
-                "node": "N1",
-                "status": "passed",
-                "reason": "eval_sidecar_exists",
-                "handoff": str(sprints / f"{sid}.N1-handoff.md"),
-                "eval_json": str(sprints / f"{sid}.N1-eval.json"),
-                "verdict": "PASS",
-            }
-        ]
+        expected_eval_json = (sprints / f"{sid}.N1-eval.json").resolve()
+        expected_handoff = (sprints / f"{sid}.N1-handoff.md").resolve()
+        assert gnd._resolve_eval_json_path(sid, "N1", graph["nodes"][0]).resolve() == expected_eval_json
+        assert len(repaired) == 1
+        assert repaired[0]["node"] == "N1"
+        assert repaired[0]["status"] == "passed"
+        assert repaired[0]["reason"] == "eval_sidecar_exists"
+        assert repaired[0]["verdict"] == "PASS"
+        assert Path(repaired[0]["handoff"]).resolve() == expected_handoff
+        assert Path(repaired[0]["eval_json"]).resolve() == expected_eval_json
 
     def test_reconcile_releases_eval_failed_contract_closeout(self, tmp_harness, monkeypatch):
         """A terminal evaluator result without eval sidecars must clear eval assignment for retry."""
@@ -721,6 +902,7 @@ class TestSendToPaneLiteral:
         result = gnd.dispatch_queue_item(item, dry_run=True)
         assert result["ok"] is True
         assert injection_calls == []
+        assert not (sprints / f"{sid}.N1-dispatch.md").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -910,6 +1092,27 @@ class TestQueueStateSemantics:
         assert graph["nodes"][0]["assigned_to"] == "test:0.1"
         assert graph["nodes"][0]["dispatch_id"]
         assert "dispatch_id=" in result["enqueued"][0]["queue"].get("intent", "")
+
+    def test_enqueue_ready_dry_run_does_not_materialize_plan_artifacts(self, tmp_harness):
+        """Dry-run queue previews must not write capsule/physical plan artifacts."""
+        from graph_scheduler import enqueue_ready
+
+        tmp_path, sprints, sid, graph = tmp_harness
+
+        result = enqueue_ready(
+            graph,
+            str(sprints / f"{sid}.task_graph.json"),
+            [{"pane": "test:0.1", "models": ["sonnet"], "skills": ["bash"], "capabilities": ["read", "shell", "bash"], "role": "builder", "dispatch_role": "builder", "host_role": "builder"}],
+            lease=False,
+            dry_run=True,
+        )
+
+        assert result["ok"] is True
+        payload = result["enqueued"][0]["payload"]
+        assert payload["plan_artifacts"]["capsule_plan_ir_path"] == str(sprints / f"{sid}.N1-capsule-plan.json")
+        assert payload["plan_artifacts"]["physical_plan_ir_path"] == str(sprints / f"{sid}.N1-physical-plan.json")
+        assert not (sprints / f"{sid}.N1-capsule-plan.json").exists()
+        assert not (sprints / f"{sid}.N1-physical-plan.json").exists()
 
 
 # ---------------------------------------------------------------------------

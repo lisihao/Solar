@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import shutil
@@ -301,6 +302,11 @@ def _attach_runtime_planes(
         graph["node_results"] = deepcopy(node_results)
     elif "node_results" not in graph:
         graph["node_results"] = {}
+    state_repairs = state.get("node_repairs") if isinstance(state.get("node_repairs"), dict) else {}
+    if state_repairs:
+        graph["node_repairs"] = deepcopy(state_repairs)
+    elif "node_repairs" not in graph:
+        graph["node_repairs"] = {}
     if gate_results:
         graph["gate_results"] = deepcopy(gate_results)
     elif "gate_results" not in graph:
@@ -339,6 +345,7 @@ def _runtime_state_from_graph(graph: dict[str, Any], *, graph_path: Path | None 
     base_state["sprint_id"] = sid
     base_state["graph_ref"] = f"{sid}.task_graph.json" if sid else str(graph_path or "")
     base_state["node_results"] = deepcopy(_node_results(graph))
+    base_state["node_repairs"] = deepcopy(_node_repairs(graph))
     gate_results = graph.get("gate_results") if isinstance(graph.get("gate_results"), dict) else {}
     base_state["gate_results"] = deepcopy(gate_results)
     node_status_projection: dict[str, dict[str, Any]] = {}
@@ -456,6 +463,99 @@ def _status_path_for_graph(graph: dict[str, Any], graph_path: str | Path | None 
     if graph_path:
         return Path(graph_path).expanduser().parent / f"{sid}.status.json"
     return SPRINTS_DIR / f"{sid}.status.json"
+
+
+def _acceptance_verdict_block_for_parent_pass(
+    graph: dict[str, Any],
+    graph_path: str | Path | None = None,
+) -> dict[str, Any]:
+    sid = _sprint_id_for_graph(graph, graph_path)
+    if not sid:
+        return {"blocked": False, "reason": "missing_sprint_id"}
+    base_dir = Path(graph_path).expanduser().parent if graph_path else SPRINTS_DIR
+    verdict_path = base_dir / f"{sid}.acceptance_verdict.json"
+    if not verdict_path.exists():
+        return {"blocked": False, "reason": "acceptance_verdict_missing"}
+    try:
+        payload = json.loads(verdict_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "blocked": True,
+            "reason": "acceptance_verdict_unreadable",
+            "path": str(verdict_path),
+            "error": str(exc),
+        }
+    verdict = str(payload.get("verdict") or "").strip().upper()
+    if verdict and verdict != "PASS":
+        return {
+            "blocked": True,
+            "reason": "acceptance_verdict_not_pass",
+            "path": str(verdict_path),
+            "verdict": verdict,
+            "reasons": payload.get("reasons") if isinstance(payload.get("reasons"), list) else [],
+        }
+    return {"blocked": False, "reason": "acceptance_verdict_passed", "path": str(verdict_path), "verdict": verdict}
+
+
+def _closure_block_for_parent_pass(
+    graph: dict[str, Any],
+    graph_path: str | Path | None = None,
+) -> dict[str, Any]:
+    sid = _sprint_id_for_graph(graph, graph_path)
+    if not sid:
+        return {"blocked": False, "reason": "missing_sprint_id"}
+    base_dir = Path(graph_path).expanduser().parent if graph_path else SPRINTS_DIR
+    closure_path = base_dir / f"{sid}.closure.json"
+    if not closure_path.exists():
+        return {"blocked": False, "reason": "closure_missing"}
+    try:
+        payload = json.loads(closure_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "blocked": True,
+            "reason": "closure_unreadable",
+            "path": str(closure_path),
+            "error": str(exc),
+        }
+    status = str(payload.get("status") or "").strip().lower()
+    all_nodes_passed = payload.get("all_nodes_passed") is True
+    all_required_gates_passed = payload.get("all_required_gates_passed") is True
+    if status in {"passed", "pass"}:
+        return {"blocked": False, "reason": "closure_passed", "path": str(closure_path), "status": status}
+    if status == "closed" and all_nodes_passed and all_required_gates_passed:
+        return {"blocked": False, "reason": "legacy_closure_closed", "path": str(closure_path), "status": status}
+    if status:
+        return {
+            "blocked": True,
+            "reason": "closure_not_pass",
+            "path": str(closure_path),
+            "status": status,
+            "legacy_status": payload.get("legacy_status"),
+            "traceability_coverage": payload.get("traceability_coverage"),
+            "residual_risks": payload.get("residual_risks") if isinstance(payload.get("residual_risks"), list) else [],
+        }
+    return {"blocked": False, "reason": "closure_status_missing", "path": str(closure_path)}
+
+
+def _refresh_pending_closure_projection_from_graph(
+    graph: dict[str, Any],
+    graph_path: str | Path | None = None,
+) -> dict[str, Any]:
+    closure_path = _closure_path_for_graph(graph, graph_path)
+    existing_status = ""
+    if closure_path.exists():
+        try:
+            payload = json.loads(closure_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                existing_status = str(payload.get("status") or "").strip().lower()
+        except Exception as exc:
+            return {"updated": False, "reason": "closure_unreadable", "path": str(closure_path), "error": str(exc)}
+    if existing_status and existing_status != "pending":
+        return {"updated": False, "reason": "closure_explicit_status_preserved", "path": str(closure_path), "status": existing_status}
+    resolved_graph_path = Path(graph_path).expanduser() if graph_path else None
+    state = _runtime_state_from_graph(graph, graph_path=resolved_graph_path)
+    _save_closure_projection(closure_path, graph, state)
+    return {"updated": True, "reason": "closure_projection_refreshed", "path": str(closure_path), "previous_status": existing_status or "missing"}
 
 
 def _status_has_terminal_evidence(sid: str, status: dict[str, Any] | None = None, graph_path: str | Path | None = None) -> bool:
@@ -666,6 +766,39 @@ def sync_status_cache_from_graph(
             )
             result.update({"updated": True, "status": current, "reason": "parent_reopened"})
             return result
+        current_status = str(current.get("status") or "").lower()
+        current_stage = str(current.get("stage") or current.get("phase") or "").lower()
+        current_graph_status = str(current.get("task_graph_status") or "").lower()
+        graph_inflight_hint = (
+            current_stage == "graph_in_progress"
+            or current_graph_status == "active"
+            or bool(current.get("graph_status_cache"))
+            or bool(current.get("task_graph"))
+        )
+        if current_status in {"cancelled", "canceled", "failed", "error", "failed_review"} and graph_inflight_hint:
+            current = _project_status_via_runtime(
+                status_path,
+                new_status="active",
+                actor=actor,
+                event="graph_parent_projection_reopened_terminal_drift",
+                graph_path=graph_path,
+                allow_reopen=True,
+                status_fields={
+                    "phase": "graph_in_progress",
+                    "stage": "graph_in_progress",
+                    "handoff_to": "builder_main",
+                    "target_role": "builder_main",
+                    "active_node": desired_active_node,
+                    "open_nodes": open_nodes,
+                    "failed_nodes": failed_nodes,
+                    "graph_parent_ready": parent,
+                    "task_graph_status": "active",
+                    "cancel_reason": None,
+                },
+                extra={"note": "task_graph is still active; reopening stale terminal legacy status projection"},
+            )
+            result.update({"updated": True, "status": current, "reason": "terminal_projection_reopened"})
+            return result
         projection_changed = any([
             current.get("active_node") != desired_active_node,
             list(current.get("open_nodes") or []) != list(open_nodes),
@@ -703,11 +836,56 @@ def sync_status_cache_from_graph(
         "",
     }
     already_graph_passed = str(current.get("task_graph_status") or "").lower() == "passed"
+    has_stale_acceptance_projection = "acceptance_verdict" in current
+    acceptance_block = _acceptance_verdict_block_for_parent_pass(graph, graph_path)
+    if acceptance_block.get("blocked"):
+        current = _project_status_via_runtime(
+            status_path,
+            new_status="failed_review",
+            actor=actor,
+            event="graph_parent_ready_blocked_by_acceptance_verdict",
+            graph_path=graph_path,
+            allow_reopen=True,
+            status_fields={
+                "phase": "eval_failed",
+                "stage": "acceptance_failed",
+                "active_node": None,
+                "graph_parent_ready": parent,
+                "task_graph_status": "passed",
+                "acceptance_verdict": acceptance_block,
+            },
+            extra={"note": "task_graph is ready but acceptance_verdict blocks parent pass"},
+        )
+        result.update({"updated": True, "status": current, "reason": "acceptance_verdict_blocked_parent_pass"})
+        return result
+    result["closure_projection"] = _refresh_pending_closure_projection_from_graph(graph, graph_path)
+    closure_block = _closure_block_for_parent_pass(graph, graph_path)
+    if closure_block.get("blocked"):
+        current = _project_status_via_runtime(
+            status_path,
+            new_status="failed_review",
+            actor=actor,
+            event="graph_parent_ready_blocked_by_closure",
+            graph_path=graph_path,
+            allow_reopen=True,
+            status_fields={
+                "phase": "eval_failed",
+                "stage": "closure_failed",
+                "active_node": None,
+                "graph_parent_ready": parent,
+                "task_graph_status": "passed",
+                "closure_verdict": closure_block,
+            },
+            extra={"note": "task_graph is ready but closure evidence blocks parent pass"},
+        )
+        result.update({"updated": True, "status": current, "reason": "closure_blocked_parent_pass"})
+        return result
     if (
         already_passed
         and already_closed
         and already_graph_passed
         and (current.get("graph_parent_ready") or {}).get("ready") is True
+        and not has_stale_acceptance_projection
     ):
         result["reason"] = "already_synced"
         return result
@@ -821,6 +999,37 @@ def _node_results(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return results if isinstance(results, dict) else {}
 
 
+def _node_repairs(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    repairs = graph.get("node_repairs") or {}
+    return repairs if isinstance(repairs, dict) else {}
+
+
+def _blocked_by_missing_required_inputs(graph: dict[str, Any], node_id: str) -> bool:
+    result = _node_results(graph).get(node_id)
+    if not isinstance(result, dict):
+        return False
+    if str(result.get("blocking_reason") or "").strip() != "operator_pool_admission_failed":
+        return False
+    missing = result.get("missing_required_inputs")
+    return isinstance(missing, list) and bool(missing)
+
+
+def _blocked_by_repeated_transient_failure(graph: dict[str, Any], node_id: str) -> bool:
+    node = _node_map(graph).get(node_id)
+    if isinstance(node, dict) and str(node.get("blocking_reason") or "").strip() in {
+        "repeated_transient_operator_failure",
+        "compatibility_fallback_capability_mismatch",
+    }:
+        return True
+    result = _node_results(graph).get(node_id)
+    if not isinstance(result, dict):
+        return False
+    return str(result.get("blocking_reason") or "").strip() in {
+        "repeated_transient_operator_failure",
+        "compatibility_fallback_capability_mismatch",
+    }
+
+
 def _parse_ts(value: Any) -> datetime.datetime | None:
     if not value:
         return None
@@ -886,6 +1095,14 @@ def _first_existing_path(candidates: list[Path]) -> Path | None:
         except Exception:
             continue
     return None
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _portable_artifact_ref(path: Path) -> str:
@@ -1092,6 +1309,171 @@ def _completion_gate_blocking_status(result: dict[str, Any]) -> str:
     return "result_submitted"
 
 
+def _accepted_repair(graph: dict[str, Any], node_id: str) -> dict[str, Any] | None:
+    repair = _node_repairs(graph).get(node_id)
+    if not isinstance(repair, dict):
+        return None
+    if str(repair.get("status") or "").lower() != "accepted":
+        return None
+    if not str(repair.get("repair_node_id") or "").strip():
+        return None
+    return repair
+
+
+def _eval_payload_passed(payload: dict[str, Any]) -> bool:
+    verdict = str(payload.get("verdict") or payload.get("status") or "").strip().lower()
+    return verdict in {"pass", "passed"}
+
+
+def _load_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"json_object_required:{path}")
+    return payload
+
+
+def _verify_pm_repair_record(pm_record: Path, eval_path: Path) -> dict[str, Any]:
+    payload = _load_json_object(pm_record)
+    if str(payload.get("status") or "").lower() != "completed":
+        raise ValueError(f"pm_record_not_completed:{pm_record}")
+    closeout = payload.get("closeout_status") if isinstance(payload.get("closeout_status"), dict) else {}
+    if closeout and closeout.get("ok") is not True:
+        raise ValueError(f"pm_record_closeout_not_ok:{pm_record}")
+    gate = payload.get("completion_gate") if isinstance(payload.get("completion_gate"), dict) else {}
+    if str(gate.get("status") or "").lower() != "completed":
+        raise ValueError(f"pm_record_gate_not_completed:{pm_record}")
+    result = gate.get("result") if isinstance(gate.get("result"), dict) else {}
+    verdict = gate.get("verdict") if isinstance(gate.get("verdict"), dict) else {}
+    if str(verdict.get("trigger") or "") != "post_result" or str(verdict.get("status") or "").lower() != "passed":
+        raise ValueError(f"pm_record_verdict_not_passed:{pm_record}")
+    recorded_eval = str(result.get("eval_path") or "").strip()
+    if recorded_eval:
+        try:
+            if Path(recorded_eval).expanduser().resolve() != eval_path.expanduser().resolve():
+                raise ValueError(f"pm_record_eval_path_mismatch:{pm_record}")
+        except FileNotFoundError:
+            raise ValueError(f"pm_record_eval_path_mismatch:{pm_record}") from None
+    return payload
+
+
+def accept_repair_result(
+    graph: dict[str, Any],
+    node_id: str,
+    repair_node_id: str,
+    *,
+    eval_json: str | Path,
+    pm_record: str | Path | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    _ensure_required_gate_node_mapping(graph)
+    ids = _node_map(graph)
+    if node_id not in ids:
+        raise ValueError(f"unknown node: {node_id}")
+    repair_node_id = str(repair_node_id or "").strip()
+    if not repair_node_id:
+        raise ValueError("repair_node_required")
+    existing = _accepted_repair(graph, node_id)
+    idempotent = bool(existing and str(existing.get("repair_node_id") or "") == repair_node_id)
+
+    raw_status = str((existing or {}).get("original_status") or ids[node_id].get("status") or "pending").lower()
+    if raw_status != "failed" and node_status(graph, node_id) != "failed":
+        raise ValueError(f"repair_accept_requires_failed_node:{node_id}")
+
+    eval_path = Path(eval_json).expanduser()
+    if not eval_path.exists():
+        raise ValueError(f"repair_eval_missing:{eval_path}")
+    eval_payload = _load_json_object(eval_path)
+    if not _eval_payload_passed(eval_payload):
+        raise ValueError(f"repair_eval_not_passed:{eval_path}")
+    eval_node = str(eval_payload.get("node_id") or "").strip()
+    if eval_node and eval_node != repair_node_id:
+        raise ValueError(f"repair_eval_node_mismatch:{eval_node}!={repair_node_id}")
+
+    pm_payload: dict[str, Any] = {}
+    if pm_record:
+        pm_payload = _verify_pm_repair_record(Path(pm_record).expanduser(), eval_path)
+    gate = pm_payload.get("completion_gate") if isinstance(pm_payload.get("completion_gate"), dict) else {}
+    gate_result = gate.get("result") if isinstance(gate.get("result"), dict) else {}
+    gate_verdict = gate.get("verdict") if isinstance(gate.get("verdict"), dict) else {}
+
+    sid = _sprint_id_for_graph(graph) or str(graph.get("id") or "graph")
+    eval_sha = _sha256_file(eval_path)
+    attempt_id = str(gate_result.get("attempt_id") or f"repair-{repair_node_id}")
+    result_id = str(gate_result.get("result_id") or f"repair_result_{node_id}_{repair_node_id}_{eval_sha[:12]}")
+    verdict_id = str(gate_verdict.get("verdict_id") or f"repair_verdict_{node_id}_{repair_node_id}_{eval_sha[:12]}")
+    covered_artifacts = gate_verdict.get("covered_artifacts") if isinstance(gate_verdict.get("covered_artifacts"), list) else [
+        {"path": str(eval_path), "sha256": eval_sha}
+    ]
+    verdict = dict(gate_verdict) if gate_verdict else {
+        "schema_version": "solar.verifier.result.v1",
+        "verdict_id": verdict_id,
+        "session_id": sid,
+        "node_id": repair_node_id,
+        "attempt_id": attempt_id,
+        "trigger": "post_result",
+        "status": "passed",
+        "covered_result_id": result_id,
+        "covered_attempt_id": attempt_id,
+        "covered_artifacts": covered_artifacts,
+    }
+    verdict["verdict_id"] = str(verdict.get("verdict_id") or verdict_id)
+    verdict["covered_result_id"] = str(verdict.get("covered_result_id") or result_id)
+    verdict["covered_attempt_id"] = str(verdict.get("covered_attempt_id") or attempt_id)
+    verdict["covered_artifacts"] = covered_artifacts
+
+    updated_at = _now()
+    repair_record = {
+        "status": "accepted",
+        "node_id": node_id,
+        "original_status": raw_status,
+        "repair_node_id": repair_node_id,
+        "eval_json": str(eval_path),
+        "eval_sha256": eval_sha,
+        "pm_record": str(Path(pm_record).expanduser()) if pm_record else "",
+        "accepted_at": str((existing or {}).get("accepted_at") or updated_at),
+    }
+    if note:
+        repair_record["note"] = note
+    graph.setdefault("node_repairs", {})
+    graph["node_repairs"][node_id] = repair_record
+
+    graph.setdefault("node_results", {})
+    graph["node_results"][node_id] = {
+        "status": raw_status,
+        "updated_at": updated_at,
+        "repair_status": "accepted",
+        "repaired_by": repair_node_id,
+        "result_id": result_id,
+        "attempt_id": attempt_id,
+        "completion_gate_required": True,
+        "completion_source": "repair_acceptance",
+        "completion_gate": {
+            "status": "completed",
+            "completion_source": "repair_acceptance",
+            "verdict_id": verdict["verdict_id"],
+            "covered_result_id": verdict["covered_result_id"],
+            "covered_attempt_id": verdict["covered_attempt_id"],
+            "verifier_artifact": str(eval_path),
+            "verdict": verdict,
+        },
+        "artifacts": {
+            "repair_eval_json": str(eval_path),
+        },
+    }
+    gate_name = ids[node_id].get("gate")
+    if gate_name:
+        graph.setdefault("gate_results", {})
+        graph["gate_results"][gate_name] = {
+            "status": "passed",
+            "node": node_id,
+            "reason": "accepted_repair",
+            "repair_node_id": repair_node_id,
+            "updated_at": updated_at,
+        }
+    parent = parent_ready_check(graph)
+    return {"ok": True, "accepted": not idempotent, "idempotent": idempotent, "node": node_id, "repair": repair_record, "parent": parent}
+
+
 def _parent_child_completion_gate(graph: dict[str, Any], node_ids: list[str]) -> dict[str, Any]:
     results = _node_results(graph)
     children = [
@@ -1103,7 +1485,11 @@ def _parent_child_completion_gate(graph: dict[str, Any], node_ids: list[str]) ->
     try:
         from gate_controller import validate_parent_child_completion  # noqa: WPS433
 
-        return validate_parent_child_completion(children, allow_break_glass=allow_break_glass)
+        return validate_parent_child_completion(
+            children,
+            allow_break_glass=allow_break_glass,
+            artifact_base_dirs=[SPRINTS_DIR],
+        )
     except Exception as exc:
         return {
             "status": "failed",
@@ -1195,6 +1581,8 @@ def _ensure_required_gate_node_mapping(graph: dict[str, Any]) -> int:
 
 def node_status(graph: dict[str, Any], node_id: str) -> str:
     _ensure_required_gate_node_mapping(graph)
+    if _accepted_repair(graph, node_id) is not None:
+        return "passed"
     results = _node_results(graph)
     node = _node_map(graph)[node_id]
     gate = node.get("gate")
@@ -1260,10 +1648,13 @@ def _estimated_cost(node: dict[str, Any]) -> float:
 def graph_parallelism_metrics(graph: dict[str, Any]) -> dict[str, Any]:
     ids = _node_map(graph)
     source_nodes: list[str] = []
+    source_progress_nodes: list[str] = []
     missing_write_scope: list[str] = []
     for node_id, node in ids.items():
         if not _internal_depends_on(node):
             source_nodes.append(node_id)
+            if node_status(graph, node_id) in ACTIVE_STATUSES or node_status(graph, node_id) in TERMINAL_STATUSES:
+                source_progress_nodes.append(node_id)
         if "write_scope" not in node or not node.get("write_scope"):
             missing_write_scope.append(node_id)
     initial_ready: list[str] = []
@@ -1277,6 +1668,9 @@ def graph_parallelism_metrics(graph: dict[str, Any]) -> dict[str, Any]:
     return {
         "initial_ready_width": len(initial_ready),
         "initial_ready_nodes": initial_ready,
+        "initial_effective_width": len(initial_ready) + len(source_progress_nodes),
+        "source_progress_width": len(source_progress_nodes),
+        "source_progress_nodes": source_progress_nodes,
         "source_width": len(source_nodes),
         "source_nodes": source_nodes,
         "missing_write_scope_count": len(missing_write_scope),
@@ -1333,10 +1727,12 @@ def validate_graph(graph: dict[str, Any]) -> dict[str, Any]:
         or graph.get("min_ready_width")
         or 0
     )
-    if min_ready_width > 0 and parallelism.get("initial_ready_width", 0) < min_ready_width:
+    effective_initial_width = int(parallelism.get("initial_effective_width", parallelism.get("initial_ready_width", 0)) or 0)
+    if min_ready_width > 0 and effective_initial_width < min_ready_width:
         errors.append(
             "parallelism_quality:"
             f" initial_ready_width={parallelism.get('initial_ready_width', 0)}"
+            f" effective_initial_width={effective_initial_width}"
             f" < min_ready_width={min_ready_width}"
         )
 
@@ -1546,6 +1942,12 @@ def ready_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
     ready: list[dict[str, Any]] = []
     for node_id in topo_order(graph):
         status = node_status(graph, node_id)
+        if _blocked_by_repeated_transient_failure(graph, node_id):
+            continue
+        if status == "worker_blocked" and (
+            _blocked_by_missing_required_inputs(graph, node_id)
+        ):
+            continue
         if status in TERMINAL_STATUSES or status in ACTIVE_STATUSES:
             continue
         if status not in READY_STATUSES:
@@ -1782,6 +2184,89 @@ def _worker_quota_exhausted(worker: dict[str, Any], preferred_model: str | None 
         model_aliases = [aliases for aliases in model_aliases if aliases]
         return bool(model_aliases) and all(aliases & exhausted_aliases for aliases in model_aliases)
     return False
+
+
+_NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS = {
+    "artifact.guard_decision",
+    "artifact.resource_binding",
+    "artifact.bridged_artifact",
+    "artifact.patch_diff",
+    "artifact.handoff_md",
+    "guard_decision",
+    "resource_binding",
+    "bridged_artifact",
+    "patch_diff",
+    "handoff_md",
+    "rollout_notes",
+}
+
+
+def _node_requires_non_eval_closeout_write(node: dict[str, Any]) -> bool:
+    for key in ("outputs", "required_outputs", "produces"):
+        values = node.get(key)
+        if isinstance(values, list):
+            for value in values:
+                text = str(value or "").strip().lower()
+                if text and "eval" not in text:
+                    return True
+    artifact_types = node.get("artifact_types")
+    if isinstance(artifact_types, dict):
+        for key in ("required_outputs", "produces", "optional_outputs"):
+            values = artifact_types.get(key)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                text = str(value or "").strip().lower()
+                if any(marker in text for marker in _NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS):
+                    return True
+    for validation in node.get("validation") or []:
+        if not isinstance(validation, dict) or not validation.get("required", False):
+            continue
+        target = str(validation.get("target") or "").strip().lower()
+        if target and "eval" not in target:
+            return True
+    for obligation in node.get("proof_obligations") or []:
+        if isinstance(obligation, dict):
+            text = " ".join(str(obligation.get(key) or "") for key in ("requirement", "field", "check")).lower()
+        else:
+            text = str(obligation or "").lower()
+        if any(marker in text for marker in _NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS):
+            return True
+    capsule_plan = node.get("capsule_plan")
+    if isinstance(capsule_plan, dict):
+        nested = {
+            "artifact_types": capsule_plan.get("artifact_types"),
+            "proof_obligations": capsule_plan.get("proof_obligations"),
+        }
+        if _node_requires_non_eval_closeout_write(nested):
+            return True
+    return False
+
+
+def _worker_write_files_mode(worker: dict[str, Any]) -> str:
+    policy = worker.get("policy")
+    if isinstance(policy, dict):
+        mode = str(policy.get("write_files") or "").strip().lower()
+        if mode:
+            return mode
+    return str(worker.get("write_files") or "").strip().lower()
+
+
+def _worker_can_closeout_node(worker: dict[str, Any], node: dict[str, Any]) -> bool:
+    node_role = _node_dispatch_role(node)
+    profile = str(worker.get("profile") or "").strip().lower()
+    role = str(worker.get("role") or "").strip().lower()
+    operator_class = str(worker.get("operator_class") or "").strip().lower()
+    if node_role == "evaluator" and (profile.endswith("-advisory") or role == "advisor" or operator_class == "advisoryreview"):
+        return False
+    if not _node_requires_non_eval_closeout_write(node):
+        return True
+    mode = _worker_write_files_mode(worker)
+    if mode in {"denied", "eval_sidecar_only", "artifact_dir_only"}:
+        return False
+    if profile.endswith("-advisory") or role == "advisor":
+        return False
+    return True
 
 
 def _model_aliases(value: str | None) -> set[str]:
@@ -2036,6 +2521,8 @@ def _node_dispatch_role(node: dict[str, Any]) -> str:
     logical_operator = str(node.get("logical_operator") or "").strip()
     if logical_operator in {"DeepArchitect", "ResearchScout", "ResearchSynthesizer", "ArtifactCurator"}:
         return "planner"
+    if logical_operator in {"Verifier", "TestRunner", "Critic"}:
+        return "evaluator"
     return "builder"
 
 
@@ -2076,6 +2563,7 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
         candidates: list[tuple[int, float, int, int, int, str, dict[str, Any]]] = []
         blocked_by_capacity = False
         blocked_by_runtime = False
+        blocked_by_write_policy = False
         runtime_unavailable_reasons: set[str] = set()
         any_worker_seen = False
         missing_skill_union: set[str] = set()
@@ -2107,6 +2595,9 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
                 continue
             if _model_requires_strict_match(preferred_model, strict_model) and not _model_match(worker, preferred_model):
                 continue
+            if not _worker_can_closeout_node(worker, node):
+                blocked_by_write_policy = True
+                continue
             unavailable_reason = _worker_unavailable_reason(worker)
             if unavailable_reason:
                 blocked_by_runtime = True
@@ -2137,6 +2628,8 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
                     reason = "worker_runtime_unavailable"
             elif blocked_by_capacity:
                 reason = "worker_capacity_exhausted"
+            elif blocked_by_write_policy:
+                reason = "worker_write_policy_insufficient"
             else:
                 reason = "no_matching_worker"
             details: dict[str, Any] = {
@@ -2146,6 +2639,8 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             }
             if blocked_by_runtime:
                 details["unavailable_reasons"] = sorted(runtime_unavailable_reasons)
+            if blocked_by_write_policy:
+                details["write_policy_required"] = "non_eval_closeout_artifacts"
             if reason == "no_matching_worker":
                 details["any_worker_seen"] = any_worker_seen
                 details["role_candidates_seen"] = role_candidates_seen
@@ -2440,6 +2935,7 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
         acquire = None
     from apo_plan_compiler import (  # noqa: WPS433
         compile_execution_plan_for_node,
+        execution_plan_artifact_paths,
         materialize_execution_plan_artifacts,
     )
 
@@ -2465,13 +2961,16 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
             )
             capsule_plan_ir = dict(compiled_plan.get("capsule_plan") or {})
             physical_plan_ir = dict(compiled_plan.get("physical_plan") or {})
-            plan_artifacts = materialize_execution_plan_artifacts(
-                sid,
-                node_id,
-                capsule_plan=capsule_plan_ir,
-                physical_plan=physical_plan_ir,
-                base_dir=SPRINTS_DIR,
-            )
+            if dry_run:
+                plan_artifacts = execution_plan_artifact_paths(sid, node_id, base_dir=SPRINTS_DIR)
+            else:
+                plan_artifacts = materialize_execution_plan_artifacts(
+                    sid,
+                    node_id,
+                    capsule_plan=capsule_plan_ir,
+                    physical_plan=physical_plan_ir,
+                    base_dir=SPRINTS_DIR,
+                )
             # Store APO supply-chain planning artifact for evidence ledger and downstream
             plan_artifacts["task_classification"] = compiled_plan.get("task_classification") or {}
             plan_artifacts["logical_workflow"] = compiled_plan.get("logical_workflow") or {}
@@ -2505,13 +3004,16 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
                 "attached_capsules": [],
                 "verifier_plans": [],
             }
-            plan_artifacts = materialize_execution_plan_artifacts(
-                sid,
-                node_id,
-                capsule_plan=capsule_plan_ir,
-                physical_plan=physical_plan_ir,
-                base_dir=SPRINTS_DIR,
-            )
+            if dry_run:
+                plan_artifacts = execution_plan_artifact_paths(sid, node_id, base_dir=SPRINTS_DIR)
+            else:
+                plan_artifacts = materialize_execution_plan_artifacts(
+                    sid,
+                    node_id,
+                    capsule_plan=capsule_plan_ir,
+                    physical_plan=physical_plan_ir,
+                    base_dir=SPRINTS_DIR,
+                )
         node["logical_plan_node"] = dict(compiled_plan.get("logical_plan_node") or {})
         node["capsule_plan_ir"] = capsule_plan_ir
         node["physical_plan_ir"] = physical_plan_ir
@@ -3173,6 +3675,15 @@ def main() -> int:
     p.add_argument("--note")
     p.add_argument("--in-place", action="store_true")
 
+    p = sub.add_parser("accept-repair")
+    add_graph(p)
+    p.add_argument("--node", required=True)
+    p.add_argument("--repair-node", required=True)
+    p.add_argument("--eval-json", required=True)
+    p.add_argument("--pm-record")
+    p.add_argument("--note")
+    p.add_argument("--in-place", action="store_true")
+
     p = sub.add_parser("parent-check")
     add_graph(p)
 
@@ -3257,6 +3768,25 @@ def main() -> int:
                     graph,
                     args.graph,
                     event=f"graph_mark_{args.node}_{args.status}",
+                )
+            print(json.dumps(result, ensure_ascii=False))
+
+        elif args.cmd == "accept-repair":
+            graph = load_graph(args.graph)
+            result = accept_repair_result(
+                graph,
+                args.node,
+                args.repair_node,
+                eval_json=args.eval_json,
+                pm_record=args.pm_record,
+                note=args.note,
+            )
+            if args.in_place:
+                save_graph(args.graph, graph)
+                result["status_sync"] = sync_status_cache_from_graph(
+                    graph,
+                    args.graph,
+                    event=f"graph_accept_repair_{args.node}_{args.repair_node}",
                 )
             print(json.dumps(result, ensure_ascii=False))
 
