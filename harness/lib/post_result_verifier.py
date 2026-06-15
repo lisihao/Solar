@@ -49,6 +49,96 @@ def _existing_artifact(path_value: str | None) -> dict[str, str] | None:
     return {"path": str(path), "sha256": sha256_file(path)}
 
 
+def _parse_iso_ts(value: Any) -> dt.datetime | None:
+    """Parse an ISO8601 timestamp (with trailing Z) into an aware datetime."""
+    if not value:
+        return None
+    try:
+        return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def check_write_scope_touched(result: dict[str, Any]) -> dict[str, Any]:
+    """治造假硬门: builder 声称改了 write_scope 文件, 磁盘上必须真的被本次任务改过。
+
+    判定 (source 单一真相: result 里的 write_scope + started_at, 文件 mtime):
+      - write_scope 为空/缺失 → passed (planner/分析类节点不产文件, 不误伤)
+      - started_at 缺失或不可解析 → warn (无法做 mtime 基准, 不确定不误杀)
+      - 声明的文件全部不存在 → failed "声称改动但磁盘无文件"
+      - 文件存在但全部 mtime < started_at → failed "文件未被本次任务改动 (造假)"
+      - 至少一个声明文件 mtime >= started_at → passed (真有改动)
+
+    severity: 先 warn (观察期), 确认不误伤后由调用方升 blocker。
+    """
+    write_scope = result.get("write_scope")
+    if not write_scope or not isinstance(write_scope, list):
+        return _rule(
+            "solar.post_result.write_scope_touched",
+            "passed",
+            "no write_scope to verify (analysis/planner node)",
+            severity="warn",
+        )
+
+    started = _parse_iso_ts(result.get("started_at") or result.get("dispatch_start_ts"))
+    if started is None:
+        return _rule(
+            "solar.post_result.write_scope_touched",
+            "passed",
+            "started_at unavailable; cannot establish mtime baseline (not blocking)",
+            severity="warn",
+        )
+
+    # 容差: 文件系统 mtime 与任务 started_at 可能有秒级偏差, 给 5s 宽限避免误杀
+    baseline = started - dt.timedelta(seconds=5)
+
+    declared = [str(p).strip() for p in write_scope if str(p).strip()]
+    missing: list[str] = []
+    stale: list[str] = []
+    touched: list[str] = []
+    for raw in declared:
+        path = Path(raw).expanduser()
+        if not path.exists():
+            missing.append(raw)
+            continue
+        try:
+            mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc)
+        except OSError:
+            missing.append(raw)
+            continue
+        if mtime >= baseline:
+            touched.append(raw)
+        else:
+            stale.append(raw)
+
+    if touched:
+        return _rule(
+            "solar.post_result.write_scope_touched",
+            "passed",
+            f"{len(touched)}/{len(declared)} declared file(s) modified by this task",
+            severity="warn",
+            path=touched[0],
+        )
+
+    if declared and len(missing) == len(declared):
+        return _rule(
+            "solar.post_result.write_scope_touched",
+            "failed",
+            f"claimed write_scope but {len(missing)} declared file(s) absent on disk (fabricated completion)",
+            severity="warn",
+            path=missing[0] if missing else "N/A",
+        )
+
+    return _rule(
+        "solar.post_result.write_scope_touched",
+        "failed",
+        f"declared file(s) exist but none modified since task start (no real change): "
+        f"{len(stale)} stale, {len(missing)} missing",
+        severity="warn",
+        path=(stale or missing or ["N/A"])[0],
+    )
+
+
 def ensure_artifact_manifest(result: dict[str, Any], verifier_dir: Path) -> Path:
     """Create a manifest from known result artifacts if caller did not provide one."""
     raw_manifest = str(result.get("artifact_manifest") or "").strip()
@@ -91,14 +181,23 @@ def verify_operator_result(result: dict[str, Any], verifier_dir: str | Path) -> 
     covered_artifacts: list[dict[str, str]] = []
     rules: list[dict[str, Any]] = []
 
+    eval_artifact = _existing_artifact(str(result.get("eval_path") or "").strip())
     handoff = _existing_artifact(str(result.get("handoff_path") or "").strip())
     if handoff:
         covered_artifacts.append(handoff)
         rules.append(_rule("solar.post_result.handoff_exists", "passed", "handoff artifact exists", path=handoff["path"]))
+    elif eval_artifact:
+        rules.append(
+            _rule(
+                "solar.post_result.handoff_exists",
+                "passed",
+                "handoff artifact is optional when eval artifact exists",
+                severity="warn",
+            )
+        )
     else:
         rules.append(_rule("solar.post_result.handoff_exists", "failed", "handoff artifact is missing"))
 
-    eval_artifact = _existing_artifact(str(result.get("eval_path") or "").strip())
     if eval_artifact:
         covered_artifacts.append(eval_artifact)
         rules.append(_rule("solar.post_result.eval_artifact_exists", "passed", "eval artifact exists", path=eval_artifact["path"]))
@@ -131,6 +230,10 @@ def verify_operator_result(result: dict[str, Any], verifier_dir: str | Path) -> 
         rules.append(_rule("solar.post_result.write_scope_declared", "passed", "write_scope is machine-readable"))
     else:
         rules.append(_rule("solar.post_result.write_scope_declared", "failed", "write_scope must be a list"))
+
+    # 治造假硬门 (2026-06-14): 声称改的 write_scope 文件磁盘上必须真被本次任务改过。
+    # 观察期 severity=warn (不 block, 只留痕), 确认不误伤后升 blocker。
+    rules.append(check_write_scope_touched(result))
 
     blocker_failed = [rule for rule in rules if rule["severity"] == "blocker" and rule["status"] != "passed"]
     status = "passed" if not blocker_failed else "failed"
