@@ -1093,6 +1093,113 @@ def _digest_report_item(run_dir: Path) -> dict:
     }
 
 
+def _ai_influence_deepdive_eval_meta(run_dir: Path) -> dict[str, Any]:
+    survey_eval = _ai_influence_read_json_file(run_dir / "survey_eval.json")
+    if survey_eval:
+        return survey_eval
+    eval_paths = sorted(run_dir.glob("*research_eval*.json"), key=lambda path: path.stat().st_mtime)
+    return _ai_influence_read_json_file(eval_paths[-1]) if eval_paths else {}
+
+
+def _ai_influence_deepdive_date(run_dir: Path, request_meta: dict[str, Any]) -> str:
+    for key in ("date", "report_date", "created_at", "updated_at", "generated_at"):
+        raw = str(request_meta.get(key) or "").strip()
+        match = re.search(r"20\d{2}-\d{2}-\d{2}", raw)
+        if match:
+            return match.group(0)
+    match = re.search(r"(20\d{2})(\d{2})(\d{2})T", run_dir.name)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+    return _ai_influence_file_time(run_dir).split(" ")[0] if run_dir.exists() else "N/A"
+
+
+def _ai_influence_deepdive_report_item(run_dir: Path) -> dict:
+    report_id = _ai_influence_report_id("deepdive_report", run_dir)
+    request_meta = _ai_influence_read_json_file(run_dir / "ai_influence_deepdive_request.json")
+    eval_meta = _ai_influence_deepdive_eval_meta(run_dir)
+    coverage = eval_meta.get("coverage") if isinstance(eval_meta.get("coverage"), dict) else {}
+    scorecard = eval_meta.get("scorecard") if isinstance(eval_meta.get("scorecard"), dict) else {}
+    final_html_path = run_dir / "final.html"
+    final_md_path = run_dir / "final.md"
+    human_final_path = run_dir / "human_final.md"
+    final_machine_path = run_dir / "final_machine.md"
+    eval_path = run_dir / "survey_eval.json"
+    prediction_packets_path = run_dir / "prediction_packets.jsonl"
+    primary = (
+        _ai_influence_public_artifact("report_html", final_html_path, report_id)
+        if final_html_path.exists()
+        else _ai_influence_public_artifact("report_md", final_md_path, report_id)
+    )
+    title = (
+        str(eval_meta.get("title") or eval_meta.get("task_title") or "").strip()
+        or _ai_influence_first_markdown_heading(human_final_path if human_final_path.exists() else final_md_path)
+        or str(request_meta.get("question") or "").strip()
+        or run_dir.name
+    )
+    question = str(request_meta.get("question") or title).strip()
+    date_str = _ai_influence_deepdive_date(run_dir, request_meta)
+    eval_ok = bool(eval_meta.get("ok")) or str(scorecard.get("verdict") or "").strip().upper() == "PASS"
+    source_count = int(eval_meta.get("source_count") or coverage.get("source_count") or 0)
+    evidence_count = int(eval_meta.get("evidence_count") or coverage.get("evidence_count") or 0)
+    claim_count = int(eval_meta.get("claim_count") or coverage.get("claim_count") or 0)
+    section_count = int(coverage.get("section_count") or eval_meta.get("section_count") or 0)
+    artifacts = [
+        _ai_influence_public_artifact("report_html", final_html_path, report_id),
+        _ai_influence_public_artifact("report_md", final_md_path, report_id),
+        _ai_influence_public_artifact("human_final_md", human_final_path, report_id),
+        _ai_influence_public_artifact("final_machine_md", final_machine_path, report_id),
+        _ai_influence_public_artifact("survey_eval_json", eval_path, report_id),
+        _ai_influence_public_artifact("prediction_packets_jsonl", prediction_packets_path, report_id),
+    ]
+    return {
+        "kind": "deepdive_report",
+        "id": report_id,
+        "module_key": "deepdive_report",
+        "module_label": "日度洞察",
+        "module_title": "日度洞察 · DeepDive",
+        "date": date_str,
+        "title": title,
+        "subtitle": question,
+        "data_period": date_str,
+        "generated_at": _ai_influence_generated_at(final_html_path, human_final_path, final_md_path, eval_path),
+        "data_used": _ai_influence_data_used([
+            f"{source_count} 个来源" if source_count else "",
+            f"{evidence_count} 条证据" if evidence_count else "",
+            f"{claim_count} 条论断" if claim_count else "",
+            "survey_eval.json / final.html",
+        ]),
+        "status": "ok" if primary.get("exists") and eval_ok else ("warn" if primary.get("exists") else "error"),
+        "primary": primary,
+        "artifacts": artifacts,
+        "mail": _ai_influence_mail_result(_read_json_file(run_dir / "mail-result.json") if (run_dir / "mail-result.json").exists() else {"status": "unsent"}, run_dir / "mail-result.json"),
+        "metrics": {
+            "来源": source_count,
+            "证据": evidence_count,
+            "论断": claim_count,
+            "章节": section_count,
+            "评测": str(scorecard.get("verdict") or eval_meta.get("status") or ("PASS" if eval_ok else "N/A")),
+        },
+        "filters": {
+            "themes": _unique_preserve(["DeepDive", "日度洞察", str(scorecard.get("verdict") or "")]),
+            "technologies": _unique_preserve(["DeepDive", "Agent Systems", "Research Survey"]),
+            "channels": ["DeepDive"],
+        },
+        "resources": _ai_influence_resource_links(run_dir, [
+            "final.html",
+            "final.md",
+            "human_final.md",
+            "final_machine.md",
+            "survey_eval.json",
+            "prediction_packets.jsonl",
+            "section_render_cards.json",
+            "ai_influence_deepdive_request.json",
+            "mail-result.json",
+        ], report_id),
+        "_report_dir": str(run_dir),
+        "mtime": max((p.stat().st_mtime for p in [final_html_path, human_final_path, final_md_path, eval_path] if p.exists()), default=run_dir.stat().st_mtime if run_dir.exists() else 0),
+    }
+
+
 def _unified_daily_report_item(run_dir: Path) -> dict:
     report_id = _ai_influence_report_id("unified_daily", run_dir)
     html_path = run_dir / "report.html"
@@ -1595,6 +1702,35 @@ def _ai_influence_group_summary(key: str, items: list[dict]) -> dict:
             "rows": rows[:24],
             "row_map": [("date", "日期"), ("handle", "账号"), ("title", "标题"), ("type", "类型"), ("summary", "摘要")],
         }
+    if key == "deepdive_report":
+        rows = []
+        total_sources = 0
+        total_evidence = 0
+        total_claims = 0
+        pass_count = 0
+        for item in items:
+            metrics = item.get("metrics") if isinstance(item.get("metrics"), dict) else {}
+            total_sources += int(metrics.get("来源") or 0)
+            total_evidence += int(metrics.get("证据") or 0)
+            total_claims += int(metrics.get("论断") or 0)
+            verdict = str(metrics.get("评测") or "N/A")
+            if verdict.upper() == "PASS":
+                pass_count += 1
+            rows.append({
+                "date": item.get("date") or "N/A",
+                "title": item.get("title") or "N/A",
+                "verdict": verdict,
+                "sources": str(metrics.get("来源") or 0),
+                "evidence": str(metrics.get("证据") or 0),
+                "sections": str(metrics.get("章节") or 0),
+            })
+        return {
+            "headline": f"{len(items)} 份 DeepDive 洞察报告，{pass_count} 份评测 PASS，累计 {total_sources} 个来源、{total_evidence} 条证据。",
+            "metrics": {"报告": len(items), "PASS": pass_count, "来源": total_sources, "证据": total_evidence, "论断": total_claims},
+            "columns": ["日期", "报告", "评测", "来源", "证据", "章节"],
+            "rows": rows[:24],
+            "row_map": [("date", "日期"), ("title", "报告"), ("verdict", "评测"), ("sources", "来源"), ("evidence", "证据"), ("sections", "章节")],
+        }
     if key == "unified_daily":
         rows = []
         total_alerts = 0
@@ -1880,6 +2016,18 @@ def _ai_influence_payload_internal(
         for child in AI_INFLUENCE_RAW_DIR.iterdir():
             if child.is_dir() and (child / "digest.md").exists():
                 items.append(_digest_report_item(child))
+    if REPORTS_DIR.exists():
+        for run_dir in sorted((path for path in REPORTS_DIR.iterdir() if path.is_dir()), key=lambda path: path.stat().st_mtime, reverse=True):
+            marker = (
+                (run_dir / "ai_influence_deepdive_request.json").exists()
+                or (run_dir / "deepdive_requirement_contract.json").exists()
+                or run_dir.name.lower().startswith(("deepdive-", "deepresearch-"))
+            )
+            if not marker:
+                continue
+            if not any((run_dir / name).exists() for name in ("final.html", "final.md", "human_final.md")):
+                continue
+            items.append(_ai_influence_deepdive_report_item(run_dir))
     planned_root = tech_hotspot_raw_dir / "ai-influence-planned"
     if planned_root.exists():
         for date_dir in sorted((p for p in planned_root.iterdir() if p.is_dir()), reverse=True):
@@ -2036,7 +2184,7 @@ def _ai_influence_delete_report(data: dict) -> dict:
     if not item:
         return {"ok": False, "status": "error", "error": "report_not_found"}
     report_dir = Path(str(item.get("_report_dir") or ""))
-    allowed_roots = [AI_INFLUENCE_RAW_DIR, _tech_hotspot_raw_dir(), HUGGINGFACE_PAPERS_RAW_DIR]
+    allowed_roots = [AI_INFLUENCE_RAW_DIR, _tech_hotspot_raw_dir(), HUGGINGFACE_PAPERS_RAW_DIR, REPORTS_DIR]
     if report_dir and not any(root.exists() and _is_within(report_dir, root) for root in allowed_roots):
         return {"ok": False, "status": "error", "error": "report_dir_not_allowed"}
 
@@ -2117,6 +2265,16 @@ def _resolve_ai_influence_artifact(report_id: str, artifact_label: str) -> Path 
             "report_html": report_dir / "hf-paper-report.html",
             "report_md": report_dir / "hf-paper-report.md",
             "evidence_pack_json": report_dir / "hf-paper-insight-pack.json" if (report_dir / "hf-paper-insight-pack.json").exists() else report_dir / "trending-papers.json",
+        })
+    if str(item.get("kind") or "") == "deepdive_report":
+        allowed.update({
+            "report_html": report_dir / "final.html",
+            "report_md": report_dir / "final.md",
+            "human_final_md": report_dir / "human_final.md",
+            "final_machine_md": report_dir / "final_machine.md",
+            "survey_eval_json": report_dir / "survey_eval.json",
+            "prediction_packets_jsonl": report_dir / "prediction_packets.jsonl",
+            "section_render_cards_json": report_dir / "section_render_cards.json",
         })
     for resource in item.get("resources") or []:
         if not isinstance(resource, dict):
@@ -3692,8 +3850,10 @@ def _ai_influence_deepdive_history(limit: int = 18) -> dict[str, Any]:
         plan_meta = _ai_influence_read_json_file(run_dir / "survey_plan.json")
         insight_quality = _ai_influence_read_json_file(run_dir / "survey_insight_quality.json")
         golden_style = _ai_influence_read_json_file(run_dir / "survey_golden_style.json")
-        eval_paths = sorted(run_dir.glob("*research_eval*.json"), key=lambda path: path.stat().st_mtime)
-        eval_meta = _ai_influence_read_json_file(eval_paths[-1]) if eval_paths else {}
+        eval_meta = _ai_influence_deepdive_eval_meta(run_dir)
+        coverage = eval_meta.get("coverage") if isinstance(eval_meta.get("coverage"), dict) else {}
+        scorecard = eval_meta.get("scorecard") if isinstance(eval_meta.get("scorecard"), dict) else {}
+        eval_ok = bool(eval_meta.get("ok")) or str(scorecard.get("verdict") or "").strip().upper() == "PASS"
         marker = (
             bool(request_meta)
             or (run_dir / "deepdive_requirement_contract.json").exists()
@@ -3727,6 +3887,8 @@ def _ai_influence_deepdive_history(limit: int = 18) -> dict[str, Any]:
             quality_reasons.extend([str(item) for item in (golden_style.get("issues") or [])[:2]])
         if finalize_meta and finalize_meta.get("ok") is False:
             status = "failed"
+        elif eval_ok and final_md.exists():
+            status = "passed"
         elif quality_reasons and final_md.exists():
             status = "quality_failed"
         timestamp = datetime.datetime.fromtimestamp(run_dir.stat().st_mtime, tz=datetime.timezone.utc)
@@ -3745,9 +3907,9 @@ def _ai_influence_deepdive_history(limit: int = 18) -> dict[str, Any]:
                 "status": status,
                 "status_class": _ai_influence_deepdive_status_class(status),
                 "updated_at": updated_at,
-                "source_count": int(eval_meta.get("source_count") or 0),
-                "evidence_count": int(eval_meta.get("evidence_count") or 0),
-                "claim_count": int(eval_meta.get("claim_count") or 0),
+                "source_count": int(eval_meta.get("source_count") or coverage.get("source_count") or 0),
+                "evidence_count": int(eval_meta.get("evidence_count") or coverage.get("evidence_count") or 0),
+                "claim_count": int(eval_meta.get("claim_count") or coverage.get("claim_count") or 0),
                 "question_count": int(request_meta.get("question_count") or 0),
                 "quality_reason": "；".join(quality_reasons[:4]),
                 "final_url": ("/file/view?path=" + urllib.parse.quote(str(final_md))) if final_md.exists() and status != "quality_failed" else "",

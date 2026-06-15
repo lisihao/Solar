@@ -70,6 +70,62 @@ def test_ai_influence_payload_discovers_all_report_kinds(tmp_path, monkeypatch):
     assert resource_artifacts.count("transcripts.jsonl") == 1
 
 
+def test_ai_influence_payload_mounts_deepdive_under_daily_insight(tmp_path, monkeypatch):
+    mod = _load_module()
+    legacy_root = tmp_path / "legacy-ai-influence"
+    hotspot_root = tmp_path / "tech-hotspot-radar"
+    reports_root = tmp_path / "reports"
+    deepdive_run = reports_root / "deepdive-agent-architecture-20260614T003203Z"
+    deepdive_run.mkdir(parents=True)
+    (deepdive_run / "ai_influence_deepdive_request.json").write_text(
+        json.dumps(
+            {
+                "sid": deepdive_run.name,
+                "question": "从 MLSys 2026 和 CAIS 2026 看 Agent system 架构趋势",
+                "updated_at": "2026-06-14T00:32:03Z",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (deepdive_run / "final.html").write_text("<html><body><h1>Agent System DeepDive</h1></body></html>", encoding="utf-8")
+    (deepdive_run / "final.md").write_text("# Agent System DeepDive\n", encoding="utf-8")
+    (deepdive_run / "survey_eval.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "scorecard": {"verdict": "PASS"},
+                "coverage": {"source_count": 9, "evidence_count": 32, "claim_count": 18, "section_count": 8},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (deepdive_run / "survey_golden_style.json").write_text(
+        json.dumps({"ok": False, "issues": ["legacy style checker warning"]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(mod, "AI_INFLUENCE_RAW_DIR", legacy_root)
+    monkeypatch.setattr(mod, "HUGGINGFACE_PAPERS_RAW_DIR", tmp_path / "huggingface-papers")
+    monkeypatch.setattr(mod, "REPORTS_DIR", reports_root)
+    monkeypatch.setattr(mod, "OPEN_ALLOWED_ROOTS", [tmp_path])
+    monkeypatch.setattr(mod, "_tech_hotspot_raw_dir", lambda: hotspot_root)
+
+    payload = mod._ai_influence_payload_internal(limit=20, period="all", module="日度洞察")
+
+    deepdive = next(item for item in payload["items"] if item.get("kind") == "deepdive_report")
+    assert deepdive["module_label"] == "日度洞察"
+    assert deepdive["module_title"] == "日度洞察 · DeepDive"
+    assert deepdive["status"] == "ok"
+    assert deepdive["primary"]["artifact"] == "report_html"
+    assert deepdive["metrics"]["评测"] == "PASS"
+    assert deepdive["metrics"]["来源"] == 9
+    assert mod._resolve_ai_influence_artifact(deepdive["id"], "report_html") == deepdive_run / "final.html"
+    history = mod._ai_influence_deepdive_history()
+    assert history["items"][0]["status"] == "passed"
+
+
 def test_sanitize_ai_influence_report_html_polishes_runtime_wording():
     mod = _load_module()
     dirty = (
@@ -300,6 +356,7 @@ def test_ai_influence_html_has_month_tab_and_module_tab(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mod, "AI_INFLUENCE_RAW_DIR", tmp_path / "legacy-ai-influence")
     monkeypatch.setattr(mod, "HUGGINGFACE_PAPERS_RAW_DIR", tmp_path / "huggingface-papers")
+    monkeypatch.setattr(mod, "REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr(mod, "_tech_hotspot_raw_dir", lambda: hotspot_root)
 
     html = mod._ai_influence_html(period="all")
@@ -563,6 +620,7 @@ def test_ai_influence_payload_month_filter(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mod, "AI_INFLUENCE_RAW_DIR", tmp_path / "legacy-ai-influence")
     monkeypatch.setattr(mod, "HUGGINGFACE_PAPERS_RAW_DIR", tmp_path / "huggingface-papers")
+    monkeypatch.setattr(mod, "REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr(mod, "_tech_hotspot_raw_dir", lambda: hotspot_root)
 
     all_payload = mod._ai_influence_payload(period="all")
