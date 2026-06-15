@@ -18,6 +18,14 @@ def _write_status(root: Path, name: str, status: str, phase: str, handoff_to: st
     (root / f"{name}.status.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _write_large_status(root: Path, name: str, status: str, phase: str, handoff_to: str = "") -> None:
+    payload = {"status": status, "phase": phase}
+    if handoff_to:
+        payload["handoff_to"] = handoff_to
+    payload["large_history"] = ["x" * 1024] * 256
+    (root / f"{name}.status.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
 def test_build_snapshot_scales_from_backlog(monkeypatch, tmp_path):
     sprints_dir = tmp_path / "sprints"
     config_dir = tmp_path / "config"
@@ -138,6 +146,28 @@ def test_build_snapshot_scales_from_backlog(monkeypatch, tmp_path):
     assert snapshot["builder_pool"]["desired_total"] == 15
     assert snapshot["builder_pool"]["groups"]["codex-gpt-5.3-spark"] == 2
     assert snapshot["global_limits"]["max_workers"] == 11
+
+
+def test_backlog_metrics_scans_large_status_files(monkeypatch, tmp_path):
+    sprints_dir = tmp_path / "sprints"
+    sprints_dir.mkdir(parents=True, exist_ok=True)
+    _write_large_status(sprints_dir, "large-build", "active", "planning_complete", "builder_main")
+    _write_large_status(sprints_dir, "large-review", "reviewing", "handoff_ready", "evaluator")
+
+    monkeypatch.setattr(ba, "SPRINTS_DIR", sprints_dir)
+    monkeypatch.setattr(ba, "STATUS_FULL_LOAD_MAX_BYTES", 128)
+    monkeypatch.setattr(ba, "STATUS_SCAN_BYTES", 4096)
+
+    metrics = ba.backlog_metrics(
+        {
+            "metrics": {
+                "active_planning_complete": {"status": "active", "phase": "planning_complete", "handoff_to": "builder_main"},
+                "reviewing_handoff_ready": {"status": "reviewing", "phase": "handoff_ready", "handoff_to": "evaluator"},
+            }
+        }
+    )
+
+    assert metrics == {"active_planning_complete": 1, "reviewing_handoff_ready": 1}
 
 
 def test_concurrency_policy_reads_backlog_snapshot(monkeypatch, tmp_path):

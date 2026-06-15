@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import importlib.util
 import json
 import os
@@ -17,6 +18,10 @@ SCHEMA_VERSION = "graph_drain_controller.v1"
 HARNESS_DIR = resolve_runtime_harness_dir()
 SPRINTS_DIR = HARNESS_DIR / "sprints"
 LIB_DIR = HARNESS_DIR / "lib"
+
+
+def _now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _coerce_int(value: object, default: int, min_value: int | None = None) -> int:
@@ -95,15 +100,23 @@ def _effective_node_status(graph: dict[str, Any], node: dict[str, Any]) -> str:
     return str(result.get("status") or node.get("status") or "pending").strip().lower() or "pending"
 
 
+def _priority_node_status(graph: dict[str, Any], node: dict[str, Any]) -> str:
+    """Cheap status for graph sorting; the drain phase performs authoritative checks."""
+    node_id = str(node.get("id") or "")
+    results = graph.get("node_results") if isinstance(graph.get("node_results"), dict) else {}
+    result = results.get(node_id) if isinstance(results.get(node_id), dict) else {}
+    return str(result.get("status") or node.get("status") or "pending").strip().lower() or "pending"
+
+
 def _graph_builder_ready_hint(graph: dict[str, Any]) -> int:
     nodes = _list_nodes(graph)
     if not nodes:
         return 0
     by_id = {str(node.get("id") or ""): node for node in nodes if str(node.get("id") or "")}
-    passed = {node_id for node_id, node in by_id.items() if _effective_node_status(graph, node) == "passed"}
+    passed = {node_id for node_id, node in by_id.items() if _priority_node_status(graph, node) == "passed"}
     ready_statuses = {"pending", "worker_blocked", "assigned"}
     for node_id, node in by_id.items():
-        if _effective_node_status(graph, node) not in ready_statuses:
+        if _priority_node_status(graph, node) not in ready_statuses:
             continue
         deps = node.get("depends_on") or []
         if not isinstance(deps, list):
@@ -126,7 +139,7 @@ def _graph_path_priority(path: Path) -> tuple[int, int, int, float]:
     node_results = graph.get("node_results") if isinstance(graph.get("node_results"), dict) else {}
     for node in _list_nodes(graph if isinstance(graph, dict) else {}):
         node_id = str(node.get("id") or "")
-        status = _effective_node_status(graph, node)
+        status = _priority_node_status(graph, node)
         artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
         disk_handoff = SPRINTS_DIR / f"{sid}.{node_id}-handoff.md"
         disk_eval_json = SPRINTS_DIR / f"{sid}.{node_id}-eval.json"
@@ -301,6 +314,104 @@ def _has_assigned_builder_queue_nodes(graph: dict[str, Any]) -> bool:
     return False
 
 
+def _clear_stale_builder_queue_assignments(
+    gnd: Any,
+    graph_path: Path,
+    graph: dict[str, Any],
+    *,
+    dry_run: bool,
+) -> list[dict[str, Any]]:
+    cleared: list[dict[str, Any]] = []
+    updated = False
+    now = _now()
+    results = graph.setdefault("node_results", {})
+    for node in _list_nodes(graph):
+        node_id = str(node.get("id") or "").strip()
+        if not node_id:
+            continue
+        if _effective_node_status(graph, node) != "assigned":
+            continue
+        dispatch_id = str(node.get("dispatch_id") or "").strip()
+        assigned_to = str(node.get("assigned_to") or "").strip()
+        result = results.get(node_id) if isinstance(results.get(node_id), dict) else {}
+        if not dispatch_id:
+            dispatch_id = str(result.get("dispatch_id") or "").strip()
+        if not assigned_to:
+            assigned_to = str(result.get("assigned_to") or "").strip()
+        if not dispatch_id:
+            continue
+        record = {
+            "node": node_id,
+            "previous_status": "assigned",
+            "previous_assigned_to": assigned_to,
+            "previous_dispatch_id": dispatch_id,
+            "reason": "builder_queue_assignment_without_pending_item",
+        }
+        cleared.append(record)
+        if dry_run:
+            continue
+        node["status"] = "pending"
+        node["updated_at"] = now
+        node.pop("assigned_to", None)
+        node.pop("dispatch_id", None)
+        artifacts = result.get("artifacts") if isinstance(result.get("artifacts"), dict) else {}
+        replacement = {
+            "status": "pending",
+            "updated_at": now,
+            "blocking_reason": "stale_builder_queue_assignment_cleared",
+            "previous_assigned_to": assigned_to,
+            "previous_dispatch_id": dispatch_id,
+        }
+        if artifacts:
+            replacement["artifacts"] = artifacts
+        results[node_id] = replacement
+        updated = True
+    if updated:
+        save_graph = getattr(gnd, "save_graph", None)
+        if callable(save_graph):
+            save_graph(str(graph_path), graph)
+        else:
+            graph_path.write_text(json.dumps(graph, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return cleared
+
+
+def _pending_graph_queue_count(gnd: Any, sprint_id: str) -> int | None:
+    queue_file = getattr(gnd, "_queue_file", None)
+    if not callable(queue_file):
+        return None
+    try:
+        path = Path(queue_file(sprint_id))
+    except Exception:
+        return None
+    if not path.exists():
+        return 0
+    is_graph_queue_item = getattr(gnd, "_is_graph_queue_item", None)
+    count = 0
+    try:
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                item = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(item, dict) or item.get("consumed"):
+                continue
+            if callable(is_graph_queue_item):
+                try:
+                    if not is_graph_queue_item(item):
+                        continue
+                except Exception:
+                    continue
+            else:
+                intent = str(item.get("intent") or "")
+                payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+                if "graph_node|" not in intent and not payload.get("node"):
+                    continue
+            count += 1
+    except Exception:
+        return None
+    return count
+
+
 def _is_parallelism_quality_error(error: object) -> bool:
     text = str(error or "")
     return (
@@ -343,7 +454,16 @@ def _count_builder_dispatches(result: dict[str, Any], *, dry_run: bool) -> int:
         unavailable = "unavailable" in reason or "retry_later" in reason
         if unavailable and not dry_run:
             continue
-        if not dry_run and not (item.get("instruction_file") or item.get("pm_task_id") or item.get("task_id")):
+        actor_runtime_dispatched = (
+            str(item.get("dispatch_path") or item.get("dispatch_mode") or "") == "actor_runtime"
+            and str(item.get("dispatch_id") or "").strip()
+        )
+        if not dry_run and not (
+            item.get("instruction_file")
+            or item.get("pm_task_id")
+            or item.get("task_id")
+            or actor_runtime_dispatched
+        ):
             continue
         ok_results.append(item)
     if ok_results:
@@ -443,6 +563,7 @@ def run_graph_drain(
         "skipped": 0,
         "drain_submitted": 0,
         "parallelism_gate_blocked": 0,
+        "stale_builder_queue_assignments": 0,
     }
     actions: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -490,7 +611,14 @@ def run_graph_drain(
             )
         builder_budget = max(0, int(max_builders) - counters["builder_attempts"])
         has_builder_ready = _has_builder_ready_nodes(gnd, graph) if builder_budget > 0 else False
-        has_builder_queue = _has_assigned_builder_queue_nodes(graph) if builder_budget > 0 else False
+        assigned_builder_queue_hint = _has_assigned_builder_queue_nodes(graph) if builder_budget > 0 else False
+        pending_builder_queue_count = _pending_graph_queue_count(gnd, sid) if builder_budget > 0 else None
+        has_builder_queue = (
+            bool(pending_builder_queue_count)
+            if pending_builder_queue_count is not None
+            else assigned_builder_queue_hint
+        )
+        stale_builder_queue_assignment = assigned_builder_queue_hint and pending_builder_queue_count == 0
         builder_quality_block = _graph_parallelism_quality_block(graph) if has_builder_ready else None
         if eval_nodes:
             counters["eval_candidates"] += len(eval_nodes)
@@ -510,6 +638,10 @@ def run_graph_drain(
                 "builder_ready": has_builder_ready,
                 "builder_queue_ready": has_builder_queue,
             }
+            if pending_builder_queue_count is not None:
+                candidate["builder_queue_depth"] = pending_builder_queue_count
+            if stale_builder_queue_assignment:
+                candidate["stale_builder_queue_assignment"] = True
             if builder_quality_block:
                 candidate["builder_quality_block"] = builder_quality_block
             candidates.append(candidate)
@@ -636,6 +768,45 @@ def run_graph_drain(
                     **builder_quality_block,
                 }
             )
+
+        if stale_builder_queue_assignment:
+            counters["stale_builder_queue_assignments"] += 1
+            cleared = _clear_stale_builder_queue_assignments(
+                gnd,
+                graph_path,
+                graph,
+                dry_run=dry_run,
+            )
+            counters["reconciled"] += 0 if dry_run else len(cleared)
+            if cleared:
+                actions.append(
+                    {
+                        "action_type": "graph_builder_stale_queue_reconcile",
+                        "target": sid,
+                        "status": "skipped" if dry_run else "applied",
+                        "graph": str(graph_path),
+                        "submitted": 0,
+                        "would_submit": 0,
+                        "reconciled": 0 if dry_run else len(cleared),
+                        "payload": {
+                            "ok": True,
+                            "sprint_id": sid,
+                            "cleared": cleared,
+                            "builder_queue_depth": pending_builder_queue_count,
+                            "dry_run": dry_run,
+                        },
+                    }
+                )
+            else:
+                counters["skipped"] += 1
+                skipped.append(
+                    {
+                        "graph": str(graph_path),
+                        "sprint_id": sid,
+                        "reason": "builder_queue_assignment_without_pending_item",
+                        "builder_queue_depth": pending_builder_queue_count,
+                    }
+                )
 
         if has_builder_queue and builder_budget > 0:
             counters["builder_attempts"] += 1

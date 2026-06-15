@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,9 @@ HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
 THIS_HARNESS_DIR = Path(__file__).resolve().parents[1]
 SPRINTS_DIR = Path(os.environ.get("HARNESS_SPRINTS_DIR", HARNESS_DIR / "sprints"))
 PHYSICAL_OPERATORS_PATH = Path(os.environ.get("SOLAR_MULTI_TASK_OPERATORS", HARNESS_DIR / "config" / "physical-operators.json"))
+STATUS_FULL_LOAD_MAX_BYTES = int(os.environ.get("SOLAR_BACKLOG_STATUS_JSON_FULL_LOAD_MAX_BYTES", str(1024 * 1024)))
+STATUS_SCAN_BYTES = int(os.environ.get("SOLAR_BACKLOG_STATUS_JSON_SCAN_BYTES", str(256 * 1024)))
+STATUS_FIELD_RE = re.compile(r'"(status|phase|handoff_to)"\s*:\s*("(?:\\.|[^"\\])*")')
 
 
 def _candidate_policy_paths() -> list[Path]:
@@ -41,6 +45,36 @@ def _load_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
+
+
+def _decode_json_string(raw: str) -> str:
+    try:
+        value = json.loads(raw)
+    except Exception:
+        return ""
+    return str(value) if value is not None else ""
+
+
+def _scan_status_fields(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            text = handle.read(STATUS_SCAN_BYTES)
+    except Exception:
+        return {}
+    fields: dict[str, Any] = {}
+    for key, raw_value in STATUS_FIELD_RE.findall(text):
+        fields.setdefault(key, _decode_json_string(raw_value))
+    return fields
+
+
+def _load_status_fields(path: Path) -> dict[str, Any]:
+    try:
+        if path.stat().st_size <= STATUS_FULL_LOAD_MAX_BYTES:
+            data = _load_json(path, {})
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return _scan_status_fields(path)
 
 
 def load_policy() -> dict[str, Any]:
@@ -89,7 +123,7 @@ def _status_phase_count(spec: dict[str, Any]) -> int:
     handoffs = _as_match_set(spec.get("handoff_to") or spec.get("handoffs"))
     count = 0
     for path in SPRINTS_DIR.glob("*.status.json"):
-        data = _load_json(path, {})
+        data = _load_status_fields(path)
         if not isinstance(data, dict):
             continue
         if statuses and str(data.get("status") or "").strip().lower() not in statuses:
