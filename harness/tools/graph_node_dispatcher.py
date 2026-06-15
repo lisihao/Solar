@@ -1667,7 +1667,17 @@ def _latest_pm_task_record_for(sid: str, node_id: str, operator_id: str = "") ->
         if operator_id and str(data.get("operator_id") or "") != operator_id:
             continue
         role = str(data.get("requested_role") or "").strip().lower()
-        if role and role not in {"builder", "implementation", "implementer", "coder", "dev"}:
+        if role and role not in {
+            "builder",
+            "implementation",
+            "implementer",
+            "coder",
+            "dev",
+            "evaluator",
+            "verifier",
+            "reviewer",
+            "review",
+        }:
             continue
         status = str(data.get("status") or "").strip().lower()
         if status not in {"completed", "failed", "failed_contract_closeout", "cancelled", "error"}:
@@ -5740,6 +5750,8 @@ def _submit_ready_node_via_actor_runtime(
         graph = load_graph(graph_path)
         graph_node = _node_by_id(graph, node_id)
         if graph_node is not None:
+            graph_node["operator_id"] = str(actor_ref)
+            graph_node.pop("pm_task_id", None)
             graph_node["dispatched_via"] = "actor_runtime"
             graph_node["dispatch_path"] = "actor_runtime"
             graph_node["actor_runtime_result"] = result_dict
