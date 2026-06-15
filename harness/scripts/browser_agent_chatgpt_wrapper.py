@@ -11,6 +11,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "lib"
@@ -47,6 +48,125 @@ def _headed_run_allowed() -> bool:
         "BROWSER_AGENT_ALLOW_HEADED",
         default=False,
     )
+
+
+def _env_disabled(*names: str) -> bool:
+    for name in names:
+        value = str(os.environ.get(name) or "").strip().lower()
+        if not value:
+            continue
+        return value in {"1", "true", "yes", "on"}
+    return False
+
+
+def _chatgpt_profile_policy_path() -> Path | None:
+    raw = str(
+        os.environ.get("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE")
+        or os.environ.get("BROWSER_AGENT_PROFILE_POLICY_FILE")
+        or os.environ.get("TECH_HOTSPOT_BROWSER_CHATGPT_PROFILE_POLICY_FILE")
+        or ""
+    ).strip()
+    if raw:
+        return Path(raw).expanduser()
+    default_path = Path.home() / ".solar" / "harness" / "browser-agent-chatgpt-local.json"
+    return default_path if default_path.exists() else None
+
+
+def _policy_key_for_purpose(purpose: str) -> str:
+    explicit = str(os.environ.get("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_KEY") or "").strip()
+    if explicit:
+        return explicit
+    lowered = str(purpose or "").lower()
+    if lowered.startswith("hf-paper-") or "hf-paper" in lowered:
+        return "hf_paper_insight"
+    if lowered.startswith("github-trend-report") or "github-trend-report" in lowered:
+        return "github_trend_report"
+    if lowered.startswith("ai-influence-report") or "ai-influence-report" in lowered:
+        return "ai_influence_report"
+    if lowered.startswith("deep-insight-solar") or "deep-insight-solar" in lowered:
+        return "deep_insight_solar"
+    return "default"
+
+
+def _account_from_policy(policy: dict[str, Any]) -> str:
+    for key in ("expected_account_email", "selected_account_email", "target_account_email", "account_email"):
+        value = str(policy.get(key) or "").strip()
+        if value:
+            return value
+    allowed = policy.get("allowed_account_identifiers")
+    if isinstance(allowed, list):
+        for item in allowed:
+            value = str(item or "").strip()
+            if "@" in value:
+                return value
+    return ""
+
+
+def _select_chatgpt_profile_policy(purpose: str) -> dict[str, Any]:
+    if _env_disabled("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_DISABLED", "BROWSER_AGENT_PROFILE_POLICY_DISABLED"):
+        return {"enabled": False, "reason": "disabled_by_env"}
+    path = _chatgpt_profile_policy_path()
+    if path is None:
+        return {"enabled": False, "reason": "missing_policy_file"}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"browser_agent_profile_policy_load_failed:{path}:{type(exc).__name__}:{exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"browser_agent_profile_policy_invalid:{path}")
+    policies = data.get("policies") if isinstance(data.get("policies"), dict) else {}
+    policy_key = _policy_key_for_purpose(purpose)
+    policy = policies.get(policy_key) if isinstance(policies.get(policy_key), dict) else None
+    if policy is None:
+        policy = policies.get("default") if isinstance(policies.get("default"), dict) else data
+    if not isinstance(policy, dict):
+        raise RuntimeError(f"browser_agent_profile_policy_missing:{path}:{policy_key}")
+    allowed_profiles = [str(item).strip() for item in (policy.get("allowed_profiles") or []) if str(item).strip()]
+    selected_profile = ""
+    explicit_profile = str(
+        os.environ.get("BROWSER_AGENT_PROFILE_DIRECTORY")
+        or os.environ.get("TECH_HOTSPOT_BROWSER_CHATGPT_PROFILE_DIRECTORY")
+        or ""
+    ).strip()
+    if explicit_profile:
+        if allowed_profiles and explicit_profile not in allowed_profiles:
+            raise RuntimeError(
+                "browser_agent_profile_policy_profile_mismatch:"
+                f"profile={explicit_profile}:allowed={','.join(allowed_profiles)}"
+            )
+        selected_profile = explicit_profile
+    elif allowed_profiles:
+        selected_profile = allowed_profiles[0]
+    account_email = _account_from_policy(policy)
+    explicit_account = str(
+        os.environ.get("BROWSER_AGENT_CHATGPT_ACCOUNT_EMAIL")
+        or os.environ.get("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL")
+        or ""
+    ).strip()
+    if explicit_account and account_email and explicit_account.lower() != account_email.lower():
+        raise RuntimeError(
+            "browser_agent_profile_policy_account_mismatch:"
+            f"account={explicit_account}:expected={account_email}"
+        )
+    user_data_dir = str(policy.get("user_data_dir") or "").strip()
+    profile_strategy = str(policy.get("profile_strategy") or "").strip().lower()
+    if profile_strategy and profile_strategy not in {"persistent", "isolated"}:
+        raise RuntimeError(f"browser_agent_profile_policy_invalid_strategy:{profile_strategy}")
+    return {
+        "enabled": True,
+        "policy_path": str(path),
+        "policy_key": policy_key if policy_key in policies else ("default" if "default" in policies else policy_key),
+        "selected_profile_directory": selected_profile,
+        "selected_account_email": account_email,
+        "allowed_profiles": allowed_profiles,
+        "allow_headless": bool(policy.get("allow_headless", True)),
+        "force_headed": bool(policy.get("force_headed", False)),
+        "allow_default_profile": bool(policy.get("allow_default_profile", False)),
+        "scrub_client_state": policy.get("scrub_client_state"),
+        "profile_strategy": profile_strategy,
+        "user_data_dir": user_data_dir,
+        "ignore_explicit_profile_id": bool(policy.get("ignore_explicit_profile_id", True)),
+    }
 
 
 def _browser_channel() -> str:
@@ -874,6 +994,37 @@ def _kill_browser_profile_processes(profile_dir: Path | None) -> None:
         pass
 
 
+def _refresh_persistent_profile_after_login_wall(
+    *,
+    user_data_dir: Path,
+    profile_directory: str,
+    profile_strategy: str,
+    profile_policy: dict[str, Any],
+) -> dict[str, Any]:
+    if profile_strategy != "persistent":
+        return {"attempted": False, "reason": "not_persistent"}
+    if not profile_policy.get("enabled"):
+        return {"attempted": False, "reason": "policy_disabled"}
+    try:
+        refreshed = bjrt.prepare_browser_profile_runtime(
+            user_data_dir,
+            profile_directory,
+            refresh=True,
+        )
+    except Exception as exc:
+        return {
+            "attempted": True,
+            "ok": False,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+    return {
+        "attempted": True,
+        "ok": bool(refreshed),
+        "refreshed_runtime_root": str(refreshed) if refreshed else "",
+    }
+
+
 def _prompt_from_stdin() -> str:
     prompt = sys.stdin.read()
     action = str(os.environ.get("BROWSER_AGENT_CHATGPT_ACTION") or "run").strip().lower()
@@ -1623,8 +1774,15 @@ async def _run(prompt: str) -> int:
     expected = str(os.environ.get("BROWSER_AGENT_EXPECTED_OUTPUT") or "markdown").strip().lower()
     model = str(os.environ.get("CHATGPT_MODEL") or "chatgpt-5.5").strip()
     reasoning_effort = str(os.environ.get("CHATGPT_REASONING_EFFORT") or "high").strip().lower()
+    purpose = str(os.environ.get("BROWSER_AGENT_PURPOSE") or request_dir.name or "").strip()
+    profile_policy = _select_chatgpt_profile_policy(purpose)
     profile_directory = str(os.environ.get("BROWSER_AGENT_PROFILE_DIRECTORY") or DEFAULT_PROFILE_DIRECTORY)
     user_data_dir = Path(os.environ.get("BROWSER_AGENT_USER_DATA_DIR") or str(DEFAULT_USER_DATA_DIR)).expanduser()
+    if profile_policy.get("enabled"):
+        if profile_policy.get("selected_profile_directory"):
+            profile_directory = str(profile_policy.get("selected_profile_directory"))
+        if profile_policy.get("user_data_dir"):
+            user_data_dir = Path(str(profile_policy.get("user_data_dir"))).expanduser()
     target_url = str(os.environ.get("BROWSER_AGENT_CHATGPT_URL") or DEFAULT_URL)
     action = str(os.environ.get("BROWSER_AGENT_CHATGPT_ACTION") or "run").strip().lower()
     collect_url = str(os.environ.get("BROWSER_AGENT_CHATGPT_CONVERSATION_URL") or "").strip()
@@ -1646,6 +1804,8 @@ async def _run(prompt: str) -> int:
         or os.environ.get("BROWSER_AGENT_TARGET_ACCOUNT_EMAIL")
         or ""
     ).strip()
+    if profile_policy.get("enabled") and profile_policy.get("selected_account_email"):
+        account_email = str(profile_policy.get("selected_account_email") or "").strip()
     headless = _env_flag("BROWSER_AGENT_HEADLESS", default=False)
     headed_allowed = _headed_run_allowed()
     profile_strategy = str(
@@ -1653,6 +1813,14 @@ async def _run(prompt: str) -> int:
         or os.environ.get("BROWSER_AGENT_PROFILE_STRATEGY")
         or "persistent"
     ).strip().lower()
+    if profile_policy.get("enabled"):
+        if profile_policy.get("force_headed") or not bool(profile_policy.get("allow_headless", True)):
+            headless = False
+            headed_allowed = True
+        if profile_policy.get("profile_strategy"):
+            profile_strategy = str(profile_policy.get("profile_strategy"))
+        if profile_policy.get("scrub_client_state") is not None:
+            scrub_client_state = bool(profile_policy.get("scrub_client_state"))
     if profile_strategy not in {"persistent", "isolated"}:
         profile_strategy = "persistent"
     browser_channel = _browser_channel()
@@ -1702,6 +1870,9 @@ async def _run(prompt: str) -> int:
         "scrub_client_state": scrub_client_state,
         "scrubbed_client_state": scrubbed_client_state,
         "account_email_hint_present": bool(account_email),
+        "profile_policy": profile_policy,
+        "user_data_dir": str(user_data_dir),
+        "staged_user_data_dir": str(staged_dir) if staged_dir else "",
         "request_dir": str(request_dir),
         "started_at": bjrt._now(),
     }
@@ -1717,7 +1888,11 @@ async def _run(prompt: str) -> int:
         user_data_dir=str(user_data_dir),
         staged_user_data_dir=str(staged_dir),
         account_identifier=account_email or None,
-        explicit_profile_id=str(os.environ.get("BROWSER_AGENT_PROFILE_ID") or "").strip() or None,
+        explicit_profile_id=(
+            None
+            if profile_policy.get("enabled") and profile_policy.get("ignore_explicit_profile_id")
+            else str(os.environ.get("BROWSER_AGENT_PROFILE_ID") or "").strip() or None
+        ),
         task_id=str(os.environ.get("TASK_ID") or request_dir.name),
         control_modes={
             "browser_use_session": True,
@@ -2055,6 +2230,25 @@ async def _run(prompt: str) -> int:
         except Exception:
             pass
         _kill_browser_profile_processes(staged_dir)
+        if final_error_text == "chatgpt_login_wall_detected":
+            try:
+                refresh_note = _refresh_persistent_profile_after_login_wall(
+                    user_data_dir=user_data_dir,
+                    profile_directory=profile_directory,
+                    profile_strategy=profile_strategy,
+                    profile_policy=profile_policy,
+                )
+                _write_json(request_dir / "profile-refresh-after-login-wall.json", refresh_note)
+            except Exception as exc:
+                _write_json(
+                    request_dir / "profile-refresh-after-login-wall.json",
+                    {
+                        "attempted": True,
+                        "ok": False,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
         if cleanup_dir is not None:
             shutil.rmtree(cleanup_dir, ignore_errors=True)
         brtc.finalize_runtime_contract(
