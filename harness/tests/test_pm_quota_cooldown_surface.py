@@ -92,6 +92,14 @@ class TestQuotaTextClassification:
     def test_normal_output_not_classified(self, ofc):
         assert ofc.classify_failure_state("Task completed successfully") == ""
 
+    def test_capacity_probe_text_not_classified_as_quota(self, ofc):
+        text = (
+            "capacity probe for graph-dispatch evaluator via mini-codex-gpt55-medium-builder-1\n"
+            "Graph dispatch file: /Users/lisihao/.solar/harness/sprints/example.N3-dispatch.md\n"
+            "Objective: inspect worker capacity and write the graph node closeout."
+        )
+        assert ofc.classify_failure_state(text) == ""
+
     def test_explicit_usage_limit_not_masked_by_closeout_words(self, ofc):
         text = (
             "必须阅读 builder handoff/evidence，写入 eval.md/eval.json verdict，"
@@ -382,6 +390,142 @@ class TestApplyFailureFlowControl:
 
 
 class TestQuotaRecoveryPrune:
+    def test_registry_prune_clears_stale_dynamic_status(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        status_dir = tmp_path / "run" / "operator-status"
+        registry_path.parent.mkdir(parents=True)
+        status_dir.mkdir(parents=True)
+        operator_id = "mini-claude-sonnet-builder"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        operator_id: {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "anthropic",
+                            "backend": "claude-cli",
+                            "model": "sonnet",
+                            "quota_guard_state": "ok",
+                            "quota_refresh_at": None,
+                            "state": {
+                                "runtime_state": "idle",
+                                "cooldown_until": None,
+                                "last_pruned_at": "2026-06-14T03:42:53Z",
+                            },
+                            "flow_control": {
+                                "last_pruned_at": "2026-06-14T03:42:53Z",
+                                "last_prune_reason": "weak_pane_rate_limit_evidence",
+                            },
+                        }
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        status_path = status_dir / f"{operator_id}.json"
+        status_path.write_text(
+            json.dumps(
+                {
+                    "operator_id": operator_id,
+                    "runtime_state": "cooldown",
+                    "updated_at": "2026-06-14T03:42:11Z",
+                    "expires_at": "2026-06-14T23:59:59Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        class FakeRuntime:
+            OPERATOR_STATUS_DIR = status_dir
+
+            @staticmethod
+            def clear_operator_status(op_id):
+                if op_id == operator_id and status_path.exists():
+                    status_path.unlink()
+
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+        monkeypatch.setattr(ofc, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(ofc, "_operator_runtime_module", lambda: FakeRuntime)
+        monkeypatch.setattr(ofc, "_now", lambda: datetime.datetime(2026, 6, 14, 3, 45, tzinfo=datetime.timezone.utc))
+
+        result = ofc.prune_expired_operator_config_blocks()
+
+        assert result["ok"] is True
+        assert any(
+            item["operator_id"] == operator_id
+            and item["expired_at"] == "registry_pruned_after_status_block"
+            for item in result["pruned"]
+        )
+        assert not status_path.exists()
+
+    def test_weak_failure_flow_cooldown_is_pruned(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        registry_path.parent.mkdir(parents=True)
+        operator_id = "mini-codex-gpt53-spark-builder-1"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        operator_id: {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "openai",
+                            "model": "gpt-5.3-codex-spark",
+                            "quota_guard_state": "cooldown",
+                            "quota_refresh_at": "2026-06-18T04:20:00Z",
+                            "state": {
+                                "runtime_state": "cooldown",
+                                "cooldown_until": "2026-06-18T04:20:00Z",
+                                "last_error": "rate_limit",
+                            },
+                            "flow_control": {
+                                "last_block_reason": "rate_limit",
+                                "last_block_source": "failure_flow_control",
+                                "last_block_detected_at": "2026-06-13T19:01:02Z",
+                                "last_block_expires_at": "2026-06-18T04:20:00Z",
+                                "last_block_excerpt": "capacity probe for graph-dispatch builder objective",
+                            },
+                        }
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        class FakeRuntime:
+            OPERATOR_STATUS_DIR = tmp_path / "run" / "operator-status"
+
+            @staticmethod
+            def get_operator_status(_op_id):
+                return None
+
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+        monkeypatch.setattr(ofc, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(ofc, "_operator_runtime_module", lambda: FakeRuntime)
+        monkeypatch.setattr(ofc, "_now", lambda: datetime.datetime(2026, 6, 14, 2, 45, tzinfo=datetime.timezone.utc))
+
+        result = ofc.prune_expired_operator_config_blocks()
+
+        assert result["ok"] is True
+        assert any(
+            item["operator_id"] == operator_id
+            and item["expired_at"] == "weak_failure_flow_rate_limit_evidence"
+            for item in result["pruned"]
+        )
+        updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"][operator_id]
+        assert updated["quota_guard_state"] == "ok"
+        assert updated["quota_refresh_at"] is None
+        assert updated["state"]["runtime_state"] == "idle"
+
     def test_claude_live_heartbeat_clears_future_registry_and_status_cooldown(self, ofc, tmp_path, monkeypatch):
         import datetime
 

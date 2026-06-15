@@ -2,7 +2,8 @@
 
 Factors: TaskFit 0.30, HistoricalSuccess 0.20, FreshQuota 0.15,
 LatencyFit 0.10, ContextAffinity 0.10, RiskFit 0.10, CostFit 0.05.
-Penalties: RecentFailurePenalty, SameProviderVerifierPenalty, StaleContextPenalty.
+Penalties: RecentFailurePenalty, SameProviderVerifierPenalty, StaleContextPenalty,
+FailureFingerprintPenalty.
 """
 from __future__ import annotations
 
@@ -134,6 +135,7 @@ def compute_score(
     recent_failure: bool = False,
     same_provider_verifier: bool = False,
     stale_context: bool = False,
+    failure_fingerprint_penalty: Optional[float] = None,
     penalty_overrides: Optional[Dict[str, float]] = None,
 ) -> Tuple[float, Dict[str, float], Dict[str, float]]:
     """Compute weighted score with penalties."""
@@ -156,6 +158,8 @@ def compute_score(
         )
     if stale_context:
         penalties["StaleContextPenalty"] = float(overrides.get("StaleContextPenalty", STALE_CONTEXT_PENALTY))
+    if failure_fingerprint_penalty is not None:
+        penalties["FailureFingerprintPenalty"] = max(0.0, float(failure_fingerprint_penalty))
 
     total = sum(factors.values()) - sum(penalties.values())
     return total, factors, penalties
@@ -184,12 +188,51 @@ def classify_actor_type(actor_id: str, actor_cfg: Optional[Dict[str, Any]] = Non
     return "api"
 
 
+def _coerce_fingerprint_penalty(raw: Any) -> float:
+    if raw is None:
+        return 0.0
+    if isinstance(raw, (int, float)):
+        return max(0.0, float(raw))
+    if isinstance(raw, dict):
+        return max(0.0, float(raw.get("penalty", 0.0) or 0.0))
+    return max(0.0, float(getattr(raw, "penalty", 0.0) or 0.0))
+
+
+def _resolve_failure_fingerprint_penalty(
+    actor_id: str,
+    task_type: Optional[str],
+    failure_fingerprint_penalties: Optional[Dict[str, Any]],
+    failure_fingerprint_evidence: Optional[List[Dict[str, Any]]],
+    failure_fingerprint_profiles: Optional[Dict[str, Any]],
+) -> float:
+    if failure_fingerprint_penalties and actor_id in failure_fingerprint_penalties:
+        return _coerce_fingerprint_penalty(failure_fingerprint_penalties[actor_id])
+
+    if not task_type or (not failure_fingerprint_evidence and not failure_fingerprint_profiles):
+        return 0.0
+
+    from failure_fingerprint import compute_label_fingerprint_penalty
+
+    profile = failure_fingerprint_profiles.get(actor_id) if failure_fingerprint_profiles else None
+    result = compute_label_fingerprint_penalty(
+        actor_id,
+        task_type,
+        failure_fingerprint_evidence,
+        profile=profile,
+    )
+    return _coerce_fingerprint_penalty(result)
+
+
 def rank_actors(
     candidates: List[str],
     task_fit_fn=None,
     evidence: Optional[TaskEvidence] = None,
     writer_actor_id: Optional[str] = None,
     actors_cfg: Optional[Dict[str, Dict[str, Any]]] = None,
+    task_type: Optional[str] = None,
+    failure_fingerprint_penalties: Optional[Dict[str, Any]] = None,
+    failure_fingerprint_evidence: Optional[List[Dict[str, Any]]] = None,
+    failure_fingerprint_profiles: Optional[Dict[str, Any]] = None,
 ) -> List[OperatorScoreResult]:
     """Rank candidates by score. Returns sorted (best first) results."""
     results = []
@@ -199,11 +242,19 @@ def rank_actors(
         tf = task_fit_fn(actor_id) if task_fit_fn else 0.5
         hs = ev.success_rate(actor_id=actor_id)
         spv = (writer_actor_id is not None and actor_id == writer_actor_id)
+        fingerprint_penalty = _resolve_failure_fingerprint_penalty(
+            actor_id,
+            task_type,
+            failure_fingerprint_penalties,
+            failure_fingerprint_evidence,
+            failure_fingerprint_profiles,
+        )
         total, factors, penalties = compute_score(
             actor_id=actor_id,
             task_fit=tf,
             historical_success=hs,
             same_provider_verifier=spv,
+            failure_fingerprint_penalty=fingerprint_penalty if fingerprint_penalty else None,
         )
         results.append(OperatorScoreResult(
             actor_id=actor_id,

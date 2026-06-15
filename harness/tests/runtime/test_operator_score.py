@@ -51,6 +51,13 @@ def test_penalty_overrides():
     assert total < 0.5
     print("PASS: penalty_overrides")
 
+def test_failure_fingerprint_penalty_output():
+    total, _, penalties = compute_score("a1", failure_fingerprint_penalty=0.25)
+    assert "FailureFingerprintPenalty" in penalties
+    assert abs(penalties["FailureFingerprintPenalty"] - 0.25) < 0.001
+    assert total < 0.5
+    print("PASS: failure_fingerprint_penalty_output")
+
 def test_historical_success_by_dimensions():
     ev = TaskEvidence([
         {"actor_id": "a1", "repo": "r1", "task_type": "CODE_IMPL", "outcome": "success"},
@@ -74,6 +81,43 @@ def test_rank_actors():
     assert results[0].total_score > results[1].total_score
     print("PASS: rank_actors")
 
+def test_rank_actors_applies_failure_fingerprint_penalty_to_sorting():
+    results = rank_actors(
+        ["a1", "a2"],
+        task_fit_fn=lambda _: 0.8,
+        failure_fingerprint_penalties={"a1": 0.3, "a2": 0.0},
+    )
+    assert results[0].actor_id == "a2"
+    penalized = next(item for item in results if item.actor_id == "a1")
+    assert penalized.penalties["FailureFingerprintPenalty"] == 0.3
+    assert "FailureFingerprintPenalty" in penalized.to_dict()["penalties"]
+    assert "Penalty[FailureFingerprintPenalty]" in penalized.explanation
+    print("PASS: rank_actors_applies_failure_fingerprint_penalty_to_sorting")
+
+def test_rank_actors_computes_failure_fingerprint_penalty_from_evidence():
+    evidence_events = [
+        {
+            "evidence_id": "ev-final-review-1",
+            "actor_id": "a1",
+            "task_type": "FINAL_REVIEW",
+            "failure_label": "shallow_final_reasoning",
+            "source_type": "eval",
+            "source_ref": "eval.md",
+            "severity": "medium",
+            "confidence": 1.0,
+        }
+    ]
+    results = rank_actors(
+        ["a1", "a2"],
+        task_fit_fn=lambda _: 0.8,
+        task_type="FINAL_REVIEW",
+        failure_fingerprint_evidence=evidence_events,
+    )
+    assert results[0].actor_id == "a2"
+    penalized = next(item for item in results if item.actor_id == "a1")
+    assert penalized.penalties["FailureFingerprintPenalty"] == 0.25
+    print("PASS: rank_actors_computes_failure_fingerprint_penalty_from_evidence")
+
 def test_explanation_output():
     results = rank_actors(["a1"], task_fit_fn=lambda _: 0.8)
     exp = results[0].explanation
@@ -89,7 +133,10 @@ if __name__ == "__main__":
     test_score_factors()
     test_penalties()
     test_penalty_overrides()
+    test_failure_fingerprint_penalty_output()
     test_historical_success_by_dimensions()
     test_rank_actors()
+    test_rank_actors_applies_failure_fingerprint_penalty_to_sorting()
+    test_rank_actors_computes_failure_fingerprint_penalty_from_evidence()
     test_explanation_output()
-    print("\n7/7 passed")
+    print("\n10/10 passed")
