@@ -79,6 +79,38 @@ def test_actorhost_resolver_uses_actor_hosts_primary(tmp_path: Path) -> None:
     assert result["capability_match"]["missing"] == ["browser_use"]
 
 
+def test_actorhost_resolver_treats_null_lease_expiry_as_stale(tmp_path: Path) -> None:
+    actors = tmp_path / "agent-actors.json"
+    hosts = tmp_path / "actor-hosts.json"
+    physical = tmp_path / "physical-operators.json"
+    leases = tmp_path / "actor-leases"
+    _write_json(actors, {
+        "actors": {
+            "actor-a": {
+                "host_id": "mini",
+                "role": "builder",
+                "capability_profile": {"code_impl": 5},
+            }
+        }
+    })
+    _write_json(hosts, {"hosts": {"mini": {"host_type": "claude_code_session"}}})
+    _write_json(physical, {"operators": {}})
+    _write_json(leases / "actor-a.json", {"state": "leased", "expires_at": None})
+
+    result = mts.resolve_actorhost_status(
+        actor_id="actor-a",
+        actors_path=actors,
+        hosts_path=hosts,
+        physical_operators_path=physical,
+        lease_dir=leases,
+        required_capabilities=["code_impl"],
+    )
+
+    assert result["resolution_source"] == "actor_hosts"
+    assert result["lease_state"] == "stale"
+    assert result["capability_match"]["matched"] == ["code_impl"]
+
+
 def test_actorhost_resolver_requires_explicit_compat_fallback(tmp_path: Path) -> None:
     actors = tmp_path / "agent-actors.json"
     hosts = tmp_path / "actor-hosts.json"
@@ -152,12 +184,16 @@ def test_worker_discovery_surfaces_actorhost_fields(monkeypatch) -> None:
 def test_operator_pool_virtual_workers_advertise_brokered_capabilities(monkeypatch) -> None:
     monkeypatch.setattr(gnd, "_builder_operator_pool_available_count", lambda: 2)
     monkeypatch.setenv("SOLAR_GRAPH_BUILDER_OPERATOR_POOL_SLOTS", "1")
-    monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: role == "evaluator")
+    monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: role in {"evaluator", "planner"})
     monkeypatch.setattr(gnd, "_operator_pool_operator_available_for_role", lambda *_: False)
 
     builder_workers = gnd._builder_operator_pool_workers(
         worker_skills=["python"],
         worker_capabilities=["python", "runtime-dag"],
+    )
+    planner_workers = gnd._planner_operator_pool_workers(
+        worker_skills=["architecture"],
+        worker_capabilities=["harness.dag", "rules.architecture"],
     )
     evaluator_workers = gnd._evaluator_operator_pool_workers()
 
@@ -166,6 +202,13 @@ def test_operator_pool_virtual_workers_advertise_brokered_capabilities(monkeypat
     assert builder_match["matched"] == ["python", "runtime-dag"]
     assert builder_match["missing"] == []
     assert builder_match["observed"] == ["python", "runtime-dag"]
+
+    assert len(planner_workers) == 1
+    assert planner_workers[0]["pane"] == "operator-pool:planner.0"
+    planner_match = planner_workers[0]["capability_match"]
+    assert planner_match["matched"] == ["harness.dag", "rules.architecture"]
+    assert planner_match["missing"] == []
+    assert planner_match["observed"] == ["harness.dag", "rules.architecture"]
 
     assert len(evaluator_workers) == 1
     evaluator_match = evaluator_workers[0]["capability_match"]
@@ -247,7 +290,27 @@ def test_eval_sidecar_final_fallback_allows_codex_write_capable_operator(monkeyp
     assert gnd._operator_pool_operator_can_closeout_eval_sidecar("mini-codex-gpt55-medium-builder-1") is True
 
 
-def test_evaluator_pool_prefers_gpt55_advisor_fallback_when_available(monkeypatch) -> None:
+def test_evaluator_pool_prefers_gpt55_advisor_fallback_when_available(monkeypatch, tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    _write_json(
+        config_dir / "physical-operators.json",
+        {
+            "version": 1,
+            "operators": {
+                "mini-codex-gpt55-medium-builder-2": {
+                    "role": "builder",
+                    "persona": "builder",
+                    "profile": "codex-builder",
+                    "roles": ["builder", "evaluator"],
+                    "policy": {"write_files": "allowed", "run_shell": "allowed"},
+                    "builder_pool": {"enabled": True},
+                    "state": {"runtime_state": "idle"},
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
     monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: False)
     monkeypatch.setattr(
         gnd,
@@ -332,6 +395,12 @@ def test_graph_queue_dispatch_role_normalizes_builder_aliases() -> None:
     assert gnd._graph_queue_dispatch_role({}, {}, {"dispatch_role": "builder_main"}) == "builder"
     assert gnd._graph_queue_dispatch_role({}, {}, {"dispatch_role": "builder-worker"}) == "builder"
     assert gnd._graph_queue_dispatch_role({}, {"dispatch_role": "Implementation"}, {}) == "builder"
+
+
+def test_graph_queue_dispatch_role_uses_operator_pool_pane_hint() -> None:
+    assert gnd._graph_queue_dispatch_role({}, {}, {"pane": "operator-pool:evaluator.0"}) == "evaluator"
+    assert gnd._graph_queue_dispatch_role({}, {}, {"pane": "operator-pool:planner.0"}) == "planner"
+    assert gnd._graph_queue_dispatch_role({}, {}, {"pane": "operator-pool:builder.0"}) == "builder"
 
 
 def test_operator_pool_dispatch_result_surfaces_selected_actorhost(monkeypatch, tmp_path: Path) -> None:
@@ -430,3 +499,176 @@ def test_operator_pool_dispatch_honors_evaluator_graph_node_role(monkeypatch, tm
     assert result["dispatch_mode"] == "operator_pool_evaluator"
     assert captured["cmd"][captured["cmd"].index("--role") + 1] == "evaluator"
     assert result["capability_match"]["matched"] == ["code.review"]
+    assert not (tmp_path / "sprints" / "sprint-test.E2-dispatch.md").exists()
+
+
+def test_operator_pool_dispatch_allows_evaluator_virtual_pane_hint(monkeypatch, tmp_path: Path) -> None:
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = list(cmd)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="task_id = pm-1\noperator = mini-codex-gpt55-medium-builder-1\ndispatch = dispatch.json\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", tmp_path / "sprints")
+    monkeypatch.setattr(gnd, "_builder_operator_pool_enabled", lambda: True)
+    monkeypatch.setattr(gnd.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        gnd,
+        "resolve_actorhost_status",
+        lambda **kw: {
+            "actor_id": kw.get("actor_id") or "mini-codex-gpt55-medium-builder-1",
+            "host_id": "mini",
+            "host_type": "claude_code_session",
+            "lease_state": "idle",
+            "capability_match": {"required": kw.get("required_capabilities", []), "matched": [], "missing": [], "observed": []},
+            "compat_fallback": False,
+            "compat_maps_to": None,
+            "resolution_source": "actor_hosts",
+            "canonical_host_type": True,
+        },
+    )
+
+    result = gnd._submit_builder_to_operator_pool(
+        item={"payload": {}},
+        payload={"assignment": {"pane": "operator-pool:evaluator.0"}},
+        sid="sprint-test",
+        node={"id": "E2", "required_capabilities": ["code.review"]},
+        node_id="E2",
+        graph_path=str(tmp_path / "sprint-test.task_graph.json"),
+        pane="operator-pool:evaluator.0",
+        dispatch_id="dispatch-1",
+        dry_run=True,
+    )
+
+    assert result["ok"] is True
+    assert result["dispatch_mode"] == "operator_pool_evaluator"
+    assert captured["cmd"][captured["cmd"].index("--role") + 1] == "evaluator"
+    assert not (tmp_path / "sprints" / "sprint-test.E2-dispatch.md").exists()
+
+
+def test_operator_pool_eval_submit_uses_graph_eval_task_type(monkeypatch, tmp_path: Path) -> None:
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = list(cmd)
+        return SimpleNamespace(
+            returncode=0,
+            stdout="task_id = pm-1\noperator = mini-codex-gpt55-medium-builder-1\ndispatch = dispatch.json\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd.subprocess, "run", fake_run)
+
+    result = gnd._submit_eval_to_operator_pool(
+        sid="sprint-test",
+        node_id="S1",
+        graph_path=str(tmp_path / "sprint-test.task_graph.json"),
+        pane="operator-pool:evaluator.0",
+        operator_id="",
+        dispatch_id="dispatch-1",
+        instruction_file=tmp_path / "sprints" / "sprint-test.S1-eval-dispatch-q1.md",
+        dry_run=True,
+    )
+
+    assert result["ok"] is True
+    assert captured["cmd"][captured["cmd"].index("--role") + 1] == "evaluator"
+    assert captured["cmd"][captured["cmd"].index("--task-type") + 1] == "graph_eval"
+
+
+def test_operator_pool_admission_failure_reports_specific_reason(monkeypatch, tmp_path: Path) -> None:
+    def fake_run(cmd, *args, **kwargs):
+        return SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr=(
+                "ERROR: capability_capsule_admission_failed: admission_failed: "
+                "missing required input: repo_path; missing required input: benchmark_log\n"
+            ),
+        )
+
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", tmp_path / "sprints")
+    monkeypatch.setattr(gnd, "_builder_operator_pool_enabled", lambda: True)
+    monkeypatch.setattr(gnd.subprocess, "run", fake_run)
+
+    result = gnd._submit_builder_to_operator_pool(
+        item={"payload": {}},
+        payload={"assignment": {"pane": "operator-pool:evaluator.0"}},
+        sid="sprint-test",
+        node={"id": "S3", "required_capabilities": ["test.tdd"]},
+        node_id="S3",
+        graph_path=str(tmp_path / "sprint-test.task_graph.json"),
+        pane="operator-pool:evaluator.0",
+        dispatch_id="dispatch-1",
+        dry_run=False,
+    )
+
+    assert result["ok"] is False
+    assert result["reason"] == "operator_pool_admission_failed"
+    assert "missing required input: repo_path" in result["stderr"]
+
+
+def test_graph_queue_admission_failure_records_worker_blocker(monkeypatch, tmp_path: Path) -> None:
+    graph_path = tmp_path / "sprints" / "sprint-test.task_graph.json"
+    _write_json(
+        graph_path,
+        {
+            "sprint_id": "sprint-test",
+            "nodes": [
+                {
+                    "id": "S3",
+                    "status": "assigned",
+                    "assigned_to": "operator-pool:evaluator.0",
+                    "dispatch_id": "dispatch-1",
+                }
+            ],
+            "node_results": {},
+        },
+    )
+
+    def fake_submit(**kwargs):
+        return {
+            "ok": False,
+            "reason": "operator_pool_admission_failed",
+            "returncode": 1,
+            "stdout": "",
+            "stderr": (
+                "ERROR: capability_capsule_admission_failed: admission_failed: "
+                "missing required input: repo_path; missing required input: benchmark_log\n"
+            ),
+            "instruction_file": str(tmp_path / "sprints" / "sprint-test.S3-dispatch.md"),
+        }
+
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", tmp_path / "sprints")
+    monkeypatch.setattr(gnd, "_submit_builder_to_operator_pool", fake_submit)
+    monkeypatch.setattr(gnd, "_append_dispatch_ledger", lambda *args, **kwargs: None)
+
+    result = gnd.dispatch_queue_item(
+        {
+            "sprint_id": "sprint-test",
+            "payload": {
+                "sprint_id": "sprint-test",
+                "graph": str(graph_path),
+                "node": {"id": "S3"},
+                "assignment": {"pane": "operator-pool:evaluator.0"},
+                "dispatch_id": "dispatch-1",
+            },
+        },
+        dry_run=False,
+    )
+
+    assert result["ok"] is False
+    assert result["reason"] == "operator_pool_admission_failed"
+    updated = gnd.load_graph(str(graph_path))
+    node = updated["nodes"][0]
+    assert node["status"] == "worker_blocked"
+    assert "assigned_to" not in node
+    blocker = updated["node_results"]["S3"]
+    assert blocker["blocking_reason"] == "operator_pool_admission_failed"
+    assert blocker["missing_required_inputs"] == ["benchmark_log", "repo_path"]

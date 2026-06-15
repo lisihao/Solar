@@ -74,6 +74,77 @@ def test_deep_insight_solar_bridge_sets_dedicated_chatgpt_profile_policy_key() -
     assert request["account_email"] == "haogege1977@gmail.com"
 
 
+def test_deep_insight_solar_leader_planner_compacts_prompt_payload(monkeypatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setenv("DEEP_INSIGHT_SOLAR_PLANNER_TOPIC_MAX_CHARS", "80")
+    monkeypatch.setenv("DEEP_INSIGHT_SOLAR_PLANNER_DESCRIPTION_MAX_CHARS", "40")
+    request = _request("BrowserLeaderPlanner")
+    long_topic = "Ion Stoica " + ("paper list " * 80)
+    request["topic"] = long_topic
+    request["payload"] = {
+        "topic": long_topic,
+        "description": "description " * 20,
+        "priorPostmortems": [
+            {
+                "missionId": "m1",
+                "summary": "summary " * 300,
+                "recommendations": ["recommendation " * 80],
+                "rawLargeField": "x" * 10000,
+            }
+        ],
+    }
+
+    envelope = bridge._chatgpt_envelope(request)
+    chatgpt_request = envelope["chatgpt_browser_agent_request"]
+    prompt = chatgpt_request["prompt"]
+
+    assert chatgpt_request["reasoning_effort"] == "medium"
+    assert len(prompt) < 4000
+    assert "rawLargeField" not in prompt
+    assert "...[truncated for planner budget]..." in prompt
+
+
+def test_deep_insight_solar_non_planner_keeps_high_reasoning_effort() -> None:
+    bridge = _load_bridge_module()
+    envelope = bridge._chatgpt_envelope(_request("BrowserAnalyst"))
+    request = envelope["chatgpt_browser_agent_request"]
+    assert request["reasoning_effort"] == "high"
+
+
+def test_chatgpt_operator_passes_timeout_settings_to_wrapper(tmp_path: Path, monkeypatch) -> None:
+    operator = _load_chatgpt_operator_module()
+    wrapper = tmp_path / "fake_chatgpt_wrapper.py"
+    wrapper.write_text(
+        "import json, os, sys\n"
+        "sys.stdin.read()\n"
+        "print(json.dumps({\n"
+        "  'timeout': os.environ.get('BROWSER_AGENT_CHATGPT_TIMEOUT'),\n"
+        "  'ready': os.environ.get('BROWSER_AGENT_CHATGPT_READY_TIMEOUT'),\n"
+        "  'new_chat': os.environ.get('BROWSER_AGENT_CHATGPT_NEW_CHAT_TIMEOUT')\n"
+        "}, ensure_ascii=False))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_CMD", f"{sys.executable} {wrapper}")
+    monkeypatch.setattr(operator, "apply_profile_policy", lambda env, request: {"ok": True})
+
+    result = operator.run_request(
+        {
+            "prompt": "timeout smoke",
+            "timeout_seconds": 3600,
+            "ready_timeout_seconds": 300,
+            "new_chat_timeout_seconds": 180,
+        },
+        task_dir=tmp_path / "task",
+    )
+
+    env_snapshot = json.loads(result["text"])
+    assert env_snapshot == {
+        "timeout": "3600",
+        "ready": "300",
+        "new_chat": "180",
+    }
+
+
 def test_deep_insight_solar_login_hold_envelope_uses_preflight_action() -> None:
     bridge = _load_bridge_module()
     envelope = bridge._chatgpt_login_hold_envelope(

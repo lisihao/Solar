@@ -84,6 +84,7 @@ def test_sync_status_cache_repairs_stale_task_graph_status_for_passed_parent(tmp
         "graph_parent_ready": {"ready": True, "open_nodes": [], "failed_nodes": []},
         "task_graph_status": "active",
         "task_graph": str(graph_path),
+        "acceptance_verdict": {"blocked": True, "verdict": "FAIL"},
         "history": [],
     }
     status_path.write_text(json.dumps(stale_status), encoding="utf-8")
@@ -96,6 +97,242 @@ def test_sync_status_cache_repairs_stale_task_graph_status_for_passed_parent(tmp
     assert updated["status"] == "passed"
     assert updated["task_graph_status"] == "passed"
     assert updated["active_node"] is None
+    assert "acceptance_verdict" not in updated
+
+
+def test_sync_status_cache_clears_stale_acceptance_projection_for_passed_parent(tmp_path, monkeypatch):
+    import graph_scheduler as gs
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-test-stale-acceptance-projection"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    status_path = sprints / f"{sid}.status.json"
+    graph = {
+        "sprint_id": sid,
+        "title": "Completed graph",
+        "created_at": "2026-05-28T10:00:00Z",
+        "required_gates": ["G1"],
+        "nodes": [
+            {"id": "N1", "status": "passed", "depends_on": [], "gate": "G1"},
+            {"id": "N2", "status": "passed", "depends_on": ["N1"], "gate": "G1"},
+        ],
+        "node_results": {"N1": {"status": "passed"}, "N2": {"status": "passed"}},
+        "gate_results": {"G1": {"status": "passed"}},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    status_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": sid,
+                "status": "passed",
+                "phase": "completed",
+                "stage": "completed",
+                "active_node": None,
+                "graph_parent_ready": {"ready": True, "open_nodes": [], "failed_nodes": []},
+                "task_graph_status": "passed",
+                "task_graph": str(graph_path),
+                "acceptance_verdict": {"blocked": True, "verdict": "FAIL"},
+                "history": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sprints / f"{sid}.acceptance_verdict.json").write_text(
+        json.dumps({"verdict": "PASS", "reasons": []}),
+        encoding="utf-8",
+    )
+
+    result = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_parent_ready_passed")
+
+    assert result["ok"] is True
+    assert result["updated"] is True
+    updated = json.loads(status_path.read_text(encoding="utf-8"))
+    assert updated["status"] == "passed"
+    assert updated["task_graph_status"] == "passed"
+    assert "acceptance_verdict" not in updated
+
+
+def test_sync_status_cache_blocks_parent_pass_when_acceptance_verdict_fails(tmp_path, monkeypatch):
+    import graph_scheduler as gs
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-test-acceptance-fail"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    status_path = sprints / f"{sid}.status.json"
+    graph = {
+        "sprint_id": sid,
+        "required_gates": ["G1"],
+        "nodes": [
+            {"id": "N1", "status": "passed", "depends_on": [], "gate": "G1"},
+            {"id": "N2", "status": "passed", "depends_on": ["N1"], "gate": "G1"},
+        ],
+        "node_results": {"N1": {"status": "passed"}, "N2": {"status": "passed"}},
+        "gate_results": {"G1": {"status": "passed"}},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    status_path.write_text(
+        json.dumps({"sprint_id": sid, "status": "active", "phase": "graph_in_progress", "history": []}),
+        encoding="utf-8",
+    )
+    (sprints / f"{sid}.acceptance_verdict.json").write_text(
+        json.dumps({"verdict": "FAIL", "reasons": ["review_decision_failed:N2"]}),
+        encoding="utf-8",
+    )
+
+    result = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_parent_ready_passed")
+
+    assert result["ok"] is True
+    assert result["reason"] == "acceptance_verdict_blocked_parent_pass"
+    updated = json.loads(status_path.read_text(encoding="utf-8"))
+    assert updated["status"] == "failed_review"
+    assert updated["stage"] == "acceptance_failed"
+    assert updated["acceptance_verdict"]["reasons"] == ["review_decision_failed:N2"]
+
+
+def test_sync_status_cache_refreshes_pending_closure_before_parent_pass(tmp_path, monkeypatch):
+    import graph_scheduler as gs
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-test-pending-closure"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    status_path = sprints / f"{sid}.status.json"
+    closure_path = sprints / f"{sid}.closure.json"
+    graph = {
+        "sprint_id": sid,
+        "required_gates": ["G1"],
+        "nodes": [
+            {"id": "N1", "status": "passed", "depends_on": [], "gate": "G1"},
+            {"id": "N2", "status": "passed", "depends_on": ["N1"], "gate": "G1"},
+        ],
+        "node_results": {"N1": {"status": "passed"}, "N2": {"status": "passed"}},
+        "gate_results": {"G1": {"status": "passed"}},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    status_path.write_text(
+        json.dumps({"sprint_id": sid, "status": "reviewing", "phase": "implementation_complete", "history": []}),
+        encoding="utf-8",
+    )
+    (sprints / f"{sid}.acceptance_verdict.json").write_text(
+        json.dumps({"verdict": "PASS", "reasons": []}),
+        encoding="utf-8",
+    )
+    closure_path.write_text(
+        json.dumps({"status": "pending", "all_nodes_passed": True, "all_required_gates_passed": True}),
+        encoding="utf-8",
+    )
+
+    result = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_parent_ready_passed")
+
+    assert result["ok"] is True
+    assert result["closure_projection"]["updated"] is True
+    updated = json.loads(status_path.read_text(encoding="utf-8"))
+    closure = json.loads(closure_path.read_text(encoding="utf-8"))
+    assert updated["status"] == "passed"
+    assert updated["stage"] == "completed"
+    assert closure["status"] == "closed"
+
+
+def test_sync_status_cache_blocks_parent_pass_when_closure_fails(tmp_path, monkeypatch):
+    import graph_scheduler as gs
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-test-closure-fail"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    status_path = sprints / f"{sid}.status.json"
+    graph = {
+        "sprint_id": sid,
+        "required_gates": ["G1"],
+        "nodes": [
+            {"id": "N1", "status": "passed", "depends_on": [], "gate": "G1"},
+            {"id": "N2", "status": "passed", "depends_on": ["N1"], "gate": "G1"},
+        ],
+        "node_results": {"N1": {"status": "passed"}, "N2": {"status": "passed"}},
+        "gate_results": {"G1": {"status": "passed"}},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    status_path.write_text(
+        json.dumps({"sprint_id": sid, "status": "reviewing", "phase": "implementation_complete", "history": []}),
+        encoding="utf-8",
+    )
+    (sprints / f"{sid}.acceptance_verdict.json").write_text(
+        json.dumps({"verdict": "PASS", "reasons": []}),
+        encoding="utf-8",
+    )
+    (sprints / f"{sid}.closure.json").write_text(
+        json.dumps({"status": "failed", "legacy_status": "fail", "traceability_coverage": 42.86}),
+        encoding="utf-8",
+    )
+
+    result = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_parent_ready_passed")
+
+    assert result["ok"] is True
+    assert result["reason"] == "closure_blocked_parent_pass"
+    updated = json.loads(status_path.read_text(encoding="utf-8"))
+    assert updated["status"] == "failed_review"
+    assert updated["stage"] == "closure_failed"
+    assert updated["closure_verdict"]["status"] == "failed"
+
+
+def test_sync_status_cache_reopens_stale_cancelled_inflight_projection(tmp_path, monkeypatch):
+    import graph_scheduler as gs
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-test-cancelled-drift"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    status_path = sprints / f"{sid}.status.json"
+    graph = {
+        "sprint_id": sid,
+        "title": "Active graph with stale cancelled status",
+        "required_gates": ["G1"],
+        "nodes": [
+            {"id": "N1", "status": "passed", "depends_on": [], "gate": "G1"},
+            {"id": "N2", "status": "reviewing", "depends_on": ["N1"], "gate": "G1"},
+        ],
+        "node_results": {"N1": {"status": "passed"}, "N2": {"status": "reviewing"}},
+        "gate_results": {},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    status_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": sid,
+                "status": "cancelled",
+                "phase": "cancelled",
+                "stage": "graph_in_progress",
+                "task_graph_status": "active",
+                "task_graph": str(graph_path),
+                "cancel_reason": "stale_queue_noise_cleanup",
+                "history": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_projection_refresh")
+
+    assert result["ok"] is True
+    assert result["updated"] is True
+    assert result["reason"] == "terminal_projection_reopened"
+    updated = json.loads(status_path.read_text(encoding="utf-8"))
+    assert updated["status"] == "active"
+    assert updated["phase"] == "graph_in_progress"
+    assert updated["active_node"] == "N2"
+    assert updated["cancel_reason"] is None
 
 
 def test_parent_ready_check_self_heals_stale_blocked_gate(tmp_path, monkeypatch):

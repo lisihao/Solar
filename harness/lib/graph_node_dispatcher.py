@@ -7569,7 +7569,11 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             successful_assignments.append(dict(assignment))
             node["status"] = "reviewing"
             node["eval_dispatch_group_id"] = dispatch_group_id
-            for stale_key in ("eval_retry_reason", "eval_retry_detail", "eval_retry_requested_at"):
+            stale_retry_reason = str(node.get("eval_retry_reason") or "")
+            retry_keys = ("eval_retry_reason", "eval_retry_detail", "eval_retry_requested_at")
+            if stale_retry_reason == "force_retry_archived_stale_eval_sidecars":
+                retry_keys = ("eval_retry_detail", "eval_retry_requested_at")
+            for stale_key in retry_keys:
                 node.pop(stale_key, None)
             _store_eval_assignments(node, successful_assignments, _utc_now(), sprint_id=sid)
             save_graph(graph_path, graph)

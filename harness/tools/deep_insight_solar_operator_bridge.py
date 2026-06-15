@@ -133,13 +133,12 @@ def _prompt_payload_for_chatgpt(request: dict[str, Any]) -> dict[str, Any]:
     operator_id = str(request.get("operatorId") or "")
     if operator_id != "BrowserLeaderPlanner":
         return payload
-    max_topic_chars = _int_env("DEEP_INSIGHT_SOLAR_PLANNER_TOPIC_MAX_CHARS", 8000)
+    max_topic_chars = _int_env("DEEP_INSIGHT_SOLAR_PLANNER_TOPIC_MAX_CHARS", 6000)
     max_description_chars = _int_env("DEEP_INSIGHT_SOLAR_PLANNER_DESCRIPTION_MAX_CHARS", 2000)
     compact: dict[str, Any] = {
         "description": _truncate_text(payload.get("description"), max_chars=max_description_chars),
         "depth": payload.get("depth"),
         "language": payload.get("language"),
-        "topicExcerpt": _truncate_text(payload.get("topic") or request.get("topic"), max_chars=max_topic_chars),
     }
     postmortems = _compact_prior_postmortems(payload.get("priorPostmortems"))
     if postmortems:
@@ -232,7 +231,7 @@ def _prompt_for_chatgpt(request: dict[str, Any]) -> str:
     depth = str(request.get("depth") or "standard")
     payload = _prompt_payload_for_chatgpt(request)
     topic_for_prompt = (
-        _truncate_text(topic, max_chars=_int_env("DEEP_INSIGHT_SOLAR_PLANNER_TOPIC_MAX_CHARS", 8000))
+        _truncate_text(topic, max_chars=_int_env("DEEP_INSIGHT_SOLAR_PLANNER_TOPIC_MAX_CHARS", 6000))
         if operator_id == "BrowserLeaderPlanner"
         else topic
     )
@@ -326,6 +325,8 @@ def _chatgpt_envelope(request: dict[str, Any]) -> dict[str, Any]:
             "require_deep_research": False,
             "account_email": _account_email(),
             "timeout_seconds": timeout,
+            "ready_timeout_seconds": _int_env("DEEP_INSIGHT_SOLAR_CHATGPT_READY_TIMEOUT_SECONDS", 300),
+            "new_chat_timeout_seconds": _int_env("DEEP_INSIGHT_SOLAR_CHATGPT_NEW_CHAT_TIMEOUT_SECONDS", 180),
         },
         "chatgpt_success_cooldown_seconds": int(os.environ.get("DEEP_INSIGHT_SOLAR_SUCCESS_COOLDOWN_SECONDS") or "300"),
         "chatgpt_rate_limit_cooldown_seconds": int(os.environ.get("DEEP_INSIGHT_SOLAR_RATE_LIMIT_COOLDOWN_SECONDS") or "1800"),

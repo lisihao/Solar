@@ -243,6 +243,8 @@ def build_request(envelope: dict[str, Any], *, task_dir: Path | None = None) -> 
                 "account_email",
                 "action",
                 "timeout_seconds",
+                "ready_timeout_seconds",
+                "new_chat_timeout_seconds",
             ):
                 if key in envelope:
                     request[key] = deepcopy(envelope[key])
@@ -372,6 +374,13 @@ def run_request(request: dict[str, Any], *, task_dir: Path) -> dict[str, Any]:
         encoding="utf-8",
     )
     timeout = ofc.int_value(request.get("timeout_seconds") or os.environ.get("BROWSER_AGENT_CHATGPT_TIMEOUT"), 1800)
+    env["BROWSER_AGENT_CHATGPT_TIMEOUT"] = str(timeout)
+    ready_timeout = request.get("ready_timeout_seconds")
+    if ready_timeout is not None:
+        env["BROWSER_AGENT_CHATGPT_READY_TIMEOUT"] = str(ofc.int_value(ready_timeout, 90))
+    new_chat_timeout = request.get("new_chat_timeout_seconds")
+    if new_chat_timeout is not None:
+        env["BROWSER_AGENT_CHATGPT_NEW_CHAT_TIMEOUT"] = str(ofc.int_value(new_chat_timeout, 45))
     proc = subprocess.run(
         cmd,
         input=prompt,

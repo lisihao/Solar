@@ -61,3 +61,19 @@ def test_builder_closeout_accepts_fresh_handoff(tmp_path):
     assert status["ok"] is True
     assert status["missing_artifacts"] == []
     assert status["stale_artifacts"] == []
+
+
+def test_pm_completion_eval_path_finds_node_eval_sidecar(tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    pm_dispatch.SPRINTS_DIR = tmp_path
+
+    eval_json = tmp_path / "sprint-x.E1-eval.json"
+    eval_json.write_text('{"verdict":"PASS"}\n', encoding="utf-8")
+
+    path = pm_dispatch._pm_completion_eval_path(
+        {"requested_role": "evaluator"},
+        "sprint-x",
+        "E1",
+    )
+
+    assert path == str(eval_json)

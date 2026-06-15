@@ -164,6 +164,22 @@ if len(sys.argv) >= 4 and sys.argv[1] == "complete" and sys.argv[2] == "--task-i
     log.write_text(json.dumps({"task_id": task_id}, ensure_ascii=False), encoding="utf-8")
     print(f"✅ 任务 {task_id} 已标记为 completed")
     raise SystemExit(0)
+if len(sys.argv) >= 4 and sys.argv[1] == "fail" and sys.argv[2] == "--task-id":
+    task_id = sys.argv[3]
+    status = ""
+    reason = ""
+    if "--status" in sys.argv:
+        status = sys.argv[sys.argv.index("--status") + 1]
+    if "--reason" in sys.argv:
+        reason = sys.argv[sys.argv.index("--reason") + 1]
+    log = Path(__file__).resolve().parent.parent / "run" / "pm-fail.json"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(
+        json.dumps({"task_id": task_id, "status": status, "reason": reason}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    print(f"❌ 任务 {task_id} 已标记为 {status}")
+    raise SystemExit(0)
 raise SystemExit(2)
 """,
         encoding="utf-8",
@@ -934,6 +950,80 @@ class TestDaemonOnce:
         complete_log = tmp_path / "run" / "pm-complete.json"
         assert complete_log.exists()
         assert json.loads(complete_log.read_text(encoding="utf-8"))["task_id"] == "pm-T-command-002"
+
+    def test_graph_eval_pm_task_requires_eval_sidecars_before_completed_result(self, tmp_path):
+        env = _setup_command_harness(tmp_path)
+        dispatch_dir = tmp_path / "run" / "pm-dispatch-files"
+        dispatch_dir.mkdir(parents=True, exist_ok=True)
+        dispatch_file = dispatch_dir / "pm-T-graph-eval-001.md"
+        dispatch_file.write_text("# Solar PM Dispatch\n\nwrite eval sidecars\n", encoding="utf-8")
+
+        envelope = {
+            "task_id": "pm-T-graph-eval-001",
+            "sprint_id": "sprint-command",
+            "node_id": "V3",
+            "operator_id": "test-command-builder",
+            "task_type": "graph_eval",
+            "requested_role": "evaluator",
+            "objective": "Verify graph eval sidecar contract",
+            "dispatch_file": str(dispatch_file),
+            "result_path": str(tmp_path / "sprints" / "sprint-command.V3.pm-result.md"),
+            "command": (
+                "python3 -c "
+                + shlex.quote(
+                    "import os; "
+                    "from pathlib import Path; "
+                    "p=Path(os.environ['PM_RESULT_PATH']); "
+                    "p.parent.mkdir(parents=True, exist_ok=True); "
+                    "p.write_text('# PM Task Result\\n\\noperator wrote pm result only\\n', encoding='utf-8'); "
+                    "print('pm_result_written=' + str(p))"
+                )
+            ),
+        }
+        envelope_path = tmp_path / "pm-graph-eval-envelope.json"
+        envelope_path.write_text(json.dumps(envelope), encoding="utf-8")
+
+        submit_out = self._run_submit(env, envelope_path)
+        assert submit_out["status"] == "submitted"
+
+        daemon_proc = subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "operatord.py"),
+                "daemon",
+                "--operator",
+                "test-command-builder",
+                "--once",
+                "--poll-interval",
+                "0.2",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert daemon_proc.returncode == 0, daemon_proc.stderr
+
+        result_json = (
+            tmp_path
+            / "run"
+            / "operator-results"
+            / "test-command-builder"
+            / "pm-T-graph-eval-001"
+            / "result.json"
+        )
+        result = json.loads(result_json.read_text(encoding="utf-8"))
+        assert result["status"] == "failed_contract_closeout"
+        assert result["exit_code"] == 68
+        assert "missing required graph_eval artifacts" in result["log_tail"]
+        assert "sprint-command.V3-eval.md" in result["log_tail"]
+        assert "sprint-command.V3-eval.json" in result["log_tail"]
+
+        fail_log = tmp_path / "run" / "pm-fail.json"
+        assert fail_log.exists()
+        failed = json.loads(fail_log.read_text(encoding="utf-8"))
+        assert failed["task_id"] == "pm-T-graph-eval-001"
+        assert failed["status"] == "failed_contract_closeout"
 
     def test_signal_leaves_final_status(self, tmp_path):
         """SIGTERM while idle should leave a final idle status file."""

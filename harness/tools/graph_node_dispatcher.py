@@ -1667,7 +1667,17 @@ def _latest_pm_task_record_for(sid: str, node_id: str, operator_id: str = "") ->
         if operator_id and str(data.get("operator_id") or "") != operator_id:
             continue
         role = str(data.get("requested_role") or "").strip().lower()
-        if role and role not in {"builder", "implementation", "implementer", "coder", "dev"}:
+        if role and role not in {
+            "builder",
+            "implementation",
+            "implementer",
+            "coder",
+            "dev",
+            "evaluator",
+            "verifier",
+            "reviewer",
+            "review",
+        }:
             continue
         status = str(data.get("status") or "").strip().lower()
         if status not in {"completed", "failed", "failed_contract_closeout", "cancelled", "error"}:
@@ -1686,6 +1696,133 @@ def _latest_pm_task_record_for(sid: str, node_id: str, operator_id: str = "") ->
     return newest[1] if newest else None
 
 
+def _terminal_result_time(result: dict[str, Any]) -> datetime.datetime | None:
+    for key in (
+        "finished_at",
+        "completed_at",
+        "failed_at",
+        "updated_at",
+        "started_at",
+        "submitted_at",
+        "created_at",
+    ):
+        ts = _parse_utc(str(result.get(key) or ""))
+        if ts:
+            return ts
+    return None
+
+
+def _node_dispatch_reference_time(node: dict[str, Any]) -> datetime.datetime | None:
+    for key in ("dispatched_at", "assigned_at", "started_at"):
+        ts = _parse_utc(str(node.get(key) or ""))
+        if ts:
+            return ts
+    dispatch_id = str(node.get("dispatch_id") or "")
+    match = re.search(r"(20\d{6}T\d{6}Z)", dispatch_id)
+    if match:
+        return _parse_utc(match.group(1))
+    return None
+
+
+def _node_activity_reference_time(node: dict[str, Any]) -> datetime.datetime | None:
+    return _node_dispatch_reference_time(node) or _parse_utc(str(node.get("updated_at") or ""))
+
+
+def _node_state_age_seconds(node: dict[str, Any]) -> float | None:
+    ts = _node_activity_reference_time(node)
+    if not ts:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    return (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
+
+
+def _pid_alive(pid_value: Any) -> bool:
+    try:
+        pid = int(str(pid_value or "").strip())
+    except Exception:
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _actor_runtime_task_id(result: dict[str, Any]) -> str:
+    lease = result.get("lease") if isinstance(result.get("lease"), dict) else {}
+    return str(
+        result.get("task_id")
+        or lease.get("task_id")
+        or ""
+    ).strip()
+
+
+def _actor_runtime_outbox_has_task_result(result: dict[str, Any]) -> bool:
+    task_id = _actor_runtime_task_id(result)
+    outbox_path = Path(str(result.get("outbox_path") or "")).expanduser()
+    if not task_id or not outbox_path.is_dir():
+        return False
+    try:
+        return any(outbox_path.glob(f"*{task_id}*.json"))
+    except Exception:
+        return False
+
+
+def _operator_runtime_worker_alive(operator_id: str, task_id: str) -> bool:
+    if not operator_id or not task_id:
+        return False
+    candidates = [
+        HARNESS_DIR / "run" / "operator-leases" / f"{operator_id}.json",
+        HARNESS_DIR / "run" / "operator-status" / f"{operator_id}.json",
+    ]
+    for path in candidates:
+        data = _read_json_file_safe(path)
+        if not data:
+            continue
+        current_task = str(data.get("task_id") or data.get("current_task_id") or "").strip()
+        if current_task and current_task != task_id:
+            continue
+        if _pid_alive(data.get("worker_pid")):
+            return True
+    return False
+
+
+def _actor_runtime_dead_daemon_reason(node: dict[str, Any]) -> str:
+    result = node.get("actor_runtime_result")
+    if not isinstance(result, dict):
+        return ""
+    pane = str(node.get("assigned_to") or "")
+    actor_id = pane.split(":", 1)[1].strip() if pane.startswith("actor:") else str(node.get("operator_id") or "").strip()
+    task_id = _actor_runtime_task_id(result)
+    if _operator_runtime_worker_alive(actor_id, task_id):
+        return ""
+    artifact_refs = result.get("artifact_refs") if isinstance(result.get("artifact_refs"), dict) else {}
+    daemon_pid = str(artifact_refs.get("operator_runtime_daemon_pid") or "").strip()
+    if daemon_pid and _pid_alive(daemon_pid):
+        return ""
+    if _actor_runtime_outbox_has_task_result(result):
+        return ""
+    age_seconds = _node_state_age_seconds(node)
+    if age_seconds is None or age_seconds < 900:
+        return ""
+    return "actor_runtime_dead_daemon_without_artifact" if daemon_pid else "actor_runtime_missing_daemon_without_artifact"
+
+
+def _terminal_result_matches_current_dispatch(result: dict[str, Any], node: dict[str, Any]) -> bool:
+    current_dispatch_id = str(node.get("dispatch_id") or "").strip()
+    result_dispatch_id = str(result.get("dispatch_id") or result.get("task_id") or "").strip()
+    if current_dispatch_id and result_dispatch_id and current_dispatch_id == result_dispatch_id:
+        return True
+    dispatch_time = _node_dispatch_reference_time(node)
+    result_time = _terminal_result_time(result)
+    if dispatch_time and result_time and result_time < dispatch_time:
+        return False
+    return True
+
+
 def _operator_terminal_result_closeout(
     sid: str,
     node_id: str,
@@ -1693,19 +1830,34 @@ def _operator_terminal_result_closeout(
     graph: dict[str, Any],
 ) -> dict[str, Any] | None:
     pane = str(node.get("assigned_to") or "").strip()
-    operator_id = ""
+    operator_candidates: list[str] = []
+    node_operator_id = str(node.get("operator_id") or "").strip()
+    if node_operator_id:
+        operator_candidates.append(node_operator_id)
     if pane.startswith("operator:"):
-        operator_id = pane.split(":", 1)[1].strip()
+        operator_candidates.append(pane.split(":", 1)[1].strip())
     elif pane:
-        operator_id = pane
-    if not operator_id:
-        operator_id = str(node.get("operator_id") or "").strip()
-    if not operator_id:
+        operator_candidates.append(pane)
+    operator_candidates = list(dict.fromkeys(item for item in operator_candidates if item))
+    if not operator_candidates and not _node_dispatch_reference_time(node):
         return None
-    result = _latest_operator_result_for(sid, node_id, operator_id=operator_id)
+    result = None
+    operator_id = ""
+    for candidate in operator_candidates:
+        result = _latest_operator_result_for(sid, node_id, operator_id=candidate)
+        if not result:
+            result = _latest_pm_task_record_for(sid, node_id, operator_id=candidate)
+        if result:
+            operator_id = candidate
+            break
+    if not result and _node_dispatch_reference_time(node):
+        result = _latest_operator_result_for(sid, node_id, operator_id="")
+        if not result:
+            result = _latest_pm_task_record_for(sid, node_id, operator_id="")
+        operator_id = str(result.get("operator_id") or pane or node_operator_id) if result else ""
     if not result:
-        result = _latest_pm_task_record_for(sid, node_id, operator_id=operator_id)
-    if not result:
+        return None
+    if not _terminal_result_matches_current_dispatch(result, node):
         return None
     status = str(result.get("status") or "").strip().lower()
     if status == "completed" and _existing_node_handoff(sid, node, graph):
@@ -1775,6 +1927,18 @@ def _cooldown_operator_after_contract_closeout(operator_id: str, closeout: dict[
         return {"ok": False, "reason": f"{type(exc).__name__}: {exc}", "operator_id": operator_id}
 
 
+def _accepted_repair_record(graph: dict[str, Any], node_id: str) -> dict[str, Any] | None:
+    repairs = graph.get("node_repairs") if isinstance(graph.get("node_repairs"), dict) else {}
+    record = repairs.get(node_id) if isinstance(repairs, dict) else None
+    if not isinstance(record, dict):
+        return None
+    if str(record.get("status") or "").lower() != "accepted":
+        return None
+    if not str(record.get("repair_node_id") or "").strip():
+        return None
+    return record
+
+
 def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path) -> list[dict[str, Any]]:
     sid = str(graph.get("sprint_id") or Path(graph_path).stem.replace(".task_graph", ""))
     repaired: list[dict[str, Any]] = []
@@ -1783,8 +1947,10 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
         if not node_id:
             continue
         status = node_status(graph, node_id)
+        if _accepted_repair_record(graph, node_id):
+            continue
         handoff_file = _existing_node_handoff(sid, node, graph)
-        eval_json_path = str(node.get("eval_json") or _eval_json_file(sid, node_id))
+        eval_json_path = str(_resolve_eval_json_path(sid, node_id, node))
         if not Path(eval_json_path).exists():
             backfilled_eval = _maybe_backfill_eval_json_from_md(sid, node_id)
             if backfilled_eval is not None:
@@ -2030,7 +2196,16 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
                 }
             )
             continue
-        if status in {"assigned", "dispatched", "in_progress", "running"}:
+        if not handoff_file and status in {
+            "assigned",
+            "dispatched",
+            "in_progress",
+            "running",
+            "reviewing",
+            "ready_for_review",
+            "needs_human_review",
+            "failed_review",
+        }:
             closeout = _operator_terminal_result_closeout(sid, node_id, node, graph)
             if closeout:
                 pane = str(node.get("assigned_to") or "").strip()
@@ -2072,9 +2247,67 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
                     }
                 )
                 continue
+        if not handoff_file and status in {"reviewing", "ready_for_review", "needs_human_review", "failed_review"}:
+            age_seconds = _node_state_age_seconds(node)
+            if age_seconds is not None and age_seconds >= 900:
+                pane = str(node.get("assigned_to") or "").strip()
+                dispatch_id = str(node.get("dispatch_id") or "").strip()
+                if pane and dispatch_id:
+                    release_lease(pane, dispatch_id, "graph_dispatch_reconcile_reviewing_without_handoff")
+                node.pop("assigned_to", None)
+                node.pop("dispatch_id", None)
+                node["dispatch_retry_reason"] = "reviewing_without_handoff"
+                node["updated_at"] = _utc_now()
+                node["status"] = "pending"
+                graph.setdefault("node_results", {}).pop(node_id, None)
+                _append_dispatch_ledger(
+                    "dispatch_reassigned_after_reviewing_without_handoff",
+                    sid,
+                    pane,
+                    dispatch_id,
+                    {"node": node_id, "age_seconds": age_seconds},
+                )
+                repaired.append(
+                    {
+                        "node": node_id,
+                        "pane": pane,
+                        "dispatch_id": dispatch_id,
+                        "status": "pending",
+                        "reason": "reviewing_without_handoff",
+                        "age_seconds": int(age_seconds),
+                    }
+                )
+                continue
         if status in {"assigned", "dispatched", "in_progress", "running"}:
             pane = str(node.get("assigned_to") or "").strip()
             dispatch_id = str(node.get("dispatch_id") or "").strip()
+            if pane.startswith("actor:"):
+                actor_dead_reason = _actor_runtime_dead_daemon_reason(node)
+                if actor_dead_reason and not handoff_file and not Path(eval_json_path).exists():
+                    node.pop("assigned_to", None)
+                    node.pop("dispatch_id", None)
+                    node["dispatch_retry_reason"] = actor_dead_reason
+                    node["updated_at"] = _utc_now()
+                    node["status"] = "pending"
+                    graph.setdefault("node_results", {}).pop(node_id, None)
+                    _append_dispatch_ledger(
+                        "dispatch_reassigned_after_actor_runtime_dead_daemon",
+                        sid,
+                        pane,
+                        dispatch_id,
+                        {"node": node_id, "reason": actor_dead_reason},
+                    )
+                    repaired.append(
+                        {
+                            "node": node_id,
+                            "pane": pane,
+                            "dispatch_id": dispatch_id,
+                            "status": "pending",
+                            "reason": actor_dead_reason,
+                        }
+                    )
+                    continue
+                continue
             if pane and dispatch_id:
                 title = _pane_title(pane)
                 lease = read_lease(pane)
@@ -2454,6 +2687,35 @@ def _eval_json_file(sid: str, node_id: str) -> Path:
     return SPRINTS_DIR / f"{sid}.{_safe_node_id(node_id)}-eval.json"
 
 
+def _resolve_eval_json_path(sid: str, node_id: str, node: dict[str, Any]) -> Path:
+    artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), dict) else {}
+    raw = str(
+        node.get("eval_json")
+        or node.get("eval_json_path")
+        or artifacts.get("eval_json")
+        or artifacts.get("eval_json_path")
+        or ""
+    ).strip()
+    if not raw:
+        return _eval_json_file(sid, node_id)
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    if path.parts and path.parts[0] == "sprints":
+        return HARNESS_DIR / path
+    return SPRINTS_DIR / path
+
+
+def _eval_json_verdict(path: str | Path) -> str:
+    payload = _read_json_file_safe(path)
+    raw = str(payload.get("verdict") or payload.get("status") or "").strip().lower()
+    if raw in {"pass", "passed", "ok", "success", "succeeded"}:
+        return "PASS"
+    if raw in {"fail", "failed", "error", "errored"}:
+        return "FAIL"
+    return ""
+
+
 def _eval_peer_md_file(sid: str, node_id: str, index: int) -> Path:
     return SPRINTS_DIR / f"{sid}.{_safe_node_id(node_id)}-eval-q{index}.md"
 
@@ -2653,6 +2915,16 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
             SPRINTS_DIR / f"{sid}.{node_id}-patch.diff",
             SPRINTS_DIR / f"{sid}.{node_id}-patch-diff.md",
         ],
+        "design_md": [
+            SPRINTS_DIR / f"{sid}.{node_id}.design.md",
+            SPRINTS_DIR / f"{sid}.{node_id}-design.md",
+            SPRINTS_DIR / f"{sid}.{node_id}_design.md",
+        ],
+        "plan_md": [
+            SPRINTS_DIR / f"{sid}.{node_id}.plan.md",
+            SPRINTS_DIR / f"{sid}.{node_id}-plan.md",
+            SPRINTS_DIR / f"{sid}.{node_id}_plan.md",
+        ],
     }
     standard_artifacts = {key: candidates[0] for key, candidates in standard_artifact_candidates.items()}
     standard_presence = {
@@ -2685,6 +2957,8 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
         "guard_decision": standard_presence["guard_decision"],
         "resource_binding": standard_presence["resource_binding"],
         "bridged_artifact": standard_presence["bridged_artifact"],
+        "design_md": standard_presence["design_md"],
+        "plan_md": standard_presence["plan_md"],
         "test_log": bool(str(test_path) not in {"", "."} and test_path.exists()),
     }
     for artifact_key, artifact_value in artifacts.items():
@@ -2741,6 +3015,8 @@ def _proof_requirement_presence_key(requirement: str) -> str:
         "eval_md exists": "eval_md",
         "eval_json exists": "eval_json",
         "patch_diff exists": "patch_diff",
+        "design_md exists": "design_md",
+        "plan_md exists": "plan_md",
     }
     if text in mapping:
         return mapping[text]
@@ -5511,12 +5787,65 @@ def _evaluator_operator_pool_workers() -> list[dict[str, Any]]:
     return workers
 
 
+def _planner_operator_pool_workers(
+    worker_skills: list[str],
+    worker_capabilities: list[str],
+) -> list[dict[str, Any]]:
+    if not _operator_pool_role_available("planner"):
+        return []
+    worker = {
+        "pane": "operator-pool:planner.0",
+        "models": ["operator-pool", "opus", "gpt-5.5", "gemini-3.1-pro"],
+        "skills": worker_skills,
+        "capabilities": worker_capabilities,
+        "role": "planner",
+        "dispatch_role": "planner",
+        "host_role": "operator_pool",
+        "busy": False,
+        "title": "operator pool planner",
+        "unavailable_reason": "",
+        "quota_exhausted": [],
+        "rate_limit_operator_blocks": [],
+        "current_command": "",
+    }
+    _flatten_actorhost_bridge(
+        worker,
+        {
+            "actor_id": "N/A",
+            "host_id": "operator-pool",
+            "host_type": "operator_pool",
+            "lease_state": "idle",
+            "capability_match": {
+                "required": worker_capabilities,
+                "matched": worker_capabilities,
+                "missing": [],
+                "observed": worker_capabilities,
+            },
+            "compat_fallback": False,
+            "compat_maps_to": None,
+            "resolution_source": "operator_pool_virtual",
+            "canonical_host_type": True,
+        },
+    )
+    return [worker]
+
+
 def _graph_queue_dispatch_role(payload: dict[str, Any], node: dict[str, Any], assignment: dict[str, Any]) -> str:
+    pane_hint = str(assignment.get("pane") or payload.get("pane") or "").strip().lower()
     raw = (
         assignment.get("dispatch_role")
         or payload.get("dispatch_role")
         or node.get("dispatch_role")
         or node.get("role")
+        or (
+            "evaluator"
+            if pane_hint.startswith("operator-pool:evaluator")
+            else "planner"
+            if pane_hint.startswith("operator-pool:planner")
+            else "builder"
+            if pane_hint.startswith("operator-pool:builder")
+            else ""
+        )
         or "builder"
     )
     role = str(raw or "builder").strip().lower().replace("-", "_")
@@ -5630,6 +5959,8 @@ def _submit_ready_node_via_actor_runtime(
         graph = load_graph(graph_path)
         graph_node = _node_by_id(graph, node_id)
         if graph_node is not None:
+            graph_node["operator_id"] = str(actor_ref)
+            graph_node.pop("pm_task_id", None)
             graph_node["dispatched_via"] = "actor_runtime"
             graph_node["dispatch_path"] = "actor_runtime"
             graph_node["actor_runtime_result"] = result_dict
@@ -5786,12 +6117,14 @@ def _submit_builder_to_operator_pool(
         if node.get("fan_out_parent"):
             text_payload["section_isolation"] = True
             text_payload["section_id"] = node.get("section_id", "")
-    instruction_file.parent.mkdir(parents=True, exist_ok=True)
-    instruction_file.write_text(build_dispatch_text(text_payload, f"operator-pool:{dispatch_role}"), encoding="utf-8")
-    if not dry_run:
+    dispatch_text = build_dispatch_text(text_payload, f"operator-pool:{dispatch_role}")
+    if dry_run:
+        dispatch_preview = dispatch_text
+    else:
+        instruction_file.parent.mkdir(parents=True, exist_ok=True)
+        instruction_file.write_text(dispatch_text, encoding="utf-8")
         _inject_dispatch_context(instruction_file, sid=sid, pane=f"operator-pool:{dispatch_role}", dispatch_id=dispatch_id)
-
-    dispatch_preview = instruction_file.read_text(encoding="utf-8")
+        dispatch_preview = instruction_file.read_text(encoding="utf-8")
     if len(dispatch_preview) > 60000:
         dispatch_preview = (
             dispatch_preview[:60000]
@@ -6257,9 +6590,10 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             text_payload["section_isolation"] = True
             text_payload["section_id"] = node.get("section_id", "")
     instruction_file = _dispatch_file(sid, node_id)
-    instruction_file.parent.mkdir(parents=True, exist_ok=True)
-    instruction_file.write_text(build_dispatch_text(text_payload, pane), encoding="utf-8")
+    dispatch_text = build_dispatch_text(text_payload, pane)
     if not dry_run:
+        instruction_file.parent.mkdir(parents=True, exist_ok=True)
+        instruction_file.write_text(dispatch_text, encoding="utf-8")
         _inject_dispatch_context(instruction_file, sid=sid, pane=pane, dispatch_id=dispatch_id)
     if dry_run:
         return _flatten_actorhost_bridge({
@@ -6529,7 +6863,13 @@ def _discover_workers(dry_run: bool = False) -> list[dict[str, Any]]:
             _actorhost_bridge(pane=pane, required_capabilities=worker_capabilities),
         )
         workers.append(worker)
-    if not dry_run:
+    discover_operator_pool = (
+        not dry_run
+        or os.environ.get("SOLAR_GRAPH_DISPATCH_DISCOVER_OPERATOR_POOL_IN_DRY_RUN", "1").strip().lower()
+        not in {"0", "false", "no"}
+    )
+    if discover_operator_pool:
+        workers.extend(_planner_operator_pool_workers(worker_skills, worker_capabilities))
         workers.extend(_builder_operator_pool_workers(worker_skills, worker_capabilities))
         for evaluator in _evaluator_operator_pool_workers():
             worker = dict(evaluator)
@@ -6647,7 +6987,8 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
         return False
     if result_status in {"failed", "skipped"} and not force and not retry_requested:
         return False
-    if _eval_json_file(sid, node_id).exists() and not force and not repair_mode:
+    eval_json_path = _resolve_eval_json_path(sid, node_id, node)
+    if eval_json_path.exists() and _eval_json_verdict(eval_json_path) and not force and not repair_mode:
         return False
     if not force:
         recovered: list[dict[str, Any]] = []
@@ -7003,6 +7344,12 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             successful_assignments.append(dict(assignment))
             node["status"] = "reviewing"
             node["eval_dispatch_group_id"] = dispatch_group_id
+            stale_retry_reason = str(node.get("eval_retry_reason") or "")
+            retry_keys = ("eval_retry_reason", "eval_retry_detail", "eval_retry_requested_at")
+            if stale_retry_reason == "force_retry_archived_stale_eval_sidecars":
+                retry_keys = ("eval_retry_detail", "eval_retry_requested_at")
+            for stale_key in retry_keys:
+                node.pop(stale_key, None)
             _store_eval_assignments(node, successful_assignments, _utc_now(), sprint_id=sid)
             save_graph(graph_path, graph)
             sent_records.append({

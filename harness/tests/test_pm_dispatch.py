@@ -25,6 +25,43 @@ def _load_pm_dispatch():
     return module
 
 
+def test_capsule_submit_metadata_uses_verifier_capsule_for_evaluator(tmp_path, monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    physical_plan = sprints / "sprint-a.N1-physical-plan.json"
+    physical_plan.write_text(
+        json.dumps(
+            {
+                "capability_capsule_id": "cap.requirement-compiler-planner",
+                "dispatch_task_type": "planning",
+                "verifier_plans": [
+                    {
+                        "capability_capsule_id": "cap.requirement-compiler-verification",
+                        "task_type": "verification",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    node = {
+        "capability_native": True,
+        "capability_capsule_id": "cap.requirement-compiler-planner",
+        "dispatch_task_type": "planning",
+        "logical_operator": "DeepArchitect",
+        "artifacts": {"physical_plan_ir": str(physical_plan)},
+    }
+
+    planner = pm_dispatch._capsule_submit_metadata_for_role(node, "planner")
+    evaluator = pm_dispatch._capsule_submit_metadata_for_role(node, "evaluator")
+
+    assert planner["capability_capsule_id"] == "cap.requirement-compiler-planner"
+    assert evaluator["capability_capsule_id"] == "cap.requirement-compiler-verification"
+    assert evaluator["evaluator_capsule_source"] == "physical_plan.verifier_plans"
+
+
 def test_select_operator_by_role_prefers_capsule_operator_constraints(monkeypatch):
     pm_dispatch = _load_pm_dispatch()
     monkeypatch.setattr(
@@ -64,6 +101,47 @@ def test_select_operator_by_role_prefers_capsule_operator_constraints(monkeypatc
     assert operator_id == "builder-b"
 
 
+def test_select_operator_by_role_honors_env_exclude_ids(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_registry",
+        lambda: {
+            "version": 1,
+            "operators": {
+                "builder-a": {
+                    "enabled": True,
+                    "available": True,
+                    "roles": ["builder"],
+                    "launch_cmd_kind": "command",
+                    "task_classes": ["implementation"],
+                    "profile": "generic",
+                    "preferred_for": ["implementation"],
+                },
+                "builder-b": {
+                    "enabled": True,
+                    "available": True,
+                    "roles": ["builder"],
+                    "launch_cmd_kind": "command",
+                    "task_classes": ["implementation"],
+                    "profile": "generic",
+                    "preferred_for": [],
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
+    monkeypatch.setenv("SOLAR_PM_OPERATOR_EXCLUDE_IDS", "builder-a")
+
+    operator_id, _, reason = pm_dispatch.select_operator_by_role(
+        role="builder",
+        task_type="implementation",
+    )
+
+    assert reason == ""
+    assert operator_id == "builder-b"
+
+
 def test_list_pm_tasks_prioritizes_active_records_before_failed_and_completed(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
 
@@ -86,6 +164,60 @@ def test_list_pm_tasks_prioritizes_active_records_before_failed_and_completed(mo
     tasks = pm_dispatch.list_pm_tasks(limit=2)
 
     assert [task["task_id"] for task in tasks] == ["pm-submitted", "pm-failed"]
+
+
+def test_failed_contract_closeout_releases_dispatched_graph_node(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    graph_path = sprints / "sprint-a.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-a",
+                "nodes": [
+                    {
+                        "id": "S5",
+                        "status": "dispatched",
+                        "dispatch_id": "pm-sprint-a-S5-bad",
+                        "pm_task_id": "pm-sprint-a-S5-bad",
+                        "operator_id": "mini-reasonix-deepseek-v4-builder",
+                    }
+                ],
+                "node_results": {
+                    "S5": {
+                        "status": "dispatched",
+                        "dispatch_id": "pm-sprint-a-S5-bad",
+                        "pm_task_id": "pm-sprint-a-S5-bad",
+                        "operator_id": "mini-reasonix-deepseek-v4-builder",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = pm_dispatch.release_builder_assignment_on_transient_failure(
+        {
+            "task_id": "pm-sprint-a-S5-bad",
+            "sprint_id": "sprint-a",
+            "node_id": "S5",
+            "operator_id": "mini-reasonix-deepseek-v4-builder",
+            "status": "failed_contract_closeout",
+            "failure_reason": "completed_without_required_artifacts",
+        }
+    )
+
+    assert result["released"] is True
+    assert result["reason"] == "failed_contract_closeout"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    entry = graph["node_results"]["S5"]
+    assert node["status"] == "pending"
+    assert entry["status"] == "pending"
+    assert node["requeue_reason"] == "failed_contract_closeout"
+    assert "operator_id" not in node
 
 
 def test_select_operator_by_role_rejects_write_denied_planner(monkeypatch):
@@ -129,7 +261,7 @@ def test_select_operator_by_role_rejects_write_denied_planner(monkeypatch):
     assert operator_id == "gpt-planner"
 
 
-def test_deepseek_eval_sidecar_operator_can_be_selected_as_evaluator(monkeypatch):
+def test_deepseek_advisory_operator_is_not_selected_as_final_evaluator(monkeypatch):
     pm_dispatch = _load_pm_dispatch()
     monkeypatch.setattr(
         pm_dispatch,
@@ -160,8 +292,67 @@ def test_deepseek_eval_sidecar_operator_can_be_selected_as_evaluator(monkeypatch
 
     operator_id, operator, reason = pm_dispatch.select_operator_by_role(role="evaluator", task_type="review")
 
+    assert operator_id == ""
+    assert operator == {}
+    assert "no_dispatchable_operator_for_role" in reason
+
+
+def test_eval_sidecar_only_operator_rejected_for_non_eval_closeout_artifacts(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_registry",
+        lambda: {
+            "version": 1,
+            "operators": {
+                "mini-reasonix-deepseek-v4-builder": {
+                    "enabled": True,
+                    "available": True,
+                    "role": "advisor",
+                    "roles": ["advisor", "evaluator"],
+                    "launch_cmd_kind": "print_once",
+                    "task_classes": ["analysis", "review", "advisory", "verification"],
+                    "profile": "deepseek-advisory",
+                    "preferred_for": ["evaluator", "review", "verification"],
+                    "policy": {"write_files": "eval_sidecar_only", "eval_sidecar_write": "allowed"},
+                },
+                "mini-codex-gpt55-medium-builder-1": {
+                    "enabled": True,
+                    "available": True,
+                    "role": "builder",
+                    "roles": ["builder", "evaluator"],
+                    "launch_cmd_kind": "command",
+                    "task_classes": ["review", "verification"],
+                    "profile": "codex-builder",
+                    "preferred_for": ["evaluator", "review", "verification"],
+                    "policy": {"write_files": "allowed", "run_shell": "allowed"},
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
+
+    operator_id, operator, reason = pm_dispatch.select_operator_by_role(
+        role="evaluator",
+        task_type="verification",
+        resolved_capsule={
+            "artifact_types": {
+                "produces": [
+                    "artifact.guard_decision",
+                    "artifact.resource_binding",
+                    "artifact.handoff_md",
+                    "artifact.eval_json",
+                ]
+            },
+            "proof_obligations": [
+                {"requirement": "handoff_md exists"},
+                {"requirement": "eval_json exists"},
+            ],
+        },
+    )
+
     assert reason == ""
-    assert operator_id == "mini-reasonix-deepseek-v4-builder"
+    assert operator_id == "mini-codex-gpt55-medium-builder-1"
     assert operator["selected_for_role"] == "evaluator"
 
 
@@ -190,14 +381,14 @@ def test_preferred_multi_role_operator_uses_requested_role_persona(monkeypatch):
     monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
 
     operator_id, operator, reason = pm_dispatch.select_operator_by_role(
-        role="evaluator",
-        task_type="review",
+        role="advisor",
+        task_type="advisory",
         prefer_operator="deepseek-advisory",
     )
 
     assert reason == ""
     assert operator_id == "deepseek-advisory"
-    assert operator["selected_for_role"] == "evaluator"
+    assert "selected_for_role" not in operator
 
 
 def test_multi_role_operator_uses_requested_role_persona(monkeypatch, tmp_path):
@@ -245,6 +436,32 @@ def test_multi_role_operator_uses_requested_role_persona(monkeypatch, tmp_path):
     assert "Persona file: `" + str(tmp_path / "evaluator.md") + "`" in dispatch_text
     assert "# Evaluator" in dispatch_text
     assert "# Builder" not in dispatch_text
+
+
+def test_evaluator_dispatch_declares_required_eval_sidecars(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "PERSONAS_DIR", tmp_path)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", tmp_path / "sprints")
+    (tmp_path / "evaluator.md").write_text("# Evaluator\n", encoding="utf-8")
+
+    dispatch_text = pm_dispatch.build_pm_dispatch_text(
+        "task-eval",
+        "gpt55-eval",
+        {
+            "operator_id": "gpt55-eval",
+            "role": "evaluator",
+            "model": "gpt-5.5",
+        },
+        "review the repair package",
+        "sprint-x",
+        "N2",
+        str(tmp_path / "result.md"),
+    )
+
+    assert str(tmp_path / "sprints" / "sprint-x.N2-eval.md") in dispatch_text
+    assert str(tmp_path / "sprints" / "sprint-x.N2-eval.json") in dispatch_text
+    assert '"node_id": "N2"' in dispatch_text
+    assert "PM closeout 会强制检查" in dispatch_text
 
 
 def test_is_dispatchable_inherits_shared_billing_pool_cooldown(monkeypatch):
@@ -296,6 +513,64 @@ def test_is_dispatchable_inherits_shared_billing_pool_cooldown(monkeypatch):
     assert ok is False
     assert "shared_quota_guard_state=cooldown" in reason
     assert "primary-opus-evaluator" in reason
+
+
+def test_is_dispatchable_does_not_share_billing_pool_across_distinct_providers(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_registry",
+        lambda: {
+            "version": 1,
+            "operators": {
+                "sonnet-builder": {
+                    "enabled": True,
+                    "available": True,
+                    "operator_id": "sonnet-builder",
+                    "provider": "anthropic",
+                    "model": "sonnet",
+                    "billing_pool": "anthropic_agent_sdk_credit",
+                    "key_ref": "claude_subscription",
+                },
+                "glm-builder": {
+                    "enabled": True,
+                    "available": True,
+                    "operator_id": "glm-builder",
+                    "provider": "glm",
+                    "model": "glm-5.1",
+                    "billing_pool": "anthropic_agent_sdk_credit",
+                    "key_ref": "zhipu_api_key",
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        pm_dispatch,
+        "get_operator_status_data",
+        lambda operator_id: {
+            "runtime_state": "cooldown",
+            "expires_at": "2099-01-01T00:00:00Z",
+        }
+        if operator_id == "sonnet-builder"
+        else {},
+    )
+    monkeypatch.setattr(pm_dispatch, "get_operator_runtime_state", lambda operator_id: "idle")
+    monkeypatch.setattr(pm_dispatch, "_operator_external_health", lambda op: (True, ""))
+
+    ok, reason = pm_dispatch.is_dispatchable(
+        {
+            "enabled": True,
+            "available": True,
+            "operator_id": "glm-builder",
+            "provider": "glm",
+            "model": "glm-5.1",
+            "billing_pool": "anthropic_agent_sdk_credit",
+            "key_ref": "zhipu_api_key",
+        }
+    )
+
+    assert ok is True
+    assert reason == ""
 
 
 def test_is_dispatchable_does_not_share_key_ref_across_distinct_models(monkeypatch):
@@ -353,6 +628,123 @@ def test_is_dispatchable_does_not_share_key_ref_across_distinct_models(monkeypat
     assert reason == ""
 
 
+def test_operator_external_health_expands_home_in_command_path(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    bin_dir = tmp_path / "home" / ".local" / "bin"
+    bin_dir.mkdir(parents=True)
+    agy = bin_dir / "agy"
+    agy.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    ok, reason = pm_dispatch._operator_external_health(
+        {
+            "operator_id": "antigravity-test",
+            "health_check": {"type": "command", "command_path": "${HOME}/.local/bin/agy", "cache_seconds": 0},
+        }
+    )
+
+    assert ok is True
+    assert reason == ""
+
+
+def test_operator_external_health_thunderomlx_sends_local_auth_headers(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    monkeypatch.setenv("THUNDEROMLX_AUTH_TOKEN", "token-123")
+    seen: dict[str, str] = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def fake_urlopen(req, timeout):
+        seen["authorization"] = req.get_header("Authorization")
+        seen["x_api_key"] = req.get_header("x-api-key") or req.get_header("X-api-key") or req.get_header("X-Api-Key")
+        seen["timeout"] = str(timeout)
+        return Response()
+
+    monkeypatch.setattr(pm_dispatch, "urlopen", fake_urlopen)
+
+    ok, reason = pm_dispatch._operator_external_health(
+        {
+            "operator_id": "thunder-test",
+            "model": "thunderomlx",
+            "key_ref": "local-thunderomlx",
+            "health_check": {"type": "http", "url": "http://127.0.0.1:8002/v1/models", "timeout_seconds": 0.5, "cache_seconds": 0},
+        }
+    )
+
+    assert ok is True
+    assert reason == "http_status=200"
+    assert seen["authorization"] == "Bearer token-123"
+    assert seen["x_api_key"] == "token-123"
+
+
+def test_operator_external_health_cache_write_failure_does_not_block(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    command = tmp_path / "tool"
+    command.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    def deny_mkstemp(*_args, **_kwargs):
+        raise PermissionError("cache denied")
+
+    monkeypatch.setattr(pm_dispatch.tempfile, "mkstemp", deny_mkstemp)
+
+    ok, reason = pm_dispatch._operator_external_health(
+        {
+            "operator_id": "cache-denied-test",
+            "health_check": {"type": "command", "command_path": str(command), "cache_seconds": 60},
+        }
+    )
+
+    assert ok is True
+    assert reason == ""
+
+
+def test_operator_external_health_sandbox_permission_uses_stale_cache(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    health_dir = tmp_path / "run" / "operator-health"
+    health_dir.mkdir(parents=True)
+    (health_dir / "thunder-sandbox.json").write_text(
+        json.dumps(
+            {
+                "schema_version": pm_dispatch.HEALTH_CACHE_SCHEMA_VERSION,
+                "operator_id": "thunder-sandbox",
+                "ok": True,
+                "reason": "http_status=200",
+                "checked_at_epoch": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def blocked_urlopen(_req, timeout):
+        del timeout
+        raise pm_dispatch.URLError(PermissionError(1, "Operation not permitted"))
+
+    monkeypatch.setattr(pm_dispatch, "urlopen", blocked_urlopen)
+
+    ok, reason = pm_dispatch._operator_external_health(
+        {
+            "operator_id": "thunder-sandbox",
+            "model": "thunderomlx",
+            "key_ref": "local-thunderomlx",
+            "health_check": {"type": "http", "url": "http://127.0.0.1:8002/v1/models", "timeout_seconds": 0.5, "cache_seconds": 0},
+        }
+    )
+
+    assert ok is True
+    assert reason == "http_status=200"
+
+
 def test_transient_operator_failure_text_reads_operator_result_logs(tmp_path):
     pm_dispatch = _load_pm_dispatch()
     pm_dispatch.HARNESS_DIR = tmp_path
@@ -392,6 +784,41 @@ def test_transient_operator_failure_text_infers_operator_result_dir(tmp_path):
 
     assert "rate limit reached" in text
     assert pm_dispatch.TRANSIENT_OPERATOR_FAILURE_RE.search(text)
+
+
+def test_transient_operator_failure_applies_flow_control(tmp_path, monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    pm_dispatch.HARNESS_DIR = tmp_path
+    captured: dict[str, object] = {}
+
+    def fake_apply_failure_flow_control(task_dir, **kwargs):
+        captured["task_dir"] = task_dir
+        captured.update(kwargs)
+        return {
+            "runtime_state": "cooldown",
+            "expires_at": "2026-06-18T04:20:00Z",
+            "config_block": {"ok": True},
+        }
+
+    monkeypatch.setitem(
+        sys.modules,
+        "operator_flow_control",
+        types.SimpleNamespace(apply_failure_flow_control=fake_apply_failure_flow_control),
+    )
+
+    result = pm_dispatch._apply_transient_operator_flow_control(
+        {
+            "task_id": "task-1",
+            "operator_id": "spark-builder",
+            "failure_reason": "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. try again at Jun 18th, 2026 12:20 AM.",
+        }
+    )
+
+    assert result["applied"] is True
+    assert result["runtime_state"] == "cooldown"
+    assert captured["operator_id"] == "spark-builder"
+    assert "usage limit" in str(captured["failure_text"])
+    assert str(captured["task_dir"]).endswith("run/operator-results/spark-builder/task-1")
 
 
 def test_cmd_submit_reads_task_graph_capsule_metadata(monkeypatch):
@@ -497,6 +924,89 @@ def test_cmd_submit_reads_task_graph_capsule_metadata(monkeypatch):
         assert envelope["capability_capsule_id"] == "cap.requirement-compiler-implementation"
         assert envelope["logical_operator"] == "ImplementationWorker"
         assert envelope["task_type"] == "implementation"
+
+
+def test_cmd_submit_fails_fast_on_capsule_admission_error(monkeypatch, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", root)
+        monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", root / "sprints")
+        monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", root / "run" / "pm-inbox")
+        monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", root / "run" / "operator-inbox")
+        monkeypatch.setattr(pm_dispatch, "OPERATOR_STATUS_DIR", root / "run" / "operator-status")
+        monkeypatch.setattr(pm_dispatch, "PERSONAS_DIR", root / "personas")
+        (root / "personas").mkdir(parents=True, exist_ok=True)
+        (root / "personas" / "evaluator.md").write_text("# Evaluator\n", encoding="utf-8")
+        sprint_graph = {
+            "nodes": [
+                {
+                    "id": "S3",
+                    "goal": "Prepare verification probes.",
+                    "logical_operator": "TestRunner",
+                    "capability_native": True,
+                    "capability_capsule_id": "cap.flashmlx-performance-debugger",
+                    "dispatch_task_type": "PERFORMANCE_REGRESSION",
+                }
+            ]
+        }
+        (root / "sprints").mkdir(parents=True, exist_ok=True)
+        (root / "sprints" / "sprint-missing.task_graph.json").write_text(json.dumps(sprint_graph), encoding="utf-8")
+
+        monkeypatch.setattr(
+            pm_dispatch,
+            "load_registry",
+            lambda: {
+                "version": 1,
+                "operators": {
+                    "mini-claude-sonnet-builder-print": {
+                        "enabled": True,
+                        "available": True,
+                        "roles": ["evaluator"],
+                        "launch_cmd_kind": "print_once",
+                        "task_classes": ["PERFORMANCE_REGRESSION"],
+                        "profile": "evaluator",
+                        "model": "test-model",
+                        "persona": "evaluator",
+                    }
+                },
+            },
+        )
+        monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
+
+        sys.path.insert(0, str(ROOT / "lib"))
+        import capability_capsules as caps
+
+        def _raise_admission(*args, **kwargs):
+            raise RuntimeError("admission_failed: missing required input: repo_path; missing required input: benchmark_log")
+
+        monkeypatch.setattr(caps, "resolve_capability_capsule_for_task", _raise_admission)
+
+        fake_operator_runtime = types.ModuleType("operator_runtime")
+        fake_operator_runtime.submit = lambda envelope: (_ for _ in ()).throw(AssertionError("submit should not run"))  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "operator_runtime", fake_operator_runtime)
+        monkeypatch.setenv("SOLAR_PM_DISPATCH_ALLOW_DIRECT", "1")
+
+        args = argparse.Namespace(
+            role="evaluator",
+            objective="Prepare verification probes.",
+            operator="",
+            sprint="sprint-missing",
+            node="S3",
+            task_type="",
+            context="",
+            dry_run=False,
+        )
+        rc = pm_dispatch.cmd_submit(args)
+        captured = capsys.readouterr()
+        assert rc == 1
+        assert "capability_capsule_admission_failed" in captured.err
+        records = list((root / "run" / "pm-inbox").glob("pm-sprint-missing-S3-*.json"))
+        assert len(records) == 1
+        record = json.loads(records[0].read_text(encoding="utf-8"))
+        assert record["status"] == "failed_no_dispatchable_operator"
+        assert "missing required input: repo_path" in record["failure_reason"]
+        assert not list((root / "run" / "pm-dispatch-files").glob("*.md"))
 
 
 def test_cmd_compile_request_rejects_invalid_compiled_package(monkeypatch, tmp_path):
@@ -1076,6 +1586,44 @@ def test_pm_reconcile_recovers_failed_contract_closeout_when_artifacts_arrive(mo
     assert record["reconcile_history"][-1]["reason"] == "failed_contract_closeout_recovered"
 
 
+def test_graph_node_dispatch_evaluator_closeout_requires_node_artifacts(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+
+    sprint_id = "sprint-graph-node"
+    node_id = "S4"
+    (sprints / f"{sprint_id}.{node_id}-eval.md").write_text("# Eval\n", encoding="utf-8")
+    (sprints / f"{sprint_id}.{node_id}-eval.json").write_text(json.dumps({"verdict": "FAIL"}), encoding="utf-8")
+    record = {
+        "task_id": f"pm-{sprint_id}-{node_id}-abc123",
+        "sprint_id": sprint_id,
+        "node_id": node_id,
+        "requested_role": "evaluator",
+        "submitted_at": "2026-06-14T18:20:17Z",
+        "objective": "\n".join(
+            [
+                "你是 graph-dispatch evaluator。",
+                "Graph dispatch file: /tmp/dispatch.md",
+                f"# DAG Node Dispatch — {sprint_id} / {node_id}",
+                f"- 标准 proof sidecar: {sprints / f'{sprint_id}.{node_id}-guard-decision.json'}",
+                f"- 标准 proof sidecar: {sprints / f'{sprint_id}.{node_id}-resource-binding.json'}",
+                f"- 标准 proof sidecar: {sprints / f'{sprint_id}.{node_id}-bridged-artifact.md'}",
+                f"- Markdown: {sprints / f'{sprint_id}.{node_id}-eval.md'}",
+                f"- JSON: {sprints / f'{sprint_id}.{node_id}-eval.json'}",
+            ]
+        ),
+    }
+
+    closeout = pm_dispatch._pm_closeout_status(record)
+
+    assert closeout["ok"] is False
+    assert str(sprints / f"{sprint_id}.{node_id}-handoff.md") in closeout["missing_artifacts"]
+    assert str(sprints / f"{sprint_id}.{node_id}-guard-decision.json") in closeout["missing_artifacts"]
+    assert str(sprints / f"{sprint_id}.{node_id}-eval.json") not in closeout["missing_artifacts"]
+
+
 def test_pm_reconcile_cleans_failure_projection_on_completed_record(monkeypatch, tmp_path, capsys):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"
@@ -1458,14 +2006,7 @@ def test_cmd_fail_requeues_transient_operator_failure_graph_node(monkeypatch, tm
                         "operator_id": "mini-codex-gpt53-spark-builder-1",
                     }
                 ],
-                "node_results": {
-                    "B1": {
-                        "status": "dispatched",
-                        "dispatch_id": task_id,
-                        "pm_task_id": task_id,
-                        "operator_id": "mini-codex-gpt53-spark-builder-1",
-                    }
-                },
+                "node_results": {},
             }
         ),
         encoding="utf-8",
@@ -1514,6 +2055,81 @@ def test_cmd_fail_requeues_transient_operator_failure_graph_node(monkeypatch, tm
     assert "B1" not in state["dispatch_ids"]
     record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
     assert record["graph_requeue"]["released"] is True
+
+
+def test_cmd_fail_blocks_repeated_transient_operator_failure(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "run" / "pm-inbox"
+    sprints.mkdir(parents=True)
+    inbox.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
+
+    task_id = "pm-sprint-requeue-B1-third"
+    graph_path = sprints / "sprint-requeue.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-requeue",
+                "nodes": [
+                    {
+                        "id": "B1",
+                        "status": "dispatched",
+                        "assigned_to": "mini-codex-gpt53-spark-builder-1",
+                        "dispatch_id": task_id,
+                        "pm_task_id": task_id,
+                        "operator_id": "mini-codex-gpt53-spark-builder-1",
+                        "dispatch_requeue_history": [
+                            {"ts": pm_dispatch._now(), "reason": "transient_operator_failure"},
+                            {"ts": pm_dispatch._now(), "reason": "transient_operator_failure"},
+                        ],
+                    }
+                ],
+                "node_results": {
+                    "B1": {
+                        "status": "dispatched",
+                        "dispatch_id": task_id,
+                        "pm_task_id": task_id,
+                        "operator_id": "mini-codex-gpt53-spark-builder-1",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    pm_dispatch.write_pm_task_record(
+        task_id,
+        {
+            "task_id": task_id,
+            "status": "submitted",
+            "sprint_id": "sprint-requeue",
+            "node_id": "B1",
+            "operator_id": "mini-codex-gpt53-spark-builder-1",
+        },
+    )
+
+    rc = pm_dispatch.cmd_fail(
+        argparse.Namespace(
+            task_id=task_id,
+            status="failed",
+            reason="[flow-control] runtime_state=cooldown",
+        )
+    )
+
+    assert rc == 0
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    assert node["status"] == "worker_blocked"
+    assert node["blocking_reason"] == "repeated_transient_operator_failure"
+    assert node["transient_failure_block_count"] == 3
+    result = graph["node_results"]["B1"]
+    assert result["status"] == "worker_blocked"
+    assert result["blocking_reason"] == "repeated_transient_operator_failure"
+    record = json.loads((inbox / f"{task_id}.json").read_text(encoding="utf-8"))
+    assert record["graph_requeue"]["released"] is True
+    assert record["graph_requeue"]["blocked"] is True
 
 
 def test_cmd_fail_requeues_codex_config_variant_failure(monkeypatch, tmp_path):
@@ -1949,6 +2565,73 @@ def test_builder_complete_does_not_demote_passed_node(monkeypatch, tmp_path):
     assert graph["node_results"]["B9"]["status"] == "passed"
 
 
+def test_builder_repair_projection_does_not_archive_fresh_eval_verdict(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    sprints.mkdir(parents=True)
+    inbox.mkdir()
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+
+    sprint_id = "sprint-fresh-eval"
+    old_task = f"pm-{sprint_id}-B1-old"
+    repair_task = f"pm-{sprint_id}-B1-repair"
+    graph_path = sprints / f"{sprint_id}.task_graph.json"
+    handoff = sprints / f"{sprint_id}.B1-handoff.md"
+    eval_json = sprints / f"{sprint_id}.B1-eval.json"
+    handoff.write_text("# Repaired handoff\n", encoding="utf-8")
+    eval_json.write_text('{"verdict":"FAIL"}', encoding="utf-8")
+    old_ts = 1_700_000_000
+    os.utime(handoff, (old_ts, old_ts))
+    os.utime(eval_json, (old_ts + 10, old_ts + 10))
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": sprint_id,
+                "nodes": [
+                    {
+                        "id": "B1",
+                        "status": "failed",
+                        "dispatch_id": old_task,
+                        "artifacts": {"eval_json": f"{sprint_id}.B1-eval.json"},
+                    }
+                ],
+                "node_results": {"B1": {"status": "failed", "dispatch_id": old_task}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    pm_dispatch.write_pm_task_record(
+        old_task,
+        {
+            "task_id": old_task,
+            "status": "failed",
+            "sprint_id": sprint_id,
+            "node_id": "B1",
+            "requested_role": "builder",
+        },
+    )
+
+    result = pm_dispatch._mark_graph_node_reviewing_on_builder_complete(
+        {
+            "task_id": repair_task,
+            "sprint_id": sprint_id,
+            "node_id": "B1",
+            "requested_role": "builder",
+            "objective": "Repair B1 after failed dispatch",
+            "submitted_at": "2000-01-01T00:00:00Z",
+        }
+    )
+
+    assert result["marked"] is False
+    assert result["reason"] == "node_already_has_fresh_eval_verdict"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    assert graph["nodes"][0]["status"] == "failed"
+    assert graph["node_results"]["B1"]["status"] == "failed"
+    assert eval_json.exists()
+
+
 def test_evaluator_dispatch_marks_graph_assignment(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"
@@ -2076,6 +2759,84 @@ def test_cmd_submit_graph_eval_uses_direct_inbox_fast_path(monkeypatch, tmp_path
     node = graph["nodes"][0]
     assert node["eval_dispatch_id"] == record["task_id"]
     assert node["eval_assignments"][0]["operator_id"] == "mini-codex-gpt55-medium-evaluator"
+
+
+def test_cmd_submit_graph_eval_bypasses_capsule_admission(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    pm_inbox = tmp_path / "run" / "pm-inbox"
+    operator_inbox = tmp_path / "run" / "operator-inbox"
+    harness_root = tmp_path / "harness"
+    sprints.mkdir(parents=True)
+    pm_inbox.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", pm_inbox)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", operator_inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", harness_root)
+    monkeypatch.setenv("SOLAR_PM_DISPATCH_ALLOW_DIRECT", "1")
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_task_graph_node",
+        lambda sprint_id, node_id: {
+            "id": node_id,
+            "status": "reviewing",
+            "capability_native": True,
+            "capability_capsule_id": "cap.verifier",
+            "dispatch_task_type": "graph_eval",
+        },
+    )
+    monkeypatch.setattr(
+        pm_dispatch,
+        "select_operator_by_role",
+        lambda **kwargs: (
+            "mini-codex-gpt55-medium-evaluator",
+            {"model": "gpt-5.5", "roles": ["evaluator"]},
+            "",
+        ),
+    )
+
+    fake_operator_runtime = types.ModuleType("operator_runtime")
+
+    def _unexpected_submit(envelope):
+        raise AssertionError("graph_eval evaluator should bypass operator_runtime.submit")
+
+    fake_operator_runtime.submit = _unexpected_submit  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "operator_runtime", fake_operator_runtime)
+
+    graph_path = sprints / "sprint-eval-capsule.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-eval-capsule",
+                "nodes": [{"id": "E1", "status": "reviewing"}],
+                "node_results": {"E1": {"status": "reviewing"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = pm_dispatch.cmd_submit(
+        argparse.Namespace(
+            role="evaluator",
+            objective="Review E1 handoff and write eval sidecar.",
+            operator="",
+            sprint="sprint-eval-capsule",
+            node="E1",
+            task_type="",
+            context="",
+            dry_run=False,
+        )
+    )
+
+    assert rc == 0
+    records = list(pm_inbox.glob("pm-*.json"))
+    assert len(records) == 1
+    record = json.loads(records[0].read_text(encoding="utf-8"))
+    assert record["status"] == "submitted_fallback"
+    assert record["submit_mode"] == "direct_inbox_graph_eval"
+    assert record["task_type"] == "graph_eval"
+    envelope = json.loads(Path(record["inbox_path"]).read_text(encoding="utf-8"))
+    assert envelope["task_type"] == "graph_eval"
 
 
 def test_transient_evaluator_failure_releases_graph_assignment(monkeypatch, tmp_path):

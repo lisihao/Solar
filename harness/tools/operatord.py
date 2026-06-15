@@ -603,6 +603,42 @@ def _pm_result_path(envelope: dict[str, Any]) -> Path | None:
     return Path(value).expanduser()
 
 
+def _required_pm_artifacts_for_envelope(envelope: dict[str, Any]) -> list[Path]:
+    task_type = str(envelope.get("task_type") or "").strip().lower()
+    requested_role = str(envelope.get("requested_role") or "").strip().lower().replace("_", "-")
+    sprint_id = str(envelope.get("sprint_id") or "").strip()
+    node_id = str(envelope.get("node_id") or "").strip()
+    if task_type == "graph_eval" and requested_role == "evaluator" and sprint_id and node_id:
+        return [
+            HARNESS_DIR / "sprints" / f"{sprint_id}.{node_id}-eval.md",
+            HARNESS_DIR / "sprints" / f"{sprint_id}.{node_id}-eval.json",
+        ]
+    return []
+
+
+def _artifact_gaps(paths: list[Path], started_at: str) -> tuple[list[str], list[str]]:
+    missing: list[str] = []
+    stale: list[str] = []
+    threshold: dt.datetime | None = None
+    try:
+        threshold = _parse_utc(started_at) - dt.timedelta(seconds=2)
+    except Exception:
+        threshold = None
+    for path in paths:
+        if not path.exists() or path.stat().st_size <= 0:
+            missing.append(str(path))
+            continue
+        if threshold is None:
+            continue
+        try:
+            artifact_mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+        except OSError:
+            continue
+        if artifact_mtime < threshold:
+            stale.append(str(path))
+    return missing, stale
+
+
 def _pm_dispatch_complete_command(task_id: str) -> list[str]:
     return [sys.executable, str(HARNESS_DIR / "tools" / "pm_dispatch.py"), "complete", "--task-id", task_id]
 
@@ -1214,6 +1250,23 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                             exit_code = exit_code or 66
                     except Exception:
                         pass
+
+            if result_status == "completed" and pm_result_path is not None:
+                required_artifacts = _required_pm_artifacts_for_envelope(envelope)
+                missing_artifacts, stale_artifacts = _artifact_gaps(required_artifacts, started_at)
+                if missing_artifacts or stale_artifacts:
+                    if missing_artifacts:
+                        log_lines.append(
+                            "[ERROR] missing required graph_eval artifacts: "
+                            + ", ".join(missing_artifacts)
+                        )
+                    if stale_artifacts:
+                        log_lines.append(
+                            "[ERROR] stale required graph_eval artifacts: "
+                            + ", ".join(stale_artifacts)
+                        )
+                    result_status = "failed_contract_closeout"
+                    exit_code = exit_code or 68
 
             if result_status == "completed" and pm_result_path is not None:
                 try:
