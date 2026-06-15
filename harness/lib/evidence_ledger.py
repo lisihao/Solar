@@ -520,6 +520,14 @@ def build_scheduler_decision(
     artifact_refs: Optional[Dict[str, str]] = None,
     replay: Optional[Dict[str, Any]] = None,
     constraints: Optional[Dict[str, Any]] = None,
+    # N1 / S03 fields
+    dispatch_path: Optional[str] = None,
+    fallback_reason: Optional[str] = None,
+    selected_host_type: Optional[str] = None,
+    gate: Optional[str] = None,
+    failure_fingerprint_penalty: Optional[float] = None,
+    matched_labels: Optional[List[str]] = None,
+    evidence_refs: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Build a scheduler_decision record with S02 A1 required versioned fields.
 
@@ -532,6 +540,14 @@ def build_scheduler_decision(
         + (f" Quota: {quota_reason}." if quota_reason else "")
         + (f" Risk: {risk_reason}." if risk_reason else "")
     )
+
+    ff_penalty = float(failure_fingerprint_penalty) if failure_fingerprint_penalty is not None else 0.0
+    labels = list(matched_labels) if matched_labels is not None else []
+    refs = list(evidence_refs) if evidence_refs is not None else []
+
+    if ff_penalty > 0.0:
+        penalties.setdefault("FailureFingerprintPenalty", ff_penalty)
+
     return {
         # S02 A1 required schema fields
         "schema_version": "solar.scheduler_decision.v1",
@@ -558,4 +574,13 @@ def build_scheduler_decision(
             "logical_operator": logical_operator,
         },
         "constraints": constraints or {},
+        # N1 contract fields
+        "dispatch_path": dispatch_path,
+        "fallback_reason": fallback_reason,
+        "selected_host_type": selected_host_type,
+        "gate": gate,
+        # S03 fingerprint fields
+        "FailureFingerprintPenalty": ff_penalty,
+        "matched_labels": labels,
+        "evidence_refs": refs,
     }

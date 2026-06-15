@@ -42,6 +42,15 @@ class SubmitResult:
         run_dir: Optional[str] = None,
         artifact_refs: Optional[Dict[str, str]] = None,
         policy_decisions: Optional[List[Dict[str, Any]]] = None,
+        # N1 contract fields
+        dispatch_path: Optional[str] = None,
+        fallback_reason: Optional[str] = None,
+        context_packet_id: Optional[str] = None,
+        rejected_candidates: Optional[List[Dict[str, str]]] = None,
+        score_factors: Optional[Dict[str, float]] = None,
+        penalties: Optional[Dict[str, float]] = None,
+        selected_host_type: Optional[str] = None,
+        gate: Optional[str] = None,
     ):
         self.success = success
         self.lease = lease
@@ -53,6 +62,15 @@ class SubmitResult:
         self.run_dir = run_dir
         self.artifact_refs = artifact_refs or {}
         self.policy_decisions = policy_decisions or []
+        # N1 contract fields
+        self.dispatch_path = dispatch_path
+        self.fallback_reason = fallback_reason
+        self.context_packet_id = context_packet_id
+        self.rejected_candidates = rejected_candidates or []
+        self.score_factors = score_factors or {}
+        self.penalties = penalties or {}
+        self.selected_host_type = selected_host_type
+        self.gate = gate
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -66,6 +84,15 @@ class SubmitResult:
             "run_dir": self.run_dir,
             "artifact_refs": self.artifact_refs,
             "policy_decisions": self.policy_decisions,
+            # N1 contract fields
+            "dispatch_path": self.dispatch_path,
+            "fallback_reason": self.fallback_reason,
+            "context_packet_id": self.context_packet_id,
+            "rejected_candidates": self.rejected_candidates,
+            "score_factors": self.score_factors,
+            "penalties": self.penalties,
+            "selected_host_type": self.selected_host_type,
+            "gate": self.gate,
         }
 
 
@@ -373,6 +400,7 @@ class ActorRuntime:
             )
 
         # Resolve actor
+        rejected_candidates = []
         if not actor_id and logical_operator:
             is_browser_op = (
                 logical_operator in ("DeepResearchBrowser", "WebwrightPlaywright", "BrowserUseMcp") or
@@ -396,6 +424,7 @@ class ActorRuntime:
                     logical_operator,
                     unavailable=self._runtime_unavailable_actor_ids(logical_operator),
                 )
+                rejected_candidates = rejected
                 if not selected:
                     selected = self._physical_plan_runtime_fallback_actor(task_envelope)
                 if not selected:
@@ -411,6 +440,68 @@ class ActorRuntime:
             sprint_id=sprint_id,
             node_id=node_id,
         )
+
+        # Resolve task_type for fingerprinting
+        graph_node = task_envelope.get("task_graph_node") if isinstance(task_envelope.get("task_graph_node"), dict) else {}
+        task_type = str(
+            task_envelope.get("task_type")
+            or task_envelope.get("dispatch_task_type")
+            or task_envelope.get("type")
+            or graph_node.get("dispatch_task_type")
+            or graph_node.get("type")
+            or ""
+        )
+
+        # Retrieve failure fingerprint evidence
+        evidence_events = task_envelope.get("failure_fingerprint_evidence")
+        if evidence_events is None and "recent_failures" in task_envelope:
+            from failure_fingerprint import adapt_recent_failures_to_evidence
+            evidence_events = adapt_recent_failures_to_evidence(task_envelope["recent_failures"])
+
+        failure_profile = None
+        if "failure_fingerprint_profiles" in task_envelope:
+            profiles_dict = task_envelope["failure_fingerprint_profiles"] or {}
+            failure_profile = profiles_dict.get(actor_id)
+
+        # Check if pre-computed penalty exists
+        pre_computed_penalty = None
+        if "failure_fingerprint_penalties" in task_envelope:
+            penalties_dict = task_envelope["failure_fingerprint_penalties"] or {}
+            pre_computed_penalty = penalties_dict.get(actor_id)
+
+        from failure_fingerprint import compute_label_fingerprint_penalty, FingerprintResult
+        if pre_computed_penalty is not None:
+            if isinstance(pre_computed_penalty, dict):
+                penalty_val = float(pre_computed_penalty.get("penalty", 0.0) or 0.0)
+            elif isinstance(pre_computed_penalty, (int, float)):
+                penalty_val = float(pre_computed_penalty)
+            else:
+                penalty_val = float(getattr(pre_computed_penalty, "penalty", 0.0) or 0.0)
+            
+            fp_res = FingerprintResult(
+                fingerprint_type=task_type or "unknown",
+                penalty=max(0.0, penalty_val),
+                explanation="pre-computed penalty from task envelope",
+                actor_id=actor_id,
+            )
+        elif task_type:
+            fp_res = compute_label_fingerprint_penalty(
+                actor_id=actor_id,
+                task_type=task_type,
+                evidence_events=evidence_events,
+                profile=failure_profile
+            )
+        else:
+            fp_res = FingerprintResult(
+                fingerprint_type="",
+                penalty=0.0,
+                explanation="no fingerprint match",
+                actor_id=actor_id,
+            )
+
+        penalties = {}
+        if fp_res.penalty > 0.0:
+            penalties["FailureFingerprintPenalty"] = fp_res.penalty
 
         # Check profile risk denial
         profile = self.profiles.get(actor_id)
@@ -442,10 +533,19 @@ class ActorRuntime:
             selected_actor=actor_id,
             logical_operator=logical_operator or "",
             score_factors={},
-            penalties={},
-            rejected=[],
+            penalties=penalties,
+            rejected=rejected_candidates,
             dag_id=sprint_id,
             node_id=node_id,
+            # N1 contract fields
+            dispatch_path="actor_runtime",
+            fallback_reason=None,
+            selected_host_type=actor_id,
+            gate=task_envelope.get("gate"),
+            # S03 fingerprint fields
+            failure_fingerprint_penalty=fp_res.penalty,
+            matched_labels=fp_res.matched_labels,
+            evidence_refs=fp_res.evidence_refs,
         )
 
         # Materialize runs/<dag-id>/ evidence seed (after lease, before mailbox)
@@ -502,10 +602,19 @@ class ActorRuntime:
             selected_actor=actor_id,
             logical_operator=logical_operator or "",
             score_factors={},
-            penalties={},
-            rejected=[],
+            penalties=penalties,
+            rejected=rejected_candidates,
             dag_id=sprint_id,
             node_id=node_id,
+            # N1 contract fields
+            dispatch_path="actor_runtime",
+            fallback_reason=None,
+            selected_host_type=actor_id,
+            gate=task_envelope.get("gate"),
+            # S03 fingerprint fields
+            failure_fingerprint_penalty=fp_res.penalty,
+            matched_labels=fp_res.matched_labels,
+            evidence_refs=fp_res.evidence_refs,
         )
 
         resolved_capsule = task_envelope.get("resolved_capability_capsule") or {}
@@ -545,6 +654,15 @@ class ActorRuntime:
             run_dir=run_dir,
             artifact_refs=artifact_refs,
             policy_decisions=policy_decisions,
+            # N1 contract fields
+            dispatch_path="actor_runtime",
+            fallback_reason=None,
+            context_packet_id=ctx_ref.get("packet_id") if ctx_ref else None,
+            rejected_candidates=rejected_candidates,
+            score_factors={},
+            penalties=penalties,
+            selected_host_type=actor_id,
+            gate=task_envelope.get("gate"),
         )
 
     def _is_critical_task(self, task_envelope: Dict[str, Any]) -> bool:
@@ -591,8 +709,8 @@ class ActorRuntime:
         ).lower()
         gate = str(graph_node.get("gate") or "").upper()
         return (
-            logical_operator == "verifier"
-            or task_type == "verification"
+            logical_operator in {"verifier", "critic"}
+            or task_type in {"verification", "review"}
             or (gate == "G_REVIEW" and task_type == "review")
         )
 

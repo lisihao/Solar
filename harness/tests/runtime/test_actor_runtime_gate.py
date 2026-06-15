@@ -207,6 +207,37 @@ def test_submit_verifier_task_skips_pre_verifier_gate(tmp_path):
     assert lease.task_id == "verify-task-001"
 
 
+def test_submit_critic_review_task_skips_pre_verifier_gate(tmp_path):
+    """Critic/review nodes must be allowed to run before verifier evidence exists."""
+    rt = ActorRuntime(harness_dir=tmp_path)
+    env = {
+        "task_id": "critic-task-001",
+        "objective": "Review plan and produce evidence map.",
+        "task_graph_node": {
+            "id": "S2",
+            "risk": "high",
+            "type": "review",
+            "logical_operator": "Critic",
+            "dispatch_task_type": "review",
+        },
+    }
+
+    result = rt.submit(
+        task_envelope=env,
+        logical_operator="Critic",
+        actor_id="critic-001",
+        sprint_id="s1",
+        node_id="S2",
+    )
+
+    assert result.success is True
+    assert result.inbox_path is not None
+    assert Path(result.inbox_path).exists()
+    lease = rt.broker.get("critic-001")
+    assert lease is not None
+    assert lease.task_id == "critic-task-001"
+
+
 def test_submit_non_critical_skips_gate():
     """Non-critical tasks should not be blocked by the gate."""
     rt = _make_runtime()

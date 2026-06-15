@@ -390,3 +390,57 @@ class TestInvalidNodeRejected:
             assert "no_available_actor" in result.error, (
                 f"Expected 'no_available_actor' in error, got: {result.error}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Positive control 7: dispatch bridge retains fingerprint penalty fields
+# ---------------------------------------------------------------------------
+class TestDispatchBridgeFingerprintPenalty:
+    def test_submit_computes_and_retains_fingerprint_penalty(self):
+        """ActorRuntime.submit computes fingerprint penalty and returns it in SubmitResult."""
+        from actor_runtime import ActorRuntime
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        with tempfile.TemporaryDirectory() as td:
+            harness_dir = Path(td)
+            
+            # Create subdirectories so paths don't fail
+            (harness_dir / "run" / "actor-leases").mkdir(parents=True)
+            (harness_dir / "run" / "actor-evidence").mkdir(parents=True)
+            (harness_dir / "actors" / "op.test.builder").mkdir(parents=True)
+
+            runtime = ActorRuntime(harness_dir=harness_dir)
+            
+            # Mock lease broker to return a mock lease instead of failing
+            runtime.broker.acquire = MagicMock(return_value=MagicMock())
+            
+            # Mock operator runtime bridge so it doesn't fail
+            runtime._submit_operator_runtime_bridge = MagicMock(return_value={"status": "skipped"})
+
+            # Prepare envelope with fingerprint evidence triggering a penalty on FINAL_REVIEW
+            envelope = {
+                "task_id": "t-fp-test",
+                "task_type": "FINAL_REVIEW",
+                "recent_failures": [
+                    {
+                        "evidence_id": "ev-1",
+                        "actor_id": "op.test.builder",
+                        "task_type": "FINAL_REVIEW",
+                        "failure_label": "shallow_final_reasoning",
+                        "source_ref": "eval.md",
+                    }
+                ]
+            }
+
+            # Submit node
+            res = runtime.submit(envelope, actor_id="op.test.builder", sprint_id="s1", node_id="n1")
+            
+            assert res.success is True
+            assert res.penalties.get("FailureFingerprintPenalty") is not None
+            assert res.penalties["FailureFingerprintPenalty"] > 0
+            assert res.scheduler_decision["FailureFingerprintPenalty"] > 0
+            assert res.scheduler_decision["matched_labels"] == ["shallow_final_reasoning"]
+            assert res.scheduler_decision["evidence_refs"] == ["ev-1"]
+            print("PASS: submit_computes_and_retains_fingerprint_penalty")
