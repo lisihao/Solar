@@ -4063,6 +4063,7 @@ PY
     echo "  $0 autopilot [status|apply|dispatch|loop|start|stop|service-status|queue]  自动监控断头 sprint/pane 并安全推进"
     echo "  $0 symphony [status|dry-run|workspace <sid>]  Symphony 调度"
     echo "  $0 graph-scheduler [validate|ready|batches|enrich-capabilities|enrich-backlog|assign|enqueue-ready|mark|parent-check]  DAG 并行调度"
+    echo "  $0 operator-registry audit [--format json|md|html] [--out path]  Operator registry 审计"
     echo "  $0 architecture-guard validate --graph sprint.task_graph.json [--strict]  package-first 架构门禁"
     echo "  $0 workflow-guard route <sid> [--json]  PM→Planner→DAG Builder 门禁判定"
     echo "  $0 graph-dispatch [dispatch-ready|drain-queue]  DAG 节点级 pane 派发"
@@ -4978,6 +4979,16 @@ PLIST
         err "Unknown graph-scheduler subcommand: $_graph_subcmd"; exit 1
         ;;
     esac
+    ;;
+
+  operator-registry)
+    # Operator registry audit surface.
+    shift
+    _operator_registry_py="$HARNESS_DIR/tools/operator_registry_audit.py"
+    if [[ ! -f "$_operator_registry_py" ]]; then
+      err "operator_registry_audit.py not found: $_operator_registry_py"; exit 1
+    fi
+    python3 "$_operator_registry_py" "$@"
     ;;
 
   architecture-guard)
