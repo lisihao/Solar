@@ -21,7 +21,18 @@ except Exception as exc:  # pragma: no cover - jsonschema optional in some envir
     _jsonschema_validators = None  # type: ignore[assignment]
 
 
-SCHEMA_VERSION = "solar.closure.v1"
+SCHEMA_VERSION = "solar.closure_record.v1"
+EVAL_EVIDENCE_SUFFIXES = (".eval.json", ".eval.md", "-eval.json", "-eval.md")
+BLOCKING_EVAL_RESULTS = {
+    "block",
+    "blocked",
+    "error",
+    "fail",
+    "failed",
+    "needs_attention",
+    "reject",
+    "rejected",
+}
 TERMINAL_NODE_STATUSES = {
     "passed",
     "skipped",
@@ -83,7 +94,9 @@ class SprintArtifacts:
 
     def eval_paths(self) -> list[Path]:
         return sorted(
-            p for p in self.sprints_dir.glob(f"{self.sid}*.eval.*") if p.is_file() and ".eval." in p.name
+            p
+            for p in self.sprints_dir.glob(f"{self.sid}*")
+            if p.is_file() and _is_eval_evidence_path(p)
         )
 
     def all_candidates(self) -> list[Path]:
@@ -164,11 +177,76 @@ def _build_required_artifacts(sid: str) -> list[str]:
     )
 
 
+def _schema_status_from_legacy(status: str) -> str:
+    if status == "pass":
+        return "passed"
+    if status == "fail":
+        return "failed"
+    return "pending"
+
+
+def _is_eval_evidence_path(path: Path) -> bool:
+    return any(path.name.endswith(suffix) for suffix in EVAL_EVIDENCE_SUFFIXES)
+
+
+def _evaluator_from_eval_path(sid: str, path: Path) -> str:
+    name = path.name
+    label = name
+    for prefix in (f"{sid}.", f"{sid}-", sid):
+        if label.startswith(prefix):
+            label = label[len(prefix) :]
+            break
+    for suffix in EVAL_EVIDENCE_SUFFIXES:
+        if label.endswith(suffix):
+            label = label[: -len(suffix)]
+            break
+    return label.strip(".-") or "unknown"
+
+
+def _eval_record_blocks_closure(record: EvidenceRecord) -> bool:
+    normalized = _status_text(record.result).replace("-", "_")
+    return normalized in BLOCKING_EVAL_RESULTS or normalized.startswith("fail")
+
+
+def _graph_completion(graph: dict[str, Any], state: dict[str, Any] | None) -> tuple[bool, bool]:
+    nodes = graph.get("nodes") or [] if isinstance(graph, dict) else []
+    node_results = (state or {}).get("node_results") if isinstance(state, dict) else {}
+    if not isinstance(node_results, dict):
+        node_results = {}
+    all_nodes_passed = bool(nodes)
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or "")
+        node_result = node_results.get(node_id) if isinstance(node_results, dict) else None
+        if not isinstance(node_result, dict):
+            node_result = {}
+        status = str(node_result.get("status") or node.get("status") or "").strip().lower()
+        if status != "passed":
+            all_nodes_passed = False
+            break
+
+    required_gates = graph.get("required_gates") or [] if isinstance(graph, dict) else []
+    gate_results = (state or {}).get("gate_results") if isinstance(state, dict) else {}
+    if not isinstance(gate_results, dict):
+        gate_results = {}
+    fallback_gates = graph.get("gate_results") or {} if isinstance(graph, dict) else {}
+    if not isinstance(fallback_gates, dict):
+        fallback_gates = {}
+    all_required_gates_passed = True
+    if isinstance(required_gates, list):
+        for gate in required_gates:
+            if not _gate_terminal(gate_results.get(gate)) and not _gate_terminal(fallback_gates.get(gate)):
+                all_required_gates_passed = False
+                break
+    return all_nodes_passed, all_required_gates_passed
+
+
 def _collect_eval_records(sid: str, artifacts: SprintArtifacts) -> list[EvidenceRecord]:
     records: list[EvidenceRecord] = []
     for path in artifacts.eval_paths():
         raw = _read_text(path)
-        evaluator = path.name.replace(f"{sid}.", "").split(".")[-2] or "unknown"
+        evaluator = _evaluator_from_eval_path(sid, path)
         result = "present"
         notes = ""
 
@@ -268,6 +346,9 @@ def _build_residual_risks(artifacts: SprintArtifacts, graph: dict[str, Any], sta
         risks.append("handoff.md missing")
     if not eval_records:
         risks.append("missing eval evidence")
+    for record in eval_records:
+        if _eval_record_blocks_closure(record):
+            risks.append(f"eval did not pass: {record.evaluator}={record.result}")
 
     if missing:
         for item in missing:
@@ -321,31 +402,47 @@ def compute_closure_payload(
     risks = _build_residual_risks(artifacts, graph, state, eval_records, missing)
 
     if risks and not eval_records:
-        status = "fail"
+        legacy_status = "fail"
     elif risks:
-        status = "needs_attention"
+        legacy_status = "needs_attention"
     elif coverage >= 100.0:
-        status = "pass"
+        legacy_status = "pass"
     else:
-        status = "needs_attention"
+        legacy_status = "needs_attention"
+    status = _schema_status_from_legacy(legacy_status)
 
     artifact_digest = _sha1_like([str(p) for p in artifacts.all_candidates()])
+    all_nodes_passed, all_required_gates_passed = _graph_completion(graph, state)
+    eval_payloads = [r.to_dict() for r in eval_records]
 
     evidence_policy = {
-        "required_artifacts": _build_required_artifacts(sid) + ["eval evidence (*.eval.md or *.eval.json)"],
+        "required_artifacts": _build_required_artifacts(sid)
+        + ["eval evidence (*.eval.md/*.eval.json or *-eval.md/*-eval.json)"],
         "missing_artifacts": [m for m in sorted(set(missing)) if "eval_evidence" != m],
     }
     if not eval_records:
-        evidence_policy["missing_artifacts"].append("eval evidence (*.eval.md or *.eval.json)")
+        evidence_policy["missing_artifacts"].append(
+            "eval evidence (*.eval.md/*.eval.json or *-eval.md/*-eval.json)"
+        )
 
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "closure_id": f"{sid}:{artifact_digest[:16]}",
         "sprint_id": sid,
         "status": status,
+        "legacy_status": legacy_status,
         "generated_at": _now(),
         "traceability_coverage": float(f"{coverage:.2f}"),
-        "evaluations": [r.to_dict() for r in eval_records],
+        "acceptance_traceability_coverage": float(f"{coverage / 100.0:.4f}"),
+        "requirement_ir_ref": str(artifacts.sprints_dir / f"{sid}.requirement_ir.json"),
+        "contracts_manifest_ref": str(artifacts.contract_md),
+        "graph_ref": str(artifacts.task_graph),
+        "all_nodes_passed": all_nodes_passed,
+        "all_required_gates_passed": all_required_gates_passed,
+        "tests": [],
+        "evals": eval_payloads,
+        "changed_files": [],
+        "evaluations": eval_payloads,
         "evidence_policy": evidence_policy,
         "residual_risks": risks,
     }
@@ -551,10 +648,8 @@ def run_verify(sid: str, harness_dir: Path, sprints_dir: Path, schema_path: Path
         payload,
     )
     return_code = 0
-    if payload["status"] == "fail":
+    if payload["status"] != "passed" or payload["traceability_coverage"] < 100.0:
         return_code = 2
-    if payload["status"] in {"fail", "needs_attention"} and payload["traceability_coverage"] < 100.0:
-        return_code = max(return_code, 2)
     return return_code, closure_json, closure_md, payload
 
 
