@@ -810,7 +810,7 @@ def _build_insight_human_final(root: Path, ast: dict, contribution: dict, sectio
 
     text = _public_report_text("\n".join(lines).strip()) + "\n"
     # Insight-mode human output is a publication preview. Keep run/token metrics
-    # in JSON sidecars only; final.md remains the machine-audit artifact.
+    # in JSON sidecars only; machine/audit details are kept out of final.md.
     execution_metrics = append_execution_metrics_section(text, root)[1]
     human_path = root / "human_final.md"
     human_path.write_text(text, encoding="utf-8")
@@ -1756,9 +1756,18 @@ def compile_survey(
         if insight_mode
         else {}
     )
+    final_machine_path = ""
+    if insight_mode and human_summary.get("human_final_md"):
+        machine_path = root / "final_machine.md"
+        machine_path.write_text(final_path.read_text(encoding="utf-8"), encoding="utf-8")
+        final_machine_path = str(machine_path)
+        human_path = Path(str(human_summary["human_final_md"]))
+        final_path.write_text(human_path.read_text(encoding="utf-8"), encoding="utf-8")
+
     return {
         "ok": True,
         "final_md": str(final_path),
+        "final_machine_md": final_machine_path,
         "final_html": html_summary.get("final_html", "") if insight_mode else "",
         "human_final_md": human_summary.get("human_final_md"),
         "section_render_cards": str(root / "section_render_cards.json") if insight_mode else "",
