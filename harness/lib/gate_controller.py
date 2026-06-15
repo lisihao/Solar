@@ -42,11 +42,23 @@ def _completion_source(result: dict[str, Any], gate: dict[str, Any], verdict: di
     return ""
 
 
+def _artifact_path(raw_path: str, artifact_base_dirs: list[str | Path] | None) -> Path:
+    path = Path(raw_path).expanduser()
+    if path.is_absolute() or not artifact_base_dirs:
+        return path
+    for base_dir in artifact_base_dirs:
+        candidate = Path(base_dir).expanduser() / raw_path
+        if candidate.exists():
+            return candidate
+    return path
+
+
 def validate_parent_child_completion(
     children: list[dict[str, Any]],
     *,
     allow_break_glass: bool = False,
     verify_artifact_hashes: bool = True,
+    artifact_base_dirs: list[str | Path] | None = None,
 ) -> dict[str, Any]:
     """Validate child completion gates before a parent sprint can close.
 
@@ -92,7 +104,7 @@ def validate_parent_child_completion(
             expected = str(artifact.get("sha256") or "")
             if not raw_path or not expected:
                 continue
-            path = Path(raw_path).expanduser()
+            path = _artifact_path(raw_path, artifact_base_dirs)
             if not path.exists():
                 artifact_hash_mismatches.append({"node_id": node_id, "path": raw_path, "reason": "missing"})
                 continue

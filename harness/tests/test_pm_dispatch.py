@@ -166,6 +166,60 @@ def test_list_pm_tasks_prioritizes_active_records_before_failed_and_completed(mo
     assert [task["task_id"] for task in tasks] == ["pm-submitted", "pm-failed"]
 
 
+def test_failed_contract_closeout_releases_dispatched_graph_node(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    graph_path = sprints / "sprint-a.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-a",
+                "nodes": [
+                    {
+                        "id": "S5",
+                        "status": "dispatched",
+                        "dispatch_id": "pm-sprint-a-S5-bad",
+                        "pm_task_id": "pm-sprint-a-S5-bad",
+                        "operator_id": "mini-reasonix-deepseek-v4-builder",
+                    }
+                ],
+                "node_results": {
+                    "S5": {
+                        "status": "dispatched",
+                        "dispatch_id": "pm-sprint-a-S5-bad",
+                        "pm_task_id": "pm-sprint-a-S5-bad",
+                        "operator_id": "mini-reasonix-deepseek-v4-builder",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = pm_dispatch.release_builder_assignment_on_transient_failure(
+        {
+            "task_id": "pm-sprint-a-S5-bad",
+            "sprint_id": "sprint-a",
+            "node_id": "S5",
+            "operator_id": "mini-reasonix-deepseek-v4-builder",
+            "status": "failed_contract_closeout",
+            "failure_reason": "completed_without_required_artifacts",
+        }
+    )
+
+    assert result["released"] is True
+    assert result["reason"] == "failed_contract_closeout"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = graph["nodes"][0]
+    entry = graph["node_results"]["S5"]
+    assert node["status"] == "pending"
+    assert entry["status"] == "pending"
+    assert node["requeue_reason"] == "failed_contract_closeout"
+    assert "operator_id" not in node
+
+
 def test_select_operator_by_role_rejects_write_denied_planner(monkeypatch):
     pm_dispatch = _load_pm_dispatch()
     monkeypatch.setattr(
@@ -207,7 +261,7 @@ def test_select_operator_by_role_rejects_write_denied_planner(monkeypatch):
     assert operator_id == "gpt-planner"
 
 
-def test_deepseek_eval_sidecar_operator_can_be_selected_as_evaluator(monkeypatch):
+def test_deepseek_advisory_operator_is_not_selected_as_final_evaluator(monkeypatch):
     pm_dispatch = _load_pm_dispatch()
     monkeypatch.setattr(
         pm_dispatch,
@@ -238,8 +292,67 @@ def test_deepseek_eval_sidecar_operator_can_be_selected_as_evaluator(monkeypatch
 
     operator_id, operator, reason = pm_dispatch.select_operator_by_role(role="evaluator", task_type="review")
 
+    assert operator_id == ""
+    assert operator == {}
+    assert "no_dispatchable_operator_for_role" in reason
+
+
+def test_eval_sidecar_only_operator_rejected_for_non_eval_closeout_artifacts(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_registry",
+        lambda: {
+            "version": 1,
+            "operators": {
+                "mini-reasonix-deepseek-v4-builder": {
+                    "enabled": True,
+                    "available": True,
+                    "role": "advisor",
+                    "roles": ["advisor", "evaluator"],
+                    "launch_cmd_kind": "print_once",
+                    "task_classes": ["analysis", "review", "advisory", "verification"],
+                    "profile": "deepseek-advisory",
+                    "preferred_for": ["evaluator", "review", "verification"],
+                    "policy": {"write_files": "eval_sidecar_only", "eval_sidecar_write": "allowed"},
+                },
+                "mini-codex-gpt55-medium-builder-1": {
+                    "enabled": True,
+                    "available": True,
+                    "role": "builder",
+                    "roles": ["builder", "evaluator"],
+                    "launch_cmd_kind": "command",
+                    "task_classes": ["review", "verification"],
+                    "profile": "codex-builder",
+                    "preferred_for": ["evaluator", "review", "verification"],
+                    "policy": {"write_files": "allowed", "run_shell": "allowed"},
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
+
+    operator_id, operator, reason = pm_dispatch.select_operator_by_role(
+        role="evaluator",
+        task_type="verification",
+        resolved_capsule={
+            "artifact_types": {
+                "produces": [
+                    "artifact.guard_decision",
+                    "artifact.resource_binding",
+                    "artifact.handoff_md",
+                    "artifact.eval_json",
+                ]
+            },
+            "proof_obligations": [
+                {"requirement": "handoff_md exists"},
+                {"requirement": "eval_json exists"},
+            ],
+        },
+    )
+
     assert reason == ""
-    assert operator_id == "mini-reasonix-deepseek-v4-builder"
+    assert operator_id == "mini-codex-gpt55-medium-builder-1"
     assert operator["selected_for_role"] == "evaluator"
 
 
@@ -268,14 +381,14 @@ def test_preferred_multi_role_operator_uses_requested_role_persona(monkeypatch):
     monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
 
     operator_id, operator, reason = pm_dispatch.select_operator_by_role(
-        role="evaluator",
-        task_type="review",
+        role="advisor",
+        task_type="advisory",
         prefer_operator="deepseek-advisory",
     )
 
     assert reason == ""
     assert operator_id == "deepseek-advisory"
-    assert operator["selected_for_role"] == "evaluator"
+    assert "selected_for_role" not in operator
 
 
 def test_multi_role_operator_uses_requested_role_persona(monkeypatch, tmp_path):

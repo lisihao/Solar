@@ -1,4 +1,5 @@
 import json
+import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -107,6 +108,29 @@ def test_graph_mark_passed_requires_completion_gate(tmp_path, monkeypatch):
     assert node_result["completion_gate"]["verdict"]["status"] == "passed"
 
 
+def test_graph_mark_normalizes_eval_before_completion_hash(tmp_path, monkeypatch):
+    graph_scheduler = load_graph_scheduler()
+    harness_root = tmp_path / "harness"
+    sprints = harness_root / "sprints"
+    sprints.mkdir(parents=True)
+    monkeypatch.setattr(graph_scheduler, "HARNESS_DIR", harness_root)
+    monkeypatch.setattr(graph_scheduler, "SPRINTS_DIR", sprints)
+    sid = "sprint-gate"
+    eval_path = sprints / f"{sid}.N1-eval.json"
+    (sprints / f"{sid}.N1-handoff.md").write_text("handoff\n", encoding="utf-8")
+    eval_path.write_text('{"verdict": "PASS"}\n', encoding="utf-8")
+    graph = {"sprint_id": sid, "nodes": [{"id": "N1", "write_scope": []}]}
+
+    result = graph_scheduler.mark_node_result(graph, "N1", "passed")
+
+    assert result["ready"] is True
+    current_hash = hashlib.sha256(eval_path.read_bytes()).hexdigest()
+    covered = graph["node_results"]["N1"]["completion_gate"]["verdict"]["covered_artifacts"]
+    eval_artifact = next(item for item in covered if item["path"] == str(eval_path))
+    assert eval_artifact["sha256"] == current_hash
+    assert graph_scheduler.parent_ready_check(graph)["artifact_hash_mismatches"] == []
+
+
 def _parent_gate_result(node_id="N1", result_id="r1", attempt_id="a1", source="solar_gate_controller", artifacts=None):
     return {
         "status": "passed",
@@ -178,3 +202,27 @@ def test_parent_ready_blocks_child_artifact_hash_drift(tmp_path):
 
     assert result["ready"] is False
     assert result["artifact_hash_mismatches"][0]["node_id"] == "N1"
+
+
+def test_parent_ready_resolves_relative_child_artifacts_from_sprints_dir(tmp_path):
+    graph_scheduler = load_graph_scheduler()
+    graph_scheduler.SPRINTS_DIR = tmp_path
+    artifact = tmp_path / "relative-handoff.md"
+    artifact.write_text("handoff\n", encoding="utf-8")
+    graph = {
+        "sprint_id": "parent-gate",
+        "nodes": [{"id": "N1", "status": "passed"}],
+        "node_results": {
+            "N1": _parent_gate_result(
+                artifacts=[{
+                    "path": artifact.name,
+                    "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                }],
+            )
+        },
+    }
+
+    result = graph_scheduler.parent_ready_check(graph)
+
+    assert result["ready"] is True
+    assert result["artifact_hash_mismatches"] == []

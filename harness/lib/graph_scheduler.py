@@ -537,6 +537,27 @@ def _closure_block_for_parent_pass(
     return {"blocked": False, "reason": "closure_status_missing", "path": str(closure_path)}
 
 
+def _refresh_pending_closure_projection_from_graph(
+    graph: dict[str, Any],
+    graph_path: str | Path | None = None,
+) -> dict[str, Any]:
+    closure_path = _closure_path_for_graph(graph, graph_path)
+    existing_status = ""
+    if closure_path.exists():
+        try:
+            payload = json.loads(closure_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                existing_status = str(payload.get("status") or "").strip().lower()
+        except Exception as exc:
+            return {"updated": False, "reason": "closure_unreadable", "path": str(closure_path), "error": str(exc)}
+    if existing_status and existing_status != "pending":
+        return {"updated": False, "reason": "closure_explicit_status_preserved", "path": str(closure_path), "status": existing_status}
+    resolved_graph_path = Path(graph_path).expanduser() if graph_path else None
+    state = _runtime_state_from_graph(graph, graph_path=resolved_graph_path)
+    _save_closure_projection(closure_path, graph, state)
+    return {"updated": True, "reason": "closure_projection_refreshed", "path": str(closure_path), "previous_status": existing_status or "missing"}
+
+
 def _status_has_terminal_evidence(sid: str, status: dict[str, Any] | None = None, graph_path: str | Path | None = None) -> bool:
     payload = status or {}
     state = str(payload.get("status", "")).lower()
@@ -837,6 +858,7 @@ def sync_status_cache_from_graph(
         )
         result.update({"updated": True, "status": current, "reason": "acceptance_verdict_blocked_parent_pass"})
         return result
+    result["closure_projection"] = _refresh_pending_closure_projection_from_graph(graph, graph_path)
     closure_block = _closure_block_for_parent_pass(graph, graph_path)
     if closure_block.get("blocked"):
         current = _project_status_via_runtime(
@@ -1463,7 +1485,11 @@ def _parent_child_completion_gate(graph: dict[str, Any], node_ids: list[str]) ->
     try:
         from gate_controller import validate_parent_child_completion  # noqa: WPS433
 
-        return validate_parent_child_completion(children, allow_break_glass=allow_break_glass)
+        return validate_parent_child_completion(
+            children,
+            allow_break_glass=allow_break_glass,
+            artifact_base_dirs=[SPRINTS_DIR],
+        )
     except Exception as exc:
         return {
             "status": "failed",
@@ -2160,6 +2186,89 @@ def _worker_quota_exhausted(worker: dict[str, Any], preferred_model: str | None 
     return False
 
 
+_NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS = {
+    "artifact.guard_decision",
+    "artifact.resource_binding",
+    "artifact.bridged_artifact",
+    "artifact.patch_diff",
+    "artifact.handoff_md",
+    "guard_decision",
+    "resource_binding",
+    "bridged_artifact",
+    "patch_diff",
+    "handoff_md",
+    "rollout_notes",
+}
+
+
+def _node_requires_non_eval_closeout_write(node: dict[str, Any]) -> bool:
+    for key in ("outputs", "required_outputs", "produces"):
+        values = node.get(key)
+        if isinstance(values, list):
+            for value in values:
+                text = str(value or "").strip().lower()
+                if text and "eval" not in text:
+                    return True
+    artifact_types = node.get("artifact_types")
+    if isinstance(artifact_types, dict):
+        for key in ("required_outputs", "produces", "optional_outputs"):
+            values = artifact_types.get(key)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                text = str(value or "").strip().lower()
+                if any(marker in text for marker in _NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS):
+                    return True
+    for validation in node.get("validation") or []:
+        if not isinstance(validation, dict) or not validation.get("required", False):
+            continue
+        target = str(validation.get("target") or "").strip().lower()
+        if target and "eval" not in target:
+            return True
+    for obligation in node.get("proof_obligations") or []:
+        if isinstance(obligation, dict):
+            text = " ".join(str(obligation.get(key) or "") for key in ("requirement", "field", "check")).lower()
+        else:
+            text = str(obligation or "").lower()
+        if any(marker in text for marker in _NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS):
+            return True
+    capsule_plan = node.get("capsule_plan")
+    if isinstance(capsule_plan, dict):
+        nested = {
+            "artifact_types": capsule_plan.get("artifact_types"),
+            "proof_obligations": capsule_plan.get("proof_obligations"),
+        }
+        if _node_requires_non_eval_closeout_write(nested):
+            return True
+    return False
+
+
+def _worker_write_files_mode(worker: dict[str, Any]) -> str:
+    policy = worker.get("policy")
+    if isinstance(policy, dict):
+        mode = str(policy.get("write_files") or "").strip().lower()
+        if mode:
+            return mode
+    return str(worker.get("write_files") or "").strip().lower()
+
+
+def _worker_can_closeout_node(worker: dict[str, Any], node: dict[str, Any]) -> bool:
+    node_role = _node_dispatch_role(node)
+    profile = str(worker.get("profile") or "").strip().lower()
+    role = str(worker.get("role") or "").strip().lower()
+    operator_class = str(worker.get("operator_class") or "").strip().lower()
+    if node_role == "evaluator" and (profile.endswith("-advisory") or role == "advisor" or operator_class == "advisoryreview"):
+        return False
+    if not _node_requires_non_eval_closeout_write(node):
+        return True
+    mode = _worker_write_files_mode(worker)
+    if mode in {"denied", "eval_sidecar_only", "artifact_dir_only"}:
+        return False
+    if profile.endswith("-advisory") or role == "advisor":
+        return False
+    return True
+
+
 def _model_aliases(value: str | None) -> set[str]:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -2412,6 +2521,8 @@ def _node_dispatch_role(node: dict[str, Any]) -> str:
     logical_operator = str(node.get("logical_operator") or "").strip()
     if logical_operator in {"DeepArchitect", "ResearchScout", "ResearchSynthesizer", "ArtifactCurator"}:
         return "planner"
+    if logical_operator in {"Verifier", "TestRunner", "Critic"}:
+        return "evaluator"
     return "builder"
 
 
@@ -2452,6 +2563,7 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
         candidates: list[tuple[int, float, int, int, int, str, dict[str, Any]]] = []
         blocked_by_capacity = False
         blocked_by_runtime = False
+        blocked_by_write_policy = False
         runtime_unavailable_reasons: set[str] = set()
         any_worker_seen = False
         missing_skill_union: set[str] = set()
@@ -2483,6 +2595,9 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
                 continue
             if _model_requires_strict_match(preferred_model, strict_model) and not _model_match(worker, preferred_model):
                 continue
+            if not _worker_can_closeout_node(worker, node):
+                blocked_by_write_policy = True
+                continue
             unavailable_reason = _worker_unavailable_reason(worker)
             if unavailable_reason:
                 blocked_by_runtime = True
@@ -2513,6 +2628,8 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
                     reason = "worker_runtime_unavailable"
             elif blocked_by_capacity:
                 reason = "worker_capacity_exhausted"
+            elif blocked_by_write_policy:
+                reason = "worker_write_policy_insufficient"
             else:
                 reason = "no_matching_worker"
             details: dict[str, Any] = {
@@ -2522,6 +2639,8 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             }
             if blocked_by_runtime:
                 details["unavailable_reasons"] = sorted(runtime_unavailable_reasons)
+            if blocked_by_write_policy:
+                details["write_policy_required"] = "non_eval_closeout_artifacts"
             if reason == "no_matching_worker":
                 details["any_worker_seen"] = any_worker_seen
                 details["role_candidates_seen"] = role_candidates_seen

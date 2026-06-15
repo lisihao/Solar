@@ -1043,7 +1043,50 @@ def _task_type_rejected(op: dict[str, Any], task_type: str) -> bool:
     return any(task_type.lower() == rt or task_type.lower() in rt for rt in rejected_types)
 
 
-def _operator_reject_reason_for_task(op: dict[str, Any], role: str, task_type: str) -> str:
+_NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS = {
+    "artifact.guard_decision",
+    "artifact.resource_binding",
+    "artifact.bridged_artifact",
+    "artifact.patch_diff",
+    "artifact.handoff_md",
+    "guard_decision",
+    "resource_binding",
+    "bridged_artifact",
+    "patch_diff",
+    "handoff_md",
+    "rollout_notes",
+}
+
+
+def _capsule_requires_non_eval_closeout_write(resolved_capsule: dict[str, Any] | None) -> bool:
+    if not isinstance(resolved_capsule, dict):
+        return False
+    artifact_types = resolved_capsule.get("artifact_types")
+    if isinstance(artifact_types, dict):
+        for key in ("required_outputs", "produces", "optional_outputs"):
+            values = artifact_types.get(key)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                text = str(value or "").strip().lower()
+                if any(marker in text for marker in _NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS):
+                    return True
+    for obligation in resolved_capsule.get("proof_obligations") or []:
+        if isinstance(obligation, dict):
+            text = " ".join(str(obligation.get(key) or "") for key in ("requirement", "field", "check")).lower()
+        else:
+            text = str(obligation or "").lower()
+        if any(marker in text for marker in _NON_EVAL_CLOSEOUT_ARTIFACT_MARKERS):
+            return True
+    return False
+
+
+def _operator_reject_reason_for_task(
+    op: dict[str, Any],
+    role: str,
+    task_type: str,
+    resolved_capsule: dict[str, Any] | None = None,
+) -> str:
     """Hard guard for advisory-only operators.
 
     Some operators can critique plans and analyze failures but cannot prove file
@@ -1055,6 +1098,24 @@ def _operator_reject_reason_for_task(op: dict[str, Any], role: str, task_type: s
     policy = op.get("policy") if isinstance(op.get("policy"), dict) else {}
     if norm_role == "planner" and str(policy.get("write_files") or "").strip().lower() == "denied":
         return "operator_cannot_write_planner_artifacts"
+
+    write_files = str(policy.get("write_files") or "").strip().lower()
+    profile = str(op.get("profile") or "").strip().lower()
+    declared_role = normalize_role(str(op.get("role") or ""))
+    operator_class = str(op.get("operator_class") or "").strip().lower()
+    if (
+        norm_role == "evaluator"
+        and (declared_role == "advisor" or profile.endswith("-advisory") or operator_class == "advisoryreview")
+        and task not in {"advisory", "analysis", "root-cause", "architecture-review", "decision-review"}
+    ):
+        return "operator_advisory_only_cannot_final_evaluate"
+
+    if (
+        norm_role in {"builder", "evaluator"}
+        and _capsule_requires_non_eval_closeout_write(resolved_capsule)
+        and write_files in {"denied", "eval_sidecar_only", "artifact_dir_only"}
+    ):
+        return "operator_cannot_write_required_closeout_artifacts"
 
     requested_code_exec = norm_role in CODE_EXEC_ROLES or task in CODE_EXEC_TASK_TYPES
     if not requested_code_exec:
@@ -1181,6 +1242,7 @@ def _role_spillover_candidates(
     policy_mod: Any | None,
     policy: dict[str, Any],
     spillover_spec: dict[str, Any],
+    resolved_capsule: dict[str, Any] | None = None,
 ) -> tuple[list[tuple[int, str, dict[str, Any]]], str]:
     max_active = int(spillover_spec.get("max_active", 0) or 0)
     if max_active <= 0:
@@ -1216,7 +1278,7 @@ def _role_spillover_candidates(
             continue
         if _task_type_rejected(op, task_type):
             continue
-        if _operator_reject_reason_for_task(op, norm_role, task_type):
+        if _operator_reject_reason_for_task(op, norm_role, task_type, resolved_capsule):
             continue
         borrowed = dict(op)
         borrowed["borrowed_for_role"] = norm_role
@@ -1281,7 +1343,7 @@ def select_operator_by_role(
             op["operator_id"] = prefer_operator
             if normalize_role(str(op.get("role") or "")) != norm_role:
                 op["selected_for_role"] = norm_role
-            task_reject_reason = _operator_reject_reason_for_task(op, norm_role, task_type)
+            task_reject_reason = _operator_reject_reason_for_task(op, norm_role, task_type, resolved_capsule)
             if task_reject_reason:
                 return "", {}, f"preferred_operator_rejected_for_task: {prefer_operator}: {task_reject_reason}"
             ok, reason = is_dispatchable(op)
@@ -1314,7 +1376,7 @@ def select_operator_by_role(
         # long-running interactive session.
         if _task_type_rejected(op, task_type):
             continue
-        if _operator_reject_reason_for_task(op, norm_role, task_type):
+        if _operator_reject_reason_for_task(op, norm_role, task_type, resolved_capsule):
             continue
         # 评分：builder pool 用统一池优先级；旧模式保留 print_once > command > interactive_repl。
         priority = _operator_priority(
@@ -1345,6 +1407,7 @@ def select_operator_by_role(
                 policy_mod=policy_mod,
                 policy=policy,
                 spillover_spec=spillover_spec,
+                resolved_capsule=resolved_capsule,
             )
             if spillover_candidates:
                 spillover_candidates.sort(key=lambda x: -x[0])
@@ -3190,7 +3253,12 @@ def _mark_graph_node_pm_dispatched(item: dict[str, Any], submitted: dict[str, An
 
 def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) -> dict[str, Any]:
     reason = _transient_operator_failure_text(record)
-    if not TRANSIENT_OPERATOR_FAILURE_RE.search(reason):
+    requeue_reason = ""
+    if TRANSIENT_OPERATOR_FAILURE_RE.search(reason):
+        requeue_reason = "transient_operator_failure"
+    elif str(record.get("status") or "").strip().lower() == "failed_contract_closeout":
+        requeue_reason = "failed_contract_closeout"
+    if not requeue_reason:
         return {"ok": False, "released": False, "reason": "not_transient_operator_failure"}
     sprint_id = str(record.get("sprint_id") or "").strip()
     node_id = str(record.get("node_id") or "").strip()
@@ -3252,7 +3320,7 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
     target.setdefault("dispatch_requeue_history", []).append(
         {
             "ts": now,
-            "reason": "transient_operator_failure",
+            "reason": requeue_reason,
             "failure_reason": reason[:500],
             "previous_dispatch": previous,
         }
@@ -3273,12 +3341,14 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
         if ts is None or ts >= cutoff:
             recent_failures.append(item)
     should_block = (
+        requeue_reason == "transient_operator_failure"
+        and
         GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD > 0
         and len(recent_failures) >= GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD
     )
     target["status"] = "worker_blocked" if should_block else "pending"
     target["updated_at"] = now
-    target["requeue_reason"] = "transient_operator_failure"
+    target["requeue_reason"] = requeue_reason
     if should_block:
         target["blocking_reason"] = "repeated_transient_operator_failure"
         target["transient_failure_blocked_at"] = now
@@ -3289,14 +3359,14 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
     result_entry.setdefault("dispatch_requeue_history", []).append(
         {
             "ts": now,
-            "reason": "transient_operator_failure",
+            "reason": requeue_reason,
             "task_id": task_id,
             "operator_id": str(record.get("operator_id") or ""),
         }
     )
     result_entry["status"] = "worker_blocked" if should_block else "pending"
     result_entry["updated_at"] = now
-    result_entry["requeue_reason"] = "transient_operator_failure"
+    result_entry["requeue_reason"] = requeue_reason
     if should_block:
         result_entry["blocking_reason"] = "repeated_transient_operator_failure"
         result_entry["failure_reason"] = reason[:1000]
@@ -3312,13 +3382,13 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
         sprint_id,
         node_id,
         next_status,
-        note="repeated transient operator failure blocked" if should_block else "transient operator failure requeue",
+        note="repeated transient operator failure blocked" if should_block else f"{requeue_reason} requeue",
     )
     return {
         "ok": True,
         "released": True,
         "blocked": should_block,
-        "reason": "repeated_transient_operator_failure" if should_block else "transient_operator_failure",
+        "reason": "repeated_transient_operator_failure" if should_block else requeue_reason,
         "graph": str(graph_path),
         "sprint_id": sprint_id,
         "node_id": node_id,

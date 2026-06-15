@@ -106,3 +106,87 @@ def test_anthropic_quota_exhausted_alias_blocks_preferred_sonnet():
 
     assert result["assigned"][0]["pane"] == "deepseek-pane"
     assert result["assigned"][0]["fallback_model"] is True
+
+
+def test_eval_sidecar_only_worker_skipped_for_non_eval_closeout_node():
+    result = assign_workers(
+        [
+            {
+                "id": "S5",
+                "type": "review",
+                "logical_operator": "Verifier",
+                "required_skills": ["verification"],
+                "required_capabilities": ["verification"],
+                "outputs": ["rollout_notes.md"],
+                "validation": [{"kind": "artifact", "target": "rollout_notes.md", "required": True}],
+                "capsule_plan": {
+                    "artifact_types": {
+                        "produces": [
+                            "artifact.guard_decision",
+                            "artifact.resource_binding",
+                            "artifact.handoff_md",
+                            "artifact.eval_json",
+                        ]
+                    },
+                    "proof_obligations": [
+                        {"requirement": "handoff_md exists"},
+                        {"requirement": "eval_json exists"},
+                    ],
+                },
+            }
+        ],
+        [
+            {
+                "pane": "operator:mini-reasonix-deepseek-v4-builder",
+                "role": "evaluator",
+                "models": ["deepseek-v4-pro"],
+                "skills": ["verification"],
+                "capabilities": ["verification"],
+                "profile": "deepseek-advisory",
+                "policy": {"write_files": "eval_sidecar_only", "eval_sidecar_write": "allowed"},
+            },
+            {
+                "pane": "operator:mini-codex-gpt55-medium-builder-1",
+                "role": "evaluator",
+                "models": ["gpt-5.5"],
+                "skills": ["verification"],
+                "capabilities": ["verification"],
+                "profile": "codex-builder",
+                "policy": {"write_files": "allowed", "run_shell": "allowed"},
+            },
+        ],
+    )
+
+    assert result["queued"] == []
+    assert result["assigned"][0]["pane"] == "operator:mini-codex-gpt55-medium-builder-1"
+
+
+def test_advisory_worker_queued_for_eval_only_node_without_final_evaluator():
+    result = assign_workers(
+        [
+            {
+                "id": "S4",
+                "type": "review",
+                "logical_operator": "Verifier",
+                "required_skills": ["verification"],
+                "required_capabilities": ["verification"],
+                "outputs": ["eval.json"],
+                "validation": [{"kind": "artifact", "target": "eval.json", "required": True}],
+            }
+        ],
+        [
+            {
+                "pane": "operator:mini-reasonix-deepseek-v4-builder",
+                "role": "evaluator",
+                "models": ["deepseek-v4-pro"],
+                "skills": ["verification"],
+                "capabilities": ["verification"],
+                "profile": "deepseek-advisory",
+                "policy": {"write_files": "eval_sidecar_only", "eval_sidecar_write": "allowed"},
+            },
+        ],
+    )
+
+    assert result["assigned"] == []
+    assert result["queued"][0]["node"] == "S4"
+    assert result["queued"][0]["reason"] == "worker_write_policy_insufficient"
