@@ -43,6 +43,15 @@ KNOWN_FAILURE_LABELS = [
     "UNKNOWN",
 ]
 
+BEHAVIORAL_FAILURE_LABELS = [
+    "over_deep_analysis",
+    "slow_on_low_value_tasks",
+    "broad_patch_scope",
+    "test_claim_without_real_run",
+    "shallow_final_reasoning",
+    "ecosystem_bias_to_google_stack",
+]
+
 
 def _load_schema() -> dict:
     return json.loads(CT_SCHEMA_FILE.read_text(encoding="utf-8"))
@@ -167,7 +176,7 @@ class TestFailureFingerprintLabels:
         )
         required = items_schema.get("required", [])
         assert "label" in required
-        assert "pattern" in required
+        assert "pattern" not in required
 
     def test_failure_label_is_enum(self):
         schema = _load_schema()
@@ -186,6 +195,17 @@ class TestFailureFingerprintLabels:
         label_enum = items_schema["properties"]["label"].get("enum", [])
         assert label in label_enum, (
             f"Known failure label {label!r} missing from enum"
+        )
+
+    @pytest.mark.parametrize("label", BEHAVIORAL_FAILURE_LABELS)
+    def test_each_behavioral_label_in_enum(self, label):
+        schema = _load_schema()
+        items_schema = (
+            schema["$defs"]["failure_fingerprint"]["properties"]["common_failures"]["items"]
+        )
+        label_enum = items_schema["properties"]["label"].get("enum", [])
+        assert label in label_enum, (
+            f"Behavioral failure label {label!r} missing from enum"
         )
 
     def test_unknown_failure_label_rejected(self):
@@ -222,6 +242,56 @@ class TestFailureFingerprintLabels:
             }
         )
         jsonschema.validate(instance=token, schema=schema)
+
+    def test_valid_behavioral_failure_profile_accepted(self):
+        schema = _load_schema()
+        token = _minimal_token(
+            failure_fingerprint={
+                "common_failures": [
+                    {
+                        "label": "shallow_final_reasoning",
+                        "count": 2,
+                        "weighted_count": 1.5,
+                        "severity": "high",
+                        "last_seen": "2026-06-15T09:00:00Z",
+                        "evidence_refs": ["eval:S03-R1:round2", "eval:S03-R1:round3"],
+                        "source_breakdown": {"eval": 2},
+                    },
+                    {
+                        "label": "broad_patch_scope",
+                        "count": 1,
+                        "weighted_count": 1.0,
+                        "severity": "medium",
+                        "last_seen": "2026-06-15T09:05:00Z",
+                        "evidence_refs": ["handoff:S03-R1"],
+                        "source_breakdown": {"handoff": 1},
+                    },
+                ],
+                "last_failure_at": "2026-06-15T09:05:00Z",
+                "failure_count": 3,
+            }
+        )
+        jsonschema.validate(instance=token, schema=schema)
+
+    def test_free_text_behavioral_label_rejected(self):
+        schema = _load_schema()
+        token = _minimal_token(
+            failure_fingerprint={
+                "common_failures": [
+                    {
+                        "label": "user said this model is lazy",
+                        "count": 1,
+                        "weighted_count": 1.0,
+                        "severity": "medium",
+                        "last_seen": "2026-06-15T09:00:00Z",
+                        "evidence_refs": ["eval:free-text"],
+                    }
+                ],
+                "failure_count": 1,
+            }
+        )
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=token, schema=schema)
 
 
 class TestSecretPathsRejection:
