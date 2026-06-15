@@ -2648,6 +2648,84 @@ def test_cmd_submit_graph_eval_uses_direct_inbox_fast_path(monkeypatch, tmp_path
     assert node["eval_assignments"][0]["operator_id"] == "mini-codex-gpt55-medium-evaluator"
 
 
+def test_cmd_submit_graph_eval_bypasses_capsule_admission(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    pm_inbox = tmp_path / "run" / "pm-inbox"
+    operator_inbox = tmp_path / "run" / "operator-inbox"
+    harness_root = tmp_path / "harness"
+    sprints.mkdir(parents=True)
+    pm_inbox.mkdir(parents=True)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", pm_inbox)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", operator_inbox)
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", harness_root)
+    monkeypatch.setenv("SOLAR_PM_DISPATCH_ALLOW_DIRECT", "1")
+    monkeypatch.setattr(
+        pm_dispatch,
+        "load_task_graph_node",
+        lambda sprint_id, node_id: {
+            "id": node_id,
+            "status": "reviewing",
+            "capability_native": True,
+            "capability_capsule_id": "cap.verifier",
+            "dispatch_task_type": "graph_eval",
+        },
+    )
+    monkeypatch.setattr(
+        pm_dispatch,
+        "select_operator_by_role",
+        lambda **kwargs: (
+            "mini-codex-gpt55-medium-evaluator",
+            {"model": "gpt-5.5", "roles": ["evaluator"]},
+            "",
+        ),
+    )
+
+    fake_operator_runtime = types.ModuleType("operator_runtime")
+
+    def _unexpected_submit(envelope):
+        raise AssertionError("graph_eval evaluator should bypass operator_runtime.submit")
+
+    fake_operator_runtime.submit = _unexpected_submit  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "operator_runtime", fake_operator_runtime)
+
+    graph_path = sprints / "sprint-eval-capsule.task_graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-eval-capsule",
+                "nodes": [{"id": "E1", "status": "reviewing"}],
+                "node_results": {"E1": {"status": "reviewing"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rc = pm_dispatch.cmd_submit(
+        argparse.Namespace(
+            role="evaluator",
+            objective="Review E1 handoff and write eval sidecar.",
+            operator="",
+            sprint="sprint-eval-capsule",
+            node="E1",
+            task_type="",
+            context="",
+            dry_run=False,
+        )
+    )
+
+    assert rc == 0
+    records = list(pm_inbox.glob("pm-*.json"))
+    assert len(records) == 1
+    record = json.loads(records[0].read_text(encoding="utf-8"))
+    assert record["status"] == "submitted_fallback"
+    assert record["submit_mode"] == "direct_inbox_graph_eval"
+    assert record["task_type"] == "graph_eval"
+    envelope = json.loads(Path(record["inbox_path"]).read_text(encoding="utf-8"))
+    assert envelope["task_type"] == "graph_eval"
+
+
 def test_transient_evaluator_failure_releases_graph_assignment(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"

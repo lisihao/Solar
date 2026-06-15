@@ -2476,10 +2476,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
     logical_operator = str(capsule_submit.get("logical_operator") or (task_graph_node or {}).get("logical_operator") or "")
     if not task_type:
         task_type = str(capsule_submit.get("dispatch_task_type") or (task_graph_node or {}).get("type") or "")
+    graph_eval_direct_inbox = _should_direct_inbox_graph_eval(role, task_type)
 
     resolved_capsule: dict[str, Any] | None = None
     capsule_admission_error = ""
-    if capsule_submit.get("capability_capsule_id"):
+    if capsule_submit.get("capability_capsule_id") and not graph_eval_direct_inbox:
         try:
             lib_dir = HARNESS_DIR / "lib"
             if str(lib_dir) not in sys.path:
@@ -2517,6 +2518,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "submitted_at": _now(),
             "failed_at": _now(),
             "requested_role": normalize_role(role),
+            "task_type": task_type,
             "failure_reason": failure_reason,
             "capability_capsule_id": capsule_submit.get("capability_capsule_id", ""),
             "logical_operator": logical_operator,
@@ -2548,6 +2550,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "submitted_at": _now(),
             "failed_at": _now(),
             "requested_role": normalize_role(role),
+            "task_type": task_type,
             "failure_reason": fallback_reason or "no_dispatchable_operator_for_role",
         }
         if capsule_submit.get("capability_capsule_id"):
@@ -2667,6 +2670,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
         "status": "submitted",
         "submitted_at": _now(),
         "requested_role": normalize_role(role),
+        "task_type": task_type or "pm_order",
     }
     if operator.get("borrowed_for_role"):
         record["borrowed_for_role"] = operator.get("borrowed_for_role")
@@ -2679,7 +2683,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
 
     # 尝试通过 operator_runtime.submit 投递；graph evaluator 走直接 inbox 快路径，
     # 避免验收闭环被 runtime lease/bootstrap 慢路径卡住。
-    if _should_direct_inbox_graph_eval(role, task_type):
+    if graph_eval_direct_inbox:
         inbox_path = _write_operator_inbox_envelope(operator_id, task_id, envelope)
         record["status"] = "submitted_fallback"
         record["inbox_path"] = str(inbox_path)
