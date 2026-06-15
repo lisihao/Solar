@@ -153,6 +153,7 @@ import {
   getReportVersion,
   listReportVersions,
   rerunMission,
+  resumeMission,
   runTeam,
   type BudgetTier,
   type MissionDetail,
@@ -1086,19 +1087,19 @@ export default function MissionDetailPage() {
       }}
       onDepthChange={setPendingDepth}
       onUpdate={() => {
-        // "更新"按钮 = incremental：clone checkpoint，跳过已完成 stage
-        // 对齐 Topic Insight handleContinueResearch
-        //   ('incremental' 模式：保留已完成任务，只跑未完成的维度)
-        // 复用原 mission 全部 input 字段（不只 topic/depth/language 3 个）
+        // "继续上次" = resume，同 missionId 从 checkpoint 续跑；
+        // "更新" = incremental，保留已完成任务，只跑未完成维度。
         void (async () => {
           try {
-            const { missionId: newId } = await rerunMission(
-              missionId,
-              'incremental'
-            );
-            router.push(`/agent-playground/team/${newId}`);
+            const { missionId: nextId } = isResumable
+              ? await resumeMission(missionId)
+              : await rerunMission(missionId, 'incremental');
+            router.push(`/agent-playground/team/${nextId}`);
           } catch (e) {
-            toast.error('更新失败', e instanceof Error ? e.message : String(e));
+            toast.error(
+              isResumable ? '继续失败' : '更新失败',
+              e instanceof Error ? e.message : String(e)
+            );
           }
         })();
       }}

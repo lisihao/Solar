@@ -101,9 +101,15 @@ const EXTERNAL_CONNECTORS = ['GOOGLE_DRIVE', 'NOTION', 'FEISHU'] as const;
 
 // ─── API 响应类型 ──────────────────────────────────────────
 interface EmbeddingConfigResponse {
-  modelId?: string;
-  provider?: string;
-  dimensions?: number;
+  status?: 'ok' | 'not_configured';
+  modelId?: string | null;
+  provider?: string | null;
+  dimensions?: number | null;
+  message?: string;
+}
+
+interface ApiEnvelope<T> {
+  data?: T;
 }
 
 interface GoogleDriveConnectionPayload {
@@ -179,23 +185,58 @@ export default function DataSourcesTab({
         { headers: { ...getAuthHeader() } }
       );
       if (embeddingResponse.ok) {
-        const embeddingData =
-          (await embeddingResponse.json()) as EmbeddingConfigResponse;
-        setRagServiceStatus((prev) => ({
-          ...prev,
-          embedding: {
-            status: 'ok',
-            modelId: embeddingData.modelId,
-            provider: embeddingData.provider,
-            dimensions: embeddingData.dimensions,
-          },
-        }));
+        const embeddingPayload =
+          (await embeddingResponse.json()) as
+            | EmbeddingConfigResponse
+            | ApiEnvelope<EmbeddingConfigResponse>;
+        const embeddingData: EmbeddingConfigResponse =
+          'data' in embeddingPayload && embeddingPayload.data
+            ? embeddingPayload.data
+            : (embeddingPayload as EmbeddingConfigResponse);
+        if (embeddingData.status === 'not_configured') {
+          setRagServiceStatus((prev) => ({
+            ...prev,
+            embedding: {
+              status: 'not_configured',
+              error:
+                embeddingData.message ||
+                t('dataSources.errors.embeddingNotConfigured'),
+            },
+          }));
+        } else {
+          setRagServiceStatus((prev) => ({
+            ...prev,
+            embedding: {
+              status: 'ok',
+              modelId: embeddingData.modelId ?? undefined,
+              provider: embeddingData.provider ?? undefined,
+              dimensions: embeddingData.dimensions ?? undefined,
+            },
+          }));
+        }
       } else {
+        let error = t('dataSources.errors.embeddingConfigFailed');
+        if (embeddingResponse.status === 503) {
+          error = t('dataSources.errors.embeddingNotConfigured');
+          try {
+            const payload = (await embeddingResponse.json()) as {
+              message?: string | string[];
+              data?: { message?: string | string[] };
+            };
+            const message = payload.data?.message || payload.message;
+            if (message) {
+              error = Array.isArray(message) ? message.join('; ') : message;
+            }
+          } catch {
+            // Keep localized fallback when the error body is not JSON.
+          }
+        }
         setRagServiceStatus((prev) => ({
           ...prev,
           embedding: {
-            status: 'error',
-            error: t('dataSources.errors.embeddingConfigFailed'),
+            status:
+              embeddingResponse.status === 503 ? 'not_configured' : 'error',
+            error,
           },
         }));
       }

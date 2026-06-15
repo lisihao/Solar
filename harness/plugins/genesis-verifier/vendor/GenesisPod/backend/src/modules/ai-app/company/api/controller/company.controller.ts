@@ -345,6 +345,7 @@ export class CompanyController {
         lengthProfile: dto.lengthProfile,
         audienceProfile: dto.audienceProfile,
         auditLayers: dto.auditLayers,
+        expectedCapabilityId: dto.expectedCapabilityId,
       },
     );
   }
@@ -411,6 +412,15 @@ export class CompanyController {
   async rerunMission(@Request() req: RequestWithUser, @Param("id") id: string) {
     // 返回完整 mission 行（与 heroes/:id/missions 同形），前端 adaptMission 直接入列表。
     return this.missionService.rerunHeroMission(this.getUserId(req), id);
+  }
+
+  @Post("missions/:id/resume")
+  @ApiOperation({ summary: "继续 Mission（同一任务从 checkpoint 恢复）" })
+  async resumeMission(
+    @Request() req: RequestWithUser,
+    @Param("id") id: string,
+  ) {
+    return this.missionService.resumeHeroMission(this.getUserId(req), id);
   }
 
   // ── mission graph（知识图谱，平台共享构建器）────────────────────────────────

@@ -180,12 +180,14 @@ export interface MissionPersistencePort {
     missionId: string,
     snapshot: {
       lastStepId: string;
+      inFlightStepId?: string | null;
       topic: string;
       crossState: Readonly<Record<string, unknown>>;
     },
   ): Promise<boolean>;
   loadCheckpoint(missionId: string): Promise<{
     lastStepId: string;
+    inFlightStepId?: string | null;
     topic: string;
     crossState: Readonly<Record<string, unknown>>;
   } | null>;

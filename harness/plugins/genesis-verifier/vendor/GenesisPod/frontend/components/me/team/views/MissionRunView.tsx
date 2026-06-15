@@ -23,7 +23,7 @@ import {
   AUDIT_LAYERS_OPTIONS,
 } from '@/lib/constants/mission-profile-options';
 import { useCompanyStore } from '@/stores/company/companyStore';
-import type { CompanyMission } from '@/stores/company/companyStore';
+import type { CompanyMission, Hero } from '@/stores/company/companyStore';
 import { useCompanyMissionStream } from '@/hooks/features/useCompanyMissionStream';
 import {
   DeepInsightMissionDetail,
@@ -31,6 +31,7 @@ import {
   normalizeCompanyEvents,
   type MissionReportResultLike,
 } from '@/components/missions/deep-insight';
+import { toast } from '@/stores';
 
 /** 运行中实时阶段三态（WS 事件驱动详情页 live rail；纯运行态，不入 kit 契约）。 */
 type LiveStageStatus = 'pending' | 'active' | 'done';
@@ -89,6 +90,14 @@ const DEPTH_OPTIONS = [
   { value: 'deep', label: '深度', hint: '~20 分钟' },
 ] as const;
 
+function pickPreferredHero(heroes: Hero[]): Hero | null {
+  return (
+    heroes.find((h) => h.capabilityId === 'deep-insight-solar') ??
+    heroes[0] ??
+    null
+  );
+}
+
 /** 下发任务表单字段壳（label + 选填提示 + 内容），对齐 playground 视觉。 */
 function Field({
   label,
@@ -124,9 +133,15 @@ function Field({
 
 export function MissionRunView({
   embedded = false,
+  initialHeroId = null,
+  initialCapabilityId = null,
+  dispatchRequestKey = 0,
   onDetailOpenChange,
 }: {
   embedded?: boolean;
+  initialHeroId?: string | null;
+  initialCapabilityId?: string | null;
+  dispatchRequestKey?: number;
   /** 进入/退出任务详情态时上报父级（嵌「我的团队」时用于隐藏团队页头 + Tab）。 */
   onDetailOpenChange?: (open: boolean) => void;
 } = {}) {
@@ -136,6 +151,7 @@ export function MissionRunView({
     deleteMission,
     cancelMission,
     rerunMission,
+    resumeMission,
     renameMission,
     setMissionProgress,
     loadMissions,
@@ -144,7 +160,14 @@ export function MissionRunView({
     createHeroMission,
   } = useCompanyStore();
 
-  const [heroId, setHeroId] = useState<string>(heroes[0]?.id ?? '');
+  const preferredInitialHero = pickPreferredHero(heroes);
+  const [heroId, setHeroId] = useState<string>(preferredInitialHero?.id ?? '');
+  const [expectedCapabilityId, setExpectedCapabilityId] = useState<
+    string | null
+  >(preferredInitialHero?.capabilityId ?? null);
+  const [lockedDispatchHeroId, setLockedDispatchHeroId] = useState<
+    string | null
+  >(null);
   const [title, setTitle] = useState('');
   // 点开查看的任务详情
   const [reportMissionId, setReportMissionId] = useState<string | null>(null);
@@ -225,12 +248,37 @@ export function MissionRunView({
     setGalleryReload((n) => n + 1);
   }, [missions]);
 
-  // 同步第一个专家 id（避免初始渲染时 heroes 为空）
+  // 同步默认专家 id（避免初始渲染时 heroes 为空；默认优先 Solar 强模型线）
   useEffect(() => {
     if (heroes.length > 0 && !heroId) {
-      setHeroId(heroes[0].id);
+      const preferred = pickPreferredHero(heroes);
+      if (!preferred) return;
+      setHeroId(preferred.id);
+      setExpectedCapabilityId(preferred.capabilityId);
     }
   }, [heroes, heroId]);
+
+  const handledDispatchKeyRef = useRef(0);
+  useEffect(() => {
+    if (dispatchRequestKey <= 0) return;
+    if (handledDispatchKeyRef.current === dispatchRequestKey) return;
+    if (!initialHeroId && !initialCapabilityId) return;
+    const selected =
+      heroes.find(
+        (h) =>
+          h.id === initialHeroId &&
+          (!initialCapabilityId || h.capabilityId === initialCapabilityId)
+      ) ??
+      (initialCapabilityId
+        ? heroes.find((h) => h.capabilityId === initialCapabilityId)
+        : null);
+    if (!selected) return;
+    handledDispatchKeyRef.current = dispatchRequestKey;
+    setHeroId(selected.id);
+    setExpectedCapabilityId(selected.capabilityId);
+    setLockedDispatchHeroId(selected.id);
+    setDispatchOpen(true);
+  }, [heroes, initialHeroId, initialCapabilityId, dispatchRequestKey]);
 
   // 处理 WS 事件 → 更新 store 进度 + 阶段状态（详情页 live rail 用）
   const processedTsRef = useRef<number>(0);
@@ -311,6 +359,16 @@ export function MissionRunView({
 
   const dispatch = async () => {
     if (!activeHero || !title.trim() || running) return;
+    if (
+      expectedCapabilityId &&
+      activeHero.capabilityId !== expectedCapabilityId
+    ) {
+      toast.error(
+        '下发任务被阻止',
+        `专家能力不匹配：期望 ${expectedCapabilityId}，实际 ${activeHero.capabilityId}`
+      );
+      return;
+    }
     const taskTitle = title.trim();
     const taskDescription = description.trim();
     setTitle('');
@@ -335,6 +393,7 @@ export function MissionRunView({
       lengthProfile,
       audienceProfile,
       auditLayers,
+      expectedCapabilityId: expectedCapabilityId ?? activeHero.capabilityId,
     });
     if (!missionId) {
       setRunning(false);
@@ -372,6 +431,32 @@ export function MissionRunView({
     // Fix 3: normalize events to expand company.agent:trace → tagged narrative entries
     // so MissionFlowView can render ThinkingCard / ToolCallChip.
     const normalizedReportEvents = normalizeCompanyEvents(reportMissionEvents);
+    const reportResultMeta =
+      reportMission.result &&
+      typeof reportMission.result === 'object' &&
+      !Array.isArray(reportMission.result)
+        ? (reportMission.result as Record<string, unknown>)
+        : {};
+    const checkpoint = reportResultMeta.__checkpoint as
+      | { lastStepId?: unknown }
+      | undefined;
+    const dispatch = reportResultMeta.__dispatch as
+      | { capabilityId?: unknown }
+      | undefined;
+    const canResume =
+      reportMission.status === 'failed' &&
+      typeof checkpoint?.lastStepId === 'string' &&
+      checkpoint.lastStepId.length > 0 &&
+      typeof dispatch?.capabilityId === 'string' &&
+      dispatch.capabilityId.length > 0;
+    const handleResume = () => {
+      void resumeMission(reportMission.id).then((id) => {
+        if (id) {
+          setActiveMissionId(id);
+          setReportMissionId(id);
+        }
+      });
+    };
     const detailView = fromCompanyMissionResult({
       id: reportMission.id,
       title: reportMission.title,
@@ -384,10 +469,21 @@ export function MissionRunView({
       // Fix 4: inject live cost while running (terminal uses result.usage from backend).
       liveUsage: liveUsageByMission[reportMission.id],
       actions: [
-        ...(rerunHeroId
+        ...(canResume
           ? [
               {
                 variant: 'primary' as const,
+                emoji: '↻',
+                label: '继续上次',
+                title: '从失败前保存的 checkpoint 继续同一 mission',
+                onClick: handleResume,
+              },
+            ]
+          : []),
+        ...(rerunHeroId
+          ? [
+              {
+                variant: canResume ? ('secondary' as const) : ('primary' as const),
                 emoji: '▶',
                 label: '复跑',
                 title:
@@ -427,12 +523,16 @@ export function MissionRunView({
         data={detailView}
         onBack={() => setReportMissionId(null)}
         onRerun={handleRerun}
-        // onUpdate: 用相同 topic 进入新建弹窗，预填 title
-        onUpdate={() => {
-          setTitle(reportMission.title);
-          setReportMissionId(null);
-          setDispatchOpen(true);
-        }}
+        // onUpdate: 可恢复时继续同一 mission；否则回到旧逻辑，打开新建弹窗。
+        onUpdate={
+          canResume
+            ? handleResume
+            : () => {
+                setTitle(reportMission.title);
+                setReportMissionId(null);
+                setDispatchOpen(true);
+              }
+        }
         // onSettings: 复用 onUpdate 流（预填 title 打开弹窗配置后再跑）
         onSettings={() => {
           setTitle(reportMission.title);
@@ -465,7 +565,10 @@ export function MissionRunView({
     <>
       <MissionDialogShell
         isOpen={dispatchOpen}
-        onClose={() => setDispatchOpen(false)}
+        onClose={() => {
+          setDispatchOpen(false);
+          setLockedDispatchHeroId(null);
+        }}
         title="下发任务"
         subtitle="选择专家、描述要做的事，交给专家执行"
         submitLabel="下发任务"
@@ -486,8 +589,15 @@ export function MissionRunView({
               <Field label="派给哪个专家" required>
                 <select
                   value={heroId}
-                  onChange={(e) => setHeroId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                  disabled={lockedDispatchHeroId !== null}
+                  onChange={(e) => {
+                    const nextHero = heroes.find(
+                      (h) => h.id === e.target.value
+                    );
+                    setHeroId(e.target.value);
+                    setExpectedCapabilityId(nextHero?.capabilityId ?? null);
+                  }}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-gray-50 disabled:text-gray-500"
                 >
                   {heroes.map((h) => (
                     <option key={h.id} value={h.id}>
@@ -495,6 +605,12 @@ export function MissionRunView({
                     </option>
                   ))}
                 </select>
+                {lockedDispatchHeroId && activeHero && (
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    已按专家卡入口锁定：{activeHero.name}（
+                    {activeHero.capabilityId}）
+                  </p>
+                )}
               </Field>
 
               <Field label="任务话题" required>

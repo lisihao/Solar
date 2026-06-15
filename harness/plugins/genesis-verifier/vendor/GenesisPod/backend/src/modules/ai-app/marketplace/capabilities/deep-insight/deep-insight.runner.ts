@@ -605,6 +605,57 @@ export class DeepInsightDefaultRunner
       };
     }
 
+    const qualityHardGateFailure =
+      this.reportQualityHardGateFailure(reportArtifact);
+    if (qualityHardGateFailure) {
+      const errorMessage = `quality-failed：${qualityHardGateFailure}`;
+      await this.applyTerminal(persistence, missionId, "failed", {
+        report,
+        reportArtifact,
+        themeSummary: plan?.themeSummary,
+        dimensions: plan?.dimensions,
+        verdicts,
+        leaderSignOff,
+        reconciliationReport: state.get(CS_KEY.reconciliationReport),
+        ...(finalScore !== undefined ? { finalScore } : {}),
+        tokensUsed: usage.totalTokens,
+        costCents: usage.totalCostCents,
+        errorMessage,
+        failureCode: "QUALITY_HARD_GATE_FAILED",
+      });
+      await persistence.clearCheckpoint(missionId).catch((err) => {
+        this.log.warn(
+          `[deep-insight ${missionId}] clearCheckpoint failed (non-fatal): ${this.errMsg(err)}`,
+        );
+      });
+      fireSelfEvolutionPostlude(
+        {
+          missionId,
+          userId,
+          topic,
+          leaderSignOff,
+          reportArtifact: reportArtifact as {
+            quality?: { overall?: number };
+          } | null,
+          plan: plan ?? null,
+          finalScore,
+          tokensUsed: usage.totalTokens,
+          costCents: usage.totalCostCents,
+          startedAt: runStartedAt,
+          persistence,
+          bufferedEvents,
+          onEvent,
+        },
+        { postmortemClassifier: this.postmortemClassifier, log: this.log },
+      );
+      return {
+        status: "failed",
+        stageOutputs: this.collectStageOutputs(state),
+        usage,
+        error: errorMessage,
+      };
+    }
+
     await this.applyTerminal(persistence, missionId, "completed", {
       report,
       reportArtifact,
@@ -1159,6 +1210,51 @@ export class DeepInsightDefaultRunner
     };
   }
 
+  private reportQualityHardGateFailure(reportArtifact: unknown): string | null {
+    const quality = (reportArtifact as { quality?: unknown } | null | undefined)
+      ?.quality as
+      | {
+          hardGateViolations?: unknown;
+        }
+      | null
+      | undefined;
+    const violations = Array.isArray(quality?.hardGateViolations)
+      ? quality.hardGateViolations
+      : [];
+    if (violations.length === 0) return null;
+
+    const details = violations
+      .map((v) => {
+        if (typeof v === "string") return v;
+        if (!v || typeof v !== "object") return String(v);
+        const row = v as Record<string, unknown>;
+        const metric =
+          typeof row.metric === "string"
+            ? row.metric
+            : typeof row.dimension === "string"
+              ? row.dimension
+              : "quality";
+        const message =
+          typeof row.message === "string"
+            ? row.message
+            : typeof row.reason === "string"
+              ? row.reason
+              : "";
+        const value =
+          typeof row.value === "number" || typeof row.value === "string"
+            ? `=${row.value}`
+            : "";
+        const threshold =
+          typeof row.threshold === "number" || typeof row.threshold === "string"
+            ? ` < ${row.threshold}`
+            : "";
+        return `${metric}${value}${threshold}${message ? `：${message}` : ""}`;
+      })
+      .filter((x) => x.trim().length > 0)
+      .join("；");
+    return details || "报告质量硬门禁未通过";
+  }
+
   private async applyTerminal(
     persistence: MissionPersistencePort,
     missionId: string,
@@ -1198,6 +1294,8 @@ export class DeepInsightDefaultRunner
       reportArtifact: state.get(CS_KEY.reportArtifact) ?? null,
       reviewScore: state.get(CS_KEY.reviewScore) ?? null,
       leaderSignOff: state.get(CS_KEY.leaderSignOff) ?? null,
+      s4PatchClosures: state.get(CS_KEY.s4PatchClosures) ?? [],
+      s4PatchFailures: state.get(CS_KEY.s4PatchFailures) ?? [],
     };
   }
 

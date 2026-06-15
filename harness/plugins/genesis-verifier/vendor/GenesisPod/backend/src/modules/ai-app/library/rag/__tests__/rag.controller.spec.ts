@@ -1,4 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { ServiceUnavailableException } from "@nestjs/common";
 import { RAGController } from "../rag.controller";
 import { KnowledgeBaseService } from "../services/knowledge-base.service";
 import { RAGPipelineService } from "@/modules/ai-harness/facade";
@@ -43,6 +44,9 @@ describe("RAGController", () => {
         .mockResolvedValue({ id: "doc-1", title: "Test Doc" }),
       deleteDocument: jest.fn().mockResolvedValue(undefined),
       processAllDocuments: jest.fn().mockResolvedValue({ processed: 1 }),
+      enqueueProcessAllDocuments: jest
+        .fn()
+        .mockResolvedValue({ async: true, status: "PROCESSING" }),
       getStats: jest
         .fn()
         .mockResolvedValue({ totalDocuments: 5, totalChunks: 50 }),
@@ -177,10 +181,28 @@ describe("RAGController", () => {
 
   describe("getEmbeddingConfig", () => {
     it("should return embedding config from facade", async () => {
-      const result = await controller.getEmbeddingConfig();
+      const result = await controller.getEmbeddingConfig(mockRequest);
       expect(result).toEqual({
+        status: "ok",
         model: "text-embedding-3-small",
         dimensions: 1536,
+      });
+      expect(_aiFacade.embedding?.getConfigInfo).toHaveBeenCalledWith("user-1");
+    });
+
+    it("should return not_configured when embedding config is missing", async () => {
+      (_aiFacade.embedding?.getConfigInfo as jest.Mock).mockRejectedValueOnce(
+        new ServiceUnavailableException("No embedding model configured"),
+      );
+
+      const result = await controller.getEmbeddingConfig(mockRequest);
+
+      expect(result).toEqual({
+        status: "not_configured",
+        modelId: null,
+        provider: null,
+        dimensions: null,
+        message: "No embedding model configured",
       });
     });
   });
@@ -369,17 +391,17 @@ describe("RAGController", () => {
   });
 
   describe("processDocuments", () => {
-    it("should process all pending documents", async () => {
+    it("should enqueue document processing in the background", async () => {
       const result = await controller.processDocuments(mockRequest, "kb-1");
 
       expect(knowledgeBaseService.findById).toHaveBeenCalledWith(
         "kb-1",
         "user-1",
       );
-      expect(knowledgeBaseService.processAllDocuments).toHaveBeenCalledWith(
-        "kb-1",
-      );
-      expect(result).toEqual({ processed: 1 });
+      expect(
+        knowledgeBaseService.enqueueProcessAllDocuments,
+      ).toHaveBeenCalledWith("kb-1", "user-1", {});
+      expect(result).toEqual({ async: true, status: "PROCESSING" });
     });
   });
 

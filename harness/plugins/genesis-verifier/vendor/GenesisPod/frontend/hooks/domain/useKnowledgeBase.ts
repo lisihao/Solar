@@ -8,7 +8,7 @@ import { apiClient } from '@/lib/api/client';
  * KB 向量化进度形状（与后端 KbVectorizeProgress 对齐，2026-05-12）
  */
 export interface KbVectorizeProgress {
-  stage: 'embedding' | 'cooling';
+  stage: 'queued' | 'embedding' | 'cooling' | 'throttling' | 'stale';
   processed: number;
   total: number;
   startedAt: string;
@@ -20,6 +20,11 @@ export interface KbProgressResponse {
   status: KnowledgeBase['status'];
   progress: KbVectorizeProgress | null;
   lastError?: string | null;
+}
+
+export interface ProcessDocumentsInput {
+  documentIds?: string[];
+  limit?: number;
 }
 
 /**
@@ -261,7 +266,7 @@ export function useKnowledgeBaseDetail(id: string | null) {
   // 处理文档
   const { execute: processDocuments, loading: processing } = useApiPost<
     { processed: number },
-    Record<string, never>
+    ProcessDocumentsInput
   >(id ? `/rag/knowledge-bases/${id}/process` : '');
 
   // 同步 Google Drive
@@ -363,9 +368,9 @@ export function useKnowledgeBaseDetail(id: string | null) {
       await refresh();
       return result;
     },
-    processDocuments: async () => {
+    processDocuments: async (input: ProcessDocumentsInput = {}) => {
       if (!id) return undefined;
-      const result = await processDocuments({} as Record<string, never>);
+      const result = await processDocuments(input);
       await Promise.all([refresh(), fetchStats(), fetchDocuments()]);
       return result;
     },

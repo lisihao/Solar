@@ -77,9 +77,10 @@ export default function WikiIngestModal({
         if (cancelled) return;
         const items = res.items ?? [];
         setDocs(items);
-        setSelected(
-          new Set(items.filter((d) => d.recommended).map((d) => d.id))
-        );
+        // Do not preselect recommended documents. Large KBs can have hundreds
+        // of recommended docs, and users reasonably expect "I selected 3" to
+        // mean exactly 3 documents are submitted.
+        setSelected(new Set());
       })
       .catch((err) => {
         logger?.error?.('[wiki] listIngestCandidates failed', err);

@@ -4,7 +4,7 @@
  * 覆盖所有 9 个端点：
  * - POST /auth/register  (Public)
  * - POST /auth/login     (Public)
- * - POST /auth/refresh   (JWT)
+ * - POST /auth/refresh   (refresh token)
  * - GET  /auth/me        (JWT)
  * - GET  /auth/google    (Google OAuth)
  * - GET  /auth/google/callback (Google OAuth)
@@ -38,6 +38,7 @@ const mockAuthService = {
   register: jest.fn(),
   login: jest.fn(),
   refreshToken: jest.fn(),
+  refreshWithRefreshToken: jest.fn(),
   getFullProfile: jest.fn(),
   findOrCreateGoogleUser: jest.fn(),
   generateAuthCode: jest.fn(),
@@ -257,23 +258,43 @@ describe("AuthController", () => {
       refreshToken: "new-refresh-token",
     };
 
-    it("should call authService.refreshToken with req.user.id", async () => {
-      mockAuthService.refreshToken.mockResolvedValue(refreshResponse);
-      const req = { user: { id: "user-1" } };
+    it("should refresh using refresh token from body", async () => {
+      mockAuthService.refreshWithRefreshToken.mockResolvedValue(
+        refreshResponse,
+      );
+      const req = makeRequest();
 
-      const result = await controller.refresh(req);
+      const result = await controller.refresh(req as never, "refresh-token");
 
-      expect(mockAuthService.refreshToken).toHaveBeenCalledWith("user-1");
+      expect(mockAuthService.refreshWithRefreshToken).toHaveBeenCalledWith(
+        "refresh-token",
+      );
       expect(result).toEqual(refreshResponse);
     });
 
-    it("should propagate errors from authService.refreshToken", async () => {
-      mockAuthService.refreshToken.mockRejectedValue(
+    it("should refresh using bearer refresh token when body is absent", async () => {
+      mockAuthService.refreshWithRefreshToken.mockResolvedValue(
+        refreshResponse,
+      );
+      const req = makeRequest({
+        headers: { authorization: "Bearer header-refresh-token" },
+      });
+
+      const result = await controller.refresh(req as never);
+
+      expect(mockAuthService.refreshWithRefreshToken).toHaveBeenCalledWith(
+        "header-refresh-token",
+      );
+      expect(result).toEqual(refreshResponse);
+    });
+
+    it("should propagate errors from authService.refreshWithRefreshToken", async () => {
+      mockAuthService.refreshWithRefreshToken.mockRejectedValue(
         new UnauthorizedException("Token expired"),
       );
-      const req = { user: { id: "user-1" } };
+      const req = makeRequest();
 
-      await expect(controller.refresh(req)).rejects.toThrow(
+      await expect(controller.refresh(req as never, "bad-token")).rejects.toThrow(
         UnauthorizedException,
       );
     });

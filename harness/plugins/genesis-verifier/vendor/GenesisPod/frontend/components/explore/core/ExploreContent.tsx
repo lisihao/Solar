@@ -133,7 +133,9 @@ function RightPanelToggleIcon({
 }
 
 type YouTubeLibraryTab = 'genesis' | 'solar';
-type PaperLibraryTab = 'recent' | 'insights' | 'hot';
+type PaperLibraryTab = 'recent' | 'github' | 'insights' | 'hot';
+type BlogLibraryTab = 'digest' | 'reserved';
+type ReportLibraryTab = 'field' | 'github' | 'reserved';
 const VALID_TABS: TabType[] = [
   'youtube',
   'papers',
@@ -176,10 +178,13 @@ interface PaperTrendTableRow {
   hfUrl?: string | null;
   arxivUrl?: string | null;
   summary?: string;
-  tableRank: number;
-  appearances: number;
-  bestRank: number;
-  trendScore: number;
+  source?: string;
+  evidenceScore?: number;
+  tagLabels?: string[];
+  tableRank?: number;
+  appearances?: number;
+  bestRank?: number;
+  trendScore?: number;
   latestDate?: string;
 }
 
@@ -191,6 +196,46 @@ interface PaperTrendTopic {
   count: number;
   values: number[];
   countValues: number[];
+}
+
+interface PaperTrendTagPulseTag {
+  tag: string;
+  label: string;
+  totalScore: number;
+  hotspotScore: number;
+  latestScore: number;
+  baseline: number;
+  delta: number;
+  acceleration: number;
+  novelty: number;
+  persistence: number;
+  confidence: number;
+  count: number;
+  paperCount: number;
+  sources?: Record<string, number>;
+  values: number[];
+  evidence?: PaperTrendTableRow[];
+}
+
+interface PaperTrendTagPulsePair {
+  key: string;
+  tags: string[];
+  labels: string[];
+  label: string;
+  score: number;
+  count: number;
+  sources?: Record<string, number>;
+  evidence?: PaperTrendTableRow[];
+}
+
+interface PaperTrendTagPulse {
+  version: number;
+  generatedFrom: string;
+  window: string;
+  method: string;
+  tags: PaperTrendTagPulseTag[];
+  emerging: PaperTrendTagPulseTag[];
+  cooccurrence: PaperTrendTagPulsePair[];
 }
 
 interface PaperTrendData {
@@ -205,6 +250,7 @@ interface PaperTrendData {
   dates: string[];
   dailyCounts: Array<{ date: string; count: number }>;
   topics: PaperTrendTopic[];
+  tagPulse?: PaperTrendTagPulse;
   headline?: {
     leadingTopic?: string;
     leadingScore?: number;
@@ -230,6 +276,122 @@ interface PaperTrendData {
       hfRows?: number;
       arxivRows?: number;
       arxivUrlRows?: number;
+    };
+  };
+}
+
+interface GithubTrendRepo {
+  fullName: string;
+  description?: string;
+  language?: string;
+  htmlUrl?: string;
+  stars?: number;
+  forks?: number;
+  openIssues?: number;
+  updatedAt?: string | null;
+  pushedAt?: string | null;
+  latestSnapshotAt?: string | null;
+  latestRankDate?: string | null;
+  starDelta24h?: number;
+  starDelta7d?: number;
+  starDelta30d?: number;
+  acceleration?: number;
+  rankAppearances?: number;
+  bestRank?: number;
+  latestRank?: number;
+  sources?: string[];
+  tags?: string[];
+  theme?: string;
+  themeKey?: string;
+  positioning?: string;
+  coreTechnicalIdea?: string;
+  trendImplication?: string;
+  tier?: string;
+  confidence?: number;
+  maturityBand?: string;
+  emergingScore?: number;
+  tableRank?: number;
+}
+
+interface GithubTrendTheme {
+  theme: string;
+  totalScore: number;
+  latestScore: number;
+  delta: number;
+  repoCount: number;
+  values: number[];
+  countValues: number[];
+  evidence?: GithubTrendRepo[];
+}
+
+interface GithubTrendPulseTag {
+  tag: string;
+  label: string;
+  hotspotScore: number;
+  repoCount: number;
+  starDelta7d: number;
+  acceleration: number;
+  evidence?: GithubTrendRepo[];
+}
+
+interface GithubTrendPulsePair {
+  key: string;
+  tags: string[];
+  label: string;
+  score: number;
+  count: number;
+  evidence?: GithubTrendRepo[];
+}
+
+interface GithubTrendData {
+  generatedAt: string;
+  latestObservedAt: string | null;
+  latestObservedDate?: string | null;
+  windows: {
+    day: string;
+    week: string;
+    month: string;
+    quarter: string;
+  };
+  dates: string[];
+  dailyCounts: Array<{ date: string; count: number; score?: number }>;
+  themes: GithubTrendTheme[];
+  pulse?: {
+    version: number;
+    generatedFrom: string;
+    method: string;
+    tags: GithubTrendPulseTag[];
+    emerging: GithubTrendPulseTag[];
+    cooccurrence: GithubTrendPulsePair[];
+  };
+  headline?: {
+    leadingTheme?: string;
+    leadingScore?: number;
+    emergingRepos?: number;
+    starDelta7d?: number;
+    breakoutRepos?: number;
+    sourceRepos?: number;
+  };
+  emergingRepos?: GithubTrendRepo[];
+  acceleratingRepos?: GithubTrendRepo[];
+  tables: {
+    day: GithubTrendRepo[];
+    week: GithubTrendRepo[];
+    month: GithubTrendRepo[];
+    quarter: GithubTrendRepo[];
+  };
+  source?: {
+    rows?: number;
+    method?: string;
+    sqlite?: string;
+    coverage?: {
+      repos?: number;
+      starSnapshots?: number;
+      rankSnapshots?: number;
+      velocityRows?: number;
+      analysisCards?: number;
+      startDate?: string;
+      endDate?: string;
     };
   };
 }
@@ -264,6 +426,22 @@ const isSolarYouTubeVideo = (resource: Resource) =>
   resource.type === 'YOUTUBE_VIDEO' &&
   (resource.metadata?.importedAs === 'youtube-video' ||
     resource.sourceType === 'solar-harness:youtube-video');
+
+const isLocalPublicHtmlResource = (resource: Resource | null) => {
+  const sourceUrl = resource?.sourceUrl || '';
+  return (
+    sourceUrl.startsWith('/local-data/') ||
+    sourceUrl.includes('/local-data/solar-ai-influence/html/') ||
+    sourceUrl.includes('/local-data/solar-hf-paper-insights/html/')
+  );
+};
+
+const shouldUseManualAiAnalysis = (resource: Resource | null) =>
+  Boolean(
+    resource &&
+      getResourceDisplayMode(resource) === 'html' &&
+      isLocalPublicHtmlResource(resource)
+  );
 
 const metadataString = (resource: Resource, key: string) => {
   const value = resource.metadata?.[key];
@@ -384,6 +562,10 @@ function HomeContent() {
     useState<YouTubeLibraryTab>('genesis');
   const [paperLibraryTab, setPaperLibraryTab] =
     useState<PaperLibraryTab>('recent');
+  const [blogLibraryTab, setBlogLibraryTab] =
+    useState<BlogLibraryTab>('digest');
+  const [reportLibraryTab, setReportLibraryTab] =
+    useState<ReportLibraryTab>('field');
   const [selectedYouTubeChannel, setSelectedYouTubeChannel] =
     useState<Resource | null>(null);
   const [youtubeChannelVideos, setYoutubeChannelVideos] = useState<Resource[]>(
@@ -397,6 +579,9 @@ function HomeContent() {
   const [paperTrendData, setPaperTrendData] =
     useState<PaperTrendData | null>(null);
   const [loadingPaperTrendData, setLoadingPaperTrendData] = useState(false);
+  const [githubTrendData, setGithubTrendData] =
+    useState<GithubTrendData | null>(null);
+  const [loadingGithubTrendData, setLoadingGithubTrendData] = useState(false);
 
   // Infinite scroll ref
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
@@ -405,6 +590,7 @@ function HomeContent() {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null
   );
+  const selectedResourceIdRef = useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
   const [htmlViewMode, setHtmlViewMode] = useState<'reader' | 'original'>(
@@ -537,6 +723,7 @@ function HomeContent() {
 
   // Article content from ReaderView for AI analysis
   const [articleTextContent, setArticleTextContent] = useState<string>('');
+  const [localHtmlTextLoading, setLocalHtmlTextLoading] = useState(false);
 
   // Attachment upload states for AI chat
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -642,6 +829,8 @@ function HomeContent() {
     filterCategory,
     youtubeLibraryTab,
     paperLibraryTab,
+    blogLibraryTab,
+    reportLibraryTab,
     searchParams,
   ]);
 
@@ -701,6 +890,34 @@ function HomeContent() {
     loadPaperTrendData();
   }, [activeTab, paperLibraryTab, searchParams]);
 
+  useEffect(() => {
+    const isPapersTab =
+      activeTab === 'papers' || searchParams?.get('tab') === 'papers';
+    if (!isPapersTab || paperLibraryTab !== 'github') return;
+
+    const loadGithubTrendData = async () => {
+      try {
+        setLoadingGithubTrendData(true);
+        const response = await fetch(
+          `/local-data/solar-github-trends.json?v=${Date.now()}`,
+          { cache: 'no-store' }
+        );
+        if (!response.ok) {
+          throw new Error('Failed to load Solar GitHub trends');
+        }
+        const data = await response.json();
+        setGithubTrendData(data);
+      } catch (error) {
+        logger.error('Failed to load Solar GitHub trends:', error);
+        setGithubTrendData(null);
+      } finally {
+        setLoadingGithubTrendData(false);
+      }
+    };
+
+    loadGithubTrendData();
+  }, [activeTab, paperLibraryTab, searchParams]);
+
   const fetchYouTubeChannelVideos = async (channel: Resource) => {
     const channelId = getSolarYouTubeChannelId(channel);
 
@@ -736,6 +953,74 @@ function HomeContent() {
     } finally {
       setLoadingChannelVideos(false);
     }
+  };
+
+  const resetAiWorkspace = () => {
+    setAiMessages([]);
+    setAiInput('');
+    setAiSummary(null);
+    setAiInsights([]);
+    setAiMethodology([]);
+    setAiLoading(false);
+    setIsStreaming(false);
+    setLocalHtmlTextLoading(false);
+    setArticleTextContent('');
+  };
+
+  const loadLocalPublicHtmlTextContent = async (resource: Resource) => {
+    if (!isLocalPublicHtmlResource(resource)) return;
+
+    try {
+      setLocalHtmlTextLoading(true);
+      const response = await fetch(resource.sourceUrl, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const html = await response.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      doc
+        .querySelectorAll('script, style, noscript, svg')
+        .forEach((node) => node.remove());
+      const text = (doc.body?.innerText || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+      if (selectedResourceIdRef.current !== resource.id) return;
+
+      setArticleTextContent(text || resource.abstract || '');
+    } catch (error) {
+      logger.error('Failed to load local HTML text for AI analysis:', error);
+      if (selectedResourceIdRef.current === resource.id) {
+        setArticleTextContent(resource.abstract || '');
+      }
+    } finally {
+      if (selectedResourceIdRef.current === resource.id) {
+        setLocalHtmlTextLoading(false);
+      }
+    }
+  };
+
+  const openResourceDetail = (resource: Resource) => {
+    const manualAi = shouldUseManualAiAnalysis(resource);
+
+    selectedResourceIdRef.current = resource.id;
+    setSelectedResource(resource);
+    setViewMode('detail');
+    setHtmlViewMode(manualAi ? 'original' : 'reader');
+    resetAiWorkspace();
+
+    if (manualAi) {
+      void loadLocalPublicHtmlTextContent(resource);
+      return;
+    }
+
+    // Auto-generate only for regular resources. Pass an empty content override
+    // so the previous resource's ReaderView text cannot bleed into this one.
+    generateSummary(resource, '');
+    generateInsights(resource, '');
   };
 
   useEffect(() => {
@@ -810,17 +1095,7 @@ function HomeContent() {
         }
       }
 
-      // For non-YouTube resources, show in detail view
-      setSelectedResource(resource);
-      setViewMode('detail');
-      // Clear previous AI data and article content
-      setAiMessages([]);
-      setAiSummary(null);
-      setAiInsights([]);
-      setArticleTextContent('');
-      // Auto-generate summary and insights (same as handleResourceClick)
-      generateSummary(resource);
-      generateInsights(resource);
+      openResourceDetail(resource);
     };
 
     // First try to find in current resources
@@ -916,6 +1191,15 @@ function HomeContent() {
       }
 
       if (effectiveTab === 'papers') {
+        if (paperLibraryTab === 'github') {
+          setResources([]);
+          setHasMore(false);
+          setPage(0);
+          setLoading(false);
+          setLoadingMore(false);
+          return;
+        }
+
         const params = new URLSearchParams({
           type: 'PAPER',
           take: '300',
@@ -972,6 +1256,88 @@ function HomeContent() {
               });
 
         setResources(filteredPapers);
+        setHasMore(false);
+        setPage(0);
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
+
+      if (effectiveTab === 'blogs') {
+        if (blogLibraryTab === 'reserved') {
+          setResources([]);
+          setHasMore(false);
+          setPage(0);
+          setLoading(false);
+          setLoadingMore(false);
+          return;
+        }
+
+        const params = new URLSearchParams({
+          type: 'BLOG',
+          take: '500',
+          skip: '0',
+          sortBy,
+          sortOrder,
+        });
+        if (searchQuery) params.append('search', searchQuery);
+        if (filterCategory) params.append('category', filterCategory);
+        const res = await fetch(`${config.apiUrl}/resources?${params.toString()}`);
+        const result = await res.json();
+        const data = result?.data ?? result;
+        const responseData = data?.data ?? data;
+        const rows = Array.isArray(responseData)
+          ? responseData
+          : responseData?.data || [];
+        setResources(
+          rows.filter(
+            (resource: Resource) =>
+              resource.metadata?.importedAs === 'ai-influence-digest'
+          )
+        );
+        setHasMore(false);
+        setPage(0);
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
+
+      if (effectiveTab === 'reports') {
+        if (reportLibraryTab === 'reserved') {
+          setResources([]);
+          setHasMore(false);
+          setPage(0);
+          setLoading(false);
+          setLoadingMore(false);
+          return;
+        }
+
+        const params = new URLSearchParams({
+          type: 'REPORT',
+          take: '800',
+          skip: '0',
+          sortBy,
+          sortOrder,
+        });
+        if (searchQuery) params.append('search', searchQuery);
+        if (filterCategory) params.append('category', filterCategory);
+        const res = await fetch(`${config.apiUrl}/resources?${params.toString()}`);
+        const result = await res.json();
+        const data = result?.data ?? result;
+        const responseData = data?.data ?? data;
+        const rows = Array.isArray(responseData)
+          ? responseData
+          : responseData?.data || [];
+        const expectedImportedAs =
+          reportLibraryTab === 'field'
+            ? 'ai-influence-field-report'
+            : 'ai-influence-github-report';
+        setResources(
+          rows.filter(
+            (resource: Resource) =>
+              resource.metadata?.importedAs === expectedImportedAs
+          )
+        );
         setHasMore(false);
         setPage(0);
         setLoading(false);
@@ -1259,16 +1625,7 @@ function HomeContent() {
       }
     }
 
-    setSelectedResource(resource);
-    setViewMode('detail');
-    // Clear previous AI data and article content
-    setAiMessages([]);
-    setAiSummary(null);
-    setAiInsights([]);
-    setArticleTextContent('');
-    // Auto-generate summary and insights
-    generateSummary(resource);
-    generateInsights(resource);
+    openResourceDetail(resource);
   };
 
   const handleBackToList = () => {
@@ -1389,17 +1746,27 @@ function HomeContent() {
   };
 
   // AI Functions - using imported helpers with local state
-  const generateSummary = async (resource: Resource) => {
+  const generateSummary = async (
+    resource: Resource,
+    contentOverride?: string
+  ) => {
     await generateSummaryHelper(
       resource,
-      articleTextContent,
+      contentOverride ?? articleTextContent,
       setAiSummary,
       setAiLoading
     );
   };
 
-  const generateInsights = async (resource: Resource) => {
-    await generateInsightsHelper(resource, articleTextContent, setAiInsights);
+  const generateInsights = async (
+    resource: Resource,
+    contentOverride?: string
+  ) => {
+    await generateInsightsHelper(
+      resource,
+      contentOverride ?? articleTextContent,
+      setAiInsights
+    );
   };
 
   // Handle article loaded from ReaderView
@@ -1747,9 +2114,18 @@ function HomeContent() {
     action: 'summary' | 'insights' | 'methodology'
   ) => {
     if (!selectedResource) return;
+    const manualAiResource = shouldUseManualAiAnalysis(selectedResource);
+
+    if (manualAiResource && localHtmlTextLoading) {
+      setToast({
+        message: '本地报告正文还在读取，稍后再开始 AI 解读',
+        type: 'error',
+      });
+      return;
+    }
 
     // Check if we already have cached data in database
-    if (action === 'summary' && selectedResource.aiSummary) {
+    if (!manualAiResource && action === 'summary' && selectedResource.aiSummary) {
       logger.debug('Using cached summary from database');
       setAiSummary(selectedResource.aiSummary);
       const assistantMessage: AIMessage = {
@@ -1762,6 +2138,7 @@ function HomeContent() {
     }
 
     if (
+      !manualAiResource &&
       action === 'insights' &&
       selectedResource.keyInsights &&
       selectedResource.keyInsights.length > 0
@@ -1771,7 +2148,11 @@ function HomeContent() {
       return;
     }
 
-    if (action === 'methodology' && selectedResource.methodology) {
+    if (
+      !manualAiResource &&
+      action === 'methodology' &&
+      selectedResource.methodology
+    ) {
       logger.debug('Using cached methodology from database');
       const parsedMethodology = parseMarkdownToInsights(
         selectedResource.methodology
@@ -1788,8 +2169,9 @@ function HomeContent() {
 
       // Don't call AI with insufficient content - need at least 50 chars beyond the title
       if (mainContent.length < 50) {
-        const warningMessage =
-          '内容尚未加载完成，请先切换到「阅读模式」等待文章内容加载后再试。';
+        const warningMessage = manualAiResource
+          ? '本地报告正文尚未读取完成，请稍后再点击「开始 AI 解读」。'
+          : '内容尚未加载完成，请先切换到「阅读模式」等待文章内容加载后再试。';
         if (action === 'summary') {
           setAiSummary(warningMessage);
         }
@@ -2225,6 +2607,17 @@ function HomeContent() {
           </button>
           <button
             type="button"
+            className={tabClass('github')}
+            onClick={() => {
+              setPaperLibraryTab('github');
+              setSelectedResource(null);
+              setViewMode('list');
+            }}
+          >
+            GitHub 趋势
+          </button>
+          <button
+            type="button"
             className={tabClass('insights')}
             onClick={() => {
               setPaperLibraryTab('insights');
@@ -2250,9 +2643,114 @@ function HomeContent() {
         <p className="text-xs text-gray-500">
           {paperLibraryTab === 'recent'
             ? '最近同步数据里的 HuggingFace / arXiv 热点趋势'
+            : paperLibraryTab === 'github'
+              ? 'Solar GitHub 数据里的开源社区技术趋势，突出新兴方向'
             : paperLibraryTab === 'insights'
               ? '来自 AI Influence 的 HuggingFace 论文洞察报告'
               : 'HuggingFace / arXiv 当前 AI、计算、芯片、软件相关热榜'}
+        </p>
+      </div>
+    );
+  };
+
+  const renderBlogLibraryTabs = () => {
+    if (navigationActiveTab !== 'blogs' || viewMode !== 'list') return null;
+
+    const tabClass = (tab: BlogLibraryTab) =>
+      `rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+        blogLibraryTab === tab
+          ? 'bg-gray-900 text-white'
+          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+      }`;
+
+    return (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3">
+        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+          <button
+            type="button"
+            className={tabClass('digest')}
+            onClick={() => {
+              setBlogLibraryTab('digest');
+              setSelectedResource(null);
+              setViewMode('list');
+            }}
+          >
+            AI Influence Digest
+          </button>
+          <button
+            type="button"
+            className={tabClass('reserved')}
+            onClick={() => {
+              setBlogLibraryTab('reserved');
+              setSelectedResource(null);
+              setViewMode('list');
+            }}
+          >
+            预留
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
+          {blogLibraryTab === 'digest'
+            ? '来自 Solar-harness AI Influence Digest 的每日博客化输出'
+            : '预留给后续博客源'}
+        </p>
+      </div>
+    );
+  };
+
+  const renderReportLibraryTabs = () => {
+    if (navigationActiveTab !== 'reports' || viewMode !== 'list') return null;
+
+    const tabClass = (tab: ReportLibraryTab) =>
+      `rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+        reportLibraryTab === tab
+          ? 'bg-gray-900 text-white'
+          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+      }`;
+
+    return (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-3">
+        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+          <button
+            type="button"
+            className={tabClass('field')}
+            onClick={() => {
+              setReportLibraryTab('field');
+              setSelectedResource(null);
+              setViewMode('list');
+            }}
+          >
+            大咖访谈 / 大展洞察
+          </button>
+          <button
+            type="button"
+            className={tabClass('github')}
+            onClick={() => {
+              setReportLibraryTab('github');
+              setSelectedResource(null);
+              setViewMode('list');
+            }}
+          >
+            GitHub 洞察
+          </button>
+          <button
+            type="button"
+            className={tabClass('reserved')}
+            onClick={() => {
+              setReportLibraryTab('reserved');
+              setSelectedResource(null);
+              setViewMode('list');
+            }}
+          >
+            预留
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">
+          {reportLibraryTab === 'field'
+            ? 'AI Influence 下的大咖访谈、会议观察和大展洞察报告'
+            : reportLibraryTab === 'github'
+              ? 'AI Influence 下的 GitHub 趋势与开源项目洞察'
+              : '预留给后续报告源'}
         </p>
       </div>
     );
@@ -2266,23 +2764,26 @@ function HomeContent() {
   const renderSparkBars = (
     values: number[] = [],
     colorClass = 'bg-sky-500',
-    heightClass = 'h-12'
+    heightClass = 'h-12',
+    labels?: string[]
   ) => {
-    const max = Math.max(1, ...values);
+    const visibleValues = values.slice(-30);
+    const dateOffset = Math.max(0, values.length - visibleValues.length);
+    const max = Math.max(1, ...visibleValues);
 
     return (
-      <div className={`flex ${heightClass} items-end gap-0.5`}>
-        {values.map((value, index) => {
+      <div className={`flex ${heightClass} w-full min-w-0 items-end gap-0.5 overflow-hidden`}>
+        {visibleValues.map((value, index) => {
           const height = Math.max(8, Math.round((value / max) * 100));
           return (
             <span
               key={`${index}-${value}`}
-              className={`min-w-[3px] flex-1 rounded-t-sm ${colorClass}`}
+              className={`min-w-0 flex-1 rounded-t-sm ${colorClass}`}
               style={{
                 height: `${height}%`,
                 opacity: value > 0 ? 0.45 + height / 190 : 0.16,
               }}
-              title={`${paperTrendData?.dates?.[index] || index}: ${value}`}
+              title={`${labels?.[dateOffset + index] || paperTrendData?.dates?.[dateOffset + index] || dateOffset + index}: ${value}`}
             />
           );
         })}
@@ -2412,6 +2913,556 @@ function HomeContent() {
     </section>
   );
 
+  const formatRatio = (value?: number) =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? `${Math.round(value * 100)}%`
+      : 'N/A';
+
+  const renderSourceLabel = (sources?: Record<string, number>) => {
+    const entries = Object.entries(sources || {});
+    if (entries.length === 0) return 'N/A';
+    return entries
+      .map(([source, count]) => `${source.toUpperCase()} ${formatTrendNumber(count)}`)
+      .join(' · ');
+  };
+
+  const renderEvidenceLinks = (items?: PaperTrendTableRow[]) => {
+    const evidence = (items || []).slice(0, 2);
+    if (evidence.length === 0) return null;
+
+    return (
+      <div className="mt-2 space-y-1">
+        {evidence.map((paper) => (
+          <a
+            key={`${paper.paperId}-${paper.evidenceScore || paper.rank}`}
+            href={paper.hfUrl || paper.arxivUrl || '#'}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            className="block truncate text-[11px] font-medium text-gray-500 hover:text-red-600 hover:underline"
+            title={paper.title}
+          >
+            {paper.title}
+          </a>
+        ))}
+      </div>
+    );
+  };
+
+  const renderGithubRepoLinks = (items?: GithubTrendRepo[]) => {
+    const evidence = (items || []).slice(0, 2);
+    if (evidence.length === 0) return null;
+
+    return (
+      <div className="mt-2 space-y-1">
+        {evidence.map((repo) => (
+          <a
+            key={repo.fullName}
+            href={repo.htmlUrl || '#'}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            className="block truncate text-[11px] font-medium text-gray-500 hover:text-sky-700 hover:underline"
+            title={repo.fullName}
+          >
+            {repo.fullName}
+          </a>
+        ))}
+      </div>
+    );
+  };
+
+  const renderGithubTrendTable = (
+    title: string,
+    subtitle: string,
+    rows: GithubTrendRepo[],
+    accentClass = 'text-sky-700'
+  ) => (
+    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-3 py-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-950">{title}</h3>
+          <p className="mt-1 text-xs text-gray-500">{subtitle}</p>
+        </div>
+        <Table2 className={`h-4 w-4 flex-shrink-0 ${accentClass}`} />
+      </div>
+      <div>
+        <table className="w-full table-fixed border-separate border-spacing-0 text-left">
+          <thead>
+            <tr className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+              <th className="w-9 px-3 py-2 font-medium">#</th>
+              <th className="px-2 py-2 font-medium">项目 / 方向</th>
+              <th className="w-20 px-2 py-2 text-right font-medium">新兴分</th>
+              <th className="w-24 px-2 py-2 text-right font-medium">增长</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, 10).map((repo, index) => (
+              <tr key={`${title}-${repo.fullName}`} className="border-t">
+                <td className="border-t border-gray-100 px-3 py-2 align-top text-xs font-semibold text-gray-400">
+                  {repo.tableRank || index + 1}
+                </td>
+                <td className="border-t border-gray-100 px-2 py-2 align-top">
+                  <p className="line-clamp-1 text-xs font-semibold leading-snug text-gray-950">
+                    <a
+                      href={repo.htmlUrl || '#'}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                      className="hover:text-sky-700 hover:underline"
+                    >
+                      {repo.fullName}
+                    </a>
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-gray-500">
+                    {repo.trendImplication ||
+                      repo.coreTechnicalIdea ||
+                      repo.description ||
+                      '暂无趋势说明'}
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] font-medium">
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+                      {repo.theme || 'N/A'}
+                    </span>
+                    {repo.language && (
+                      <span className="rounded-full bg-sky-50 px-2 py-0.5 text-sky-700">
+                        {repo.language}
+                      </span>
+                    )}
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700">
+                      {repo.maturityBand || 'N/A'}
+                    </span>
+                  </div>
+                </td>
+                <td className="border-t border-gray-100 px-2 py-2 text-right align-top font-mono text-xs text-gray-800">
+                  {formatTrendNumber(repo.emergingScore)}
+                </td>
+                <td className="border-t border-gray-100 px-2 py-2 text-right align-top font-mono text-[11px] text-gray-600">
+                  <div>7d +{formatTrendNumber(repo.starDelta7d)}</div>
+                  <div className="mt-0.5 text-gray-400">
+                    accel {formatTrendNumber(repo.acceleration)}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+
+  const renderGithubTrendDashboard = () => {
+    if (!isPaperListMode || paperLibraryTab !== 'github') return null;
+
+    if (loadingGithubTrendData) {
+      return (
+        <div className="space-y-5">
+          <div className="h-72 animate-pulse rounded-xl border border-gray-200 bg-white" />
+          <div className="grid gap-4 lg:grid-cols-2">
+            {[1, 2, 3, 4].map((item) => (
+              <div
+                key={item}
+                className="h-52 animate-pulse rounded-lg border border-gray-200 bg-white"
+              />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (!githubTrendData) {
+      return (
+        <Alert tone="warn" title="GitHub 趋势数据未加载">
+          未能读取本地 Solar GitHub 趋势快照。
+        </Alert>
+      );
+    }
+
+    const themes = githubTrendData.themes || [];
+    const pulseTags = githubTrendData.pulse?.tags || [];
+    const emergingTags = githubTrendData.pulse?.emerging || [];
+    const cooccurrenceTags = githubTrendData.pulse?.cooccurrence || [];
+    const leadingTheme =
+      githubTrendData.headline?.leadingTheme || themes[0]?.theme || 'N/A';
+    const maxThemeScore = Math.max(
+      1,
+      ...themes.map((theme) => theme.totalScore || 0)
+    );
+    const maxPulseScore = Math.max(
+      1,
+      ...pulseTags.map((tag) => tag.hotspotScore || 0)
+    );
+    const colors = [
+      'bg-sky-500',
+      'bg-emerald-500',
+      'bg-amber-500',
+      'bg-rose-500',
+      'bg-violet-500',
+      'bg-cyan-500',
+      'bg-slate-500',
+      'bg-lime-500',
+    ];
+    const trendTables = [
+      {
+        title: '当日开源热点',
+        subtitle: githubTrendData.windows.day,
+        rows: githubTrendData.tables.day,
+        accent: 'text-rose-700',
+      },
+      {
+        title: '当周新兴项目',
+        subtitle: githubTrendData.windows.week,
+        rows: githubTrendData.tables.week,
+        accent: 'text-amber-700',
+      },
+      {
+        title: '当月技术趋势',
+        subtitle: githubTrendData.windows.month,
+        rows: githubTrendData.tables.month,
+        accent: 'text-emerald-700',
+      },
+      {
+        title: '当季观察池',
+        subtitle: githubTrendData.windows.quarter,
+        rows: githubTrendData.tables.quarter,
+        accent: 'text-sky-700',
+      },
+    ];
+
+    return (
+      <div className="space-y-6">
+        <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className="border-b border-gray-100 p-5 lg:border-b-0 lg:border-r">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-sky-700">
+                    <TrendingUp className="h-4 w-4" />
+                    GitHubPulse 开源趋势雷达
+                  </p>
+                  <p className="mt-1 max-w-xl text-xs leading-relaxed text-gray-500">
+                    用 star 增长、加速度、外部热榜出现、技术标签和分析卡置信度加权；成熟大仓会降权，优先露出新兴技术方向。
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-normal text-gray-950">
+                    {leadingTheme}
+                  </h2>
+                </div>
+                <span className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600">
+                  最新 {githubTrendData.latestObservedDate || 'N/A'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500">新兴项目</p>
+                  <p className="mt-1 font-mono text-2xl font-semibold text-gray-950">
+                    {formatTrendNumber(githubTrendData.headline?.emergingRepos)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-gray-400">降权成熟大仓后</p>
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500">7 日增量</p>
+                  <p className="mt-1 font-mono text-2xl font-semibold text-gray-950">
+                    {formatTrendNumber(githubTrendData.headline?.starDelta7d)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-gray-400">样本累计 stars</p>
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500">突增项目</p>
+                  <p className="mt-1 font-mono text-2xl font-semibold text-gray-950">
+                    {formatTrendNumber(githubTrendData.headline?.breakoutRepos)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-gray-400">7d 或加速度破千</p>
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500">覆盖仓库</p>
+                  <p className="mt-1 font-mono text-2xl font-semibold text-gray-950">
+                    {formatTrendNumber(githubTrendData.headline?.sourceRepos)}
+                  </p>
+                  <p className="mt-1 truncate text-[11px] text-gray-500">
+                    分析卡 {formatTrendNumber(githubTrendData.source?.coverage?.analysisCards)}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-800">
+                新兴分不是总 star 排名：同样增长下，成熟大仓会被压低；短期快速增长、主题共现和近期热榜反复出现会被抬高。
+              </p>
+
+              <div className="mt-5 space-y-3">
+                {themes.map((theme, index) => {
+                  const width = Math.max(
+                    6,
+                    Math.round((theme.totalScore / maxThemeScore) * 100)
+                  );
+                  return (
+                    <div key={theme.theme}>
+                      <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium text-gray-800">
+                          {theme.theme}
+                        </span>
+                        <span className="font-mono text-gray-500">
+                          {formatTrendNumber(theme.totalScore)}
+                        </span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className={`h-full rounded-full ${colors[index % colors.length]}`}
+                          style={{ width: `${width}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-5">
+              <div className="mb-4">
+                <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <BarChart3 className="h-4 w-4" />
+                  30 天热榜采样强度
+                </p>
+                <p className="mt-1 text-sm text-gray-600">
+                  每根柱代表当天 GitHub 外部热榜采样强度；用于看开源信号密度变化，不等于单个仓库热度。
+                </p>
+              </div>
+              {renderSparkBars(
+                githubTrendData.dailyCounts.map((item) => item.score || item.count),
+                'bg-gray-800',
+                'h-40',
+                githubTrendData.dates
+              )}
+              <div className="mt-3 flex justify-between text-xs text-gray-400">
+                <span>{githubTrendData.dates[0] || 'N/A'}</span>
+                <span>
+                  {githubTrendData.dates[githubTrendData.dates.length - 1] ||
+                    'N/A'}
+                </span>
+              </div>
+              <p className="mt-4 rounded-lg bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-500">
+                主要看左侧方向条和下方走势图；这张图只解释“近期 GitHub 信号是否活跃”。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="border-b border-gray-100 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                  <Cpu className="h-4 w-4" />
+                  开源主题热点引擎
+                </p>
+                <h2 className="mt-2 text-base font-semibold text-gray-950">
+                  捕捉新兴开源方向
+                </h2>
+                <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-500">
+                  主题分来自仓库 topic、语言、外部热榜、增长曲线和分析卡；用于发现“正在冒头的方向”，不是成熟项目名人堂。
+                </p>
+              </div>
+              <span className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600">
+                {githubTrendData.source?.coverage?.startDate || 'N/A'} 起
+              </span>
+            </div>
+          </div>
+
+          <div className="p-5">
+            <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+              <div>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-gray-950">
+                    技术主题排行
+                  </h3>
+                  <span className="text-xs text-gray-400">
+                    增长 x 榜单 x 降权
+                  </span>
+                </div>
+                <div className="grid gap-x-5 gap-y-3 md:grid-cols-2">
+                  {pulseTags.slice(0, 10).map((tag, index) => {
+                    const width = Math.max(
+                      7,
+                      Math.round((tag.hotspotScore / maxPulseScore) * 100)
+                    );
+                    return (
+                      <article
+                        key={tag.tag}
+                        className="border-b border-gray-100 pb-3 last:border-b-0"
+                      >
+                        <div className="mb-1 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-gray-900">
+                              {index + 1}. {tag.label}
+                            </p>
+                            <p className="truncate text-[11px] text-gray-500">
+                              {tag.tag} · {formatTrendNumber(tag.repoCount)} 个仓库
+                            </p>
+                          </div>
+                          <span className="font-mono text-sm font-semibold text-gray-900">
+                            {formatTrendNumber(tag.hotspotScore)}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                          <div
+                            className={`h-full rounded-full ${colors[index % colors.length]}`}
+                            style={{ width: `${width}%` }}
+                          />
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-gray-500">
+                          <span>7d +{formatTrendNumber(tag.starDelta7d)}</span>
+                          <span>加速度 {formatTrendNumber(tag.acceleration)}</span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-gray-50 p-4">
+                <h3 className="text-sm font-semibold text-gray-950">
+                  评分口径
+                </h3>
+                <div className="mt-3 space-y-2 text-xs leading-relaxed text-gray-600">
+                  <p>增长：7 日、24 小时 star 增量和 30 日增量取对数加权。</p>
+                  <p>加速度：近期增速明显高于前序窗口时加分。</p>
+                  <p>榜单：外部 GitHub 热榜反复出现且排名靠前时加分。</p>
+                  <p>降权：总 star 极高的成熟大仓会降权，避免占满视野。</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-gray-950">
+                    <FlaskConical className="h-4 w-4 text-emerald-700" />
+                    新兴热点
+                  </h3>
+                  <span className="text-xs text-gray-400">按加速度排序</span>
+                </div>
+                <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                  {emergingTags.slice(0, 6).map((tag, index) => (
+                    <article key={`github-emerging-${tag.tag}`} className="p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-gray-950">
+                            {index + 1}. {tag.label}
+                          </p>
+                          <p className="mt-1 truncate text-[11px] text-gray-500">
+                            {tag.tag} · 7d +{formatTrendNumber(tag.starDelta7d)} · 加速度 {formatTrendNumber(tag.acceleration)}
+                          </p>
+                          {renderGithubRepoLinks(tag.evidence)}
+                        </div>
+                        <span className="font-mono text-xs font-semibold text-emerald-700">
+                          {formatTrendNumber(tag.hotspotScore)}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-gray-950">
+                    主题共现热点
+                  </h3>
+                  <span className="text-xs text-gray-400">交叉开源方向</span>
+                </div>
+                <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                  {cooccurrenceTags.slice(0, 6).map((pair, index) => (
+                    <article key={pair.key} className="p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="line-clamp-1 text-sm font-semibold text-gray-950">
+                            {index + 1}. {pair.label}
+                          </p>
+                          <p className="mt-1 truncate text-[11px] text-gray-500">
+                            {pair.tags.join(' + ')} · 共现 {formatTrendNumber(pair.count)} 次
+                          </p>
+                          {renderGithubRepoLinks(pair.evidence)}
+                        </div>
+                        <span className="font-mono text-xs font-semibold text-sky-700">
+                          {formatTrendNumber(pair.score)}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-gray-950">
+                开源方向走势图
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                每张小图展示该方向最近 30 天的热榜和增长信号；柱子越高，说明该方向当天更活跃。
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {themes.slice(0, 6).map((theme, index) => (
+              <article
+                key={theme.theme}
+                className="rounded-lg border border-gray-200 bg-white p-4"
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-gray-950">
+                      {theme.theme}
+                    </h3>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {formatTrendNumber(theme.repoCount)} 个代表项目
+                    </p>
+                  </div>
+                  <div className="text-right text-xs font-medium">
+                    {renderTrendDelta(theme.delta)}
+                    <p className="mt-1 font-mono text-gray-500">
+                      今日 {formatTrendNumber(theme.latestScore)}
+                    </p>
+                  </div>
+                </div>
+                {renderSparkBars(
+                  theme.values,
+                  colors[index % colors.length],
+                  'h-16',
+                  githubTrendData.dates
+                )}
+                {renderGithubRepoLinks(theme.evidence)}
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-3">
+            <h2 className="text-base font-semibold text-gray-950">
+              开源趋势榜单
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              按窗口内新兴分排序；新兴分重视增长、加速度和热榜重复出现，并对成熟大仓做降权。
+            </p>
+          </div>
+          <div className="grid gap-5 xl:grid-cols-2">
+            {trendTables.map((table) =>
+              renderGithubTrendTable(
+                table.title,
+                table.subtitle,
+                table.rows,
+                table.accent
+              )
+            )}
+          </div>
+        </section>
+      </div>
+    );
+  };
+
   const renderPaperTrendDashboard = () => {
     if (!isPaperListMode || paperLibraryTab !== 'recent') return null;
 
@@ -2489,6 +3540,14 @@ function HomeContent() {
         accent: 'text-sky-700',
       },
     ];
+    const tagPulse = paperTrendData.tagPulse;
+    const tagPulseTags = tagPulse?.tags || [];
+    const emergingTags = tagPulse?.emerging || [];
+    const cooccurrenceTags = tagPulse?.cooccurrence || [];
+    const maxPulseScore = Math.max(
+      1,
+      ...tagPulseTags.map((tag) => tag.hotspotScore || 0)
+    );
 
     return (
       <div className="space-y-6">
@@ -2515,10 +3574,11 @@ function HomeContent() {
 
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                  <p className="text-xs text-gray-500">今日论文</p>
+                  <p className="text-xs text-gray-500">今日样本</p>
                   <p className="mt-1 font-mono text-2xl font-semibold text-gray-950">
                     {formatTrendNumber(paperTrendData.headline?.papersToday)}
                   </p>
+                  <p className="mt-1 text-[11px] text-gray-400">论文条目</p>
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                   <p className="text-xs text-gray-500">季度样本</p>
@@ -2527,15 +3587,17 @@ function HomeContent() {
                       paperTrendData.headline?.papersInQuarter
                     )}
                   </p>
+                  <p className="mt-1 text-[11px] text-gray-400">本季参与计算</p>
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                  <p className="text-xs text-gray-500">领先热度</p>
+                  <p className="text-xs text-gray-500">领先热度分</p>
                   <p className="mt-1 font-mono text-2xl font-semibold text-gray-950">
                     {formatTrendNumber(paperTrendData.headline?.leadingScore)}
                   </p>
+                  <p className="mt-1 text-[11px] text-gray-400">加权分，不是篇数</p>
                 </div>
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                  <p className="text-xs text-gray-500">历史覆盖</p>
+                  <p className="text-xs text-gray-500">全量采集行数</p>
                   <p className="mt-1 font-mono text-2xl font-semibold text-gray-950">
                     {formatTrendNumber(paperTrendData.source?.coverage?.rows)}
                   </p>
@@ -2547,6 +3609,9 @@ function HomeContent() {
                   </p>
                 </div>
               </div>
+              <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs leading-relaxed text-sky-800">
+                指标单位不同：全量采集行数是历史数据覆盖；方向条和领先热度分只看最近一季，并按排名加权，所以不能和 37,510 直接相加。
+              </p>
 
               <div className="mt-5 space-y-3">
                 {topics.map((topic, index) => {
@@ -2605,6 +3670,177 @@ function HomeContent() {
               </p>
             </div>
           </div>
+        </section>
+
+        <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="border-b border-gray-100 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-sky-700">
+                  <Cpu className="h-4 w-4" />
+                  TagPulse 标签热点引擎
+                </p>
+                <h2 className="mt-2 text-base font-semibold text-gray-950">
+                  用标签捕捉研究热点
+                </h2>
+                <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-500">
+                  基于 topic_tags 和 arXiv category，综合排名热度、近 7 日加速度、新颖度、持续天数和来源分布；只做证据统计，不生成模型推断。
+                </p>
+              </div>
+              <span className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600">
+                {tagPulse?.window || 'N/A'}
+              </span>
+            </div>
+          </div>
+
+          {tagPulseTags.length === 0 ? (
+            <div className="p-5 text-sm text-gray-500">
+              当前趋势快照没有可计算的标签样本。
+            </div>
+          ) : (
+            <div className="p-5">
+              <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-gray-950">
+                      标签热度排行
+                    </h3>
+                    <span className="text-xs text-gray-400">
+                      热度分 = 排名分 x 时间权重
+                    </span>
+                  </div>
+                  <div className="grid gap-x-5 gap-y-3 md:grid-cols-2">
+                    {tagPulseTags.slice(0, 10).map((tag, index) => {
+                      const width = Math.max(
+                        7,
+                        Math.round((tag.hotspotScore / maxPulseScore) * 100)
+                      );
+                      return (
+                        <article
+                          key={tag.tag}
+                          className="border-b border-gray-100 pb-3 last:border-b-0"
+                        >
+                          <div className="mb-1 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-gray-900">
+                                {index + 1}. {tag.label}
+                              </p>
+                              <p className="truncate text-[11px] text-gray-500">
+                                {tag.tag} · {formatTrendNumber(tag.paperCount)} 篇
+                              </p>
+                            </div>
+                            <span className="font-mono text-sm font-semibold text-gray-900">
+                              {formatTrendNumber(tag.hotspotScore)}
+                            </span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                            <div
+                              className={`h-full rounded-full ${topicColors[index % topicColors.length]}`}
+                              style={{ width: `${width}%` }}
+                            />
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-gray-500">
+                            <span>加速度 {formatTrendNumber(tag.acceleration)}</span>
+                            <span>新颖 {formatRatio(tag.novelty)}</span>
+                            <span>持续 {formatTrendNumber(tag.persistence)} 天</span>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-gray-50 p-4">
+                  <h3 className="text-sm font-semibold text-gray-950">
+                    指标口径
+                  </h3>
+                  <div className="mt-3 space-y-2 text-xs leading-relaxed text-gray-600">
+                    <p>
+                      热度分：论文排名越靠前分越高，并按最近程度衰减。
+                    </p>
+                    <p>
+                      加速度：最近 7 天热度相对前序窗口的增量。
+                    </p>
+                    <p>
+                      新颖度：近期热度占该标签历史热度的比例。
+                    </p>
+                    <p>
+                      共现：同一篇论文同时命中的标签组合。
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-5 lg:grid-cols-2">
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-gray-950">
+                      <FlaskConical className="h-4 w-4 text-emerald-700" />
+                      新兴热点
+                    </h3>
+                    <span className="text-xs text-gray-400">按加速度排序</span>
+                  </div>
+                  <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                    {emergingTags.slice(0, 6).map((tag, index) => (
+                      <article
+                        key={`emerging-${tag.tag}`}
+                        className="grid gap-3 p-3 md:grid-cols-[minmax(0,1fr)_120px]"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="truncate text-sm font-semibold text-gray-950">
+                              {index + 1}. {tag.label}
+                            </p>
+                            <span className="font-mono text-xs font-semibold text-emerald-700">
+                              +{formatTrendNumber(Math.max(0, tag.acceleration))}
+                            </span>
+                          </div>
+                          <p className="mt-1 truncate text-[11px] text-gray-500">
+                            {tag.tag} · 新颖 {formatRatio(tag.novelty)} · 置信 {formatRatio(tag.confidence)}
+                          </p>
+                          {renderEvidenceLinks(tag.evidence)}
+                        </div>
+                        {renderSparkBars(
+                          tag.values,
+                          topicColors[(index + 1) % topicColors.length],
+                          'h-10'
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-gray-950">
+                      标签共现热点
+                    </h3>
+                    <span className="text-xs text-gray-400">交叉研究方向</span>
+                  </div>
+                  <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                    {cooccurrenceTags.slice(0, 6).map((pair, index) => (
+                      <article key={pair.key} className="p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="line-clamp-1 text-sm font-semibold text-gray-950">
+                              {index + 1}. {pair.label}
+                            </p>
+                            <p className="mt-1 truncate text-[11px] text-gray-500">
+                              {pair.tags.join(' + ')} · 共现 {formatTrendNumber(pair.count)} 次 · {renderSourceLabel(pair.sources)}
+                            </p>
+                          </div>
+                          <span className="font-mono text-xs font-semibold text-sky-700">
+                            {formatTrendNumber(pair.score)}
+                          </span>
+                        </div>
+                        {renderEvidenceLinks(pair.evidence)}
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         <section>
@@ -3146,6 +4382,8 @@ function HomeContent() {
                 }}
               />
               {renderPaperLibraryTabs()}
+              {renderBlogLibraryTabs()}
+              {renderReportLibraryTabs()}
             </div>
           </div>
         )}
@@ -3189,11 +4427,18 @@ function HomeContent() {
                 paperLibraryTab === 'recent' &&
                 renderPaperTrendDashboard()}
 
+              {!loading &&
+                !isSolarYouTubeReportsMode &&
+                !isYouTubeChannelVideoMode &&
+                isPaperListMode &&
+                paperLibraryTab === 'github' &&
+                renderGithubTrendDashboard()}
+
               {/* Resource Cards - Horizontal Layout */}
               {!loading &&
                 !isSolarYouTubeReportsMode &&
                 !isYouTubeChannelVideoMode &&
-                !(isPaperListMode && paperLibraryTab === 'recent') &&
+                !(isPaperListMode && (paperLibraryTab === 'recent' || paperLibraryTab === 'github')) &&
                 resources.length > 0 && (
                   <div className="space-y-5">
                     {resources
@@ -3490,7 +4735,7 @@ function HomeContent() {
               {!loading &&
                 !isSolarYouTubeReportsMode &&
                 !isYouTubeChannelVideoMode &&
-                !(isPaperListMode && paperLibraryTab === 'recent') &&
+                !(isPaperListMode && (paperLibraryTab === 'recent' || paperLibraryTab === 'github')) &&
                 resources.length > 0 &&
                 hasMore && (
                   <div
@@ -3528,7 +4773,7 @@ function HomeContent() {
               {!loading &&
                 !isSolarYouTubeReportsMode &&
                 !isYouTubeChannelVideoMode &&
-                !(isPaperListMode && paperLibraryTab === 'recent') &&
+                !(isPaperListMode && (paperLibraryTab === 'recent' || paperLibraryTab === 'github')) &&
                 resources.length > 0 &&
                 !hasMore && (
                   <div className="mt-6 text-center">
@@ -3540,11 +4785,25 @@ function HomeContent() {
               {!loading &&
                 !isSolarYouTubeReportsMode &&
                 !isYouTubeChannelVideoMode &&
-                !(isPaperListMode && paperLibraryTab === 'recent') &&
+                !(isPaperListMode && (paperLibraryTab === 'recent' || paperLibraryTab === 'github')) &&
                 resources.length === 0 && (
                   <EmptyState
-                    title="No content available"
-                    description="Try running the data crawler first"
+                    title={
+                      (navigationActiveTab === 'blogs' &&
+                        blogLibraryTab === 'reserved') ||
+                      (navigationActiveTab === 'reports' &&
+                        reportLibraryTab === 'reserved')
+                        ? '该标签页已预留'
+                        : 'No content available'
+                    }
+                    description={
+                      (navigationActiveTab === 'blogs' &&
+                        blogLibraryTab === 'reserved') ||
+                      (navigationActiveTab === 'reports' &&
+                        reportLibraryTab === 'reserved')
+                        ? '后续新增内容会挂到这里'
+                        : 'Try running the data crawler first'
+                    }
                   />
                 )}
             </>
@@ -3618,10 +4877,23 @@ function HomeContent() {
                     {getResourceDisplayMode(selectedResource) === 'html' && (
                       <div className="flex h-8 items-center rounded-md border border-gray-200 bg-gray-50 p-0.5">
                         <button
-                          onClick={() => setHtmlViewMode('reader')}
+                          onClick={() => {
+                            if (!isLocalPublicHtmlResource(selectedResource)) {
+                              setHtmlViewMode('reader');
+                            }
+                          }}
+                          disabled={isLocalPublicHtmlResource(selectedResource)}
+                          title={
+                            isLocalPublicHtmlResource(selectedResource)
+                              ? '本地同步报告直接打开原始 HTML'
+                              : '阅读模式'
+                          }
                           className={`flex h-7 items-center gap-1.5 rounded px-3 text-xs font-medium transition-all ${
-                            htmlViewMode === 'reader'
+                            htmlViewMode === 'reader' &&
+                            !isLocalPublicHtmlResource(selectedResource)
                               ? 'bg-white text-gray-900 shadow-sm'
+                              : isLocalPublicHtmlResource(selectedResource)
+                                ? 'cursor-not-allowed text-gray-300'
                               : 'text-gray-500 hover:text-gray-700'
                           }`}
                         >
@@ -3637,7 +4909,8 @@ function HomeContent() {
                         <button
                           onClick={() => setHtmlViewMode('original')}
                           className={`flex h-7 items-center gap-1.5 rounded px-3 text-xs font-medium transition-all ${
-                            htmlViewMode === 'original'
+                            htmlViewMode === 'original' ||
+                            isLocalPublicHtmlResource(selectedResource)
                               ? 'bg-white text-gray-900 shadow-sm'
                               : 'text-gray-500 hover:text-gray-700'
                           }`}
@@ -3935,7 +5208,8 @@ function HomeContent() {
                     );
                   })()
                 ) : getResourceDisplayMode(selectedResource) === 'html' ? (
-                  htmlViewMode === 'reader' ? (
+                  htmlViewMode === 'reader' &&
+                  !isLocalPublicHtmlResource(selectedResource) ? (
                     <TextSelectionToolbar
                       resourceId={selectedResource.id}
                       onAddToNotes={(text) => {
@@ -4160,10 +5434,52 @@ function HomeContent() {
                     </div>
                   </div>
 
+                  {shouldUseManualAiAnalysis(selectedResource) &&
+                    !aiSummary &&
+                    aiInsights.length === 0 &&
+                    aiMethodology.length === 0 &&
+                    aiMessages.length === 0 && (
+                      <div className="rounded-xl border border-red-100 bg-red-50/60 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              AI 解读未启动
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed text-gray-600">
+                              当前报告已在左侧直接打开；只有点击按钮后才会调用模型生成摘要和洞察。
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setAiMessages([]);
+                              setAiSummary(null);
+                              setAiInsights([]);
+                              setAiMethodology([]);
+                              await handleQuickAction('summary');
+                              await handleQuickAction('insights');
+                            }}
+                            disabled={
+                              aiLoading || isStreaming || localHtmlTextLoading
+                            }
+                            className="shrink-0 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {localHtmlTextLoading
+                              ? '读取正文中'
+                              : aiLoading
+                                ? '解读中'
+                                : '开始 AI 解读'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                   {/* Quick Actions */}
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-gray-700">
-                      Quick Actions:
+                      {shouldUseManualAiAnalysis(selectedResource)
+                        ? '手动操作:'
+                        : 'Quick Actions:'}
                     </p>
                     <div className="grid grid-cols-3 gap-2">
                       <button

@@ -3,6 +3,7 @@
  *
  * 2026-05-15 PR-C god-class 拆分：抽 rerun + leader-chat post 类端点出来：
  *   - POST /missions/:id/rerun（全量重跑 fresh|incremental）
+ *   - POST /missions/:id/resume（同 id 从 checkpoint 继续，rerun incremental 语义别名）
  *   - POST /missions/:id/todos/:todoId/rerun（单 todo 开新 mission）
  *   - POST /missions/:id/todos/:todoId/local-rerun（单 stage 局部重跑）
  *   - POST /missions/:id/leader-chat（用户向 Leader 提问）
@@ -79,6 +80,33 @@ export class MissionRerunController extends BaseMissionController {
       missionId,
       userId,
       resolvedMode,
+    );
+  }
+
+  /**
+   * POST /api/v1/playground/missions/:id/resume
+   *
+   * UI 语义入口："继续上次"。底层复用 incremental 的同-id checkpoint 路径，
+   * 避免按钮文案说 resume、实际却调用 rerun 造成用户误解。
+   */
+  @Post("missions/:id/resume")
+  @UseGuards(RateLimitGuard)
+  @RateLimit({
+    maxRequests: 30,
+    windowSeconds: 60,
+    message: "继续 mission 过于频繁，请稍后再试",
+  })
+  async resumeMission(
+    @Param("id") missionId: string,
+    @Request() req: RequestWithUser,
+  ): Promise<{ missionId: string; streamNamespace: string }> {
+    const userId = req.user?.id;
+    if (!userId) throw new ForbiddenException("Authentication required");
+    await this.assertOwnership(missionId, userId);
+    return this.rerunOrchestrator.rerunFullMission(
+      missionId,
+      userId,
+      "incremental",
     );
   }
 

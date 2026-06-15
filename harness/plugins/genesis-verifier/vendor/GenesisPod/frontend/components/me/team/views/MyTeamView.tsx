@@ -10,6 +10,7 @@ import { HeroRosterView } from '@/components/me/hero/HeroRosterView';
 import { MissionRunView } from '@/components/me/team/views/MissionRunView';
 
 type TeamTab = 'roster' | 'missions';
+type DispatchHeroSelection = { id: string; capabilityId: string };
 
 /**
  * MyTeamView —— 「我的专家团」主体（heroes 双 Tab：我的专家 / 专家任务）。
@@ -25,6 +26,9 @@ export function MyTeamView({
   hideHeader?: boolean;
 } = {}) {
   const [tab, setTab] = useState<TeamTab>('roster');
+  const [dispatchHero, setDispatchHero] =
+    useState<DispatchHeroSelection | null>(null);
+  const [dispatchRequestKey, setDispatchRequestKey] = useState(0);
   // 任务详情态：进入整屏 mission 详情时隐藏团队页头 + Tab，让详情全屏接管。
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -74,9 +78,21 @@ export function MyTeamView({
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {tab === 'roster' ? (
-          <HeroRosterView onDispatch={() => setTab('missions')} />
+          <HeroRosterView
+            onDispatch={(hero) => {
+              setDispatchHero(hero);
+              setDispatchRequestKey((n) => n + 1);
+              setTab('missions');
+            }}
+          />
         ) : (
-          <MissionRunView embedded onDetailOpenChange={setDetailOpen} />
+          <MissionRunView
+            embedded
+            initialHeroId={dispatchHero?.id ?? null}
+            initialCapabilityId={dispatchHero?.capabilityId ?? null}
+            dispatchRequestKey={dispatchRequestKey}
+            onDetailOpenChange={setDetailOpen}
+          />
         )}
       </div>
     </div>

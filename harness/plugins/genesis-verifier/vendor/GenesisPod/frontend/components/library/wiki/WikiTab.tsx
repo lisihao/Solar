@@ -50,6 +50,7 @@ import {
 import {
   wikiApi,
   type WikiDiff,
+  type WikiDiffListItem,
   type WikiIngestProgress,
   type WikiKbSummary,
   type WikiLintFinding,
@@ -283,6 +284,25 @@ export default function WikiTab({ userHash }: WikiTabProps) {
   // Bumped after diff apply / page create so the reader re-fetches its list
   // and active body without requiring a manual browser refresh.
   const [readerRefreshTick, setReaderRefreshTick] = useState(0);
+  const [pendingDiffs, setPendingDiffs] = useState<WikiDiffListItem[]>([]);
+
+  const refreshPendingDiffs = useCallback(() => {
+    if (!kbId) {
+      setPendingDiffs([]);
+      return;
+    }
+    void wikiApi
+      .listDiffs(kbId, 'PENDING')
+      .then((res) => setPendingDiffs(res.items ?? []))
+      .catch((err) => {
+        logger?.warn?.('[wiki] list pending diffs failed', err);
+        setPendingDiffs([]);
+      });
+  }, [kbId]);
+
+  useEffect(() => {
+    refreshPendingDiffs();
+  }, [refreshPendingDiffs, readerRefreshTick, ingestProgress?.status]);
 
   // Persist active kbId to localStorage so other surfaces (e.g. ingest
   // shortcut from elsewhere) still know the user's last picked KB. We
@@ -466,6 +486,17 @@ export default function WikiTab({ userHash }: WikiTabProps) {
         onSettings={() => setSettingsOpen(true)}
       />
 
+      {pendingDiffs.length > 0 && !urlState.diffId && (
+        <PendingDiffBanner
+          diffs={pendingDiffs}
+          onOpenDiff={(diffId) => {
+            const params = new URLSearchParams(searchParams?.toString() ?? '');
+            params.set('diff', diffId);
+            router.replace(`/library?${params.toString()}`);
+          }}
+        />
+      )}
+
       {ingestProgress != null && (
         <IngestPendingBanner
           progress={ingestProgress}
@@ -501,7 +532,10 @@ export default function WikiTab({ userHash }: WikiTabProps) {
         <WikiDiffModal
           kbId={kbId}
           diffId={urlState.diffId}
-          onApplied={() => setReaderRefreshTick((n) => n + 1)}
+          onApplied={() => {
+            setReaderRefreshTick((n) => n + 1);
+            refreshPendingDiffs();
+          }}
           onClose={() => {
             const params = new URLSearchParams(searchParams?.toString() ?? '');
             params.delete('diff');
@@ -2132,6 +2166,45 @@ function formatRelativeTime(
   const days = Math.round(hours / 24);
   if (days < 30) return t('library.wiki.time.daysAgo', { days });
   return date.toLocaleDateString();
+}
+
+// --- Pending diff recovery banner ---
+
+function PendingDiffBanner({
+  diffs,
+  onOpenDiff,
+}: {
+  diffs: WikiDiffListItem[];
+  onOpenDiff: (diffId: string) => void;
+}) {
+  const latest = diffs[0];
+  if (!latest) return null;
+  const extra = Math.max(0, diffs.length - 1);
+  const itemCount = latest.creates + latest.updates + latest.deletes;
+
+  return (
+    <div className="border-b border-amber-200 bg-amber-50 px-8 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-amber-900">
+            有 {diffs.length} 个 Wiki 提取结果等待应用
+          </div>
+          <div className="mt-1 text-xs text-amber-700">
+            最新 diff 包含 {itemCount} 个页面变更
+            {extra > 0 ? `，另有 ${extra} 个较早提案` : ''}。未应用前不会出现在
+            Wiki 页面和图谱里。
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenDiff(latest.id)}
+          className="shrink-0 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+        >
+          查看并应用
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // --- Ingest pending banner (fire-and-forget, real backend progress) ---

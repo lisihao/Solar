@@ -82,6 +82,62 @@ export class WikiDiffService {
     private readonly pageService: WikiPageService,
   ) {}
 
+  async listDiffs(
+    userId: string,
+    knowledgeBaseId: string,
+    status?: WikiDiffStatus,
+  ): Promise<
+    Array<{
+      id: string;
+      status: WikiDiffStatus;
+      affectedKeys: string[];
+      createdAt: Date;
+      appliedAt: Date | null;
+      dismissedAt: Date | null;
+      creates: number;
+      updates: number;
+      deletes: number;
+    }>
+  > {
+    await this.assertViewerAccess(userId, knowledgeBaseId);
+    const diffs = await this.prisma.wikiDiff.findMany({
+      where: {
+        knowledgeBaseId,
+        ...(status ? { status } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        status: true,
+        affectedKeys: true,
+        items: true,
+        itemsUri: true,
+        createdAt: true,
+        appliedAt: true,
+        dismissedAt: true,
+      },
+    });
+
+    return diffs.map((diff) => {
+      const parsed = WikiDiffItemsSchema.safeParse(diff.items);
+      const items = parsed.success
+        ? parsed.data
+        : { creates: [], updates: [], deletes: [] };
+      return {
+        id: diff.id,
+        status: diff.status,
+        affectedKeys: diff.affectedKeys,
+        createdAt: diff.createdAt,
+        appliedAt: diff.appliedAt,
+        dismissedAt: diff.dismissedAt,
+        creates: items.creates.length,
+        updates: items.updates.length,
+        deletes: items.deletes.length,
+      };
+    });
+  }
+
   /** Get diff details. Cross-KB returns 404 (not 403). */
   async getDiff(
     userId: string,

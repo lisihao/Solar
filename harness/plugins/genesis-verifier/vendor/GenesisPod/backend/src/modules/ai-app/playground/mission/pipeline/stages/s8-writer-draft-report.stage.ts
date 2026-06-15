@@ -99,6 +99,54 @@ function makeProxyAgent(missionId: string, roleId: string): IAgent {
   };
 }
 
+function normalizeDraftReportForReviewer(
+  report: ResearchReport,
+  fallback: {
+    language: "zh-CN" | "en-US";
+    themeSummary?: string;
+  },
+): { report: ResearchReport; normalizedFields: string[] } {
+  const normalizedFields: string[] = [];
+  const conclusion = report.conclusion?.trim() ?? "";
+  if (conclusion.length >= 20) {
+    return { report, normalizedFields };
+  }
+
+  const summary = report.summary?.trim();
+  const themeSummary = fallback.themeSummary?.trim();
+  const sectionHeadings = report.sections
+    .map((s) => s.heading?.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const derived =
+    summary && summary.length >= 20
+      ? summary
+      : themeSummary && themeSummary.length >= 20
+        ? themeSummary
+        : sectionHeadings.length > 0
+          ? sectionHeadings.join("、")
+          : "";
+  let repairedConclusion =
+    fallback.language === "zh-CN"
+      ? `结论：${derived || "当前报告已完成核心章节起草，但结论字段不足，需要 reviewer 基于正文继续核查覆盖度、证据链和行动建议。"}`.trim()
+      : `Conclusion: ${derived || "The draft contains the core sections, but the conclusion field was too short; the reviewer should verify coverage, evidence, and actionability from the body."}`.trim();
+  if (repairedConclusion.length < 20) {
+    repairedConclusion =
+      fallback.language === "zh-CN"
+        ? `${repairedConclusion}。请基于正文继续核查覆盖度、证据链和行动建议。`
+        : `${repairedConclusion}. Verify coverage, evidence, and actionability from the body.`;
+  }
+
+  normalizedFields.push("conclusion");
+  return {
+    report: {
+      ...report,
+      conclusion: repairedConclusion,
+    },
+    normalizedFields,
+  };
+}
+
 export async function runWriterStage(
   ctx: MissionInvariants &
     PlanPhaseCtx &
@@ -270,7 +318,36 @@ export async function runWriterStage(
       );
       continue;
     }
-    report = writerRes.output as ResearchReport;
+    const normalized = normalizeDraftReportForReviewer(
+      writerRes.output as ResearchReport,
+      {
+        language: input.language,
+        themeSummary: analyst.themeSummary,
+      },
+    );
+    report = normalized.report;
+    if (normalized.normalizedFields.length > 0) {
+      deps.log.warn(
+        `[${missionId}] writer draft normalized before reviewer: ${normalized.normalizedFields.join(", ")}`,
+      );
+      await deps
+        .emit({
+          type: "playground.report:normalized",
+          missionId,
+          userId,
+          agentId: writerAgentId,
+          payload: {
+            attempt: attempts,
+            fields: normalized.normalizedFields,
+            reason: "draft_report_schema_boundary",
+          },
+        })
+        .catch((err: unknown) => {
+          deps.log.warn(
+            `[${missionId}] emit report:normalized failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+    }
     lastWriterAgent = writerRes.agent;
     lastWriterEvents = writerRes.events;
     await deps

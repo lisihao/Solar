@@ -772,7 +772,7 @@ export class EmbeddingService {
   /**
    * 获取配置信息（用于诊断）
    */
-  async getConfigInfo(): Promise<{
+  async getConfigInfo(userIdOverride?: string): Promise<{
     modelId: string;
     dimensions: number;
     provider: string;
@@ -780,7 +780,7 @@ export class EmbeddingService {
     hasApiKey: boolean;
     maxInputTokens?: number;
   }> {
-    const config = await this.getEmbeddingConfig();
+    const config = await this.getEmbeddingConfig(userIdOverride);
     return {
       modelId: config.modelId,
       dimensions: config.dimensions,

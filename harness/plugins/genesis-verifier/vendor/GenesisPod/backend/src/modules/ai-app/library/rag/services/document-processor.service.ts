@@ -358,12 +358,24 @@ export class DocumentProcessorService {
   /**
    * Process all pending documents in a knowledge base
    */
-  async processAllPendingDocuments(knowledgeBaseId: string): Promise<number> {
+  async processAllPendingDocuments(
+    knowledgeBaseId: string,
+    options: { documentIds?: string[]; limit?: number } = {},
+  ): Promise<number> {
     const pendingDocs = await this.prisma.knowledgeBaseDocument.findMany({
       where: {
         knowledgeBaseId,
         status: KnowledgeBaseStatus.PENDING,
+        ...(options.documentIds?.length
+          ? { id: { in: options.documentIds } }
+          : {}),
       },
+      orderBy: { createdAt: "asc" },
+      ...(options.documentIds?.length
+        ? {}
+        : options.limit
+          ? { take: options.limit }
+          : {}),
     });
 
     this.logger.log(

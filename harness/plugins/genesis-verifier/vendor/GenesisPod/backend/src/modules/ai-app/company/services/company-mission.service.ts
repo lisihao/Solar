@@ -178,6 +178,7 @@ export class CompanyMissionService implements OnModuleInit {
       dimStatus: Map<string, "running" | "done" | "failed">;
     }
   >();
+  private readonly detachedRecoveryInFlight = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -305,7 +306,9 @@ export class CompanyMissionService implements OnModuleInit {
           o.result && typeof o.result === "object" && !Array.isArray(o.result)
             ? (o.result as Record<string, unknown>)
             : {};
-        const cp = result.__checkpoint as { lastStepId?: string } | undefined;
+        const cp = result.__checkpoint as
+          | { lastStepId?: string; inFlightStepId?: string }
+          | undefined;
         const dispatch = result.__dispatch as
           | {
               capabilityId?: string;
@@ -314,9 +317,10 @@ export class CompanyMissionService implements OnModuleInit {
             }
           | undefined;
 
-        if (cp?.lastStepId && dispatch?.capabilityId) {
+        const checkpointLabel = cp?.lastStepId ?? cp?.inFlightStepId;
+        if (checkpointLabel && dispatch?.capabilityId) {
           this.log.warn(
-            `[orphan-recovery] resuming ${o.id} from checkpoint "${cp.lastStepId}"`,
+            `[orphan-recovery] resuming ${o.id} from checkpoint "${checkpointLabel}"`,
           );
           // fire-and-forget 续跑：runHeroMission → runViaCapability →
           //   persistence.loadCheckpoint(同 missionId) → 能力核从 lastStepId 续跑。
@@ -330,7 +334,7 @@ export class CompanyMissionService implements OnModuleInit {
           );
         } else {
           this.log.warn(
-            `[orphan-recovery] ${o.id} not resumable (cp=${cp?.lastStepId ?? "none"}, dispatch=${dispatch ? "y" : "n"}) → mark failed`,
+            `[orphan-recovery] ${o.id} not resumable (cp=${checkpointLabel ?? "none"}, dispatch=${dispatch ? "y" : "n"}) → mark failed`,
           );
           const message =
             "Mission 在执行中遇到后端重启（进程内存丢失且无可恢复 checkpoint）。" +
@@ -502,6 +506,86 @@ export class CompanyMissionService implements OnModuleInit {
   }
 
   /**
+   * 继续 —— 失败任务不新建 mission，而是复用同一 missionId 从 checkpoint 续跑。
+   * 复跑保留历史；继续修复失败点。二者语义必须分开，避免用户刷新后重复产出多条任务。
+   */
+  async resumeHeroMission(
+    userId: string,
+    missionId: string,
+  ): Promise<CompanyMission> {
+    const src = await this.prisma.companyMission.findFirst({
+      where: { id: missionId, userId },
+    });
+    if (!src) throw new NotFoundException("Mission not found");
+    const isFailed = src.status === "failed";
+    const isDetachedRunning =
+      src.status === "running" && !this.abortControllers.has(missionId);
+    if (!isFailed && !isDetachedRunning) {
+      throw new BadRequestException(
+        src.status === "running"
+          ? "任务仍有运行中的 worker，不能重复继续。"
+          : "只有失败任务或断开的 running 任务可以从 checkpoint 继续。",
+      );
+    }
+
+    const result = this.asResultObject(src.result);
+    const checkpoint = result.__checkpoint as
+      | {
+          lastStepId?: string;
+          inFlightStepId?: string;
+        }
+      | undefined;
+    const dispatch = result.__dispatch as
+      | {
+          capabilityId?: string;
+          preferredModelId?: string;
+          extra?: HeroMissionExtra;
+        }
+      | undefined;
+    if (
+      !(checkpoint?.lastStepId || checkpoint?.inFlightStepId) ||
+      !dispatch?.capabilityId
+    ) {
+      throw new BadRequestException(
+        "该任务缺少可恢复 checkpoint 或派发参数，请使用复跑重新下发。",
+      );
+    }
+
+    const claimed = await this.prisma.companyMission.updateMany({
+      where: {
+        id: missionId,
+        userId,
+        status: isFailed ? "failed" : "running",
+      },
+      data: {
+        status: "queued",
+        progress: Math.max(0, Math.min(src.progress ?? 0, 99)),
+      },
+    });
+    if (claimed.count < 1) {
+      throw new BadRequestException("任务状态已变化，无法重复继续。");
+    }
+
+    void this.runHeroMission(
+      src.id,
+      userId,
+      dispatch.capabilityId,
+      src.title,
+      dispatch.preferredModelId ?? "",
+      dispatch.extra,
+    ).catch((err: unknown) => {
+      this.log.error(
+        `CompanyHero mission ${src.id} resume failed (outer catch): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+
+    const updated = await this.prisma.companyMission.findUnique({
+      where: { id: missionId },
+    });
+    return updated ?? { ...src, status: "queued" };
+  }
+
+  /**
    * Hero mission 执行：解析 capabilityId → 能力 runner → runViaCapability 真跑。
    * 复用团队能力路径的同一套 started/running + 结果持久化 + 事件桥。
    */
@@ -555,9 +639,14 @@ export class CompanyMissionService implements OnModuleInit {
       const message = err instanceof Error ? err.message : "unknown error";
       this.log.error(`CompanyHero mission ${missionId} failed: ${message}`);
 
+      const existingResult = await this.readMissionResultObject(missionId);
       await this.updateMission(missionId, {
         status: "failed",
-        result: { error: message, failedAt: new Date().toISOString() },
+        result: this.toInputJson({
+          ...existingResult,
+          error: message,
+          failedAt: new Date().toISOString(),
+        }),
       }).catch((dbErr: unknown) => {
         this.log.error(
           `Failed to persist failed status for ${missionId}: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`,
@@ -603,10 +692,12 @@ export class CompanyMissionService implements OnModuleInit {
     userId: string,
     teamId?: string,
   ): Promise<CompanyMission[]> {
-    return this.prisma.companyMission.findMany({
+    const missions = await this.prisma.companyMission.findMany({
       where: { userId, ...(teamId ? { teamId } : {}) },
       orderBy: { createdAt: "desc" },
     });
+    this.recoverDetachedRunningMissions(userId, missions);
+    return missions;
   }
 
   /** 删除一条 mission（按 userId 归属校验，防越权删他人任务）。 */
@@ -904,13 +995,26 @@ export class CompanyMissionService implements OnModuleInit {
       .filter((n): n is string => typeof n === "string" && n.length > 0);
     const dimNames =
       Object.keys(pipelines).length > 0 ? Object.keys(pipelines) : planDimNames;
+    const completedResearchDims = new Set(
+      (
+        (result.stageOutputs?.researcherResults as
+          | Array<{ dimension?: string }>
+          | undefined) ?? []
+      )
+        .map((r) => r.dimension)
+        .filter((d): d is string => typeof d === "string" && d.length > 0),
+    );
     const dimSteps = dimNames.map((d) => {
       const p = pipelines[d];
+      const status =
+        p?.state === "completed" || completedResearchDims.has(d)
+          ? "done"
+          : "failed";
       return {
         label: d,
         role: "Researcher",
         dimension: d,
-        status: p?.state === "completed" ? "done" : "failed",
+        status,
         ...(typeof p?.tokensUsed === "number" ? { tokens: p.tokensUsed } : {}),
         ...(typeof p?.costCents === "number" ? { costCents: p.costCents } : {}),
       };
@@ -1039,15 +1143,38 @@ export class CompanyMissionService implements OnModuleInit {
     // failed —— 不伪装成功：真实 error 落库 + emit（前端失败空态据此显示真因）。
     // 仍带上已规划维度（标 failed），让"任务列表"展示尝试过的子任务而非空白。
     const message = result.error ?? "capability run failed";
+    const existingResult = await this.readMissionResultObject(missionId);
+    const failedStageOutputs = result.stageOutputs ?? {};
+    const failedReportArtifact =
+      (failedStageOutputs as { reportArtifact?: unknown }).reportArtifact ??
+      null;
+    const failedLeaderSignOff =
+      (failedStageOutputs as { leaderSignOff?: unknown }).leaderSignOff ??
+      null;
     // ★ 终态走仲裁：条件写（未取消才写）。能力核 abort 后返回 failed，但用户取消已置
     //   cancelled——此处守护避免把 cancelled 盖成 failed。
     const won = await this.finalizeIfNotCancelled(missionId, {
       status: "failed",
-      result: {
+      result: toJson({
+        ...existingResult,
         error: message,
+        summary:
+          result.report ??
+          existingResult.summary ??
+          ((failedReportArtifact as { content?: { fullMarkdown?: string } })
+            ?.content?.fullMarkdown ??
+            ""),
         dimensions: dimNames,
         steps: toJson(dimSteps),
         collab,
+        stageOutputs: toJson(failedStageOutputs),
+        reportArtifact: toJson(failedReportArtifact),
+        leaderSignOff: toJson(failedLeaderSignOff),
+        failureCode: null,
+        usage: {
+          totalTokens: result.usage?.totalTokens ?? 0,
+          totalCostCents: result.usage?.totalCostCents ?? 0,
+        },
         // ★ 复跑用：失败也保留派发参数，让用户一键重跑同档位任务。
         __dispatch: toJson({
           capabilityId: runner.manifest.id,
@@ -1055,7 +1182,7 @@ export class CompanyMissionService implements OnModuleInit {
           ...(extra ? { extra } : {}),
         }),
         failedAt: new Date().toISOString(),
-      },
+      }),
     });
     if (won) {
       await this.emit("company.mission:failed", missionId, userId, {
@@ -1804,6 +1931,66 @@ export class CompanyMissionService implements OnModuleInit {
         `finalizeIfNotCancelled ${id} db error: ${err instanceof Error ? err.message : String(err)}`,
       );
       return false;
+    }
+  }
+
+  private asResultObject(result: unknown): Record<string, unknown> {
+    return result && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : {};
+  }
+
+  private toInputJson(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+
+  private async readMissionResultObject(
+    missionId: string,
+  ): Promise<Record<string, unknown>> {
+    const row = await this.prisma.companyMission.findUnique({
+      where: { id: missionId },
+      select: { result: true },
+    });
+    return this.asResultObject(row?.result);
+  }
+
+  private recoverDetachedRunningMissions(
+    userId: string,
+    missions: CompanyMission[],
+  ): void {
+    for (const mission of missions) {
+      if (mission.status !== "running") continue;
+      if (this.abortControllers.has(mission.id)) continue;
+      if (this.detachedRecoveryInFlight.has(mission.id)) continue;
+      const result = this.asResultObject(mission.result);
+      const checkpoint = result.__checkpoint as
+        | {
+            lastStepId?: string;
+            inFlightStepId?: string;
+          }
+        | undefined;
+      const dispatch = result.__dispatch as
+        | {
+            capabilityId?: string;
+          }
+        | undefined;
+      const checkpointLabel =
+        checkpoint?.lastStepId ?? checkpoint?.inFlightStepId;
+      if (!checkpointLabel || !dispatch?.capabilityId) continue;
+
+      this.detachedRecoveryInFlight.add(mission.id);
+      this.log.warn(
+        `[detached-recovery] ${mission.id} is running in DB but has no local worker; resume from checkpoint "${checkpointLabel}"`,
+      );
+      void this.resumeHeroMission(userId, mission.id)
+        .catch((err: unknown) => {
+          this.log.error(
+            `[detached-recovery] ${mission.id} resume failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        })
+        .finally(() => {
+          this.detachedRecoveryInFlight.delete(mission.id);
+        });
     }
   }
 

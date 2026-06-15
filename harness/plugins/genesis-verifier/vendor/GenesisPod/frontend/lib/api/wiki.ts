@@ -89,6 +89,15 @@ export interface WikiDiffSummary {
   affectedKeys: string[];
 }
 
+export interface WikiDiffListItem extends WikiDiffSummary {
+  createdAt: string;
+  appliedAt: string | null;
+  dismissedAt: string | null;
+  creates: number;
+  updates: number;
+  deletes: number;
+}
+
 export interface WikiDiff extends WikiDiffSummary {
   knowledgeBaseId: string;
   items: {
@@ -464,6 +473,13 @@ export const wikiApi = {
   listIngestCandidates: (kbId: string) =>
     apiClient.get<{ items: WikiIngestCandidate[] }>(
       `${base}/${encodeURIComponent(kbId)}/ingest-candidates`
+    ),
+
+  listDiffs: (kbId: string, status?: WikiDiffStatus) =>
+    apiClient.get<{ items: WikiDiffListItem[] }>(
+      `${base}/${encodeURIComponent(kbId)}/diffs${
+        status ? `?status=${encodeURIComponent(status)}` : ''
+      }`
     ),
 
   // 2026-05-14 P4-A: PENDING diff 体积可达 30+ pages × 8K-16K body chars，

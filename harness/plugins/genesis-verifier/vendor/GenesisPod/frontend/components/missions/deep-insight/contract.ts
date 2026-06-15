@@ -616,6 +616,8 @@ function normalizeVerdict(verdict: string | undefined | null): Verdict {
 /** company mission.result 形状（mirror MissionReportResult）。 */
 export interface MissionReportResultLike {
   summary?: string;
+  report?: string;
+  reportArtifact?: unknown;
   review?: { score?: number; verdict?: string; notes?: string[] } | null;
   dimensions?: string[];
   themeSummary?: string;
@@ -626,6 +628,11 @@ export interface MissionReportResultLike {
   usage?: ComputeUsage;
   /** 持久化协作动态事件（终态落库；详情重开时回放，live WS 断开后不丢）。 */
   collab?: unknown[];
+  __terminal?: {
+    report?: unknown;
+    reportArtifact?: unknown;
+    leaderSignOff?: unknown;
+  };
   /** 失败时后端写入的真实错误信息（runMission catch → result.error）。 */
   error?: string;
   /** 完成时刻 ISO（runViaCapability 写入 completedAt）；算真实运行耗时。 */
@@ -913,6 +920,18 @@ export function fromCompanyMissionResult(
   input: CompanyMissionInput
 ): DeepInsightMissionView {
   const result = input.result ?? {};
+  const terminal = result.__terminal;
+  const reportArtifact =
+    result.reportArtifact ?? terminal?.reportArtifact ?? undefined;
+  const artifactReport =
+    isRecord(reportArtifact) && isRecord(reportArtifact.content)
+      ? getStr(reportArtifact.content, 'fullMarkdown')
+      : undefined;
+  const report =
+    result.summary ??
+    (typeof result.report === 'string' ? result.report : undefined) ??
+    (typeof terminal?.report === 'string' ? terminal.report : undefined) ??
+    artifactReport;
   const review = result.review ?? null;
   const dimensions = result.dimensions ?? [];
   const persistedSteps = result.steps ?? [];
@@ -987,6 +1006,23 @@ export function fromCompanyMissionResult(
       ? input.events
       : (result.collab ?? []);
   const adapterEvents = normalizeCompanyEvents(rawEvents);
+  const resultMeta = result as Record<string, unknown>;
+  const checkpoint = resultMeta.__checkpoint as
+    | {
+        lastStepId?: unknown;
+      }
+    | undefined;
+  const dispatch = resultMeta.__dispatch as
+    | {
+        capabilityId?: unknown;
+      }
+    | undefined;
+  const canResume =
+    input.status === 'failed' &&
+    typeof checkpoint?.lastStepId === 'string' &&
+    checkpoint.lastStepId.length > 0 &&
+    typeof dispatch?.capabilityId === 'string' &&
+    dispatch.capabilityId.length > 0;
 
   return {
     id: input.id,
@@ -1015,7 +1051,7 @@ export function fromCompanyMissionResult(
     language: input.language ?? 'zh-CN',
     maxCredits: input.maxCredits,
     missionStatus: companyMissionStatus(input.status),
-    isResumable: false,
+    isResumable: canResume || undefined,
     themeSummary: result.themeSummary,
     completedAt: result.completedAt
       ? Date.parse(result.completedAt) || undefined
@@ -1025,8 +1061,8 @@ export function fromCompanyMissionResult(
     // 右侧 tab
     // live WS 事件优先；无（重开已完成任务）→ 回放持久化的 result.collab。
     events: adapterEvents,
-    reportArtifact: undefined,
-    report: result.summary,
+    reportArtifact,
+    report,
     dimensionPipelines: [],
     reconciliationReport: result.reconciliationReport,
     references,
@@ -1035,7 +1071,7 @@ export function fromCompanyMissionResult(
     memory: undefined,
     verdicts,
     // 有报告正文即可构建图谱（company endpoint 用平台共享构建器从 report 抽图）。
-    hasGraph: !!result.summary,
+    hasGraph: !!report,
     graphBasePath: `${config.apiBaseUrl}/api/v1/company`,
     // 旧契约兼容承载
     score,

@@ -190,6 +190,35 @@ describe("DeepInsightDefaultRunner 跨 agent 断链接通", () => {
       expect(failed?.details.reconciliationReport).toEqual(RECON);
     });
 
+    it("reportArtifact 质量硬门禁失败时不允许 completed 伪通过", async () => {
+      const seed = {
+        ...seedCompleted(),
+        [CS_KEY.reportArtifact]: {
+          title: "报告",
+          quality: {
+            hardGateViolations: [
+              {
+                metric: "citationDensity",
+                value: 4,
+                threshold: 30,
+                message: "引用密度低于硬门禁",
+              },
+            ],
+          },
+        },
+      };
+      const { port, terminalCalls } = buildPersistence(seed);
+      const runner = buildRunner({ status: "completed" });
+      const res = await runner.run({ topic: "AMD 竞争力" }, baseCtx(port));
+      const failed = terminalCalls.find((c) => c.outcome === "failed");
+      expect(res.status).toBe("failed");
+      expect(res.error).toContain("quality-failed");
+      expect(failed).toBeDefined();
+      expect(failed?.details.failureCode).toBe("QUALITY_HARD_GATE_FAILED");
+      expect(failed?.details.errorMessage).toContain("citationDensity");
+      expect(terminalCalls.some((c) => c.outcome === "completed")).toBe(false);
+    });
+
     it("orchestrator failed 终态 details 携带 reconciliationReport", async () => {
       // failed 路径读 finalState（= 同一 crossStageState），seed 的对账产物应透传。
       const seed = { [CS_KEY.reconciliationReport]: RECON };

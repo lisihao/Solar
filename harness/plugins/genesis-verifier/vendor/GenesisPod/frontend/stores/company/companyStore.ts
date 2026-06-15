@@ -255,6 +255,20 @@ function adaptMission(m: BackendMission): CompanyMission {
   };
 }
 
+function formatApiFailure(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const e = err as { message?: unknown; status?: unknown; code?: unknown };
+    const parts = [
+      typeof e.status === 'number' ? `HTTP ${e.status}` : null,
+      typeof e.code === 'string' ? e.code : null,
+      typeof e.message === 'string' ? e.message : null,
+    ].filter(Boolean);
+    if (parts.length > 0) return parts.join(' · ');
+  }
+  return String(err);
+}
+
 interface CompanyState {
   loading: boolean;
   ceoId: string | null;
@@ -309,6 +323,7 @@ interface CompanyState {
   deleteMission: (missionId: string) => Promise<void>;
   cancelMission: (missionId: string) => Promise<void>;
   rerunMission: (missionId: string) => Promise<string | null>;
+  resumeMission: (missionId: string) => Promise<string | null>;
   renameMission: (missionId: string, title: string) => Promise<void>;
   setMissionProgress: (
     missionId: string,
@@ -346,6 +361,7 @@ interface CompanyState {
         | 'mega';
       audienceProfile?: 'executive' | 'domain-expert' | 'general-public';
       auditLayers?: 'minimal' | 'default' | 'thorough' | 'thorough+';
+      expectedCapabilityId?: string;
     }
   ) => Promise<string | null>;
 }
@@ -838,6 +854,27 @@ export const useCompanyStore = create<CompanyState>((set, get) => ({
     }
   },
 
+  resumeMission: async (missionId) => {
+    try {
+      // 后端复用同一 missionId，从 result.__checkpoint 继续，不创建新任务。
+      const raw = await apiClient.post<BackendMission>(
+        `/company/missions/${encodeURIComponent(missionId)}/resume`,
+        {}
+      );
+      const mission = adaptMission(raw);
+      set((s) => ({
+        missions: s.missions.some((m) => m.id === mission.id)
+          ? s.missions.map((m) => (m.id === mission.id ? mission : m))
+          : [mission, ...s.missions],
+      }));
+      toast.success('已从失败点继续执行');
+      return mission.id;
+    } catch {
+      toast.error('继续失败：该任务可能缺少 checkpoint，请使用复跑');
+      return null;
+    }
+  },
+
   renameMission: async (missionId, title) => {
     const prev = get().missions;
     set({
@@ -936,13 +973,16 @@ export const useCompanyStore = create<CompanyState>((set, get) => ({
           lengthProfile: opts?.lengthProfile,
           audienceProfile: opts?.audienceProfile,
           auditLayers: opts?.auditLayers,
+          expectedCapabilityId: opts?.expectedCapabilityId,
         }
       );
       const mission = adaptMission(raw);
       set((s) => ({ missions: [mission, ...s.missions] }));
       return mission.id;
-    } catch {
-      toast.error('下达任务失败，请稍后重试');
+    } catch (err) {
+      const detail = formatApiFailure(err);
+      console.error('[company.createHeroMission] failed', err);
+      toast.error('下达任务失败', detail);
       return null;
     }
   },

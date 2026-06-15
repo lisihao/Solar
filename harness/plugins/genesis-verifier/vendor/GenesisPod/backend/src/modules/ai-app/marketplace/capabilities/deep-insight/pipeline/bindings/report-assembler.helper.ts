@@ -410,11 +410,17 @@ export function buildAssembleInput(args: {
 /** reportArtifact section 的最小投影（assembler 输出 ArtifactSection 子集）。 */
 interface ArtifactSectionLite {
   id?: string;
+  type?: string;
   title?: string;
   heading?: string;
   content?: string;
   body?: string;
   citationIds?: unknown[];
+  citations?: unknown[];
+  sourceDimensionId?: string;
+  startOffset?: number;
+  endOffset?: number;
+  wordCount?: number;
 }
 
 export interface ReportArtifactLite {
@@ -423,7 +429,19 @@ export interface ReportArtifactLite {
   sections?: ArtifactSectionLite[];
   citations?: unknown[];
   figures?: unknown[];
-  quality?: { overall?: number; dimensions?: Record<string, unknown> };
+  quality?: {
+    overall?: number;
+    dimensions?: Record<string, unknown>;
+    hardGateViolations?: unknown[];
+    warnings?: Array<{ dimension: string; message: string }>;
+    qualityTrace?: Array<{
+      stage: string;
+      check: string;
+      passed: boolean;
+      timestamp: number;
+    }>;
+    finalVerdict?: "excellent" | "good" | "acceptable" | "poor";
+  };
   metadata?: Record<string, unknown>;
   quickView?: { foresight?: unknown };
 }

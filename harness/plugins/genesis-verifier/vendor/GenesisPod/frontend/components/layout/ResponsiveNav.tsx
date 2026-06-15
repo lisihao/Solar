@@ -27,7 +27,7 @@ export type TabType =
   | 'news';
 export type SortByType = 'trendingScore' | 'publishedAt' | 'qualityScore';
 export type YouTubeLibraryTabType = 'genesis' | 'solar';
-export type PaperLibraryTabType = 'recent' | 'insights' | 'hot';
+export type PaperLibraryTabType = 'recent' | 'github' | 'insights' | 'hot';
 
 interface ResponsiveNavProps {
   activeTab: TabType;
@@ -68,7 +68,7 @@ const NAV_TABS: NavTab[] = [
   },
   {
     id: 'papers',
-    label: 'Papers',
+    label: 'Industry Trends',
     icon: FileText,
     color: {
       active: 'border-sky-300 bg-sky-50 text-sky-600 shadow-sm',
@@ -411,6 +411,13 @@ export default function ResponsiveNav({
             </button>
             <button
               type="button"
+              className={paperSubTabClass('github')}
+              onClick={() => onPaperLibraryTabChange('github')}
+            >
+              GitHub 趋势
+            </button>
+            <button
+              type="button"
               className={paperSubTabClass('insights')}
               onClick={() => onPaperLibraryTabChange('insights')}
             >
@@ -427,6 +434,8 @@ export default function ResponsiveNav({
           <p className="text-xs text-gray-500">
             {paperLibraryTab === 'recent'
               ? '最近同步数据里的 HuggingFace / arXiv 热点趋势'
+              : paperLibraryTab === 'github'
+                ? 'Solar GitHub 数据里的开源社区技术趋势'
               : paperLibraryTab === 'insights'
                 ? 'AI Influence 的 HuggingFace 论文洞察报告'
                 : 'HuggingFace / arXiv 当前热门论文'}

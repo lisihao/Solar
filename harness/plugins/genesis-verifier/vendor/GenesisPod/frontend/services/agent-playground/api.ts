@@ -647,6 +647,30 @@ export async function rerunMission(
   return unwrapStandard<{ missionId: string; streamNamespace: string }>(raw);
 }
 
+/**
+ * 继续 mission：同一个 missionId 从 checkpoint 续跑。
+ *
+ * 后端 playground 的实现复用 incremental 原地续跑逻辑；这里保留独立函数，
+ * 让 UI 的"继续上次"不再通过 rerunMission 命名路径触发。
+ */
+export async function resumeMission(
+  missionId: string
+): Promise<{ missionId: string; streamNamespace: string }> {
+  const res = await fetch(
+    `${API_BASE}/missions/${encodeURIComponent(missionId)}/resume`,
+    {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Resume failed: ${res.status} ${text.slice(0, 200)}`);
+  }
+  const raw: unknown = await res.json();
+  return unwrapStandard<{ missionId: string; streamNamespace: string }>(raw);
+}
+
 export async function deleteMission(missionId: string): Promise<{ ok: true }> {
   const res = await fetch(
     `${API_BASE}/missions/${encodeURIComponent(missionId)}`,

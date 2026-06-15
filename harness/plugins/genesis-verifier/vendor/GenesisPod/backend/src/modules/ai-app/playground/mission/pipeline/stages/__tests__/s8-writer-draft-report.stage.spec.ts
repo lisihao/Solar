@@ -274,6 +274,25 @@ describe("runWriterStage (S8)", () => {
     expect(ctx.trajectoryStored).toBe(42);
   });
 
+  it("normalizes short writer conclusion before reviewer schema boundary", async () => {
+    const ctx = makeCtx();
+    const deps = makeDeps();
+    await runWriterStage(ctx, deps, analyst, undefined);
+    expect(ctx.report?.conclusion.length).toBeGreaterThanOrEqual(20);
+    expect(deps.judge.judgeWithConsensus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        output: expect.objectContaining({
+          conclusion: expect.stringMatching(/^结论：/),
+        }),
+      }),
+    );
+    const normalizedCall = (deps.emit as jest.Mock).mock.calls.find(
+      (c) => c[0].type === "playground.report:normalized",
+    );
+    expect(normalizedCall).toBeDefined();
+    expect(normalizedCall[0].payload.fields).toEqual(["conclusion"]);
+  });
+
   it("judge pass: exits after first writer attempt", async () => {
     const ctx = makeCtx();
     const deps = makeDeps();

@@ -161,6 +161,30 @@ export class AddDocumentDto {
   mimeType?: string;
 }
 
+export class ProcessDocumentsDto {
+  @ApiPropertyOptional({
+    description:
+      "Optional document IDs to process. When omitted, pending documents are processed.",
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID("4", { each: true })
+  documentIds?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      "Optional cap for pending documents when documentIds is omitted.",
+    minimum: 1,
+    maximum: 100,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
 // ==================== Query DTOs ====================
 
 export class RAGQueryDto {

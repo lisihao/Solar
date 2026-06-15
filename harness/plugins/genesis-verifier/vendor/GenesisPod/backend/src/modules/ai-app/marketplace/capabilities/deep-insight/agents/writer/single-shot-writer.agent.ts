@@ -52,6 +52,15 @@ const Input = z.object({
       }),
     )
     .default([]),
+  requiredDimensions: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        rationale: z.string().optional(),
+      }),
+    )
+    .default([]),
   // ★ P1-E (2026-04-29): S7 outline 真消费
   // 当 auditLayers ∈ {thorough, paranoid} 时 S7 已产出 mission-level chapter outline，
   // Writer 应该按 outline 的 sectionId/heading/thesis/keyPointsToCover/targetWordsPerChapter
@@ -125,6 +134,21 @@ export class SingleShotWriterAgent extends AgentSpec<
     const outlineGuide = input.outlinePlan
       ? this.buildOutlineGuidance(input.outlinePlan)
       : null;
+    const requiredDimensionGuide =
+      input.requiredDimensions.length > 0
+        ? [
+            `## Required coverage map (MUST COVER ALL)`,
+            `The leader plan contains ${input.requiredDimensions.length} required dimensions. The final report MUST contain a distinct section or chapter for every listed dimension; do not merge away specialized dimensions such as KV cache/runtime state, agentic workload compute architecture, or seminar/workshop guidance.`,
+            ...input.requiredDimensions.map((dim, index) =>
+              [
+                `${index + 1}. ${dim.name}`,
+                dim.rationale ? `   - Rationale: ${dim.rationale}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            ),
+          ].join("\n")
+        : null;
 
     return [
       `You are a senior research analyst at a top-tier consulting firm (think McKinsey / BCG / Stanford HAI).`,
@@ -134,6 +158,9 @@ export class SingleShotWriterAgent extends AgentSpec<
       outlineGuide
         ? `- ★ MUST follow the pre-planned chapter outline below — section count, headings, theses, key points, and word targets are all PRESCRIBED. Do not invent new chapters.`
         : `- Depth tier: ${input.depth} → ${plan.sectionCount} sections, ${plan.wordsPerSection} words per section, total ~${plan.totalWords} words`,
+      input.requiredDimensions.length > 0
+        ? `- ★ MUST cover every required dimension listed below. Missing any required dimension is a delivery failure.`
+        : "",
       `- ${langGuide}`,
       // ★ PR-F: TI EN report-writing-standards.constants 注入
       HEADING_HIERARCHY_EN,
@@ -158,6 +185,7 @@ export class SingleShotWriterAgent extends AgentSpec<
       `- Use markdown bold (**...**) for critical terms inline; lists only when enumeration adds clarity`,
       `- AVOID generic filler ("In conclusion", "It is important to note", "随着 X 的发展") — every sentence adds info`,
       ``,
+      ...(requiredDimensionGuide ? [requiredDimensionGuide, ``] : []),
       ...(outlineGuide ? [outlineGuide, ``] : []),
       `## Available materials`,
       `- Theme synthesis (from Analyst): ${input.themeSummary}`,

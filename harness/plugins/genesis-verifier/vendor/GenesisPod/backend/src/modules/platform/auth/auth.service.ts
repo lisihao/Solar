@@ -317,6 +317,42 @@ export class AuthService {
   }
 
   /**
+   * 使用 refresh token 刷新访问令牌。
+   *
+   * refresh 入口不能依赖旧 access token；否则 access token 一过期，
+   * 刷新端点本身也会被 JwtAuthGuard 拦住，前端只能清登录态。
+   */
+  async refreshWithRefreshToken(refreshToken: string | undefined) {
+    if (!refreshToken) {
+      throw new UnauthorizedException("Refresh token is required");
+    }
+
+    let lastError: unknown = null;
+    for (const secret of this.getRefreshTokenSecrets()) {
+      try {
+        const payload = this.jwtService.verify<{
+          sub?: string;
+          email?: string;
+          username?: string;
+        }>(refreshToken, { secret });
+        if (!payload.sub) {
+          throw new UnauthorizedException("Invalid refresh token payload");
+        }
+        return this.refreshToken(payload.sub);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    this.logger.warn(
+      `Refresh token verification failed: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
+    );
+    throw new UnauthorizedException("Invalid or expired refresh token");
+  }
+
+  /**
    * 生成 access token 和 refresh token
    *
    * @note JWT payload 包含 sub(userId), email, username
@@ -335,10 +371,7 @@ export class AuthService {
       username: username || email.split("@")[0],
     };
 
-    const jwtSecret = this.configService.get<string>("JWT_SECRET") ?? "";
-    const refreshSecret =
-      this.configService.get<string>("REFRESH_TOKEN_SECRET") ||
-      jwtSecret + "-refresh";
+    const refreshSecret = this.getRefreshTokenSecrets()[0];
 
     const accessToken = this.jwtService.sign(payload);
     const refreshToken = this.jwtService.sign(payload, {
@@ -350,6 +383,15 @@ export class AuthService {
       accessToken,
       refreshToken,
     };
+  }
+
+  private getRefreshTokenSecrets(): string[] {
+    const jwtSecret = this.configService.get<string>("JWT_SECRET") ?? "";
+    const configured =
+      this.configService.get<string>("REFRESH_TOKEN_SECRET") ||
+      this.configService.get<string>("JWT_REFRESH_SECRET");
+    const fallback = jwtSecret + "-refresh";
+    return Array.from(new Set([configured || fallback, fallback].filter(Boolean)));
   }
 
   /**

@@ -168,6 +168,7 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
     missionId: string,
     snapshot: {
       lastStepId: string;
+      inFlightStepId?: string | null;
       topic: string;
       crossState: Readonly<Record<string, unknown>>;
     },
@@ -180,6 +181,9 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
       if (!row || !this.isRunning(row.status)) return false;
       await this.patchCheckpoint(missionId, {
         lastStepId: snapshot.lastStepId,
+        ...(snapshot.inFlightStepId !== undefined
+          ? { inFlightStepId: snapshot.inFlightStepId }
+          : {}),
         topic: snapshot.topic,
         crossState: snapshot.crossState,
       });
@@ -195,6 +199,7 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
   /** 读 checkpoint：从 result.__checkpoint 还原（company 当前不强求 resume，留接口完整）。 */
   async loadCheckpoint(missionId: string): Promise<{
     lastStepId: string;
+    inFlightStepId?: string | null;
     topic: string;
     crossState: Readonly<Record<string, unknown>>;
   } | null> {
@@ -228,7 +233,16 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
         !Array.isArray(cp.crossState)
           ? (cp.crossState as Record<string, unknown>)
           : {};
-      return { lastStepId: cp.lastStepId, topic: cp.topic, crossState };
+      return {
+        lastStepId: cp.lastStepId,
+        topic: cp.topic,
+        crossState,
+        ...(typeof cp.inFlightStepId === "string"
+          ? { inFlightStepId: cp.inFlightStepId }
+          : cp.inFlightStepId === null
+            ? { inFlightStepId: null }
+            : {}),
+      };
     } catch (err: unknown) {
       this.log.warn(
         `loadCheckpoint ${missionId} failed (best-effort): ${err instanceof Error ? err.message : String(err)}`,
@@ -308,6 +322,16 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
         ...(typeof details.elapsedWallTimeMs === "number"
           ? { elapsedWallTimeMs: details.elapsedWallTimeMs }
           : {}),
+        ...(details.reportArtifact !== undefined
+          ? { reportArtifact: details.reportArtifact }
+          : {}),
+        ...(details.leaderSignOff !== undefined
+          ? { leaderSignOff: details.leaderSignOff }
+          : {}),
+        ...(details.dimensions !== undefined
+          ? { dimensions: details.dimensions }
+          : {}),
+        ...(details.report !== undefined ? { report: details.report } : {}),
         appliedAt: new Date().toISOString(),
       };
 
