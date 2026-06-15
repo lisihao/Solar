@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import time
+import json
 from pathlib import Path
 
 
@@ -58,11 +59,39 @@ def test_artifacts_ready_requires_nonempty_current_files(tmp_path):
     started = time.time()
 
     assert co._artifacts_ready([eval_md, eval_json], started) is False
+    assert co._missing_artifacts([eval_md, eval_json], started) == [str(eval_md), str(eval_json)]
     eval_md.write_text("PASS", encoding="utf-8")
     eval_json.write_text('{"verdict":"PASS"}', encoding="utf-8")
 
     assert co._artifacts_ready([eval_md, eval_json], started) is True
+    assert co._missing_artifacts([eval_md, eval_json], started) == []
     assert co._artifacts_ready([eval_md, eval_json], time.time() + 60) is False
+
+
+def test_synthesize_eval_sidecars_from_pm_result(monkeypatch, tmp_path):
+    result = tmp_path / "result.md"
+    eval_md = tmp_path / "sprint.N1-eval.md"
+    eval_json = tmp_path / "sprint.N1-eval.json"
+    started = time.time()
+    result.write_text("S2R repair package判定: PASS\n", encoding="utf-8")
+
+    monkeypatch.setenv("PM_RESULT_PATH", str(result))
+    monkeypatch.setenv("TASK_ID", "task-1")
+    monkeypatch.setenv("SID", "sprint")
+    monkeypatch.setenv("NODE_ID", "N1")
+
+    assert co._synthesize_eval_sidecars_from_pm_result([eval_md, eval_json], started) is True
+    assert "@GENERATED_FROM_PM_RESULT" in eval_md.read_text(encoding="utf-8")
+    payload = json.loads(eval_json.read_text(encoding="utf-8"))
+    assert payload["verdict"] == "PASS"
+    assert payload["generated_from_pm_result"] is True
+    assert payload["pm_result_path"] == str(result)
+
+
+def test_pm_result_verdict_accepts_markdown_chinese_pass_marker():
+    text = "## 结论摘要\n\nPARENT-CLOSURE-EVAL 判定: `PASS`。\n"
+
+    assert co._verdict_from_pm_result(text) == "PASS"
 
 
 def test_codex_exec_cmd_ignores_incompatible_user_config(tmp_path):
