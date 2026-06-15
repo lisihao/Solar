@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 推理进入主战场：从应用经济学到 serving 系统瓶颈</title>
+  <meta name="generator" content="html-anything solar adapter">
+  <meta name="x-solar-renderer" content="html-anything">
+  <meta name="x-html-anything-profile" content="design">
+  <style>
+
+:root {
+  --ha-bg: #0f1115;
+  --ha-surface: #171a21;
+  --ha-ink: #f4f6f8;
+  --ha-muted: #a5adb8;
+  --ha-accent: #8cc6ff;
+  --ha-rule: #293241;
+  --ha-badge: #1f2835;
+  --ha-serif: 'Source Serif 4', Georgia, serif;
+  --ha-sans: 'Inter Tight', system-ui, sans-serif;
+  --ha-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --ha-max: 1120px;
+  --ha-toc: 280px;
+  --ha-hero: clamp(46px, 6vw, 88px);
+  --ha-card-min: 190px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--ha-bg); color: var(--ha-ink); }
+body {
+  font-family: var(--ha-sans);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.ha-wrap { max-width: var(--ha-max); margin: 0 auto; padding: 40px 32px 72px; }
+.ha-topline, .ha-footline {
+  display:flex; justify-content:space-between; gap:16px; align-items:center;
+  border-bottom:1px solid var(--ha-rule); padding: 0 0 12px;
+  font-family: var(--ha-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted);
+}
+.ha-footline { border-bottom:none; border-top:1px solid var(--ha-rule); margin-top: 48px; padding-top: 16px; }
+.ha-hero { padding: 36px 0 28px; }
+.ha-kicker {
+  display:inline-flex; gap:10px; align-items:center; background: var(--ha-badge); color: var(--ha-accent);
+  padding: 5px 12px; border-radius: 999px; font-family: var(--ha-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+}
+.ha-title {
+  margin: 18px 0 0; font-family: var(--ha-serif); font-size: var(--ha-hero); line-height: 1.03; letter-spacing: -.03em; font-weight: 500;
+}
+.ha-title em { color: var(--ha-accent); font-style: italic; }
+.ha-lede { max-width: 52rem; margin: 18px 0 0; color: #3a382f; font-size: 19px; }
+.ha-badges { display:flex; flex-wrap:wrap; gap:8px; margin-top: 18px; }
+.ha-badge {
+  display:inline-flex; align-items:center; gap:6px; border: 1px solid var(--ha-rule);
+  padding: 6px 10px; border-radius: 999px; font-family: var(--ha-mono); font-size: 11px; color: var(--ha-muted);
+}
+.ha-layout { display:grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+@media (min-width: 1100px) {
+  .ha-layout { grid-template-columns: var(--ha-toc) minmax(0, 1fr); gap: 28px; }
+}
+.ha-toc {
+  position: sticky; top: 18px; align-self: start; border: 1px solid var(--ha-rule); background: var(--ha-surface);
+  padding: 18px 18px 14px; border-radius: 18px;
+}
+.ha-toc h2 { margin: 0 0 10px; font-size: 13px; font-family: var(--ha-mono); text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted); }
+.ha-toc ol { margin: 0; padding-left: 18px; }
+.ha-toc li { margin: 8px 0; }
+.ha-toc a { color: var(--ha-ink); text-decoration: none; }
+.ha-main section {
+  border-top: 1px solid var(--ha-rule); padding-top: 26px; margin-top: 26px;
+}
+.ha-main h2 {
+  margin: 0 0 16px; font-family: var(--ha-serif); font-size: clamp(28px, 3vw, 42px); line-height: 1.06; letter-spacing: -.02em; font-weight: 500;
+}
+.ha-main h3, .ha-main h4 { font-family: var(--ha-serif); letter-spacing: -.01em; }
+.ha-grid-2 { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.ha-card {
+  border: 1px solid var(--ha-rule); background: var(--ha-surface); padding: 20px 20px 18px; min-height: var(--ha-card-min);
+}
+.ha-card h3 { margin: 0 0 10px; font-size: 24px; }
+.ha-main p { margin: 0 0 14px; }
+.ha-main ul, .ha-main ol { margin: 0 0 16px 20px; }
+.ha-main li { margin: 6px 0; }
+.ha-main pre {
+  overflow:auto; background:#f0ede4; color:#2b2923; padding:16px 18px; border-radius: 14px; border:1px solid var(--ha-rule);
+  font-family: var(--ha-mono); font-size: 12px; line-height: 1.55;
+}
+.ha-main code {
+  font-family: var(--ha-mono); background:#ece7db; padding: 2px 6px; border-radius: 6px; font-size: .92em;
+}
+.ha-main table { width:100%; border-collapse: collapse; background: var(--ha-surface); border:1px solid var(--ha-rule); }
+.ha-main th, .ha-main td { border-bottom:1px solid var(--ha-rule); padding: 12px 14px; vertical-align: top; text-align:left; font-size: 14px; }
+.ha-main th { font-family: var(--ha-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted); background: #f2efe6; }
+.ha-diagram {
+  white-space: pre-wrap; background: #171614; color: #f7f4eb; border-radius: 18px; padding: 18px 20px; font-family: var(--ha-mono); font-size: 12px; line-height: 1.7;
+}
+.ha-muted { color: var(--ha-muted); }
+.ha-generator {
+  margin-top: 18px; font-family: var(--ha-mono); font-size: 11px; color: var(--ha-muted);
+}
+
+
+:root {
+  --ha-max: 1520px;
+  --ha-toc: 320px;
+}
+.ha-wrap {
+  padding: 28px 36px 84px;
+}
+.ha-topline, .ha-footline {
+  gap: 24px;
+}
+.ha-title {
+  max-width: 18ch;
+}
+.ha-lede {
+  max-width: 78rem;
+  font-size: 20px;
+  line-height: 1.75;
+}
+.ha-layout {
+  gap: 30px;
+}
+@media (min-width: 1180px) {
+  .ha-layout {
+    grid-template-columns: var(--ha-toc) minmax(0, 1fr);
+  }
+}
+.ha-main {
+  min-width: 0;
+}
+.ha-main section {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.ha-main .ai-report-sources,
+.ha-main .ai-report-material-map,
+.ha-main .ai-report-section {
+  border: 1px solid var(--ha-rule);
+  background: var(--ha-surface);
+  border-radius: 22px;
+  padding: 26px 28px 24px;
+}
+.ha-main .ai-report-section + .ai-report-section {
+  margin-top: 24px;
+}
+.ha-main .ai-report-sources + .ai-report-material-map,
+.ha-main .ai-report-material-map + .ai-report-section {
+  margin-top: 24px;
+}
+.ai-material-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  color: var(--ha-bg);
+  background: var(--ha-text);
+}
+.ai-material-chip {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ha-rule);
+}
+.ai-material-chip:last-child {
+  border-bottom: none;
+}
+.ai-material-chip span {
+  grid-row: 1 / span 2;
+  align-self: start;
+  justify-self: start;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ha-bg);
+  background: var(--ha-accent);
+}
+.ai-material-chip b {
+  font-weight: 750;
+}
+.ai-material-chip em {
+  font-style: normal;
+  color: var(--ha-muted);
+  font-size: 13px;
+}
+.ai-report-source-table {
+  overflow-x: auto;
+  border: 1px solid var(--ha-rule);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ha-surface) 92%, white 8%);
+}
+.ai-report-source-table table {
+  min-width: 1180px;
+  table-layout: fixed;
+  border: none;
+  margin: 0;
+}
+.ai-report-source-table th,
+.ai-report-source-table td {
+  border-bottom: 1px solid var(--ha-rule);
+  padding: 14px 16px;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto;
+}
+.ai-report-source-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.ai-report-source-table th:nth-child(1),
+.ai-report-source-table td:nth-child(1) {
+  width: 10%;
+}
+.ai-report-source-table th:nth-child(2),
+.ai-report-source-table td:nth-child(2) {
+  width: 18%;
+}
+.ai-report-source-table th:nth-child(3),
+.ai-report-source-table td:nth-child(3) {
+  width: 34%;
+}
+.ai-report-source-table td:nth-child(3) a,
+.ai-material-chip a {
+  color: var(--ha-accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ha-accent) 45%, transparent 55%);
+}
+.ai-report-source-table td:nth-child(3) a:hover,
+.ai-material-chip a:hover {
+  text-decoration: underline;
+}
+.ai-report-source-table th:nth-child(4),
+.ai-report-source-table td:nth-child(4) {
+  width: 16%;
+  white-space: normal;
+}
+.ai-report-source-table th:nth-child(5),
+.ai-report-source-table td:nth-child(5) {
+  width: 22%;
+}
+.ai-material-map-table table {
+  min-width: 1100px;
+  table-layout: fixed;
+}
+.ai-material-map-table th:nth-child(1),
+.ai-material-map-table td:nth-child(1) {
+  width: 42%;
+}
+.ai-material-map-table th:nth-child(2),
+.ai-material-map-table td:nth-child(2) {
+  width: 58%;
+}
+.ai-material-chip {
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: start;
+}
+.ai-material-chip span {
+  white-space: nowrap;
+}
+.ai-material-chip b,
+.ai-material-chip em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+@media (max-width: 900px) {
+  .ai-report-source-table table,
+  .ai-material-map-table table {
+    min-width: 920px;
+  }
+}
+.ai-arch-svg-card {
+  margin: 4px 0 28px;
+  padding: 0;
+  border: 1px solid var(--ha-rule);
+  border-radius: 28px;
+  overflow: hidden;
+  background: #f8fafc;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .10);
+}
+.ai-arch-svg-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ai-notebooklm-figures {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 22px;
+}
+.ai-notebooklm-figure {
+  margin: 0;
+  border: 1px solid var(--ha-rule);
+  border-radius: 22px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(248,250,252,.98), rgba(255,248,240,.96));
+  box-shadow: 0 14px 38px rgba(15, 23, 42, .08);
+}
+.ai-notebooklm-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #f8fafc;
+}
+.ai-notebooklm-figure figcaption {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px 18px;
+}
+.ai-notebooklm-figure figcaption strong {
+  font-size: 17px;
+  color: #0f172a;
+}
+.ai-notebooklm-figure figcaption span,
+.ai-notebooklm-figure figcaption em {
+  color: var(--ha-muted);
+  font-size: 14px;
+  font-style: normal;
+  line-height: 1.65;
+}
+.ai-report-section h2 {
+  margin: 0 0 18px;
+  font-size: clamp(30px, 3vw, 44px);
+}
+.ai-report-prose h4 {
+  margin-top: 24px;
+  margin-bottom: 12px;
+  font-size: 24px;
+}
+.ai-report-prose p {
+  margin: 0 0 16px;
+  font-size: 17px;
+  line-height: 1.9;
+  max-width: none;
+}
+.ai-section-material-intro {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.ai-report-prose ul,
+.ai-report-prose ol {
+  margin-left: 22px;
+}
+.ha-toc {
+  top: 24px;
+  border-radius: 20px;
+  padding: 20px 20px 16px;
+}
+.ha-toc li {
+  margin: 10px 0;
+  line-height: 1.55;
+}
+
+  </style>
+</head>
+<body>
+  <div class="ha-wrap">
+    <header class="ha-topline">
+      <span>AI Influence</span>
+      <span>2 条公开视频素材 / 发布于 2026-06-05</span>
+      <span></span>
+    </header>
+
+    <section class="ha-hero">
+      <div class="ha-kicker">AI Influence Briefing</div>
+      <h1 class="ha-title">AI 推理进入主战场：从应用经济学到 serving 系统瓶颈</h1>
+      <p class="ha-lede">本报告围绕 AI 推理进入主战场：从应用经济学到 serving 系统瓶颈 主题整理，正文判断只基于本期选入的 2 条公开视频素材；首页先给你看素材来源，正文再展开趋势判断。</p>
+      
+      
+    </section>
+
+    <div class="ha-layout">
+      <aside class="ha-toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#section-1-item">摘要</a></li><li><a href="#section-2-item">核心趋势</a></li><li><a href="#section-3-item">关键视频证据</a></li><li><a href="#section-4-item">第一章：应用需求把注意力从训练拉向推理</a></li><li><a href="#section-5-serving">第二章：serving 不只是部署，而是系统研究问题</a></li><li><a href="#section-6-item">第三章：推理增长叙事的证据边界</a></li><li><a href="#section-7-item">第四章：后续观察指标与验证路径</a></li><li><a href="#section-8-item">影响与落点</a></li><li><a href="#section-9-open-questions">Open Questions</a></li>
+  </ol>
+</aside>
+      <main class="ha-main">
+        <section class="ai-report-sources">
+  <h2>本期素材</h2>
+  <div class="ai-report-source-table">
+  <table>
+    <thead>
+      <tr>
+        <th>素材</th>
+        <th>频道</th>
+        <th>视频标题</th>
+        <th>发布时间 / 时长</th>
+        <th>摘要</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+  <td><span class="ai-material-ref" data-video-ref="V006">素材 1</span></td>
+  <td>Stanford Online</td>
+  <td><a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford MS&amp;E435 Economics of the AI Supercycle | Spring 2026 | Applications, Applied AI</a></td>
+  <td>2026-06-05 17:33 EDT<br><span class="ha-muted">N/A</span></td>
+  <td>inference is about to go up a billionx. Not a thousandx, not a million x, a billion x. And the guy who&#x27;s making it go up a billionx is here with us today to thank you so much…</td>
+</tr><tr>
+  <td><span class="ai-material-ref" data-video-ref="V007">素材 2</span></td>
+  <td>Stanford Online</td>
+  <td><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford CS336 Language Modeling from Scratch | Spring 2026 | Guest Lecture: Dan Fu</a></td>
+  <td>2026-06-05 17:19 EDT<br><span class="ha-muted">N/A</span></td>
+  <td>Stanford Online / Stanford CS336 Language Modeling from Scratch | Spring 2026 | Guest Lecture: Dan Fu：作为本报告的视频材料，用于支撑对应章节的趋势判断和素材反查。</td>
+</tr>
+    </tbody>
+  </table>
+</div>
+</section>
+<section class="ai-report-material-map">
+  <h2>章节与视频素材对应表</h2>
+  <p class="ha-muted">每个判断都对应到本期公开视频素材，方便反查来源；表内编号与“本期素材”一致。</p>
+  <div class="ai-report-source-table ai-material-map-table">
+    <table>
+      <thead>
+        <tr>
+          <th>报告章节</th>
+          <th>对应视频素材</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+  <td><strong>第一章：应用需求把注意力从训练拉向推理</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford MS&amp;E435 Economics of the AI Supercycle | Spring 2026 | Applications, Applied AI</a></b><em>Stanford Online / 2026-06-05 17:33 EDT</em></div></td>
+</tr><tr>
+  <td><strong>第二章：serving 不只是部署，而是系统研究问题</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V007">素材 2</span><b><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford CS336 Language Modeling from Scratch | Spring 2026 | Guest Lecture: Dan Fu</a></b><em>Stanford Online / 2026-06-05 17:19 EDT</em></div></td>
+</tr><tr>
+  <td><strong>第三章：推理增长叙事的证据边界</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford MS&amp;E435 Economics of the AI Supercycle | Spring 2026 | Applications, Applied AI</a></b><em>Stanford Online / 2026-06-05 17:33 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V007">素材 2</span><b><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford CS336 Language Modeling from Scratch | Spring 2026 | Guest Lecture: Dan Fu</a></b><em>Stanford Online / 2026-06-05 17:19 EDT</em></div></td>
+</tr><tr>
+  <td><strong>第四章：后续观察指标与验证路径</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford MS&amp;E435 Economics of the AI Supercycle | Spring 2026 | Applications, Applied AI</a></b><em>Stanford Online / 2026-06-05 17:33 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V007">素材 2</span><b><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford CS336 Language Modeling from Scratch | Spring 2026 | Guest Lecture: Dan Fu</a></b><em>Stanford Online / 2026-06-05 17:19 EDT</em></div></td>
+</tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+<section class="ai-report-section" id="section-1-item">
+  <h2>摘要</h2>
+  <div class="ai-report-prose">
+    <p>本报告基于本期公开视频材料整理判断，先给出关键视频证据，再按章节展开分析、证据边界与后续观察。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-2-item">
+  <h2>核心趋势</h2>
+  <div class="ai-report-prose">
+    <ul>
+<li>第一章：应用需求把注意力从训练拉向推理</li>
+
+<li>第二章：serving 不只是部署，而是系统研究问题</li>
+
+<li>第三章：推理增长叙事的证据边界</li>
+
+<li>第四章：后续观察指标与验证路径</li>
+</ul>
+  </div>
+</section>
+<section class="ai-report-section" id="section-3-item">
+  <h2>关键视频证据</h2>
+  <div class="ai-report-prose">
+    <ul>
+<li><a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle | Spring 2026 |…</a>，发布于 2026-06-05。</li>
+
+<li><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | Spring 2026 | G…</a>，发布于 2026-06-05。</li>
+</ul>
+  </div>
+</section>
+<section class="ai-report-section" id="section-4-item">
+  <h2>第一章：应用需求把注意力从训练拉向推理</h2>
+  <div class="ai-report-prose">
+    <p class="ha-muted ai-section-material-intro">本节素材：<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a>，发布时间 2026-06-05。</p>
+<h4>观察</h4>
+<p>这段材料能支撑一个相对明确的判断：AI 产业的注意力正在从“谁训练出最强模型”转向“谁能把模型稳定、低延迟、可规模化地嵌入应用流程”。这里的关键不是训练不重要了，而是应用侧一旦开始真实交付价值，推理就会变成持续消耗、持续优化、持续扩容的主战场。</p>
+<p><a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 开场用了一个非常激进的说法：inference 会增长 “a billion x”。这个说法本身证据不足，暂不作为强结论。但它有价值，因为它表达了课程嘉宾对产业重心的判断：AI value 的交付不是发生在训练那一刻，而是发生在每一次用户调用、每一次语音转文字、每一次临床记录生成、每一次业务系统写入的时候。换句话说，训练更像资本开支和能力源头，推理更像应用经济学里的“单位交付成本”。</p>
+<p>应用为什么会放大 inference demand</p>
+<p><a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 给出的第一类依据，是应用不再只是调用一个通用大模型，而是在产品体验中串联多个模型。嘉宾以 Whisper Flow 为例说明，一个语音输入产品并不是简单做一次 speech-to-text。材料中提到，它使用自建或改造过的 custom models，并且中间有多个语言模型和音频模型参与，目标是把“用户说话”到“文字出现”的延迟压到足够低。</p>
+<p>这说明应用侧会放大推理需求，原因不只是用户数增长，而是每个用户动作背后会触发更多模型调用。一个看似简单的输入体验，实际可能包含音频处理、语言理解、纠错、格式化、响应生成等多段推理。应用越追求自然、即时、无感，后端模型链就越长，对 serving 的延迟、吞吐、调度和成本控制要求也越高。</p>
+<p>第二类依据，是行业应用会把推理嵌入高可靠业务流程。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 还提到医疗场景中的 ambient scribe 应用：它被描述为深度集成到 EMR 系统中，并运行约 20 个模型，从语音转文字到生成临床记录，再写入医疗记录系统。这里的重点不是“用了很多模型”本身，而是这些模型不再是演示链路，而是进入医疗工作流，对速度、可靠性和业务集成提出要求。</p>
+<p>这类应用会天然放大推理需求，因为它们不是一次性生成内容，而是伴随真实业务持续运行。医生与患者的每次交流、每个房间中的记录生成、每次临床笔记归档，都可能变成推理负载。只要产品被更多机构采用，推理就从可选功能变成运行成本的一部分。</p>
+<p>第三类依据，是 custom models 的比例可能上升。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中嘉宾提出，当前 inference spend 约 90% 或 95% 流向 frontier models，约 5% 流向 custom models；但他认为应用公司未来会更多依赖自定义模型来构建产品。这个观点有合理性：当应用进入垂直场景，模型不只要“聪明”，还要便宜、快、可控、适配业务数据和用户体验。通用模型适合启动，但长期看，应用公司会倾向于把部分能力迁移到更专用的模型链路上。</p>
+<p>不过，这一比例判断来自嘉宾表述，材料中没有给出外部市场数据或统计口径，因此只能作为待验证观点，不能直接写成行业事实。</p>
+<p>证据链</p>
+<p><a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 的证据链比较清楚：课程开场先提出推理需求将大幅增长的判断；随后嘉宾回顾其从机器学习研究、早期技术创业到建设推理基础设施公司的路径；接着用两个应用案例解释生产推理的实际形态。Whisper Flow 代表低延迟交互型应用，核心矛盾是用户体验与多模型链路之间的延迟控制；医疗 ambient scribe 代表高可靠行业工作流，核心矛盾是多个模型、EMR 集成、速度要求和稳定性要求同时存在。</p>
+<p>这条链路能支撑的结论是：应用层越成熟，推理基础设施越像产品的生产系统，而不是模型调用的附属接口。它不能充分支撑的结论是：推理一定会增长十亿倍，或 custom model spend 一定会从 5% 快速反转为主流。材料里没有给出时间窗口、市场规模测算、客户数量、调用量曲线或成本结构，所以这些只能作为观察点。</p>
+<h4>为什么重要</h4>
+<p>这章的重要性在于，它把 AI supercycle 的讨论从模型能力叙事拉回到单位经济学。应用公司真正面对的问题，不是一次 benchmark 赢不赢，而是一次用户操作要调用几个模型、每次调用延迟多低、失败率多少、GPU 成本能不能被产品价格覆盖、模型链路能不能在监管或行业系统中稳定运行。</p>
+<p>如果这个方向成立，AI 基础设施竞争会从“谁提供最强模型 API”扩展到“谁能管理多模型 serving、低延迟优化、可靠性、成本和垂直应用集成”。尤其在语音输入、医疗记录这类场景里，模型推理不是后台成本的小项，而是产品能不能成立的核心变量。产品体验越实时，推理系统越接近交易系统；行业流程越严肃，推理系统越接近关键业务系统。</p>
+<p>这也解释了为什么应用侧会把注意力拉向推理：训练决定能力上限，但应用决定调用频率；模型能力打开市场入口，但推理效率决定毛利结构；demo 能证明可能性，但 production inference 才决定能否长期交付。</p>
+<h4>不确定性与后续观察</h4>
+<p>本章证据存在明显边界。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 的可用材料主要来自一段访谈转写，且关键内容在 custom models 趋势处被截断；没有完整市场数据、客户规模、调用量、收入结构或成本拆分。因此，“inference 增长十亿倍”应视为嘉宾的强烈观点，而不是已验证事实。</p>
+<p>后续需要重点看三件事：第一，应用公司是否真的从单一 frontier model API 转向多模型、custom model、专用模型链路；第二，语音、医疗、办公自动化等场景的推理调用量是否随用户使用频率快速扩张；第三，推理服务商能否把低延迟、可靠性和成本优化做成可持续业务，而不是只服务少数高增长客户。</p>
+<p>在当前证据下，最稳的结论是：应用需求已经给推理基础设施带来更具体的压力，尤其体现在多模型链路、低延迟体验和行业系统集成上。至于推理需求最终会增长到什么量级，以及 custom models 是否会大幅改变支出结构，还需要更多材料验证。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-5-serving">
+  <h2>第二章：serving 不只是部署，而是系统研究问题</h2>
+  <div class="ai-report-prose">
+    <p class="ha-muted ai-section-material-intro">本节素材：<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a>，发布时间 2026-06-05。</p>
+<h4>观察</h4>
+<p>当前材料只能支撑一个非常保守的判断：<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的主题明确指向 language modeling 课程中的 guest lecture，并且章节契约要求从中提取 language model serving、inference 和系统研究问题；但由于本章可用转写片段为空，缺少讲者具体表述、论证顺序、案例和技术细节，因此不能把 serving 侧研究问题展开成强结论。</p>
+<p>也就是说，本章可以确认“serving 被规划为训练之后的重要议题”，但暂不能确认讲者在 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 中具体如何定义 serving、如何拆解 inference 系统瓶颈、是否提出 electricity 到 tokens 的完整框架。若继续写成“serving 包含调度、KV cache、batching、显存管理、延迟吞吐权衡”等具体技术判断，就会超出当前证据边界。那些内容在行业上可能合理，但没有出现在本章可用材料中，不能作为本章结论。</p>
+<p>证据链</p>
+<p>当前证据链很短，主要来自三个层面。</p>
+<p>第一，<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 来自 Stanford Online，标题为《Stanford CS336 Language Modeling from Scratch | Spring 2026 | Guest Lecture: Dan Fu》。从标题看，它属于 language modeling 课程中的嘉宾讲座材料，和本章“模型训练之后的 serving 侧研究问题”存在主题关联。</p>
+<p>第二，章节契约明确要求本章围绕两个问题展开：模型训练之后的 serving 侧包含哪些研究问题，以及如何把 electricity 到 tokens 的框架写清楚。这说明上游规划认为 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 与 serving、inference、系统研究有关。</p>
+<p>第三，当前证据包虽然标注有较长转写字符数，但可用正文片段为空，且没有摘要、关键点、技术主张或跨源补充材料。因此本章缺少可引用的具体内容，不能还原讲者观点，也不能建立完整论证链。</p>
+<p>基于这三点，本章最稳妥的写法不是强行解释 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a>，而是明确证据不足，并把可支撑与不可支撑的边界讲清楚。</p>
+<p>serving 为什么不能只被理解为部署</p>
+<p>即便本章材料不足，章节问题本身仍然给出一个重要方向：serving 不应被简单理解为“把训练好的模型上线”。在报告结构中，它被放在“AI 推理进入主战场”的核心章节，说明上游希望关注的是训练完成之后，模型如何持续把算力、电力、硬件资源和系统调度转化为 token 输出。</p>
+<p>但在当前证据下，这只能作为章节问题所指向的研究方向，而不是 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 已经充分证明的结论。我们不能替讲者补充细节，也不能把外部系统知识写成视频内容。更合适的表达是：如果后续能补齐 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的有效转写，本章应重点检查讲者是否讨论了 inference 的执行路径、成本结构、资源利用率、延迟与吞吐权衡，以及这些问题为什么构成系统研究问题，而不只是工程部署问题。</p>
+<p>electricity 到 tokens 的框架应如何保守表述</p>
+<p>“electricity 到 tokens”可以作为一个待验证的分析框架来处理：它试图把推理系统理解为一条资源转换链，而不是一个 API 调用动作。最上游是电力和硬件资源，中间经过集群、加速器、内存、网络、调度与 serving runtime，最终转化为用户看到的 token 输出或应用响应。</p>
+<p>但是，当前材料没有提供讲者对这个框架的原话、图示、公式或案例。因此本章不能写成“<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 提出了 electricity-to-tokens 框架”，只能写成：本章任务要求解释这一框架，但现有证据不足以确认 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 中是否完整展开。后续需要回到完整转写或视频内容，确认该框架是否由讲者明确提出，还是报告规划对 serving 问题的抽象总结。</p>
+<p>这种边界很关键。因为 electricity 到 tokens 一旦被写成正式判断，就会牵涉成本核算、能耗效率、GPU 利用率、token throughput、延迟目标和服务质量等多个层面。没有材料支撑时，贸然展开会把报告从“基于素材的研究判断”变成“作者自行补课”，这不符合本章证据约束。</p>
+<h4>为什么重要</h4>
+<p>本章的重要性不在于当前已经获得了多少实证材料，而在于它暴露了一个报告写作上的关键风险：serving 是 AI 推理经济学中极容易被过度发挥的主题。只要写作者熟悉系统领域，就很容易把批处理、调度、缓存、并行、显存、网络、能耗、单位成本等内容一次性塞进去。但如果这些内容没有出现在材料中，就不能作为视频证据输出。</p>
+<p>这对整份报告很要紧。因为“训练之后发生什么”是 AI 产业叙事正在转向的核心问题之一。训练侧关注模型能力形成，serving 侧关注能力如何稳定、便宜、快速地交付。两者的经济学完全不同：训练更接近一次性大规模投入，serving 更接近持续运营成本和产品毛利结构。但本章目前只能把这个问题作为待展开方向，不能替 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 下结论。</p>
+<h4>不确定性与后续观察</h4>
+<p>本章证据不足，暂不作为强结论。当前缺少 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的可用转写片段、讲者具体观点、案例、技术定义和论证顺序，因此无法回答“模型训练之后的 serving 侧包含哪些研究问题”这一问题的细节版本，也无法确认 “electricity 到 tokens” 是否为讲者原始框架。</p>
+<p>后续需要重点补三类材料：第一，<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 中关于 inference 或 serving 的原始段落，尤其是讲者如何定义问题边界；第二，是否出现 electricity、tokens、cost、latency、throughput、GPU utilization 等关键词及其上下文；第三，讲者是否给出具体系统案例、瓶颈拆解或研究议程。</p>
+<p>在补齐材料之前，本章只能保守结论为：<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的标题和章节契约显示，serving 是本报告必须关注的核心方向；但当前证据无法支撑对 serving 研究问题的展开式判断。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-6-item">
+  <h2>第三章：推理增长叙事的证据边界</h2>
+  <div class="ai-report-prose">
+    <p class="ha-muted ai-section-material-intro">本节素材：<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a>。两条素材均发布于 2026-06-05。</p>
+<h4>观察</h4>
+<p>本章最重要的结论不是“推理一定会爆发到某个具体倍数”，而是要把可确认的趋势和待验证的判断分开。</p>
+<p>基于 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a>，目前可以写成 real trend 的，是应用侧正在把推理从模型调用推向生产基础设施问题。材料中明确出现了 production inference、低延迟语音输入、多模型链路、医疗 ambient scribe、EMR 集成、速度与可靠性要求等内容。这些足以支撑一个稳健判断：当 AI 应用进入真实业务流程，inference 不再只是调用 frontier model API，而是围绕延迟、可靠性、多模型编排和业务系统集成展开。</p>
+<p>但“inference is about to go up a billionx” 不能写成已验证事实。它是 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 开场中的强烈判断，表达了对推理需求扩张的预期，但当前材料没有提供市场规模、调用量曲线、成本拆分、时间窗口或第三方数据。因此，它只能作为待验证观察点。</p>
+<p><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的标题显示其与 language modeling 和 guest lecture 有关，上游章节目标也将其指向 serving 与 inference 系统问题；但当前可用材料没有提供具体转写内容、技术主张或讲者论证。因此，<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 在本章中只能作为“待补证据来源”，不能用来支撑关于 serving 系统瓶颈的具体结论。</p>
+<p>哪些可以写成 real trend</p>
+<p>第一，应用正在把推理需求具体化。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中，Whisper Flow 被描述为语音到文字输入应用，使用自建或改造的 custom models，并通过基础设施优化把说话到文字出现的延迟尽量压低。材料还提到其链路中包含多个语言模型和音频模型。这说明应用侧推理需求不是抽象增长，而是落在具体体验指标上：响应必须快，模型链路必须顺，用户动作背后的推理步骤不能让前端体验断掉。</p>
+<p>第二，多模型链路正在成为一类真实应用形态。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中的语音输入案例包含多个语言模型和音频模型，医疗 ambient scribe 案例则被描述为运行约 20 个模型，从语音转文字到生成临床记录，再与 EMR 系统深度集成。仅凭这段材料，不能推广到整个行业，但至少可以确认：在这些应用案例中，AI 产品不是单模型完成任务，而是由多个模型共同支撑一条业务链路。</p>
+<p>第三，推理基础设施开始承载产品可靠性。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 对医疗 ambient scribe 的描述强调了医疗系统、EMR 集成、速度要求和可靠性要求。这里的推理不是实验室 demo，也不只是“生成一段文本”。它进入了临床记录流程，意味着推理输出的稳定性、及时性和系统集成能力会影响产品能否在行业场景中运行。</p>
+<p>第四，custom models 的重要性正在被应用公司讨论。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中嘉宾提出，当前 inference spend 大部分流向 frontier models，custom models 占比较小，并认为构建优秀 AI 应用的公司会更多使用 custom models。这个判断可以作为“应用公司可能转向更专用模型链路”的观察点；但比例本身不能写成行业事实，因为材料没有提供统计来源。</p>
+<p>哪些只能写成待验证观察点</p>
+<p>第一，“推理需求增长十亿倍”只能作为观点，不能作为结论。材料里这句话很有冲击力，也适合作为叙事入口，但它不是证据本身。要把它升级为 real trend，需要至少补充调用量增长、应用渗透率、单位用户推理次数、模型链路复杂度、成本下降速度等数据。</p>
+<p>第二，“custom models 将显著替代 frontier models”只能作为待验证方向。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 确实提供了 custom models 的案例，也提供了支出结构判断，但当前文本在关键处被截断，没有完整展开原因、时间线和数据依据。因此本章只能说：应用侧存在向 custom models 扩展的迹象，不能说它已经形成主导性迁移。</p>
+<p>第三，“serving 已经被 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 系统性拆解”不能成立。<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的标题与章节目标相关，但当前没有可用转写片段。报告可以保留 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 作为后续验证来源，但不能从标题推导出具体系统研究问题，更不能替讲者补充 batching、调度、缓存、显存、能耗或 token 成本等内容。</p>
+<p>第四，“electricity 到 tokens”目前只能作为报告待验证框架。这个框架有分析价值，但当前材料没有提供 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的原文支撑，也没有看到 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 对电力、硬件、token 转换链条的完整论述。因此它不应被写成视频已明确提出的观点。</p>
+<p>证据链</p>
+<p>本章证据链主要来自 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a>。其论证从强预期开始：推理需求会大幅增长；随后通过生产推理公司的创业路径，转到真实客户场景；再用 Whisper Flow 和医疗 ambient scribe 两类应用说明推理基础设施为什么重要。前者强调低延迟体验和多模型链路，后者强调多模型、医疗系统集成、速度与可靠性。</p>
+<p><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的证据链目前不完整。现有材料只能确认视频标题、频道和主题方向，不能还原讲者观点。因此，<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 对本章的贡献是限定边界：它可能是 serving 系统问题的重要来源，但在当前证据状态下不能被用于实质性论证。</p>
+<h4>为什么重要</h4>
+<p>推理增长叙事很容易被写过头。AI 行业现在对 inference 的关注确实在上升，但报告如果把“强观点”直接写成“已发生事实”，会削弱可信度。尤其是“十亿倍增长”“custom models 反转支出结构”“serving 成为系统研究主战场”这类判断，只有在证据链足够完整时，才适合写成核心结论。</p>
+<p>更稳的写法是分层：应用侧多模型推理、低延迟体验、行业系统集成，可以写成当前材料支持的真实变化；推理量级增长、支出结构迁移、serving 系统瓶颈框架，则写成后续需要验证的观察点。这样既保留趋势敏感度，也不牺牲证据纪律。</p>
+<h4>不确定性与后续观察</h4>
+<p>当前最大限制是材料不均衡。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 有可用转写片段，但内容被截断；<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 虽然标题相关，却缺少可用正文。由此，本章不能完成对 serving 系统问题的完整判断，也不能把推理增长量级写成定量预测。</p>
+<p>接下来重点看三件事：第一，补齐 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 中关于 serving、inference、tokens、cost、latency、throughput 的原始段落；第二，验证 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中关于 inference spend 结构和 custom models 的数据来源；第三，寻找更多应用案例，确认多模型链路、低延迟要求和行业系统集成是否从个案扩展为更广泛的应用形态。</p>
+<p>在当前证据下，最稳的结论是：推理需求增长是一个值得跟踪的真实方向，但其增长倍数、经济结构变化和 serving 系统瓶颈，还不能被写成强结论。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-7-item">
+  <h2>第四章：后续观察指标与验证路径</h2>
+  <div class="ai-report-prose">
+    <p class="ha-muted ai-section-material-intro">本节素材：<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a>。两条素材均发布于 2026-06-05。</p>
+<h4>观察</h4>
+<p>后续跟踪不能直接围绕“推理会增长多少倍”展开，而应先把推理需求拆成三组可验证指标：应用指标、系统指标和成本指标。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 提供了应用侧的主要依据：语音输入产品需要把用户说话到文字出现的延迟压低，医疗 ambient scribe 需要在医疗系统中运行多模型链路，并满足速度、可靠性和 EMR 集成要求。这些内容可以支撑后续跟踪方向：推理需求是否增长，要看应用是否真实增加调用频率、模型链路复杂度和生产系统依赖，而不是只看行业口号。</p>
+<p><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 的标题与 serving、language modeling 课程相关，但当前没有可用正文片段。因此，它只能列为后续补强材料来源，不能在本章中直接提炼 serving 系统指标。也就是说，本章能给出的验证路径是“应当跟踪什么”，但不能声称 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 已经完整提出这些指标。</p>
+<p>证据链</p>
+<p>当前证据链主要来自 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a>。材料里出现了几个可用于设计观察指标的线索。</p>
+<p>第一，Whisper Flow 被描述为语音到文字输入应用，其体验目标是让用户说话后文字尽快出现。材料还提到，这一链路包含多个语言模型和音频模型，并依赖基础设施优化。这说明推理需求可以从应用体验指标切入：端到端延迟、模型调用次数、语音输入频次、用户使用时长、失败重试率，都会影响实际 inference demand。</p>
+<p>第二，医疗 ambient scribe 被描述为深度集成 EMR，并运行约 20 个模型，覆盖从语音转文字到临床记录生成的流程。这里能提炼出的观察方向，是行业工作流型应用对推理的要求不同于普通生成式应用：它不仅需要生成结果，还需要稳定进入业务系统。因此后续应跟踪系统可靠性、业务集成深度、工作流覆盖率、上线医疗系统数量、每次就诊或每次记录触发的模型链路长度。</p>
+<p>第三，<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中提出当前 inference spend 主要流向 frontier models，custom models 占比较低，并认为应用公司未来会更多构建 custom models。这个判断目前不能直接作为事实使用，但可以转化为后续成本指标：frontier model 与 custom model 的支出占比是否变化，应用公司是否把更多推理负载迁移到自建或改造模型上，单位任务成本是否因此下降。</p>
+<p><a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 当前缺少可用转写片段，因此无法形成独立证据链。它能提供的价值，是作为后续补齐 serving 系统材料的优先来源。</p>
+<p>需要跟踪的应用指标</p>
+<p>第一类是使用强度。推理增长如果真实发生，应该反映在用户动作频率上。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 的语音输入案例提示，观察重点不是“产品是否支持 AI”，而是用户是否高频使用 AI 作为输入方式。可跟踪的方向包括：日活用户中使用语音输入的比例、单用户日均语音输入次数、每次输入触发的模型数量、平均输入时长，以及从说话到文字出现的端到端延迟。</p>
+<p>第二类是工作流渗透。医疗 ambient scribe 的重点不只是生成临床记录，而是进入 EMR 这一业务系统。后续应观察这类应用是否从辅助工具变成默认流程，包括：部署机构数量、医生实际使用频率、每次就诊是否自动触发记录链路、临床记录是否直接进入系统、人工审核比例是否下降。这些指标能帮助判断推理是否变成生产流程的一部分。</p>
+<p>第三类是模型链路复杂度。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 的两个案例都不是单模型叙事：一个包含多个语言模型和音频模型，另一个约 20 个模型。后续应跟踪应用从单次 API 调用走向多模型编排的程度。若更多应用采用“音频模型 + 语言模型 + 专用模型 + 业务系统写入”的链路，推理需求会被结构性放大。</p>
+<p>需要跟踪的系统指标</p>
+<p>系统指标应从 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 已经出现的速度、可靠性、基础设施优化出发，而不是从外部知识强行扩展。当前可以保守提出三组观察方向。</p>
+<p>第一是端到端延迟。语音输入场景明确把用户说话到文字出现的时间作为体验目标。后续应跟踪 p50、p95、p99 延迟是否能稳定满足交互体验要求，尤其是在多模型串联场景中，单个模型快并不等于整条链路快。</p>
+<p>第二是生产可靠性。医疗场景中出现了“可靠性”和“速度”要求，且涉及 EMR 集成。后续应观察推理服务是否具备稳定运行能力，包括错误率、超时率、重试率、服务可用性、降级策略，以及模型输出进入业务系统前后的人工校验负担。</p>
+<p>第三是多模型运行效率。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中的应用案例都包含多个模型，说明系统问题会从单模型 serving 扩展为多模型链路运行。后续应关注不同模型之间的调度、顺序依赖、并行可能性，以及一条业务请求背后的总推理成本。但当前材料没有提供具体技术实现，因此这些只能作为观察指标，不能写成已被 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 或 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 证明的系统结论。</p>
+<p>需要跟踪的成本指标</p>
+<p>成本指标应服务于一个核心问题：推理能否支撑应用经济学。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中“inference 是 AI value 被交付的成本项”这一表述可以转化为后续核算方向：每次用户动作、每条临床记录、每段语音输入背后的推理成本是多少，产品定价是否覆盖这些持续成本。</p>
+<p>后续至少要观察三类成本变化。第一，frontier model 与 custom model 的支出比例是否变化。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 给出了一个待验证比例，但没有外部数据，因此后续需要补充公开披露、服务商数据或应用公司案例。第二，单位任务成本是否下降，包括每次语音输入、每份临床记录、每个工作流步骤的推理成本。第三，低延迟与可靠性是否带来额外成本。速度越快、可靠性要求越高，系统冗余、优化和运维成本可能越重要；但当前材料尚不足以量化。</p>
+<p>外部材料如何补强主线</p>
+<p>在当前证据边界下，后续补强材料应优先围绕四类来源展开。</p>
+<p>第一，补齐 <a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a>，Stanford Online《Stanford CS336 Language Modeling from Scratch | Spring 2026 | Guest Lecture: Dan Fu》的可用正文，重点寻找 serving、inference、latency、throughput、cost、tokens 等原始段落。只有拿到具体论述，才能判断 serving 是否真的被系统性拆解。</p>
+<p>第二，补充应用公司或基础设施服务商的真实案例，尤其是语音输入、医疗记录、企业工作流等多模型链路场景。需要看到使用频率、模型数量、延迟要求、可靠性要求和成本结构。</p>
+<p>第三，补充市场或财务口径，用来验证 <a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 中关于 inference spend 和 custom models 的判断。没有统计口径时，不能把支出结构变化写成强结论。</p>
+<p>第四，补充生产系统层面的技术材料，用于验证多模型推理是否带来新的 serving 瓶颈。当前材料只提示了速度、可靠性和基础设施优化，尚不足以展开完整系统研究框架。</p>
+<h4>不确定性与后续观察</h4>
+<p>本章证据仍然偏弱。<a href="https://www.youtube.com/watch?v=Qh7Oxvo5sJI" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford MS&amp;amp;E435 Economics of the AI Supercycle |…</a> 有可用片段，但内容被截断；<a href="https://www.youtube.com/watch?v=9EEm4iMAF5s" target="_blank" rel="noreferrer noopener">Stanford Online / Stanford CS336 Language Modeling from Scratch | S…</a> 没有可用正文。由此，本章只能提出跟踪指标和验证路径，不能直接给出完整推理经济学模型，也不能把 serving 系统瓶颈写成已被证明的趋势。</p>
+<p>接下来重点看三件事：应用侧是否从单点 AI 功能转向多模型、长链路、高频调用；系统侧是否在低延迟和可靠性上出现可公开验证的压力；成本侧是否出现从 frontier models 向 custom models 转移的可量化依据。</p>
+<p>在这些材料补齐之前，最稳妥的结论是：推理需求增长值得持续跟踪，但验证它不能靠一句“增长很多”，而要看应用使用强度、生产系统依赖和单位任务成本三组指标是否同时成立。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-8-item">
+  <h2>影响与落点</h2>
+  <div class="ai-report-prose">
+    <p>本期材料的直接价值在于把可验证的公开视频内容转化为后续观察方向。对产品和工程团队来说，优先关注已经有可用转写支撑的具体问题，不要把只有标题或元数据支撑的材料拔高为确定结论。</p>
+<p>更稳妥的使用方式是：把报告中的判断拆成后续跟踪项，继续观察同一频道、同一议题和相关项目是否出现连续材料。如果后续材料补齐，相关判断可以升级；如果只停留在单次表达或弱材料层面，则应保留为观察项。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-9-open-questions">
+  <h2>Open Questions</h2>
+  <div class="ai-report-prose">
+    <ul>
+<li>当前判断中哪些部分只由单个视频或单次表达支撑，需要等待后续材料复核？</li>
+
+<li>哪些主题已经有较完整转写，哪些主题仍需要补充更清晰的原始材料？</li>
+
+<li>后续一到两周是否出现来自同一频道、相关技术社区或产品团队的连续讨论？</li>
+
+<li>本期共有 2 条材料只能作为弱观察依据，后续应优先补齐原始表达或降级为背景材料。</li>
+</ul>
+  </div>
+</section>
+      </main>
+    </div>
+
+    <footer class="ha-footline">
+      <span>AI Influence Report</span>
+      <span>发布于 2026-06-05</span>
+      <span>2026-06-06</span>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HF Paper 2026-W25：新晋爆发转向可控推理、GUI Grounding 与长上下文基础设施</title>
+  <style>
+    :root {
+      --bg: #f6f1e8;
+      --paper: #fffdf8;
+      --ink: #1d1a16;
+      --muted: #6a6258;
+      --line: #dccfbe;
+      --accent: #8a4b22;
+      --accent-soft: #f0e0cf;
+      --shadow: 0 18px 48px rgba(45, 32, 20, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at top left, rgba(196,147,96,.18), transparent 28%), linear-gradient(180deg, #f9f4ec 0%, #f3ede3 100%); color: var(--ink); font: 16px/1.65 "Iowan Old Style", Georgia, serif; }
+    .hf-shell { max-width: 1240px; margin: 0 auto; padding: 40px 20px 64px; }
+    .hf-hero, .hf-card, .hf-panel, .hf-metric { background: var(--paper); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }
+    .hf-hero { padding: 32px 34px; }
+    .hf-kicker { display: inline-flex; padding: 6px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 600 12px/1.2 "Avenir Next", sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+    .hf-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px; margin-top: 22px; }
+    .hf-metric { padding: 16px 18px; }
+    .hf-metric span, .hf-grid span { display: block; color: var(--muted); font: 600 12px/1.2 "Avenir Next", sans-serif; text-transform: uppercase; }
+    .hf-metric strong { display: block; margin-top: 8px; font-size: 22px; }
+    .hf-card { padding: 24px; margin-top: 18px; }
+    .hf-card-head { display: grid; grid-template-columns: 64px minmax(0,1fr); gap: 16px; }
+    .hf-rank { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 18px; background: linear-gradient(135deg, #8a4b22, #c98950); color: white; font: 700 22px/1 "Avenir Next", sans-serif; }
+    .hf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 14px; margin: 18px 0; padding: 16px; background: #fbf6ef; border-radius: 18px; border: 1px solid var(--line); }
+    .hf-panel { padding: 22px; margin-top: 24px; }
+    .hf-heat h2 { font-size: 28px; }
+    .hf-heat-daily { margin-top: 18px; overflow-x: auto; }
+    .hf-heat-baseline { margin-top: 18px; overflow-x: auto; }
+    .hf-heat-secondary { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 18px; }
+    .hf-heat-block { width: 100%; min-width: 0; }
+    .hf-heat-daily table { width: 100%; min-width: 0; table-layout: fixed; }
+    .hf-daily-table .hf-date-col { width: 124px; }
+    .hf-daily-table .hf-count-col { width: 88px; }
+    .hf-daily-table .hf-top5-col { width: auto; }
+    .hf-daily-table .hf-tags-col { width: 240px; }
+    .hf-daily-table th:nth-child(3), .hf-daily-table td:nth-child(3), .hf-daily-table th:nth-child(4), .hf-daily-table td:nth-child(4) { padding-left: 18px; }
+    .hf-heat-baseline table, .hf-heat-secondary table { table-layout: fixed; }
+    h1, h2, h3 { margin: 0 0 12px; line-height: 1.15; }
+    h1 { font-size: clamp(34px, 4vw, 56px); max-width: 100%; margin-top: 18px; }
+    table { width: 100%; border-collapse: collapse; font: 14px/1.45 "Avenir Next", sans-serif; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+    th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    a { color: var(--accent); text-decoration: none; }
+    .hf-top-list { margin: 0; padding-left: 18px; }
+    .hf-top-list li + li { margin-top: 6px; }
+    .hf-tag-list { margin: 0; padding-left: 18px; }
+    .hf-tag-list li + li { margin-top: 8px; }
+    .hf-tag { display: inline-block; margin: 0 6px 5px 0; padding: 3px 8px; border-radius: 999px; background: #f0e3d3; color: #6f3e1f; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    ul { padding-left: 20px; }
+    @media (max-width: 980px) {
+      .hf-heat-daily table { min-width: 860px; }
+      .hf-daily-table .hf-tags-col { width: 220px; }
+    }
+    @media (max-width: 720px) {
+      .hf-hero { padding: 24px 22px; }
+      .hf-heat-daily table { min-width: 760px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="hf-shell">
+<section class="hf-panel hf-tagpulse-svg" style="overflow-x:auto;margin-bottom:24px"><svg xmlns="http://www.w3.org/2000/svg" width="960" height="790" viewBox="0 0 960 790" role="img" aria-label="HF Paper 数据趋势仪表盘">
+  <rect width="960" height="790" rx="28" fill="#fffdf8"/>
+  <rect x="1" y="1" width="958" height="788" rx="28" fill="none" stroke="#dccfbe"/>
+  <text x="34" y="48" font-size="28" font-weight="900" fill="#1d1a16">HF Paper 数据趋势仪表盘</text>
+  <text x="34" y="76" font-size="14" fill="#6a6258">最新数据：2026-06-15 ｜ 统计窗口：2026-03-18 至 2026-06-15</text>
+  
+  <rect x="34" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="50" y="132" font-size="13" font-weight="750" fill="#6a6258">今日样本</text>
+  <text x="50" y="162" font-size="25" font-weight="900" fill="#1d1a16">41</text>
+  <text x="50" y="181" font-size="11" fill="#8a4b22">2026-06-15</text>
+  <rect x="212" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="228" y="132" font-size="13" font-weight="750" fill="#6a6258">季度样本</text>
+  <text x="228" y="162" font-size="25" font-weight="900" fill="#1d1a16">2,437</text>
+  <text x="228" y="181" font-size="11" fill="#8a4b22">近 90 天</text>
+  <rect x="390" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="406" y="132" font-size="13" font-weight="750" fill="#6a6258">领先热度分</text>
+  <text x="406" y="162" font-size="25" font-weight="900" fill="#1d1a16">117,940</text>
+  <text x="406" y="181" font-size="11" fill="#8a4b22">排名加权</text>
+  <rect x="568" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="584" y="132" font-size="13" font-weight="750" fill="#6a6258">全量采集行数</text>
+  <text x="584" y="162" font-size="25" font-weight="900" fill="#1d1a16">9,614</text>
+  <text x="584" y="181" font-size="11" fill="#8a4b22">HF 历史覆盖</text>
+  <rect x="746" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="762" y="132" font-size="13" font-weight="750" fill="#6a6258">独立 arXiv</text>
+  <text x="762" y="162" font-size="25" font-weight="900" fill="#1d1a16">31,360</text>
+  <text x="762" y="181" font-size="11" fill="#8a4b22">历史覆盖</text>
+  <text x="34" y="232" font-size="21" font-weight="900" fill="#1d1a16">TagPulse 标签热点引擎</text>
+  <text x="34" y="254" font-size="13" fill="#6a6258">按最近一季论文进入热榜的次数和排名加权汇总；红条越长，说明方向越持续热门；蓝线是近 8 周走势。</text>
+  
+  <text x="50" y="262" font-size="15" font-weight="800" fill="#1d1a16">多模态</text>
+  <rect x="180" y="248" width="246" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="180" y="248" width="246.0" height="16" rx="8" fill="#ef4444"/>
+  <text x="438" y="262" font-size="12" font-weight="750" fill="#6a6258">117,940 / 1172次</text>
+  <polyline points="360.0,268.2 380.0,276.2 400.0,282.0 420.0,282.0 440.0,278.0 460.0,260.0 480.0,262.6 500.0,262.1" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="500" cy="261" r="2.5" fill="#2563eb"/>
+  <text x="50" y="304" font-size="15" font-weight="800" fill="#1d1a16">代码智能体</text>
+  <rect x="180" y="290" width="246" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="180" y="290" width="227.9" height="16" rx="8" fill="#ef4444"/>
+  <text x="438" y="304" font-size="12" font-weight="750" fill="#6a6258">109,261 / 1096次</text>
+  <polyline points="360.0,309.0 380.0,318.5 400.0,324.0 420.0,324.0 440.0,321.0 460.0,302.0 480.0,305.5 500.0,304.8" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="500" cy="303" r="2.5" fill="#2563eb"/>
+  <text x="50" y="346" font-size="15" font-weight="800" fill="#1d1a16">Agent</text>
+  <rect x="180" y="332" width="246" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="180" y="332" width="166.3" height="16" rx="8" fill="#ef4444"/>
+  <text x="438" y="346" font-size="12" font-weight="750" fill="#6a6258">79,709 / 780次</text>
+  <polyline points="360.0,355.2 380.0,361.4 400.0,366.0 420.0,366.0 440.0,364.0 460.0,347.9 480.0,347.8 500.0,344.0" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="500" cy="345" r="2.5" fill="#2563eb"/>
+  <text x="50" y="388" font-size="15" font-weight="800" fill="#1d1a16">推理计算</text>
+  <rect x="180" y="374" width="246" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="180" y="374" width="144.0" height="16" rx="8" fill="#ef4444"/>
+  <text x="438" y="388" font-size="12" font-weight="750" fill="#6a6258">69,030 / 695次</text>
+  <polyline points="360.0,395.9 380.0,401.7 400.0,408.0 420.0,408.0 440.0,404.6 460.0,387.5 480.0,389.0 500.0,386.0" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="500" cy="387" r="2.5" fill="#2563eb"/>
+  <text x="50" y="430" font-size="15" font-weight="800" fill="#1d1a16">长期记忆</text>
+  <rect x="180" y="416" width="246" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="180" y="416" width="137.0" height="16" rx="8" fill="#ef4444"/>
+  <text x="438" y="430" font-size="12" font-weight="750" fill="#6a6258">65,671 / 653次</text>
+  <polyline points="360.0,439.7 380.0,446.7 400.0,450.0 420.0,450.0 440.0,448.2 460.0,429.5 480.0,431.4 500.0,428.0" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="500" cy="429" r="2.5" fill="#2563eb"/>
+  <text x="50" y="472" font-size="15" font-weight="800" fill="#1d1a16">科研自动化</text>
+  <rect x="180" y="458" width="246" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="180" y="458" width="60.9" height="16" rx="8" fill="#ef4444"/>
+  <text x="438" y="472" font-size="12" font-weight="750" fill="#6a6258">29,220 / 285次</text>
+  <polyline points="360.0,473.8 380.0,487.3 400.0,492.0 420.0,492.0 440.0,489.2 460.0,473.5 480.0,470.0 500.0,473.3" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="500" cy="471" r="2.5" fill="#2563eb"/>
+  <line x1="34" y1="486" x2="926" y2="486" stroke="#eadfcd"/>
+  <text x="34" y="520" font-size="19" font-weight="900" fill="#1d1a16">新兴热点</text>
+  <text x="510" y="520" font-size="19" font-weight="900" fill="#1d1a16">标签共现热点</text>
+  
+  <text x="50" y="545" font-size="14" font-weight="800" fill="#1d1a16">具身智能</text>
+  <rect x="190" y="532" width="148" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="190" y="532" width="148.0" height="15" rx="8" fill="#16a34a"/>
+  <text x="350" y="545" font-size="12" font-weight="750" fill="#6a6258">x0.42 / 6,919</text>
+  <text x="50" y="584" font-size="14" font-weight="800" fill="#1d1a16">Agent</text>
+  <rect x="190" y="571" width="148" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="190" y="571" width="144.5" height="15" rx="8" fill="#16a34a"/>
+  <text x="350" y="584" font-size="12" font-weight="750" fill="#6a6258">x0.41 / 23,188</text>
+  <text x="50" y="623" font-size="14" font-weight="800" fill="#1d1a16">论文研究</text>
+  <rect x="190" y="610" width="148" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="190" y="610" width="141.0" height="15" rx="8" fill="#16a34a"/>
+  <text x="350" y="623" font-size="12" font-weight="750" fill="#6a6258">x0.40 / 4,746</text>
+  <text x="50" y="662" font-size="14" font-weight="800" fill="#1d1a16">Market Signal</text>
+  <rect x="190" y="649" width="148" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="190" y="649" width="133.9" height="15" rx="8" fill="#16a34a"/>
+  <text x="350" y="662" font-size="12" font-weight="750" fill="#6a6258">x0.38 / 861</text>
+  <text x="50" y="701" font-size="14" font-weight="800" fill="#1d1a16">长期记忆</text>
+  <rect x="190" y="688" width="148" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="190" y="688" width="126.9" height="15" rx="8" fill="#16a34a"/>
+  <text x="350" y="701" font-size="12" font-weight="750" fill="#6a6258">x0.36 / 17,488</text>
+  
+  <text x="510" y="545" font-size="14" font-weight="800" fill="#1d1a16">代码智能体 × 多模态</text>
+  <rect x="720" y="532" width="160" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="720" y="532" width="160.0" height="15" rx="8" fill="#7c3aed"/>
+  <text x="894" y="545" font-size="12" font-weight="750" fill="#6a6258">51,446</text>
+  <text x="510" y="584" font-size="14" font-weight="800" fill="#1d1a16">Agent × 代码智能体</text>
+  <rect x="720" y="571" width="160" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="720" y="571" width="115.2" height="15" rx="8" fill="#7c3aed"/>
+  <text x="894" y="584" font-size="12" font-weight="750" fill="#6a6258">37,044</text>
+  <text x="510" y="623" font-size="14" font-weight="800" fill="#1d1a16">推理计算 × 多模态</text>
+  <rect x="720" y="610" width="160" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="720" y="610" width="103.2" height="15" rx="8" fill="#7c3aed"/>
+  <text x="894" y="623" font-size="12" font-weight="750" fill="#6a6258">33,192</text>
+  <text x="510" y="662" font-size="14" font-weight="800" fill="#1d1a16">Agent × 长期记忆</text>
+  <rect x="720" y="649" width="160" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="720" y="649" width="96.2" height="15" rx="8" fill="#7c3aed"/>
+  <text x="894" y="662" font-size="12" font-weight="750" fill="#6a6258">30,921</text>
+  <text x="510" y="701" font-size="14" font-weight="800" fill="#1d1a16">代码智能体 × 推理计算</text>
+  <rect x="720" y="688" width="160" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="720" y="688" width="95.6" height="15" rx="8" fill="#7c3aed"/>
+  <text x="894" y="701" font-size="12" font-weight="750" fill="#6a6258">30,723</text>
+  <rect x="34" y="742" width="892" height="30" rx="15" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="52" y="762" font-size="12" fill="#6a6258">标签来自本地 HF 日榜主题标签；热度分按 121-rank 加权，越靠前权重越高；样本数和热度分不是同一单位。</text>
+</svg></section>
+
+    <section class="hf-hero">
+      <span class="hf-kicker">正式洞察周报</span>
+      <h1>HF Paper 2026-W25：新晋爆发转向可控推理、GUI Grounding 与长上下文基础设施</h1>
+      <p>本期材料显示，2026-W25 开局不是单一论文持续霸榜，而是 3 篇新晋论文在 2026-06-15 同日进入日榜 Top 3：LLM steerability、音视频证据链数据集、GUI Grounding。版面应先抓住“推理阶段可控性与代理操作可靠性”这个新变化，再承接月榜延续的金融 Agent、文档解析、KV Cache/Serving 基础设施。月榜持续热点与单篇评分存在差异，需明确区分“热度强但仍待验证”和“质量强但热度相对弱”。</p>
+	      <p>报告周期：2026-06-15</p>
+      <div class="hf-metrics"><div class="hf-metric"><span>报告类型</span><strong>正式洞察周报</strong></div>
+<div class="hf-metric"><span>论文数量</span><strong>10</strong></div>
+<div class="hf-metric"><span>分组章节</span><strong>2</strong></div>
+<div class="hf-metric"><span>报告周期</span><strong>2026-06-15</strong></div></div>
+    </section>
+    
+    <section class="hf-panel hf-heat">
+      <h2>日 / 周 / 月热度总览</h2>
+      <ul><li>本周日榜基线覆盖 1 天、累计 41 条日榜记录。</li><li>本周日榜暂未形成多日持续霸榜论文，当前更像多点新晋热点轮动，需要继续观察后半周是否出现连续上榜。</li><li>新晋爆发候选 5 篇，均在 1-2 天内冲入日榜 Top 5。</li><li>本月持续热点以《TradingAgents: Multi-Agents LLM Financial Trading Framework》为代表，月榜观测 12 天。</li><li>近 90 天基线热点以《AgentDoG 1.5: A Lightweight and Scalable Alignment Framework for AI Agent Safety and Security》为代表，日榜出现 3 天。</li></ul>
+      <div class="hf-heat-daily">
+        <div class="hf-heat-block">
+          <h3>每日热度基线</h3>
+          <table class="hf-daily-table">
+            <colgroup>
+              <col class="hf-date-col">
+              <col class="hf-count-col">
+              <col class="hf-top5-col">
+              <col class="hf-tags-col">
+            </colgroup>
+            <thead><tr><th>日期</th><th>论文数</th><th>当日 Top 5</th><th>标签</th></tr></thead>
+            <tbody><tr><td>2026-06-15</td><td>41</td><td><ol class="hf-top-list"><li><a href="https://huggingface.co/papers/2606.13432" target="_blank" rel="noreferrer noopener">OmniDirector: General Multi-Shot Camera Cloning without Cross-P…</a></li><li><a href="https://huggingface.co/papers/2606.12384" target="_blank" rel="noreferrer noopener">APPO: Agentic Procedural Policy Optimization</a></li><li><a href="https://huggingface.co/papers/2606.06036" target="_blank" rel="noreferrer noopener">Memory is Reconstructed, Not Retrieved: Graph Memory for LLM Ag…</a></li><li><a href="https://huggingface.co/papers/2606.14502" target="_blank" rel="noreferrer noopener">From Chatbot to Digital Colleague: The Paradigm Shift Toward Pe…</a></li><li><a href="https://huggingface.co/papers/2606.13707" target="_blank" rel="noreferrer noopener">Orchestra-o1: Omnimodal Agent Orchestration</a></li></ol></td><td><ol class="hf-tag-list"><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">multimodal</span></li><li><span class="hf-tag">agent</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">inference_compute</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">inference_compute</span><span class="hf-tag">multimodal</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">multimodal</span></li></ol></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="hf-heat-baseline">
+        <div class="hf-heat-block">
+          <h3>近 90 天基线热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody><tr><td><a href="https://huggingface.co/papers/2605.29801" target="_blank" rel="noreferrer noopener">AgentDoG 1.5: A Lightweight and Scalable Alignment Framework fo…</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-05-31</td></tr><tr><td><a href="https://huggingface.co/papers/2603.26164" target="_blank" rel="noreferrer noopener">DataFlex: A Unified Framework for Data-Centric Dynamic Training…</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-04-05</td></tr><tr><td><a href="https://huggingface.co/papers/2606.13681" target="_blank" rel="noreferrer noopener">EvoArena: Tracking Memory Evolution for Robust LLM Agents in Dy…</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-06-14</td></tr><tr><td><a href="https://huggingface.co/papers/2603.19235" target="_blank" rel="noreferrer noopener">Generation Models Know Space: Unleashing Implicit 3D Priors for…</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-03-22</td></tr><tr><td><a href="https://huggingface.co/papers/2604.14268" target="_blank" rel="noreferrer noopener">HY-World 2.0: A Multi-Modal World Model for Reconstructing, Gen…</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-04-19</td></tr><tr><td><a href="https://huggingface.co/papers/2603.25040" target="_blank" rel="noreferrer noopener">Intern-S1-Pro: Scientific Multimodal Foundation Model at Trilli…</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-03-29</td></tr><tr><td><a href="https://huggingface.co/papers/2604.17295" target="_blank" rel="noreferrer noopener">LLaTiSA: Towards Difficulty-Stratified Time Series Reasoning fr…</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-04-26</td></tr><tr><td><a href="https://huggingface.co/papers/2604.06628" target="_blank" rel="noreferrer noopener">Rethinking Generalization in Reasoning SFT: A Conditional Analy…</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-04-12</td></tr></tbody></table>
+        </div>
+      </div>
+      <div class="hf-heat-secondary">
+        <div class="hf-heat-block">
+          <h3>本周持续热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody><tr><td><a href="https://huggingface.co/papers/2606.13432" target="_blank" rel="noreferrer noopener">OmniDirector: General Multi-Shot Camera Cloning without Cross-P…</a></td><td>1</td><td>1</td><td>1.000</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.12384" target="_blank" rel="noreferrer noopener">APPO: Agentic Procedural Policy Optimization</a></td><td>1</td><td>2</td><td>2.000</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.06036" target="_blank" rel="noreferrer noopener">Memory is Reconstructed, Not Retrieved: Graph Memory for LLM Ag…</a></td><td>1</td><td>3</td><td>3.000</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.14502" target="_blank" rel="noreferrer noopener">From Chatbot to Digital Colleague: The Paradigm Shift Toward Pe…</a></td><td>1</td><td>4</td><td>4.000</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.13707" target="_blank" rel="noreferrer noopener">Orchestra-o1: Omnimodal Agent Orchestration</a></td><td>1</td><td>5</td><td>5.000</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.14249" target="_blank" rel="noreferrer noopener">HarnessX: A Composable, Adaptive, and Evolvable Agent Harness F…</a></td><td>1</td><td>6</td><td>6.000</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.13141" target="_blank" rel="noreferrer noopener">Rethinking RAG in Long Videos: What to Retrieve and How to Use…</a></td><td>1</td><td>7</td><td>7.000</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.12683" target="_blank" rel="noreferrer noopener">From AGI to ASI</a></td><td>1</td><td>8</td><td>8.000</td><td>2026-06-15</td></tr></tbody></table>
+        </div>
+        <div class="hf-heat-block">
+          <h3>本月持续热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody><tr><td>TradingAgents: Multi-Agents LLM Financial Trading Framework</td><td>12</td><td>1</td><td>1.340</td><td>2026-06-15</td></tr><tr><td>SkillOpt: Executive Strategy for Self-Evolving Agent Skills</td><td>12</td><td>1</td><td>2.570</td><td>2026-06-15</td></tr><tr><td>OpenDevin: An Open Platform for AI Software Developers as Gener…</td><td>12</td><td>2</td><td>11.640</td><td>2026-06-15</td></tr><tr><td>Kronos: A Foundation Model for the Language of Financial Markets</td><td>12</td><td>3</td><td>5.470</td><td>2026-06-15</td></tr><tr><td>VibeVoice Technical Report</td><td>12</td><td>3</td><td>24.730</td><td>2026-06-15</td></tr><tr><td>MinerU2.5: A Decoupled Vision-Language Model for Efficient
+  Hi…</td><td>12</td><td>4</td><td>7.040</td><td>2026-06-15</td></tr><tr><td>EverMemOS: A Self-Organizing Memory Operating System for Struct…</td><td>12</td><td>4</td><td>15.000</td><td>2026-06-15</td></tr><tr><td>Mem0: Building Production-Ready AI Agents with Scalable Long-Te…</td><td>12</td><td>6</td><td>12.870</td><td>2026-06-15</td></tr></tbody></table>
+        </div>
+        <div class="hf-heat-block">
+          <h3>新晋爆发候选</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>首次</th><th>最近</th></tr></thead><tbody><tr><td><a href="https://huggingface.co/papers/2606.13432" target="_blank" rel="noreferrer noopener">OmniDirector: General Multi-Shot Camera Cloning without Cross-P…</a></td><td>1</td><td>1</td><td>2026-06-15</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.12384" target="_blank" rel="noreferrer noopener">APPO: Agentic Procedural Policy Optimization</a></td><td>1</td><td>2</td><td>2026-06-15</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.06036" target="_blank" rel="noreferrer noopener">Memory is Reconstructed, Not Retrieved: Graph Memory for LLM Ag…</a></td><td>1</td><td>3</td><td>2026-06-15</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.14502" target="_blank" rel="noreferrer noopener">From Chatbot to Digital Colleague: The Paradigm Shift Toward Pe…</a></td><td>1</td><td>4</td><td>2026-06-15</td><td>2026-06-15</td></tr><tr><td><a href="https://huggingface.co/papers/2606.13707" target="_blank" rel="noreferrer noopener">Orchestra-o1: Omnimodal Agent Orchestration</a></td><td>1</td><td>5</td><td>2026-06-15</td><td>2026-06-15</td></tr></tbody></table>
+        </div>
+      </div>
+    </section>
+    
+    
+            <article class="hf-card">
+              <div class="hf-card-head">
+                <span class="hf-rank">01</span>
+                <div>
+                  <h2>LLM Serving 内存基础设施：KV Cache 从优化技巧变成系统层资产</h2>
+                  <p>这一组论文说明，LLM Serving 的瓶颈正在从单次模型调用速度，转向长上下文与多请求并发下的内存组织能力。PagedAttention 把 KV Cache 管理抽象为类似虚拟内存分页的服务端基线，LMCache 则进一步把 KV Cache 从 GPU 内部临时状态推向可外移、可复用、可跨引擎调度的缓存层。趋势成立，但企业级复用层仍处早期，需要工程跟踪。</p>
+                </div>
+              </div>
+              <div class="hf-grid">
+                <div><span>趋势判断</span><strong>明确趋势</strong></div>
+                <div><span>章节定位</span><strong>LLM Serving 内存基础设施：KV Cache 从优化技巧变成系统层资产</strong></div>
+              </div>
+              <section><h3>趋势描述</h3><p>本部分的共同变化是：KV Cache 不再只是 attention 实现里的局部优化对象，而正在变成 LLM Serving 的系统层资产。 的核心价值在于把动态增长、收缩、碎片化和重复复制这些内存管理问题，从推理框架的副作用提升为吞吐量约束本身；它说明高吞吐 serving 不能只靠 batching，必须有更精细的 KV 内存编排机制。 则把问题进一步外推：当用户侧 KV Cache 总量快速增长并超过 GPU 内存容量时，缓存需要从设备内显存状态变成可外移、可传输、可跨请求和跨推理引擎复用的基础设施层。 因此，这一趋势不是单点算法替换，而是 serving 架构从“算得快”转向“状态管得住”。</p></section>
+              <section><h3>洞察分析</h3><p>这一组论文适合放在报告后段，因为它解释了前面 Agent、GUI、多模态和长上下文工作负载背后的系统约束：只要请求变长、并发增加、上下文复用变多，KV Cache 就会从局部显存占用变成平台资源管理问题。 PagedAttention 的角色是长期基线，它把经典虚拟内存与分页思想引入 attention KV 管理，用来降低碎片和重复复制对 batch size 的限制；其较高实验、复现和开源项目分数，使它更像已经值得进入工程验证的基础设施论文，而不是普通观察项。 LMCache 的角色是方向外延，它证明下一阶段问题可能不是“如何在 GPU 内更好管理 KV”，而是“如何把 KV 作为跨请求、跨引擎、跨设备层级流动的数据资产管理起来”；但它的热度、资产和产业耦合评分较弱，因此更适合作为观察型项目，而不能直接写成已被大规模采用的行业标准。 对 AI Influence 来说，这部分最重要的判断是：长上下文 serving 的竞争点会越来越接近操作系统、缓存系统和分布式存储问题，模型侧改进和系统侧内存基础设施会被重新绑定。</p></section>
+              <section><h3>规划建议</h3><ul><li>把 作为 LLM Serving 内存管理的基线案例处理，优先进入复现实验和 benchmark，对照现有推理栈验证吞吐、batch size、显存利用率和长上下文场景下的收益。</li><li>把 放入 KV Cache 外移与复用观察池，联动 GitHub 趋势模块跟踪 LMCache/LMCache 的活跃度、接入案例、跨引擎兼容性和企业级 workload 证据；在证据增强前，不宜把它写成成熟基础设施。</li></ul></section>
+              <section><h3>该部分论文分工</h3><ul><li><b>Efficient Memory Management for Large Language Model Serving with PagedAttention</b><br><span>角色：本部分的基础设施基线论文，负责说明 KV Cache 管理已经是高吞吐 LLM Serving 的核心约束，而不是实现细节。</span><br><span>解读：最值得看的点是它把 KV Cache 的动态增长、碎片化和重复复制问题抽象成类似虚拟内存分页的系统问题，并通过 PagedAttention 服务于更大 batch 和更高吞吐。</span></li><li><b>LMCache: An Efficient KV Cache Layer for Enterprise-Scale LLM Inference</b><br><span>角色：本部分的方向外延论文，负责说明 KV Cache 正在从 GPU 内临时状态外移为跨请求、跨引擎复用的企业级缓存层。</span><br><span>解读：最值得看的点是它把 KV Cache 的容量压力、外移、传输和复用放到企业级 inference 场景中讨论，但当前资产和热度较弱，需要作为工程观察项跟踪。</span></li></ul></section>
+            </article>
+            
+            <article class="hf-card">
+              <div class="hf-card-head">
+                <span class="hf-rank">02</span>
+                <div>
+                  <h2>其他值得跟踪的信号</h2>
+                  <p>本组论文尚未形成单一强主线，但共同指向三个值得保留的观察方向：生成模型输出对象正在从像素、文本扩展到结构化资产与空间表征；轻量或稀疏模型继续尝试压低 agent 与多模态推理成本；时间序列、文档、点云等垂直数据形态开始被基础模型化。当前证据更适合进入实验队列，而非直接升级为正式趋势。</p>
+                </div>
+              </div>
+              <div class="hf-grid">
+                <div><span>趋势判断</span><strong>观察池</strong></div>
+                <div><span>章节定位</span><strong>其他值得跟踪的信号</strong></div>
+              </div>
+              <section><h3>趋势描述</h3><p>这组论文的共同变化不是某个方向已经成熟，而是多个边缘赛道正在把“基础模型范式”迁移到更具体、更工程化的对象上。第一类是结构化生成对象：文档 OCR 被重新表述为 inverse rendering，图像生成转向可分层编辑，Lottie 动画转向参数化 token，几何生成转向像素对齐的 3D 补全。这说明生成模型的竞争点不只是一张图或一段视频的观感，而是输出结果能否进入后续编辑、渲染、解析和产品工作流。第二类是效率导向的开放模型路线：GLM-5、Step 3.5 Flash、STEP3-VL-10B 都在不同侧面把 agentic execution、低活跃参数、多模态推理训练放到模型叙事中心。第三类是领域基础模型扩展：时间序列预测和统一点云编码器体现了非语言数据形态继续向预训练、通用表示和跨任务迁移靠拢。由于这些论文大多处于 early maturity，且材料缺少充分基准、失败案例、真实部署和社区反馈，本节应定位为 watchlist。</p></section>
+              <section><h3>洞察分析</h3><p>本节最有价值的观察是：生成式 AI 的下一批实验入口可能不在“更强通用聊天模型”本身，而在表示层和输出资产层。MinerU-Diffusion、Qwen-Image-Layered、OmniLottie、World Tracing、Utonia 分别把文档、图像、动画、几何、点云变成更可建模的结构化对象；它们如果成立，会把模型能力从一次性生成推进到可编辑、可组合、可验证的工程资产。另一条线索是效率约束正在进入模型设计叙事：Step 3.5 Flash 把 11B active parameters 与前沿能力放在同一命题里，GLM-5 把代码生成叙事转为 agentic engineering，STEP3-VL-10B 则落在 10B 级多模态推理训练路线。这些材料对 AI Influence 的价值不是立刻写成大趋势，而是筛出可实验、可复现、可横向比较的候选路线。比较务实的处理方式是把它们拆成若干观察小卡：结构化视觉资产、低成本 agent 模型、领域 foundation model、3D/空间表征，并用复现实验决定后续是否升级。</p></section>
+              <section><h3>规划建议</h3><ul><li>本节不建议作为日报头条或主趋势展开，建议拆成四个观察卡片：文档生成式解析、结构化视觉资产、低成本 agent/多模态模型、3D 与时间序列基础模型。每张卡只写方向价值、可验证假设和当前限制，避免把早期论文包装成确定趋势。</li><li>建立最小实验队列，优先验证三类问题：一是结构化输出是否真的可编辑、可播放、可解析；二是轻量或稀疏模型在真实 agent、多轮工具调用、长链路修复中的成本与稳定性；三是时间序列和点云模型是否具备跨数据集迁移能力。只有补齐 benchmark、失败案例、社区复现和工程成本后，再考虑升级为正式趋势条目。</li></ul></section>
+              <section><h3>该部分论文分工</h3><ul><li><b>MinerU-Diffusion: Rethinking Document OCR as Inverse Rendering via Diffusion Decoding</b><br><span>角色：文档解析建模范式的实验种子，代表 OCR 从顺序识别向生成式重建扩展。</span><br><span>解读：最值得看的不是单点 OCR 指标，而是把复杂版面、公式、表格和扫描件解析重新表述为 inverse rendering，并用 diffusion decoding 避开长序列自回归误差累积的思路。当前缺少具体指标、基准结果、失败案例和真实工程部署材料，因此只适合进入实验观察。</span></li><li><b>GLM-5: from Vibe Coding to Agentic Engineering</b><br><span>角色：代码模型向工程型 Agent 迁移的叙事样本，连接模型能力、推理执行和工程流程。</span><br><span>解读：最值得看的点是它把代码生成从 vibe coding 推向 agentic engineering，并强调 agentic、reasoning、coding 能力以及异步强化学习基础设施。当前材料不足以证明其已形成稳定系统范式，因此应先验证真实仓库任务、长链路修复、测试驱动修改和多步骤工具调用。</span></li><li><b>Step 3.5 Flash: Open Frontier-Level Intelligence with 11B Active Parameters</b><br><span>角色：低活跃参数开放模型路线的观察项，代表推理侧效率与 agent 能力绑定的模型命题。</span><br><span>解读：最值得看的点是 196B 总参数、11B active parameters、MoE、滑动窗口与全注意力交替、MTP-3 等设计被用于降低多轮 agentic interaction 的延迟和成本。当前证据包缺少充分 benchmark、架构细节和社区反馈，不能直接写成前沿能力已被低成本复现。</span></li><li><b>OmniLottie: Generating Vector Animations via Parameterized Lottie Tokens</b><br><span>角色：AI-native 设计资产的早期样本，代表生成对象从像素视频扩展到可编辑矢量动画。</span><br><span>解读：最值得看的点是 Lottie token 化：如果能稳定生成可播放、可编辑、体积可控的动画资产，它会比普通视频生成更接近前端、移动端、低代码设计和界面生成工作流。当前缺少模型结构、评测协议、失败案例和真实设计流程验证，因此仍是观察项。</span></li><li><b>A decoder-only foundation model for time-series forecasting</b><br><span>角色：领域基础模型扩展的观察项，代表时间序列预测从任务专用模型向预训练模型靠拢。</span><br><span>解读：最值得看的点是 decoder-only foundation model 被迁移到 forecasting，并强调 zero-shot 预测能力接近各数据集上的监督模型。材料显示其 novelty、reproducibility 和 deep research seed 价值较高，但成熟度仍为 early，因此适合做复现实验和竞品谱系整理。</span></li><li><b>World Tracing: Generative Pixel-Aligned Geometry Beyond the Visible</b><br><span>角色：空间几何生成表示的观察项，代表 image-to-3D 在像素对齐与不可见几何补全之间寻找新折中。</span><br><span>解读：最值得看的点是它尝试同时保留输入像素对齐和超出可见表面的几何补全，避免深度估计只覆盖可见表面、普通 image-to-3D 又容易与输入错位的问题。当前材料显示已有模型与 demo 资产线索，但缺少更细的实验结果和工程验证，应进入开源项目观察池。</span></li><li><b>Qwen-Image-Layered: Towards Inherent Editability via Layer Decomposition</b><br><span>角色：结构化图像生成资产的关键观察项，代表图像编辑能力从后处理前移到生成表示本身。</span><br><span>解读：最值得看的点是把单张 RGB 图像分解为多个语义解耦的 RGBA layers，让生成结果天然具备局部编辑能力。如果路线成立，图像生成竞争点会从一次性出图质量转向可复用、可局部修改、可进入设计软件工作流的结构化资产。当前仍缺少分层质量和编辑稳定性的细粒度材料。</span></li><li><b>Utonia: Toward One Encoder for All Point Clouds</b><br><span>角色：3D 表征基础设施的观察项，代表点云模型从任务专用编码器向统一预训练编码器探索。</span><br><span>解读：最值得看的点是跨 remote sensing、outdoor LiDAR、indoor RGB-D、CAD、RGB-only video lifted point clouds 等多来源点云训练统一 self-supervised point transformer encoder。它押注 3D 数据侧也会出现通用表示层，但当前证据主要是摘要、元数据和评分，仍需验证跨数据集迁移能力。</span></li><li><b>STEP3-VL-10B Technical Report</b><br><span>角色：10B 级视觉语言模型训练路线的观察项，代表轻量开放多模态推理模型的候选样本。</span><br><span>解读：最值得看的点是其统一、 fully unfrozen pre-training strategy，1.2T multimodal tokens，Perception Encoder 与 Qwen3-8B decoder 结合，以及大规模 post-training pipeline。它适合纳入多模态推理训练路线横向比较，但当前缺少足以支撑强结论的细粒度 benchmark、同类对比和失败案例。</span></li></ul></section>
+            </article>
+            
+    <section class="hf-panel">
+      <h3>后续观察点</h3>
+      <ul><li>继续观察 ， 在 2026-W25 后半周是否连续上榜；若 days_seen 仍停留在 1，应降级为新晋观察，不写成持续趋势。</li><li>月榜中存在未进入本批论文材料的持续热点，如 SkillOpt、EverMemOS、Mem0、Eagle、VibeVoice 等；本期不能展开结论，只能作为后续补充材料候选。</li><li>金融 Agent 与市场基础模型热度明显，但需要单独标注验证风险：输入材料没有提供真实交易回测、鲁棒性或部署证据，不能把月榜热度直接写成应用确定性。</li><li>Serving 与 KV Cache 论文的热度未必最高，但单篇评分和系统相关性强；后续应看它们是否与长上下文、Agent memory、跨请求缓存复用形成更明确的工程主线。</li></ul>
+    </section>
+  </main>
+</body>
+</html>
