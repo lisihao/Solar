@@ -89,7 +89,17 @@ def _load_profile_policy() -> dict[str, Any]:
 
 
 def _pick_policy_key(request: dict[str, Any]) -> str:
+    explicit = str(
+        request.get("profile_policy_key")
+        or request.get("policy_key")
+        or os.environ.get("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_KEY")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
     purpose = str(request.get("purpose") or os.environ.get("BROWSER_AGENT_PURPOSE") or "").strip().lower()
+    if purpose.startswith("deep-insight-solar"):
+        return "deep_insight_solar"
     if purpose.startswith(("hf-paper-l7-high-reasoning", "hf-paper-report-plan", "hf-paper-report-section")):
         return "hf_paper_insight"
     if purpose.startswith("github-trend-report"):
@@ -112,7 +122,7 @@ def _pick_profile(purpose: str, profiles: list[str], selection: str) -> str:
 
 
 def _enforce_no_default_profile_for_scoped_chatgpt(policy_key: str, policy: dict[str, Any], resolved_profile: str, purpose: str) -> None:
-    protected_keys = {"hf_paper_insight", "github_trend_report", "ai_influence_report"}
+    protected_keys = {"hf_paper_insight", "github_trend_report", "ai_influence_report", "deep_insight_solar"}
     allow_default = bool(policy.get("allow_default_profile") or policy.get("allow_default_chatgpt_profile"))
     if policy_key in protected_keys and not allow_default and resolved_profile == "Default":
         raise RuntimeError(
@@ -122,7 +132,7 @@ def _enforce_no_default_profile_for_scoped_chatgpt(policy_key: str, policy: dict
 
 
 def _is_protected_scoped_chatgpt(policy_key: str) -> bool:
-    return policy_key in {"hf_paper_insight", "github_trend_report", "ai_influence_report"}
+    return policy_key in {"hf_paper_insight", "github_trend_report", "ai_influence_report", "deep_insight_solar"}
 
 
 def apply_profile_policy(env: dict[str, str], request: dict[str, Any]) -> dict[str, Any]:
