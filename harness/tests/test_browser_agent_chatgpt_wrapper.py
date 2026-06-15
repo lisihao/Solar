@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 import types
 from pathlib import Path
@@ -65,6 +66,106 @@ def test_post_submit_confirms_chinese_thinking_banner():
     assert result["ok"] is True
     assert result["model_ok"] is True
     assert result["reasoning_ok"] is True
+
+
+def test_profile_policy_selects_hf_default_profile(tmp_path, monkeypatch):
+    ns = _load_namespace()
+    policy = tmp_path / "browser-agent-chatgpt-local.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "policies": {
+                    "default": {
+                        "expected_account_email": "wrong@example.com",
+                        "allowed_profiles": ["Profile X"],
+                    },
+                    "hf_paper_insight": {
+                        "expected_account_email": "haogege1977@gmail.com",
+                        "allowed_profiles": ["Default"],
+                        "allow_headless": False,
+                        "force_headed": True,
+                        "profile_strategy": "persistent",
+                        "user_data_dir": "/Users/lisihao/Library/Application Support/Google/Chrome",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE", str(policy))
+    selected = ns["_select_chatgpt_profile_policy"]("hf-paper-report-plan-2026-06-13")
+    assert selected["enabled"] is True
+    assert selected["policy_key"] == "hf_paper_insight"
+    assert selected["selected_profile_directory"] == "Default"
+    assert selected["selected_account_email"] == "haogege1977@gmail.com"
+    assert selected["allow_headless"] is False
+    assert selected["force_headed"] is True
+
+
+def test_profile_policy_selects_deep_insight_solar_policy(tmp_path, monkeypatch):
+    ns = _load_namespace()
+    policy = tmp_path / "browser-agent-chatgpt-local.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "policies": {
+                    "default": {
+                        "expected_account_email": "wrong@example.com",
+                        "allowed_profiles": ["Profile X"],
+                    },
+                    "deep_insight_solar": {
+                        "expected_account_email": "haogege1977@gmail.com",
+                        "allowed_profiles": ["Default"],
+                        "allow_headless": False,
+                        "force_headed": True,
+                        "profile_strategy": "persistent",
+                        "user_data_dir": "/Users/lisihao/Library/Application Support/Google/Chrome",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE", str(policy))
+    selected = ns["_select_chatgpt_profile_policy"]("deep-insight-solar-BrowserLongformWriter")
+    assert selected["enabled"] is True
+    assert selected["policy_key"] == "deep_insight_solar"
+    assert selected["selected_profile_directory"] == "Default"
+    assert selected["selected_account_email"] == "haogege1977@gmail.com"
+    assert selected["allow_headless"] is False
+    assert selected["force_headed"] is True
+
+
+def test_profile_policy_rejects_scratch_profile_mismatch(tmp_path, monkeypatch):
+    ns = _load_namespace()
+    policy = tmp_path / "browser-agent-chatgpt-local.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "policies": {
+                    "default": {
+                        "expected_account_email": "haogege1977@gmail.com",
+                        "allowed_profiles": ["Default"],
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE", str(policy))
+    monkeypatch.setenv("BROWSER_AGENT_PROFILE_DIRECTORY", "Profile 7")
+    try:
+        ns["_select_chatgpt_profile_policy"]("github-trend-report-2026-06-13")
+    except RuntimeError as exc:
+        assert "browser_agent_profile_policy_profile_mismatch" in str(exc)
+    else:
+        raise AssertionError("expected profile mismatch")
 
 
 def test_post_submit_accepts_configured_high_reasoning_when_response_started():
