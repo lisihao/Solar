@@ -83,6 +83,8 @@ def _policy_key_for_purpose(purpose: str) -> str:
         return "github_trend_report"
     if lowered.startswith("ai-influence-report") or "ai-influence-report" in lowered:
         return "ai_influence_report"
+    if lowered.startswith("deep-insight-solar") or "deep-insight-solar" in lowered:
+        return "deep_insight_solar"
     return "default"
 
 
@@ -1931,10 +1933,18 @@ async def _run(prompt: str) -> int:
             page = await asyncio.wait_for(browser.get_current_page(), timeout=15)
             if page is None:
                 page = await asyncio.wait_for(browser.new_page(), timeout=15)
+        navigation_timeout_s = int(os.environ.get("BROWSER_AGENT_CHATGPT_NAVIGATION_TIMEOUT") or "120")
         try:
-            await asyncio.wait_for(page.goto(target_url), timeout=30)
-        except Exception:
-            await asyncio.wait_for(page.navigate(target_url), timeout=30)
+            await asyncio.wait_for(page.goto(target_url), timeout=navigation_timeout_s)
+        except Exception as first_nav_exc:
+            try:
+                await asyncio.wait_for(page.navigate(target_url), timeout=navigation_timeout_s)
+            except Exception as second_nav_exc:
+                raise TimeoutError(
+                    f"chatgpt_navigation_timeout:{target_url}:"
+                    f"goto={type(first_nav_exc).__name__}:"
+                    f"navigate={type(second_nav_exc).__name__}"
+                ) from second_nav_exc
         if action == "login_hold":
             hold = await _hold_for_login(page, request_dir, timeout_s=timeout_s)
             _write_json(request_dir / "login-hold-result.json", hold)
