@@ -39,6 +39,8 @@ class Task:
     due_time: tuple[int, int]
     script: Path
     date_env: str
+    target_offset_days: int = 0
+    cadence: str = "daily"
 
 
 TASKS: tuple[Task, ...] = (
@@ -55,6 +57,7 @@ TASKS: tuple[Task, ...] = (
         due_time=(8, 7),
         script=HARNESS_DIR / "scripts" / "run_ai_influence_digest.sh",
         date_env="AI_INFLUENCE_REPORT_DATE",
+        target_offset_days=1,
     ),
     Task(
         key="github",
@@ -62,6 +65,7 @@ TASKS: tuple[Task, ...] = (
         due_time=(8, 35),
         script=HARNESS_DIR / "scripts" / "run_github_trend_report_daily.sh",
         date_env="GITHUB_TREND_REPORT_DATE",
+        target_offset_days=1,
     ),
     Task(
         key="hf_papers",
@@ -69,6 +73,7 @@ TASKS: tuple[Task, ...] = (
         due_time=(9, 20),
         script=HARNESS_DIR / "scripts" / "run_hf_paper_weekly_report.sh",
         date_env="HF_WEEKLY_REPORT_DATE",
+        cadence="weekly",
     ),
 )
 
@@ -92,9 +97,17 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def mail_sent(path: Path) -> bool:
+def mail_sent(path: Path, reference_path: Path | None = None) -> bool:
     payload = load_json(path)
-    return str(payload.get("status") or "").lower() == "sent"
+    if str(payload.get("status") or "").lower() != "sent":
+        return False
+    if reference_path is not None:
+        try:
+            if path.stat().st_mtime + 1 < reference_path.stat().st_mtime:
+                return False
+        except OSError:
+            return False
+    return True
 
 
 def validation_ok(path: Path) -> bool:
@@ -105,26 +118,29 @@ def validation_ok(path: Path) -> bool:
 def report_complete(task_key: str, date_str: str) -> tuple[bool, str]:
     if task_key == "github":
         root = KNOWLEDGE_DIR / "_raw" / "tech-hotspot-radar" / "github-trend-report" / date_str
-        if not (root / "github-trend-report.html").is_file():
+        report_html = root / "github-trend-report.html"
+        if not report_html.is_file():
             return False, "missing github-trend-report.html"
-        if not mail_sent(root / "mail-result.json"):
-            return False, "missing sent mail-result.json"
+        if not mail_sent(root / "mail-result.json", report_html):
+            return False, "missing fresh sent mail-result.json"
         return True, "html+mail sent"
 
     if task_key == "hf_papers":
         root = KNOWLEDGE_DIR / "_raw" / "tech-hotspot-radar" / date_str
-        if not (root / "hf-paper-report.html").is_file():
+        report_html = root / "hf-paper-report.html"
+        if not report_html.is_file():
             return False, "missing hf-paper-report.html"
-        if not mail_sent(root / "mail-result.json"):
-            return False, "missing sent mail-result.json"
+        if not mail_sent(root / "mail-result.json", report_html):
+            return False, "missing fresh sent mail-result.json"
         return True, "html+mail sent"
 
     if task_key == "ai_digest":
         root = KNOWLEDGE_DIR / "_raw" / "ai-influence-daily-digest" / date_str
-        if not (root / "digest.html").is_file():
+        report_html = root / "digest.html"
+        if not report_html.is_file():
             return False, "missing digest.html"
-        if not mail_sent(root / "mail-result.json"):
-            return False, "missing sent mail-result.json"
+        if not mail_sent(root / "mail-result.json", report_html):
+            return False, "missing fresh sent mail-result.json"
         return True, "html+mail sent"
 
     if task_key == "youtube_planned":
@@ -140,7 +156,7 @@ def report_complete(task_key: str, date_str: str) -> tuple[bool, str]:
             if not validation_ok(report_dir / "validation-result.json"):
                 continue
             completed.append(report_dir.name)
-            if not mail_sent(report_dir / "mail-result.json"):
+            if not mail_sent(report_dir / "mail-result.json", report_dir / "report.html"):
                 missing_mail.append(report_dir.name)
         if not completed:
             return False, "no valid planned report.html"
@@ -209,7 +225,7 @@ def queue_job_state(job_id: str) -> tuple[str, str]:
     return "unknown", f"queue job not found {job_id}"
 
 
-def active_queue_task(task: Task) -> tuple[bool, str]:
+def active_queue_task(task: Task, date_str: str) -> tuple[bool, str]:
     script_name = task.script.name
     task_tokens = {
         "youtube_planned": ("youtube-daily-ai-influence-report", script_name),
@@ -229,7 +245,9 @@ def active_queue_task(task: Task) -> tuple[bool, str]:
 
     pending = read_jsonl(QUEUE_DIR / "pending.jsonl")
     for row in pending:
-        if matches(row):
+        env = row.get("env") if isinstance(row.get("env"), dict) else {}
+        pending_date = str(env.get(task.date_env) or "").strip()
+        if matches(row) and (not pending_date or pending_date == date_str):
             return True, f"same task pending job_id={row.get('id')}"
     running = load_json(QUEUE_DIR / "running.json")
     if running and matches(running):
@@ -262,13 +280,31 @@ def recently_enqueued(
     return False, f"cooldown expired age={int(age)}s"
 
 
-def target_dates(now_local: dt.datetime, lookback_days: int, include_today: bool) -> list[str]:
+def previous_completed_iso_week_end(day: dt.date) -> dt.date:
+    return day - dt.timedelta(days=day.isoweekday())
+
+
+def target_dates(task: Task, now_local: dt.datetime, lookback_days: int, include_today: bool) -> list[str]:
+    if task.cadence == "weekly":
+        base = previous_completed_iso_week_end(now_local.date())
+        week_count = max(1, (max(1, lookback_days) + 6) // 7)
+        return [(base - dt.timedelta(days=7 * offset)).isoformat() for offset in range(week_count)]
     start = 0 if include_today else 1
-    return [(now_local.date() - dt.timedelta(days=offset)).isoformat() for offset in range(start, lookback_days)]
+    return [
+        (now_local.date() - dt.timedelta(days=task.target_offset_days + offset)).isoformat()
+        for offset in range(start, lookback_days)
+    ]
 
 
 def due_for_date(task: Task, date_str: str, now_local: dt.datetime, grace_minutes: int) -> tuple[bool, str]:
     date_value = dt.date.fromisoformat(date_str)
+    if task.cadence == "weekly":
+        due_day = date_value + dt.timedelta(days=1)
+        due = dt.datetime.combine(due_day, dt.time(task.due_time[0], task.due_time[1]), tzinfo=now_local.tzinfo)
+        due += dt.timedelta(minutes=grace_minutes)
+        if now_local >= due:
+            return True, f"weekly due after {due.strftime('%Y-%m-%d %H:%M')}"
+        return False, f"weekly not due until {due.strftime('%Y-%m-%d %H:%M')}"
     if date_value < now_local.date():
         return True, "past date"
     due = now_local.replace(
@@ -360,7 +396,6 @@ def main() -> int:
 
     tz = ZoneInfo(os.environ.get("LOCAL_TZ") or "America/Toronto")
     now_local = dt.datetime.now(tz)
-    dates = target_dates(now_local, max(1, args.lookback_days), not args.no_include_today)
     selected = set(args.only or [task.key for task in TASKS])
     state = load_json(STATE_PATH)
     state.setdefault("jobs", {})
@@ -375,6 +410,7 @@ def main() -> int:
             results.append({"task": task.key, "status": "error", "reason": f"missing script {task.script}"})
             rc = 1
             continue
+        dates = target_dates(task, now_local, max(1, args.lookback_days), not args.no_include_today)
         for date_str in dates:
             complete, reason = report_complete(task.key, date_str)
             item: dict[str, Any] = {
@@ -397,7 +433,7 @@ def main() -> int:
                 item["status"] = "pending"
                 results.append(item)
                 continue
-            active, active_reason = active_queue_task(task)
+            active, active_reason = active_queue_task(task, date_str)
             item["active_queue_reason"] = active_reason
             if active and not args.force:
                 item["status"] = "active_queue"

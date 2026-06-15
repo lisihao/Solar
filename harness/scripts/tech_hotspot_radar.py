@@ -9359,12 +9359,19 @@ def hf_public_record_from_entities(canonical: Any, enrichment: Any, taxonomy: An
     return record
 
 
-def hf_report_strategy(config: dict[str, Any] | None, *, requested_limit: int | None = None) -> dict[str, Any]:
+def hf_report_strategy(
+    config: dict[str, Any] | None,
+    *,
+    requested_limit: int | None = None,
+    cadence_override: str | None = None,
+) -> dict[str, Any]:
     reporting = (((config or {}).get("hf_paper_insight") or {}).get("reporting") or {})
-    cadence = str(reporting.get("cadence") or "weekly").strip().lower()
+    configured_cadence = str(reporting.get("cadence") or "weekly").strip().lower()
+    cadence = str(cadence_override or configured_cadence).strip().lower()
     if cadence not in {"daily", "weekly"}:
         cadence = "weekly"
-    lookback_days = int(reporting.get("lookback_days") or (7 if cadence == "weekly" else 1))
+    lookback_days_value = None if cadence_override and cadence != configured_cadence else reporting.get("lookback_days")
+    lookback_days = int(lookback_days_value or (7 if cadence == "weekly" else 1))
     core_limit = int(reporting.get("core_paper_limit") or (12 if cadence == "weekly" else (requested_limit or 10 or 10)))
     supporting_limit = int(reporting.get("supporting_paper_limit") or (24 if cadence == "weekly" else (requested_limit or core_limit or 10)))
     if requested_limit and requested_limit > 0:
@@ -9394,8 +9401,14 @@ def hf_week_context_for_date(day: dt.date) -> dict[str, str]:
     }
 
 
-def hf_report_context(date_str: str, config: dict[str, Any] | None, *, requested_limit: int | None = None) -> dict[str, Any]:
-    strategy = hf_report_strategy(config, requested_limit=requested_limit)
+def hf_report_context(
+    date_str: str,
+    config: dict[str, Any] | None,
+    *,
+    requested_limit: int | None = None,
+    cadence_override: str | None = None,
+) -> dict[str, Any]:
+    strategy = hf_report_strategy(config, requested_limit=requested_limit, cadence_override=cadence_override)
     end_date = dt.date.fromisoformat(str(date_str))
     if strategy["cadence"] == "weekly":
         week_context = hf_week_context_for_date(end_date)
@@ -9439,7 +9452,7 @@ def hf_report_collection_summary(
         "monthly_snapshot_unique_papers": 0,
     }
     output = (config or {}).get("output") or {}
-    db_path = Path(output.get("database") or (Path.home() / ".solar/harness/state/tech-hotspot-radar/tech-hotspot-radar.sqlite")).expanduser()
+    db_path = _expand_runtime_path(output.get("database") or (Path.home() / ".solar/harness/state/tech-hotspot-radar/tech-hotspot-radar.sqlite"))
     if not db_path.exists():
         return summary
     conn = sqlite3.connect(str(db_path))
@@ -9752,7 +9765,7 @@ def hf_report_display_period(report_context: dict[str, Any] | None, date_str: st
 
 def hf_radar_db_path(config: dict[str, Any] | None) -> Path:
     output = (config or {}).get("output") or {}
-    return Path(output.get("database") or "${HARNESS_DIR}/state/tech-hotspot-radar/tech-hotspot-radar.sqlite").expanduser()
+    return _expand_runtime_path(output.get("database") or "${HARNESS_DIR}/state/tech-hotspot-radar/tech-hotspot-radar.sqlite")
 
 
 def _hf_rank_signal(rank: Any, *, max_rank: int = 30) -> float:
@@ -9947,6 +9960,7 @@ def hf_load_report_candidates(
     date_str: str | None = None,
     config: dict[str, Any] | None = None,
     reasoning_mode: str | None = None,
+    cadence_override: str | None = None,
 ) -> list[dict[str, Any]]:
     hf_paper_add_module_path()
     from compiler import Compiler  # type: ignore
@@ -9959,7 +9973,12 @@ def hf_load_report_candidates(
     conn.row_factory = sqlite3.Row
     try:
         resolved_date = str(date_str or iso_z().split("T", 1)[0])
-        report_context = hf_report_context(resolved_date, config or {}, requested_limit=limit)
+        report_context = hf_report_context(
+            resolved_date,
+            config or {},
+            requested_limit=limit,
+            cadence_override=cadence_override,
+        )
         weekly_metrics: dict[str, dict[str, Any]] = {}
         core_ids: set[str] = set()
         rows: list[sqlite3.Row]
@@ -10440,6 +10459,325 @@ def _hf_render_heat_overview_html(heat_overview: dict[str, Any] | None) -> str:
       </div>
     </section>
     """
+
+
+HF_TAGPULSE_LABELS: dict[str, str] = {
+    "agent": "Agent",
+    "coding_agent": "代码智能体",
+    "inference_compute": "推理计算",
+    "memory_context": "长期记忆",
+    "multimodal": "多模态",
+    "paper_research": "论文研究",
+    "research_automation": "科研自动化",
+    "robotics_physical_ai": "具身智能",
+    "reasoning": "推理",
+    "alignment": "对齐",
+    "evaluation": "评测",
+    "benchmark": "Benchmark",
+    "chip": "芯片",
+    "systems": "系统软件",
+    "software": "软件工程",
+}
+
+
+def _hf_parse_topic_tags(value: Any) -> list[str]:
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return []
+        raw_items = []
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    raw_items = parsed
+            except (json.JSONDecodeError, TypeError):
+                raw_items = []
+        if not raw_items:
+            raw_items = re.split(r"[,，/|;；\s]+", text)
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        tag = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(item or "").strip().lower()).strip("_")
+        if not tag or tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(tag)
+    return tags
+
+
+def _hf_tag_label(tag: Any) -> str:
+    key = str(tag or "").strip().lower()
+    if key in HF_TAGPULSE_LABELS:
+        return HF_TAGPULSE_LABELS[key]
+    return key.replace("_", " ").strip().title() or "N/A"
+
+
+def _hf_rank_heat(rank: Any) -> float:
+    try:
+        value = int(rank)
+    except (TypeError, ValueError):
+        value = 100
+    if value <= 0:
+        value = 100
+    return float(max(1, 121 - min(value, 120)))
+
+
+def _hf_report_tagpulse_dashboard(
+    config: dict[str, Any] | None,
+    *,
+    report_context: dict[str, Any],
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Build evidence-backed topic trend data for the reader-facing HF report."""
+    end_raw = str(report_context.get("window_end") or report_context.get("date") or "")
+    try:
+        requested_end = dt.date.fromisoformat(end_raw)
+    except ValueError:
+        requested_end = dt.date.today()
+    conn = _hf_report_db_conn(config)
+    if conn is None:
+        return {"ok": False, "reason": "database_missing"}
+    try:
+        latest_row = conn.execute(
+            "SELECT MAX(paper_date) AS latest_date FROM hf_daily_papers WHERE paper_date <= ?",
+            (requested_end.isoformat(),),
+        ).fetchone()
+        latest_date_text = str(latest_row["latest_date"] if isinstance(latest_row, sqlite3.Row) else (latest_row[0] if latest_row else "") or "")
+        try:
+            latest_date = dt.date.fromisoformat(latest_date_text)
+        except ValueError:
+            latest_date = requested_end
+        quarter_start = latest_date - dt.timedelta(days=89)
+        month_start = latest_date - dt.timedelta(days=29)
+        week_start = latest_date - dt.timedelta(days=6)
+        previous_start = quarter_start
+        previous_end = latest_date - dt.timedelta(days=14)
+        rows = _hf_fetchall_dicts(
+            conn,
+            """
+            SELECT paper_date, title, hf_url, rank, topic_tags
+            FROM hf_daily_papers
+            WHERE paper_date BETWEEN ? AND ?
+            ORDER BY paper_date ASC, rank ASC, title ASC
+            """,
+            (quarter_start.isoformat(), latest_date.isoformat()),
+        )
+        today_rows = [row for row in rows if str(row.get("paper_date") or "") == latest_date.isoformat()]
+        full_row = conn.execute("SELECT COUNT(*) AS c FROM hf_daily_papers").fetchone()
+        arxiv_full_row = conn.execute("SELECT COUNT(*) AS c FROM arxiv_daily_papers").fetchone()
+        hf_full_rows = int(full_row["c"] if isinstance(full_row, sqlite3.Row) else (full_row[0] if full_row else 0))
+        arxiv_full_rows = int(arxiv_full_row["c"] if isinstance(arxiv_full_row, sqlite3.Row) else (arxiv_full_row[0] if arxiv_full_row else 0))
+        tag_stats: dict[str, dict[str, Any]] = {}
+        current_scores: dict[str, float] = {}
+        previous_scores: dict[str, float] = {}
+        pair_scores: dict[tuple[str, str], dict[str, Any]] = {}
+        weekly_buckets = [(latest_date - dt.timedelta(days=7 * idx + 6), latest_date - dt.timedelta(days=7 * idx)) for idx in reversed(range(8))]
+        for row in rows:
+            row_date_text = str(row.get("paper_date") or "")
+            try:
+                row_date = dt.date.fromisoformat(row_date_text)
+            except ValueError:
+                continue
+            tags = _hf_parse_topic_tags(row.get("topic_tags")) or ["paper_research"]
+            score = _hf_rank_heat(row.get("rank"))
+            for tag in tags:
+                stat = tag_stats.setdefault(tag, {
+                    "tag": tag,
+                    "label": _hf_tag_label(tag),
+                    "score": 0.0,
+                    "count": 0,
+                    "days": set(),
+                    "latest": row_date_text,
+                    "weekly": [0.0 for _ in weekly_buckets],
+                })
+                stat["score"] = float(stat["score"]) + score
+                stat["count"] = int(stat["count"]) + 1
+                stat["days"].add(row_date_text)
+                if row_date_text > str(stat.get("latest") or ""):
+                    stat["latest"] = row_date_text
+                for bucket_idx, (bucket_start, bucket_end) in enumerate(weekly_buckets):
+                    if bucket_start <= row_date <= bucket_end:
+                        stat["weekly"][bucket_idx] = float(stat["weekly"][bucket_idx]) + score
+                        break
+                if row_date >= latest_date - dt.timedelta(days=13):
+                    current_scores[tag] = current_scores.get(tag, 0.0) + score
+                elif previous_start <= row_date <= previous_end:
+                    previous_scores[tag] = previous_scores.get(tag, 0.0) + score
+            for left_idx, left in enumerate(tags):
+                for right in tags[left_idx + 1:]:
+                    pair = tuple(sorted((left, right)))
+                    item = pair_scores.setdefault(pair, {
+                        "left": pair[0],
+                        "right": pair[1],
+                        "score": 0.0,
+                        "count": 0,
+                        "latest": row_date_text,
+                    })
+                    item["score"] = float(item["score"]) + score
+                    item["count"] = int(item["count"]) + 1
+                    if row_date_text > str(item.get("latest") or ""):
+                        item["latest"] = row_date_text
+        top_tags = sorted(tag_stats.values(), key=lambda item: (-float(item["score"]), -len(item["days"]), str(item["label"])))[:max(1, limit)]
+        for item in top_tags:
+            item["days_seen"] = len(item.get("days") or [])
+            item["score"] = round(float(item.get("score") or 0.0), 1)
+            item["weekly"] = [round(float(v), 1) for v in (item.get("weekly") or [])]
+            item.pop("days", None)
+        emerging: list[dict[str, Any]] = []
+        for tag, score in current_scores.items():
+            previous = previous_scores.get(tag, 0.0)
+            lift = (score + 20.0) / (previous + 20.0)
+            emerging.append({
+                "tag": tag,
+                "label": _hf_tag_label(tag),
+                "score": round(score, 1),
+                "previous_score": round(previous, 1),
+                "lift": round(lift, 2),
+                "latest": str(tag_stats.get(tag, {}).get("latest") or latest_date.isoformat()),
+            })
+        emerging.sort(key=lambda item: (-float(item["lift"]), -float(item["score"]), str(item["label"])))
+        pairs = sorted(pair_scores.values(), key=lambda item: (-float(item["score"]), -int(item["count"]), str(item["left"])))[:max(1, limit)]
+        for item in pairs:
+            item["label"] = f"{_hf_tag_label(item['left'])} × {_hf_tag_label(item['right'])}"
+            item["score"] = round(float(item.get("score") or 0.0), 1)
+        return {
+            "ok": True,
+            "source": "hf_daily_papers",
+            "latest_date": latest_date.isoformat(),
+            "quarter_start": quarter_start.isoformat(),
+            "month_start": month_start.isoformat(),
+            "week_start": week_start.isoformat(),
+            "today_rows": len(today_rows),
+            "quarter_rows": len(rows),
+            "hf_full_rows": hf_full_rows,
+            "arxiv_full_rows": arxiv_full_rows,
+            "leading_heat_score": int(round(float(top_tags[0]["score"]))) if top_tags else 0,
+            "top_tags": top_tags,
+            "emerging_tags": emerging[:max(1, min(8, limit))],
+            "cooccurrence_hotspots": pairs,
+            "method_note": "标签来自本地 HF 日榜主题标签；热度分按 121-rank 加权，越靠前权重越高；样本数和热度分不是同一单位。",
+        }
+    except sqlite3.Error as exc:
+        return {"ok": False, "reason": f"sqlite_error:{type(exc).__name__}"}
+    finally:
+        conn.close()
+
+
+def _hf_svg_text(value: Any, *, limit: int = 52) -> str:
+    text = re.sub(r"\s+", " ", str(value or "N/A")).strip()
+    if len(text) > limit:
+        text = text[: max(1, limit - 1)].rstrip() + "…"
+    return html.escape(text, quote=True)
+
+
+def _hf_svg_bar(width: float, max_width: float = 210.0) -> float:
+    return max(4.0, min(max_width, float(width)))
+
+
+def _hf_report_tagpulse_svg(dashboard: dict[str, Any] | None) -> str:
+    data = dashboard or {}
+    if not data.get("ok"):
+        reason = _hf_svg_text(data.get("reason") or "暂无可用标签趋势数据", limit=80)
+        return f"""<svg xmlns="http://www.w3.org/2000/svg" width="960" height="180" viewBox="0 0 960 180" role="img" aria-label="HF Paper 数据趋势仪表盘">
+  <rect width="960" height="180" rx="24" fill="#fffdf8"/>
+  <rect x="1" y="1" width="958" height="178" rx="24" fill="none" stroke="#dccfbe"/>
+  <text x="36" y="54" font-size="26" font-weight="850" fill="#1d1a16">HF Paper 数据趋势仪表盘</text>
+  <text x="36" y="94" font-size="16" fill="#6a6258">{reason}</text>
+</svg>"""
+    top_tags = [item for item in (data.get("top_tags") or []) if isinstance(item, dict)][:6]
+    emerging = [item for item in (data.get("emerging_tags") or []) if isinstance(item, dict)][:5]
+    pairs = [item for item in (data.get("cooccurrence_hotspots") or []) if isinstance(item, dict)][:5]
+    max_score = max([float(item.get("score") or 0.0) for item in top_tags] or [1.0])
+    max_lift = max([float(item.get("lift") or 0.0) for item in emerging] or [1.0])
+    max_pair = max([float(item.get("score") or 0.0) for item in pairs] or [1.0])
+    card_values = [
+        ("今日样本", f"{int(data.get('today_rows') or 0):,}", str(data.get("latest_date") or "N/A")),
+        ("季度样本", f"{int(data.get('quarter_rows') or 0):,}", "近 90 天"),
+        ("领先热度分", f"{int(data.get('leading_heat_score') or 0):,}", "排名加权"),
+        ("全量采集行数", f"{int(data.get('hf_full_rows') or 0):,}", "HF 历史覆盖"),
+        ("独立 arXiv", f"{int(data.get('arxiv_full_rows') or 0):,}", "历史覆盖"),
+    ]
+    cards = []
+    for idx, (label, value, sub) in enumerate(card_values):
+        x = 34 + idx * 178
+        cards.append(f"""
+  <rect x="{x}" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="{x + 16}" y="132" font-size="13" font-weight="750" fill="#6a6258">{_hf_svg_text(label, limit=18)}</text>
+  <text x="{x + 16}" y="162" font-size="25" font-weight="900" fill="#1d1a16">{_hf_svg_text(value, limit=16)}</text>
+  <text x="{x + 16}" y="181" font-size="11" fill="#8a4b22">{_hf_svg_text(sub, limit=18)}</text>""")
+    tag_rows = []
+    for idx, item in enumerate(top_tags):
+        y = 262 + idx * 42
+        score = float(item.get("score") or 0.0)
+        bar_w = _hf_svg_bar((score / max_score) * 246.0, 246.0)
+        weekly = [float(v) for v in (item.get("weekly") or [])][-8:]
+        spark_max = max(weekly or [1.0])
+        points: list[str] = []
+        for pidx, value in enumerate(weekly or [0.0]):
+            px = 360 + pidx * 20
+            py = y + 20 - ((value / spark_max) * 22 if spark_max else 0)
+            points.append(f"{px:.1f},{py:.1f}")
+        tag_rows.append(f"""
+  <text x="50" y="{y}" font-size="15" font-weight="800" fill="#1d1a16">{_hf_svg_text(item.get('label'), limit=18)}</text>
+  <rect x="180" y="{y - 14}" width="246" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="180" y="{y - 14}" width="{bar_w:.1f}" height="16" rx="8" fill="#ef4444"/>
+  <text x="438" y="{y}" font-size="12" font-weight="750" fill="#6a6258">{int(round(score)):,} / {int(item.get('count') or 0)}次</text>
+  <polyline points="{' '.join(points)}" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="500" cy="{y - 1}" r="2.5" fill="#2563eb"/>""")
+    emerging_rows = []
+    for idx, item in enumerate(emerging):
+        y = 545 + idx * 39
+        lift = float(item.get("lift") or 0.0)
+        bar_w = _hf_svg_bar((lift / max_lift) * 148.0, 148.0)
+        emerging_rows.append(f"""
+  <text x="50" y="{y}" font-size="14" font-weight="800" fill="#1d1a16">{_hf_svg_text(item.get('label'), limit=20)}</text>
+  <rect x="190" y="{y - 13}" width="148" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="190" y="{y - 13}" width="{bar_w:.1f}" height="15" rx="8" fill="#16a34a"/>
+  <text x="350" y="{y}" font-size="12" font-weight="750" fill="#6a6258">x{lift:.2f} / {int(round(float(item.get('score') or 0.0))):,}</text>""")
+    pair_rows = []
+    for idx, item in enumerate(pairs):
+        y = 545 + idx * 39
+        score = float(item.get("score") or 0.0)
+        bar_w = _hf_svg_bar((score / max_pair) * 160.0, 160.0)
+        pair_rows.append(f"""
+  <text x="510" y="{y}" font-size="14" font-weight="800" fill="#1d1a16">{_hf_svg_text(item.get('label'), limit=30)}</text>
+  <rect x="720" y="{y - 13}" width="160" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="720" y="{y - 13}" width="{bar_w:.1f}" height="15" rx="8" fill="#7c3aed"/>
+  <text x="894" y="{y}" font-size="12" font-weight="750" fill="#6a6258">{int(round(score)):,}</text>""")
+    note = _hf_svg_text(data.get("method_note"), limit=128)
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="960" height="790" viewBox="0 0 960 790" role="img" aria-label="HF Paper 数据趋势仪表盘">
+  <rect width="960" height="790" rx="28" fill="#fffdf8"/>
+  <rect x="1" y="1" width="958" height="788" rx="28" fill="none" stroke="#dccfbe"/>
+  <text x="34" y="48" font-size="28" font-weight="900" fill="#1d1a16">HF Paper 数据趋势仪表盘</text>
+  <text x="34" y="76" font-size="14" fill="#6a6258">最新数据：{_hf_svg_text(data.get('latest_date'), limit=18)} ｜ 统计窗口：{_hf_svg_text(data.get('quarter_start'), limit=18)} 至 {_hf_svg_text(data.get('latest_date'), limit=18)}</text>
+  {''.join(cards)}
+  <text x="34" y="232" font-size="21" font-weight="900" fill="#1d1a16">TagPulse 标签热点引擎</text>
+  <text x="34" y="254" font-size="13" fill="#6a6258">按最近一季论文进入热榜的次数和排名加权汇总；红条越长，说明方向越持续热门；蓝线是近 8 周走势。</text>
+  {''.join(tag_rows)}
+  <line x1="34" y1="486" x2="926" y2="486" stroke="#eadfcd"/>
+  <text x="34" y="520" font-size="19" font-weight="900" fill="#1d1a16">新兴热点</text>
+  <text x="510" y="520" font-size="19" font-weight="900" fill="#1d1a16">标签共现热点</text>
+  {''.join(emerging_rows)}
+  {''.join(pair_rows)}
+  <rect x="34" y="742" width="892" height="30" rx="15" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="52" y="762" font-size="12" fill="#6a6258">{note}</text>
+</svg>"""
+
+
+def _hf_report_prepend_svg_html(report_html: str, svg: str) -> str:
+    if not svg.strip():
+        return report_html
+    block = (
+        "\n<section class=\"hf-panel hf-tagpulse-svg\" style=\"overflow-x:auto;margin-bottom:24px\">"
+        f"{svg}</section>\n"
+    )
+    marker = '<main class="hf-shell">'
+    if marker in report_html:
+        return report_html.replace(marker, marker + block, 1)
+    return block + report_html
 
 
 def _hf_missing_value(value: Any) -> bool:
@@ -10988,11 +11326,12 @@ def hf_call_grouped_report_flow(
     date_str: str,
     report_context: dict[str, Any] | None = None,
     heat_overview: dict[str, Any] | None = None,
+    reasoning_mode: str | None = None,
 ) -> dict[str, Any]:
     if not public_records:
         raise ValueError("hf_grouped_report_no_records")
     context = report_context or hf_report_context(date_str, config)
-    high_cfg, mode = hf_paper_high_reasoning_config(config, "browser_agent")
+    high_cfg, mode = hf_paper_high_reasoning_config(config, reasoning_mode or "browser_agent")
     if mode != "browser_agent":
         raise ValueError(f"hf_grouped_report_requires_browser_agent:{mode}")
     model_name = str(high_cfg.get("model") or "chatgpt-5.5")
@@ -11735,15 +12074,35 @@ def hf_write_public_report(
     limit: int,
     output_base: str | None = None,
     reasoning_mode: str | None = None,
+    cadence_override: str | None = None,
 ) -> dict[str, str | int | bool]:
     store_path = hf_paper_insight_db_path(config)
-    report_context = hf_report_context(date_str, config, requested_limit=limit)
-    candidates = hf_load_report_candidates(store_path, limit=limit, date_str=date_str, config=config, reasoning_mode=reasoning_mode)
+    report_context = hf_report_context(
+        date_str,
+        config,
+        requested_limit=limit,
+        cadence_override=cadence_override,
+    )
+    candidate_kwargs: dict[str, Any] = {
+        "limit": limit,
+        "date_str": date_str,
+        "config": config,
+        "reasoning_mode": reasoning_mode,
+    }
+    if cadence_override:
+        candidate_kwargs["cadence_override"] = cadence_override
+    candidates = hf_load_report_candidates(store_path, **candidate_kwargs)
     public_records = [c["public"] for c in candidates]
     premium_count = sum(1 for r in public_records if bool(((r.get("reasoning") or {}).get("premium_insight_available"))))
     fallback_count = max(0, len(public_records) - premium_count)
     collection_summary = hf_report_collection_summary(config, report_context=report_context, public_records=public_records)
     heat_overview = hf_report_heat_overview(config, report_context=report_context, limit=max(8, min(20, limit)))
+    tagpulse_dashboard = _hf_report_tagpulse_dashboard(
+        config,
+        report_context=report_context,
+        limit=max(8, min(12, limit)),
+    )
+    tagpulse_svg = _hf_report_tagpulse_svg(tagpulse_dashboard)
     base_report_variant = "premium_insight_report" if public_records and premium_count == len(public_records) else "fallback_report"
     grouped_report: dict[str, Any] | None = None
     grouped_report_error_kind = ""
@@ -11755,10 +12114,11 @@ def hf_write_public_report(
                 date_str=date_str,
                 report_context=report_context,
                 heat_overview=heat_overview,
+                reasoning_mode=reasoning_mode,
             )
         except Exception as exc:
             grouped_report_error_kind = type(exc).__name__
-    _high_cfg, high_reasoning_mode = hf_paper_high_reasoning_config(config, "browser_agent")
+    _high_cfg, high_reasoning_mode = hf_paper_high_reasoning_config(config, reasoning_mode or "browser_agent")
     if public_records and high_reasoning_mode == "browser_agent" and not grouped_report:
         raise RuntimeError(
             "hf_grouped_report_required_but_unavailable:"
@@ -11804,13 +12164,23 @@ def hf_write_public_report(
     )
     if grouped_report:
         render_kwargs["grouped_report"] = grouped_report
+    lines.extend([
+        "## 数据趋势仪表盘（SVG）",
+        "",
+        "> 该看板使用本地 HuggingFace 日榜和 arXiv 基线采集结果生成；标签热度分、样本行数和历史覆盖是不同单位。",
+        "",
+        tagpulse_svg,
+        "",
+    ])
     lines.append(
         render_markdown(
             **render_kwargs,
         )
     )
     report_md = hf_sanitize_public_report_text("\n".join(lines))
-    report_html = hf_sanitize_public_report_text(render_html(**render_kwargs))
+    report_html = hf_sanitize_public_report_text(
+        _hf_report_prepend_svg_html(render_html(**render_kwargs), tagpulse_svg)
+    )
     leaked = hf_internal_report_tokens(report_md)
     if leaked:
         raise ValueError(f"public HF paper report contains internal tokens: {leaked}")
@@ -11841,6 +12211,7 @@ def hf_write_public_report(
         "fallback_count": fallback_count,
         "collection_summary": collection_summary,
         "heat_overview": heat_overview,
+        "tagpulse_dashboard": tagpulse_dashboard,
         "grouped_report_ok": bool(grouped_report),
         "grouped_report_model": (grouped_report or {}).get("model") or "",
         "grouped_report_error": grouped_report_error_kind,
@@ -11890,6 +12261,7 @@ def cmd_compile_hf_paper_report(args: argparse.Namespace) -> int:
             limit=limit,
             output_base=getattr(args, "output_base", None),
             reasoning_mode=getattr(args, "reasoning_mode", None),
+            cadence_override=getattr(args, "cadence", None),
         )
     except Exception as exc:
         print(f"[compile-hf-paper-report] ERROR {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -12107,6 +12479,7 @@ def cmd_materialize_hf_paper_insights(args: argparse.Namespace) -> int:
                 limit=int(getattr(args, "report_limit", 10) or 10),
                 output_base=getattr(args, "output_base", None),
                 reasoning_mode=getattr(args, "reasoning_mode", None),
+                cadence_override=getattr(args, "report_cadence", None),
             ))
         print(json.dumps({
             "ok": True,
@@ -16513,8 +16886,20 @@ def _compress_ai_influence_section_body(title: str, body: str, evidence_pack: di
             }
             for source, target in primary_link_rewrites.items():
                 body_text = body_text.replace(source, target)
+        for ref, link_md in ref_link_markdown.items():
+            if not link_md or link_md == primary_link_md:
+                continue
+            body_text = body_text.replace(
+                f"{link_md} 可以作为本章问题范围内的相关材料",
+                "该补充视频可以作为本章问题范围内的相关材料",
+            )
+            body_text = body_text.replace(
+                f"当前可用材料中，{link_md} 没有提供可引用的正文转写",
+                "当前可用材料中，该补充视频没有提供可引用的正文内容",
+            )
         targeted_multi_rewrites = {
             "当前可用材料中，该素材没有提供": "当前可用材料中，该补充视频没有提供",
+            "当前可用材料中，该补充视频没有提供可引用的正文转写": "当前可用材料中，该补充视频没有提供可引用的正文内容",
             "该素材可以作为本章问题范围内的相关材料": "该补充视频可以作为本章问题范围内的相关材料",
             "该素材暂时只能作为": "该补充视频暂时只能作为",
             "该素材当前缺少": "该补充视频当前缺少",
@@ -16912,6 +17297,25 @@ def _compress_ai_influence_section_body(title: str, body: str, evidence_pack: di
             "当前还不能判断该补充视频是否批评 vibe check、如何批评",
             body_text,
         )
+        body_text = re.sub(
+            r"\[[^\]]+\]\([^)]+\)\s*可以作为本章问题范围内的相关材料",
+            "该补充视频可以作为本章问题范围内的相关材料",
+            body_text,
+        )
+        body_text = re.sub(
+            r"该补充视频\s*没有提供可引用的正文转写",
+            "该补充视频没有提供可引用的正文内容",
+            body_text,
+        )
+        body_text = re.sub(
+            r"因此本章不能展开说明该补充视频\s*具体如何批评 vibe check",
+            "本章当前还不能判断该补充视频是否批评 vibe check、如何批评",
+            body_text,
+        )
+        body_text = body_text.replace(
+            "该补充视频的标题显示它与 coding agent evaluation 和 SWE-rebench 有关",
+            "主素材的标题显示它与 coding agent evaluation 和 SWE-rebench 有关",
+        )
         body_text = re.sub(r"(?m)^该素材，", "主素材当前", body_text)
         generic_material_label = "主素材"
     else:
@@ -16945,6 +17349,11 @@ def _compress_ai_influence_section_body(title: str, body: str, evidence_pack: di
     if multi_material:
         body_text = body_text.replace("主素材和主素材", "主素材与补充素材")
         body_text = body_text.replace("本章证据主要来自该补充视频，该补充视频支撑后续观察。", "本章证据主要来自主素材，补充素材支撑后续观察。")
+        body_text = re.sub(
+            r"该补充视频没有提供可引用的正文内容，因此本章不能展开说明该补充视频\s*具体如何批评 vibe check。",
+            "该补充视频没有提供可引用的正文内容，本章当前还不能判断该补充视频是否批评 vibe check、如何批评。",
+            body_text,
+        )
 
     body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
     return body_text
@@ -19246,6 +19655,18 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 blocked_path.unlink()
             (report_dir / "transcripts.txt").write_text(phase_transcript_attachment(evidence_pack), encoding="utf-8")
             (report_dir / "transcripts-cleaned.txt").write_text(phase_transcript_attachment_clean(evidence_pack), encoding="utf-8")
+            mail_result: dict[str, Any] = {
+                "status": "skipped",
+                "recommended_by_plan": bool(spec.get("send_as_email")),
+                "auto_send_default": True,
+            }
+            if ai_influence_auto_send_enabled(args, "AI_INFLUENCE_PLANNED_REPORT_SEND_MAIL"):
+                mail_result = send_html_email(
+                    (report_dir / "report.html").read_text(encoding="utf-8"),
+                    f"AI Influence 专题：{spec.get('title') or report_id} — {date_str}",
+                    [report_dir / "transcripts.txt", report_dir / "transcripts-cleaned.txt"],
+                )
+            (report_dir / "mail-result.json").write_text(json.dumps(mail_result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             record_model_ledgers(
                 conn,
                 target_id=f"__ai_influence_planned_report__:{date_str}:{report_id}",
@@ -19257,9 +19678,9 @@ def cmd_run_ai_influence_planned_reports(args: argparse.Namespace) -> int:
                 result=result,
                 success=True,
             )
-            finish_run(conn, run_id, "ok", len(evidence_pack.get("videos") or []), 1, json.dumps({"report_id": report_id, "pipeline": result["pipeline"]}, ensure_ascii=False)[:900])
+            finish_run(conn, run_id, "ok", len(evidence_pack.get("videos") or []), 1, json.dumps({"report_id": report_id, "pipeline": result["pipeline"], "mail": mail_result}, ensure_ascii=False)[:900])
             ok_count += 1
-            print(f"[ai-influence-run-plan] ok report_id={report_id} chapters={len(jobs)} pipeline=report_ir_chapter_runtime")
+            print(f"[ai-influence-run-plan] ok report_id={report_id} chapters={len(jobs)} pipeline=report_ir_chapter_runtime mail={mail_result.get('status')}")
         except Exception as exc:
             (report_dir / "report.blocked.json").write_text(json.dumps({
                 "status": "blocked",
@@ -20492,11 +20913,13 @@ def build_parser() -> argparse.ArgumentParser:
     hf_insight.add_argument("--no-write-report", dest="write_report", action="store_false", help="Only materialize packets; skip report generation")
     hf_insight.add_argument("--report-limit", type=int, default=10, help="Top gate-passed papers to include in the public report")
     hf_insight.add_argument("--report-date", default=None, help="Report date YYYY-MM-DD (default: UTC today)")
+    hf_insight.add_argument("--report-cadence", choices=["daily", "weekly"], default=None, help="Override generated report cadence")
     hf_insight.add_argument("--output-base", default=None, help="Override report output base directory")
     hf_insight.add_argument("--reasoning-mode", choices=["browser_agent", "fallback", "disabled"], default=None, help="HF L7 reasoning route; default comes from config")
     hf_report = sub.add_parser("compile-hf-paper-report", help="Compile public-facing HF paper insight report from materialized packets")
     hf_report.add_argument("--limit", type=int, default=10, help="Top gate-passed papers to include")
     hf_report.add_argument("--date", default=None, help="Report date YYYY-MM-DD (default: UTC today)")
+    hf_report.add_argument("--cadence", choices=["daily", "weekly"], default=None, help="Override report cadence")
     hf_report.add_argument("--output-base", default=None, help="Override report output base directory")
     hf_report.add_argument("--reasoning-mode", choices=["browser_agent", "fallback", "disabled"], default=None, help="HF L7 reasoning route; default comes from config")
     gh_analyze = sub.add_parser("analyze-github-projects", help="Build GitHub repo evidence atoms, reasoning packets and analysis cards")

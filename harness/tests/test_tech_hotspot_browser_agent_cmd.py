@@ -250,7 +250,7 @@ def test_hf_write_public_report_prefers_grouped_flow_outputs(tmp_path):
     ]
     ns["hf_paper_insight_db_path"] = lambda config: tmp_path / "dummy.sqlite"
     ns["hf_load_report_candidates"] = lambda store_path, limit, date_str, config, reasoning_mode: candidates
-    ns["hf_call_grouped_report_flow"] = lambda public_records, config, date_str, report_context=None, heat_overview=None: {
+    ns["hf_call_grouped_report_flow"] = lambda public_records, config, date_str, report_context=None, heat_overview=None, **kwargs: {
         "ok": True,
         "model": "chatgpt-5.5",
         "plan": {
@@ -304,7 +304,7 @@ def test_hf_write_public_report_prefers_grouped_flow_outputs(tmp_path):
         date_str="2026-06-01",
         limit=5,
         output_base=str(tmp_path),
-        reasoning_mode="browser_agent",
+        reasoning_mode="fallback",
     )
     assert result["grouped_report_ok"] is True
     assert result["report_variant"] == "premium_insight_report"
@@ -363,7 +363,7 @@ def test_hf_write_public_report_sanitizes_reader_facing_tokens(tmp_path):
         date_str="2026-06-01",
         limit=5,
         output_base=str(tmp_path),
-        reasoning_mode="browser_agent",
+        reasoning_mode="fallback",
     )
     markdown = Path(result["report_md"]).read_text(encoding="utf-8")
     html = Path(result["report_html"]).read_text(encoding="utf-8")
@@ -412,6 +412,17 @@ def test_hf_report_context_weekly_uses_iso_week_not_rolling_window():
     assert context["window_start"] == "2026-05-25"
     assert context["window_end"] == "2026-05-31"
     assert context["window_label"] == "2026-W22 · 2026-05-25 ~ 2026-05-31"
+
+
+def test_hf_report_context_allows_daily_override_for_daily_materialize():
+    ns = _load_namespace()
+    config = {"hf_paper_insight": {"reporting": {"cadence": "weekly", "lookback_days": 7}}}
+    context = ns["hf_report_context"]("2026-06-15", config, cadence_override="daily")
+    assert context["cadence"] == "daily"
+    assert context["week_id"] == ""
+    assert context["window_start"] == "2026-06-15"
+    assert context["window_end"] == "2026-06-15"
+    assert context["period_label"] == "日报"
 
 
 def test_hf_weekly_priority_score_prefers_persistent_high_rank_signals():
@@ -1554,6 +1565,15 @@ def test_scheduler_shell_scripts_parse():
     for script in scripts:
         run = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True, check=False)
         assert run.returncode == 0, f"{script}: {run.stderr}"
+
+
+def test_hf_daily_and_weekly_report_scripts_have_explicit_cadence():
+    daily = (ROOT / "harness" / "scripts" / "run_tech_hotspot_radar.sh").read_text(encoding="utf-8")
+    weekly = (ROOT / "harness" / "scripts" / "run_hf_paper_weekly_report.sh").read_text(encoding="utf-8")
+    assert "--report-cadence daily" in daily
+    assert "--cadence weekly" in weekly
+    assert "today.isoweekday()" in weekly
+    assert "Hugging Face 论文周报 — {week_id}" in weekly
 
 
 def test_browser_agent_launch_scripts_enter_fifo():

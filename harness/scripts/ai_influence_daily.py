@@ -2180,6 +2180,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         send_html_email(digest_html, effective_date)
     )
     result["gmail"] = gmail_result
+    (digest_path / "mail-result.json").write_text(
+        json.dumps(gmail_result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     if gmail_result["status"] == "skipped":
         reason = gmail_result.get("reason") or gmail_result.get("backend") or "skipped"
         print(f"Mail: skipped — {reason}", file=sys.stderr)

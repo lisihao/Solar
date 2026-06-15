@@ -52,23 +52,64 @@ export GMAIL_USER="${GMAIL_USER:-lisihao@gmail.com}"
 export GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE="${GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE:-solar-ai-influence-gmail}"
 export HF_WEEKLY_REPORT_SEND_MAIL="${HF_WEEKLY_REPORT_SEND_MAIL:-true}"
 
-# Run on Monday for the just-finished ISO week. Passing Sunday as date anchors
-# the report window to Monday 00:00:00 through Sunday 23:59:59 Eastern.
+# Run for the last fully completed ISO week. Passing that week's Sunday as
+# date anchors the report window to Monday 00:00:00 through Sunday 23:59:59.
 REPORT_DATE="${HF_WEEKLY_REPORT_DATE:-$("$PYTHON" - <<'PY'
 import datetime as dt
 import os
 from zoneinfo import ZoneInfo
 
 today = dt.datetime.now(ZoneInfo(os.environ.get("LOCAL_TZ", "America/Toronto"))).date()
-print((today - dt.timedelta(days=1)).isoformat())
+print((today - dt.timedelta(days=today.isoweekday())).isoformat())
 PY
 )}"
+REPORT_WEEK="$("$PYTHON" - "$REPORT_DATE" <<'PY'
+import datetime as dt
+import sys
+
+day = dt.date.fromisoformat(sys.argv[1])
+iso_year, iso_week, _ = day.isocalendar()
+print(f"{iso_year}-W{iso_week:02d}")
+PY
+)"
 
 RADAR=( "$PYTHON" "$HARNESS_DIR/scripts/tech_hotspot_radar.py" --config "$CONFIG" --db "$DB" )
 
-echo "[hf-paper-weekly-report] start $(date) report_date=${REPORT_DATE}"
+echo "[hf-paper-weekly-report] start $(date) report_date=${REPORT_DATE} report_week=${REPORT_WEEK}"
+REPORT_DIR="/Users/lisihao/Knowledge/_raw/tech-hotspot-radar/${REPORT_DATE}"
+if [[ "${HF_WEEKLY_REPORT_SKIP_IF_FRESH_MAIL:-true}" == "true" ]]; then
+  if "$PYTHON" - "$REPORT_DIR" <<'PY'
+import json
+import pathlib
+import sys
+
+report_dir = pathlib.Path(sys.argv[1])
+html_path = report_dir / "hf-paper-report.html"
+mail_path = report_dir / "mail-result.json"
+if not html_path.is_file():
+    raise SystemExit(1)
+try:
+    payload = json.loads(mail_path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+if str(payload.get("status") or "").lower() != "sent":
+    raise SystemExit(1)
+try:
+    if mail_path.stat().st_mtime + 1 < html_path.stat().st_mtime:
+        raise SystemExit(1)
+except OSError:
+    raise SystemExit(1)
+PY
+  then
+    echo "[hf-paper-weekly-report] existing fresh report+mail found; skip browser-agent compile date=${REPORT_DATE}"
+    echo "[hf-paper-weekly-report] ok $(date) report_date=${REPORT_DATE} report_week=${REPORT_WEEK}"
+    exit 0
+  fi
+fi
+
 if "${RADAR[@]}" compile-hf-paper-report \
   --date "$REPORT_DATE" \
+  --cadence weekly \
   --limit "${HF_WEEKLY_REPORT_LIMIT:-12}" \
   --reasoning-mode "${HF_WEEKLY_REPORT_REASONING_MODE:-browser_agent}" "$@"; then
   :
@@ -79,14 +120,18 @@ else
 fi
 
 if [[ "$HF_WEEKLY_REPORT_SEND_MAIL" == "true" ]]; then
-  "$PYTHON" - "$HARNESS_DIR" "$REPORT_DATE" <<'PY'
+"$PYTHON" - "$HARNESS_DIR" "$REPORT_DATE" <<'PY'
 import importlib.util
 import json
 import pathlib
 import sys
+import datetime as dt
 
 harness = pathlib.Path(sys.argv[1])
 date_str = sys.argv[2]
+day = dt.date.fromisoformat(date_str)
+iso_year, iso_week, _ = day.isocalendar()
+week_id = f"{iso_year}-W{iso_week:02d}"
 report_dir = pathlib.Path("/Users/lisihao/Knowledge/_raw/tech-hotspot-radar") / date_str
 html_path = report_dir / "hf-paper-report.html"
 result_path = report_dir / "mail-result.json"
@@ -97,7 +142,7 @@ mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 result = mod.send_html_email(
     html_path.read_text(encoding="utf-8"),
-    f"Hugging Face 论文周报 — {date_str}",
+    f"Hugging Face 论文周报 — {week_id}",
     [html_path],
 )
 result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -105,4 +150,4 @@ print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 PY
 fi
 
-echo "[hf-paper-weekly-report] ok $(date) report_date=${REPORT_DATE}"
+echo "[hf-paper-weekly-report] ok $(date) report_date=${REPORT_DATE} report_week=${REPORT_WEEK}"

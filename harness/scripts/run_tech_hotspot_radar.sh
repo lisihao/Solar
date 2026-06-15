@@ -94,7 +94,10 @@ run_step "arxiv-daily-baseline ${START_UTC}..${TODAY_UTC}" \
   --force
 
 run_step "hf-paper-insights" \
-  run_with_extra_args "${RADAR[@]}" materialize-hf-paper-insights --limit "${HF_INSIGHT_LIMIT:-160}"
+  run_with_extra_args "${RADAR[@]}" materialize-hf-paper-insights \
+  --limit "${HF_INSIGHT_LIMIT:-160}" \
+  --report-date "$TODAY_UTC" \
+  --report-cadence daily
 
 run_step "github" \
   run_with_extra_args "${RADAR[@]}" collect-github --limit-repos "${GITHUB_LIMIT_REPOS:-80}" --force

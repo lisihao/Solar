@@ -1961,8 +1961,9 @@ async def _run(prompt: str) -> int:
                 print(json.dumps(hold, ensure_ascii=False))
                 return 0
             raise RuntimeError("chatgpt_login_hold_timeout")
+        ready_timeout_s = int(os.environ.get("BROWSER_AGENT_CHATGPT_READY_TIMEOUT") or "90")
         try:
-            ready = await _wait_for_ready(page, timeout_s=90)
+            ready = await _wait_for_ready(page, timeout_s=ready_timeout_s)
         except Exception:
             try:
                 html = await page.evaluate(HTML_JS)
@@ -1987,8 +1988,13 @@ async def _run(prompt: str) -> int:
             "login_wall": ready.get("login_wall"),
             "challenge_wall": ready.get("challenge_wall"),
         }
+        new_chat_timeout_s = int(os.environ.get("BROWSER_AGENT_CHATGPT_NEW_CHAT_TIMEOUT") or "45")
         if action == "run" and not open_project_first and (force_new_chat or int(ready.get("message_count") or 0) > 0):
-            new_chat_result = await _force_new_blank_chat(page, request_dir=request_dir, timeout_s=45)
+            new_chat_result = await _force_new_blank_chat(
+                page,
+                request_dir=request_dir,
+                timeout_s=new_chat_timeout_s,
+            )
             _write_json(request_dir / "new-chat-result.json", new_chat_result)
             if not new_chat_result.get("ok"):
                 raise RuntimeError(
