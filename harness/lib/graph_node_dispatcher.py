@@ -1773,6 +1773,80 @@ def _node_state_age_seconds(node: dict[str, Any]) -> float | None:
     return (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
 
 
+def _pid_alive(pid_value: Any) -> bool:
+    try:
+        pid = int(str(pid_value or "").strip())
+    except Exception:
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _actor_runtime_task_id(result: dict[str, Any]) -> str:
+    lease = result.get("lease") if isinstance(result.get("lease"), dict) else {}
+    return str(
+        result.get("task_id")
+        or lease.get("task_id")
+        or ""
+    ).strip()
+
+
+def _actor_runtime_outbox_has_task_result(result: dict[str, Any]) -> bool:
+    task_id = _actor_runtime_task_id(result)
+    outbox_path = Path(str(result.get("outbox_path") or "")).expanduser()
+    if not task_id or not outbox_path.is_dir():
+        return False
+    try:
+        return any(outbox_path.glob(f"*{task_id}*.json"))
+    except Exception:
+        return False
+
+
+def _operator_runtime_worker_alive(operator_id: str, task_id: str) -> bool:
+    if not operator_id or not task_id:
+        return False
+    candidates = [
+        HARNESS_DIR / "run" / "operator-leases" / f"{operator_id}.json",
+        HARNESS_DIR / "run" / "operator-status" / f"{operator_id}.json",
+    ]
+    for path in candidates:
+        data = _read_json_file_safe(path)
+        if not data:
+            continue
+        current_task = str(data.get("task_id") or data.get("current_task_id") or "").strip()
+        if current_task and current_task != task_id:
+            continue
+        if _pid_alive(data.get("worker_pid")):
+            return True
+    return False
+
+
+def _actor_runtime_dead_daemon_reason(node: dict[str, Any]) -> str:
+    result = node.get("actor_runtime_result")
+    if not isinstance(result, dict):
+        return ""
+    pane = str(node.get("assigned_to") or "")
+    actor_id = pane.split(":", 1)[1].strip() if pane.startswith("actor:") else str(node.get("operator_id") or "").strip()
+    task_id = _actor_runtime_task_id(result)
+    if _operator_runtime_worker_alive(actor_id, task_id):
+        return ""
+    artifact_refs = result.get("artifact_refs") if isinstance(result.get("artifact_refs"), dict) else {}
+    daemon_pid = str(artifact_refs.get("operator_runtime_daemon_pid") or "").strip()
+    if daemon_pid and _pid_alive(daemon_pid):
+        return ""
+    if _actor_runtime_outbox_has_task_result(result):
+        return ""
+    age_seconds = _node_state_age_seconds(node)
+    if age_seconds is None or age_seconds < 900:
+        return ""
+    return "actor_runtime_dead_daemon_without_artifact" if daemon_pid else "actor_runtime_missing_daemon_without_artifact"
+
+
 def _terminal_result_matches_current_dispatch(result: dict[str, Any], node: dict[str, Any]) -> bool:
     current_dispatch_id = str(node.get("dispatch_id") or "").strip()
     result_dispatch_id = str(result.get("dispatch_id") or result.get("task_id") or "").strip()
@@ -2243,6 +2317,33 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
         if status in {"assigned", "dispatched", "in_progress", "running"}:
             pane = str(node.get("assigned_to") or "").strip()
             dispatch_id = str(node.get("dispatch_id") or "").strip()
+            if pane.startswith("actor:"):
+                actor_dead_reason = _actor_runtime_dead_daemon_reason(node)
+                if actor_dead_reason and not handoff_file and not Path(eval_json_path).exists():
+                    node.pop("assigned_to", None)
+                    node.pop("dispatch_id", None)
+                    node["dispatch_retry_reason"] = actor_dead_reason
+                    node["updated_at"] = _utc_now()
+                    node["status"] = "pending"
+                    graph.setdefault("node_results", {}).pop(node_id, None)
+                    _append_dispatch_ledger(
+                        "dispatch_reassigned_after_actor_runtime_dead_daemon",
+                        sid,
+                        pane,
+                        dispatch_id,
+                        {"node": node_id, "reason": actor_dead_reason},
+                    )
+                    repaired.append(
+                        {
+                            "node": node_id,
+                            "pane": pane,
+                            "dispatch_id": dispatch_id,
+                            "status": "pending",
+                            "reason": actor_dead_reason,
+                        }
+                    )
+                    continue
+                continue
             if pane and dispatch_id:
                 title = _pane_title(pane)
                 lease = read_lease(pane)

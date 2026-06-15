@@ -226,6 +226,36 @@ class TestGraphRedispatchReconciler(unittest.TestCase):
         self.assertTrue(result["apply"])
         self.assertEqual(result["redispatched"], 1)
 
+    @patch.dict(os.environ, {"SOLAR_SOLARD_MODE": "active", "SOLAR_DAG_REDISPATCH_LIMIT": "1"})
+    def test_active_budget_counts_escalated_nodes(self):
+        import graph_redispatch as grd
+        import graph_scheduler as gs
+
+        fake_graph = {"nodes": [], "node_results": {}, "sprint_id": "s1"}
+        graphs = iter([
+            ("s1", pathlib.Path("/fake/s1.task_graph.json")),
+            ("s2", pathlib.Path("/fake/s2.task_graph.json")),
+        ])
+
+        with patch.object(grd, "_iter_nonterminal_graphs", return_value=graphs), \
+             patch.object(grd, "redispatch_failed_nodes", return_value={
+                 "ok": True, "sprint_id": "s1", "apply": True, "max_retry": 2,
+                 "limit": 1, "failed_total": 1,
+                 "redispatched": [],
+                 "escalated": [{"node_id": "n1"}],
+                 "skipped": [],
+             }) as mock_rd, \
+             patch.object(gs, "load_graph", return_value=fake_graph), \
+             patch.object(gs, "save_graph") as mock_save:
+
+            result = self.rec.reconcile()
+
+        self.assertEqual(mock_rd.call_count, 1)
+        mock_save.assert_called_once()
+        self.assertEqual(result["redispatched"], 0)
+        self.assertEqual(result["escalated"], 1)
+        self.assertEqual(result["sprints_touched"], 1)
+
     @patch.dict(os.environ, {"SOLAR_SOLARD_MODE": "shadow"})
     def test_exception_propagates(self):
         import graph_redispatch as grd

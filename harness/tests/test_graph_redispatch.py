@@ -213,3 +213,33 @@ def test_redispatch_skips_accepted_repair_even_when_raw_result_failed(monkeypatc
     assert result["redispatched"] == []
     assert graph["nodes"][0]["status"] == "failed"
     assert graph["node_results"]["N1"]["repair_status"] == "accepted"
+
+
+def test_redispatch_limit_counts_human_review_escalations(monkeypatch, tmp_path):
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gr, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(gr, "EVENTS_FILE", tmp_path / "events.jsonl")
+    monkeypatch.setattr(gr, "HUMAN_REVIEW_QUEUE", tmp_path / "human-review.jsonl")
+    monkeypatch.setattr(gr, "NOTIFY_SCRIPT", tmp_path / "missing-notify.sh")
+
+    graph = {
+        "sprint_id": "sprint-one",
+        "nodes": [
+            {"id": "N1", "status": "failed", "redispatch_count": 2},
+            {"id": "N2", "status": "failed", "redispatch_count": 2},
+        ],
+        "node_results": {
+            "N1": {"status": "failed"},
+            "N2": {"status": "failed"},
+        },
+    }
+
+    result = gr.redispatch_failed_nodes(graph, max_retry=2, limit=1, apply=True)
+
+    assert [item["node_id"] for item in result["escalated"]] == ["N1"]
+    assert result["redispatched"] == []
+    assert result["skipped"] == [{"node_id": "N2", "reason": "limit_reached"}]
+    queue_lines = (tmp_path / "human-review.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(queue_lines) == 1
+    assert json.loads(queue_lines[0])["node_id"] == "N1"

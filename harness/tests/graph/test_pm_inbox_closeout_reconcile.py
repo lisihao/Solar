@@ -320,3 +320,121 @@ def test_reconcile_fresh_reviewing_without_handoff_waits(tmp_path, monkeypatch) 
 
     assert repaired == []
     assert node["status"] == "reviewing"
+
+
+def test_reconcile_actor_runtime_dead_daemon_without_artifact_returns_to_pending(tmp_path, monkeypatch) -> None:
+    import graph_node_dispatcher as gnd
+
+    sprints = tmp_path / "sprints"
+    outbox = tmp_path / "actors" / "mini-builder" / "outbox"
+    sprints.mkdir(parents=True)
+    outbox.mkdir(parents=True)
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(gnd, "DISPATCH_LEDGER", tmp_path / "run" / "dispatch-ledger.jsonl")
+
+    sid = "sprint-test-actor-runtime"
+    node = {
+        "id": "S4",
+        "status": "dispatched",
+        "assigned_to": "actor:mini-builder",
+        "dispatch_id": f"graph-{sid}-S4-20200101T010525Z",
+        "actor_runtime_result": {
+            "lease": {"task_id": "task-dead"},
+            "outbox_path": str(outbox),
+            "artifact_refs": {"operator_runtime_daemon_pid": "999999999"},
+        },
+    }
+    graph = {"sprint_id": sid, "nodes": [node], "node_results": {"S4": {"status": "dispatched"}}, "gate_results": {}}
+    graph_path = sprints / f"{sid}.task_graph.json"
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    repaired = gnd._reconcile_existing_dispatches(graph, graph_path)
+
+    assert repaired == [
+        {
+            "node": "S4",
+            "pane": "actor:mini-builder",
+            "dispatch_id": f"graph-{sid}-S4-20200101T010525Z",
+            "status": "pending",
+            "reason": "actor_runtime_dead_daemon_without_artifact",
+        }
+    ]
+    assert node["status"] == "pending"
+    assert node["dispatch_retry_reason"] == "actor_runtime_dead_daemon_without_artifact"
+    assert "assigned_to" not in node
+    assert "dispatch_id" not in node
+    assert "S4" not in graph["node_results"]
+
+
+def test_reconcile_actor_runtime_dead_daemon_keeps_node_when_outbox_has_result(tmp_path, monkeypatch) -> None:
+    import graph_node_dispatcher as gnd
+
+    sprints = tmp_path / "sprints"
+    outbox = tmp_path / "actors" / "mini-builder" / "outbox"
+    sprints.mkdir(parents=True)
+    outbox.mkdir(parents=True)
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", sprints)
+    (outbox / "result-task-dead.json").write_text("{}", encoding="utf-8")
+
+    sid = "sprint-test-actor-runtime-result"
+    node = {
+        "id": "S4",
+        "status": "dispatched",
+        "assigned_to": "actor:mini-builder",
+        "dispatch_id": f"graph-{sid}-S4-20200101T010525Z",
+        "actor_runtime_result": {
+            "lease": {"task_id": "task-dead"},
+            "outbox_path": str(outbox),
+            "artifact_refs": {"operator_runtime_daemon_pid": "999999999"},
+        },
+    }
+    graph = {"sprint_id": sid, "nodes": [node], "node_results": {"S4": {"status": "dispatched"}}, "gate_results": {}}
+    graph_path = sprints / f"{sid}.task_graph.json"
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    repaired = gnd._reconcile_existing_dispatches(graph, graph_path)
+
+    assert repaired == []
+    assert node["status"] == "dispatched"
+
+
+def test_reconcile_actor_runtime_keeps_node_when_worker_pid_alive(tmp_path, monkeypatch) -> None:
+    import graph_node_dispatcher as gnd
+
+    sprints = tmp_path / "sprints"
+    outbox = tmp_path / "actors" / "mini-builder" / "outbox"
+    lease_dir = tmp_path / "run" / "operator-leases"
+    sprints.mkdir(parents=True)
+    outbox.mkdir(parents=True)
+    lease_dir.mkdir(parents=True)
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(gnd, "_pid_alive", lambda value: str(value) == "12345")
+
+    sid = "sprint-test-actor-runtime-worker"
+    task_id = "task-worker"
+    (lease_dir / "mini-builder.json").write_text(
+        json.dumps({"task_id": task_id, "worker_pid": 12345}),
+        encoding="utf-8",
+    )
+    node = {
+        "id": "S4",
+        "status": "dispatched",
+        "assigned_to": "actor:mini-builder",
+        "dispatch_id": f"graph-{sid}-S4-20200101T010525Z",
+        "actor_runtime_result": {
+            "lease": {"task_id": task_id},
+            "outbox_path": str(outbox),
+            "artifact_refs": {"operator_runtime_daemon_pid": "999999999"},
+        },
+    }
+    graph = {"sprint_id": sid, "nodes": [node], "node_results": {"S4": {"status": "dispatched"}}, "gate_results": {}}
+    graph_path = sprints / f"{sid}.task_graph.json"
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    repaired = gnd._reconcile_existing_dispatches(graph, graph_path)
+
+    assert repaired == []
+    assert node["status"] == "dispatched"

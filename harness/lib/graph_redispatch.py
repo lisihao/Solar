@@ -269,7 +269,7 @@ def redispatch_failed_nodes(graph: dict, *, max_retry: int = DEFAULT_MAX_RETRY,
     redispatched, escalated, skipped = [], [], []
 
     for node_id in failed:
-        if len(redispatched) >= limit:
+        if len(redispatched) + len(escalated) >= limit:
             skipped.append({"node_id": node_id, "reason": "limit_reached"})
             continue
         node = _node_obj(graph, node_id)
@@ -350,7 +350,7 @@ def main() -> int:
                 gs.save_graph(tg, graph)
             if r["redispatched"] or r["escalated"]:
                 results.append(r)
-                budget -= len(r["redispatched"])
+                budget -= len(r["redispatched"]) + len(r["escalated"])
     elif args.graph:
         graph = gs.load_graph(args.graph)
         r = redispatch_failed_nodes(graph, max_retry=args.max_retry, limit=args.limit, apply=args.apply)
