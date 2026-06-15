@@ -1732,6 +1732,59 @@ def _latest_pm_task_record_for(
     return newest[1] if newest else None
 
 
+def _terminal_result_time(result: dict[str, Any]) -> datetime.datetime | None:
+    for key in (
+        "finished_at",
+        "completed_at",
+        "failed_at",
+        "updated_at",
+        "started_at",
+        "submitted_at",
+        "created_at",
+    ):
+        ts = _parse_utc(str(result.get(key) or ""))
+        if ts:
+            return ts
+    return None
+
+
+def _node_dispatch_reference_time(node: dict[str, Any]) -> datetime.datetime | None:
+    for key in ("dispatched_at", "assigned_at", "started_at"):
+        ts = _parse_utc(str(node.get(key) or ""))
+        if ts:
+            return ts
+    dispatch_id = str(node.get("dispatch_id") or "")
+    match = re.search(r"(20\d{6}T\d{6}Z)", dispatch_id)
+    if match:
+        return _parse_utc(match.group(1))
+    return None
+
+
+def _node_activity_reference_time(node: dict[str, Any]) -> datetime.datetime | None:
+    return _node_dispatch_reference_time(node) or _parse_utc(str(node.get("updated_at") or ""))
+
+
+def _node_state_age_seconds(node: dict[str, Any]) -> float | None:
+    ts = _node_activity_reference_time(node)
+    if not ts:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    return (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
+
+
+def _terminal_result_matches_current_dispatch(result: dict[str, Any], node: dict[str, Any]) -> bool:
+    current_dispatch_id = str(node.get("dispatch_id") or "").strip()
+    result_dispatch_id = str(result.get("dispatch_id") or result.get("task_id") or "").strip()
+    if current_dispatch_id and result_dispatch_id and current_dispatch_id == result_dispatch_id:
+        return True
+    dispatch_time = _node_dispatch_reference_time(node)
+    result_time = _terminal_result_time(result)
+    if dispatch_time and result_time and result_time < dispatch_time:
+        return False
+    return True
+
+
 def _operator_terminal_result_closeout(
     sid: str,
     node_id: str,
@@ -1739,19 +1792,34 @@ def _operator_terminal_result_closeout(
     graph: dict[str, Any],
 ) -> dict[str, Any] | None:
     pane = str(node.get("assigned_to") or "").strip()
-    operator_id = ""
+    operator_candidates: list[str] = []
+    node_operator_id = str(node.get("operator_id") or "").strip()
+    if node_operator_id:
+        operator_candidates.append(node_operator_id)
     if pane.startswith("operator:"):
-        operator_id = pane.split(":", 1)[1].strip()
+        operator_candidates.append(pane.split(":", 1)[1].strip())
     elif pane:
-        operator_id = pane
-    if not operator_id:
-        operator_id = str(node.get("operator_id") or "").strip()
-    if not operator_id:
+        operator_candidates.append(pane)
+    operator_candidates = list(dict.fromkeys(item for item in operator_candidates if item))
+    if not operator_candidates and not _node_dispatch_reference_time(node):
         return None
-    result = _latest_operator_result_for(sid, node_id, operator_id=operator_id)
+    result = None
+    operator_id = ""
+    for candidate in operator_candidates:
+        result = _latest_operator_result_for(sid, node_id, operator_id=candidate)
+        if not result:
+            result = _latest_pm_task_record_for(sid, node_id, operator_id=candidate)
+        if result:
+            operator_id = candidate
+            break
+    if not result and _node_dispatch_reference_time(node):
+        result = _latest_operator_result_for(sid, node_id, operator_id="")
+        if not result:
+            result = _latest_pm_task_record_for(sid, node_id, operator_id="")
+        operator_id = str(result.get("operator_id") or pane or node_operator_id) if result else ""
     if not result:
-        result = _latest_pm_task_record_for(sid, node_id, operator_id=operator_id)
-    if not result:
+        return None
+    if not _terminal_result_matches_current_dispatch(result, node):
         return None
     status = str(result.get("status") or "").strip().lower()
     if status == "completed" and _existing_node_handoff(sid, node, graph):
@@ -2090,7 +2158,16 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
                 }
             )
             continue
-        if status in {"assigned", "dispatched", "in_progress", "running"}:
+        if not handoff_file and status in {
+            "assigned",
+            "dispatched",
+            "in_progress",
+            "running",
+            "reviewing",
+            "ready_for_review",
+            "needs_human_review",
+            "failed_review",
+        }:
             closeout = _operator_terminal_result_closeout(sid, node_id, node, graph)
             if closeout:
                 pane = str(node.get("assigned_to") or "").strip()
@@ -2129,6 +2206,37 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
                         "operator_status": closeout.get("operator_status"),
                         "result_json": closeout.get("result_json"),
                         "operator_cooldown": operator_cooldown,
+                    }
+                )
+                continue
+        if not handoff_file and status in {"reviewing", "ready_for_review", "needs_human_review", "failed_review"}:
+            age_seconds = _node_state_age_seconds(node)
+            if age_seconds is not None and age_seconds >= 900:
+                pane = str(node.get("assigned_to") or "").strip()
+                dispatch_id = str(node.get("dispatch_id") or "").strip()
+                if pane and dispatch_id:
+                    release_lease(pane, dispatch_id, "graph_dispatch_reconcile_reviewing_without_handoff")
+                node.pop("assigned_to", None)
+                node.pop("dispatch_id", None)
+                node["dispatch_retry_reason"] = "reviewing_without_handoff"
+                node["updated_at"] = _utc_now()
+                node["status"] = "pending"
+                graph.setdefault("node_results", {}).pop(node_id, None)
+                _append_dispatch_ledger(
+                    "dispatch_reassigned_after_reviewing_without_handoff",
+                    sid,
+                    pane,
+                    dispatch_id,
+                    {"node": node_id, "age_seconds": age_seconds},
+                )
+                repaired.append(
+                    {
+                        "node": node_id,
+                        "pane": pane,
+                        "dispatch_id": dispatch_id,
+                        "status": "pending",
+                        "reason": "reviewing_without_handoff",
+                        "age_seconds": int(age_seconds),
                     }
                 )
                 continue
