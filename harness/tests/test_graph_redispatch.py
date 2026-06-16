@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 from harness.lib import graph_redispatch as gr
@@ -243,3 +244,44 @@ def test_redispatch_limit_counts_human_review_escalations(monkeypatch, tmp_path)
     queue_lines = (tmp_path / "human-review.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(queue_lines) == 1
     assert json.loads(queue_lines[0])["node_id"] == "N1"
+
+
+def test_scan_all_reports_skipped_only_already_escalated(monkeypatch, tmp_path, capsys):
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gr, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(gr, "EVENTS_FILE", tmp_path / "events.jsonl")
+    monkeypatch.setattr(gr, "HUMAN_REVIEW_QUEUE", tmp_path / "human-review.jsonl")
+    monkeypatch.setattr(gr, "NOTIFY_SCRIPT", tmp_path / "missing-notify.sh")
+
+    sid = "sprint-one"
+    (sprints / f"{sid}.status.json").write_text('{"status":"active"}', encoding="utf-8")
+    (sprints / f"{sid}.task_graph.json").write_text(
+        json.dumps(
+            {
+                "sprint_id": sid,
+                "nodes": [
+                    {
+                        "id": "N1",
+                        "status": "failed",
+                        "redispatch_count": 2,
+                        "needs_human_review": True,
+                    }
+                ],
+                "node_results": {"N1": {"status": "failed"}},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["graph_redispatch.py", "--scan-all", "--apply", "--json"])
+
+    assert gr.main() == 0
+    summary = json.loads(capsys.readouterr().out)
+
+    assert summary["total_redispatched"] == 0
+    assert summary["total_escalated"] == 0
+    assert summary["total_skipped"] == 1
+    assert summary["skipped_reasons"] == {"already_escalated": 1}
+    assert summary["results"] == []

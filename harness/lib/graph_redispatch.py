@@ -347,6 +347,16 @@ def main() -> int:
     args = ap.parse_args()
 
     results = []
+    skipped_only_count = 0
+    skipped_reason_counts: dict[str, int] = {}
+
+    def note_skipped(items: list[dict]) -> None:
+        nonlocal skipped_only_count
+        skipped_only_count += len(items)
+        for item in items:
+            reason = str(item.get("reason") or "unknown")
+            skipped_reason_counts[reason] = skipped_reason_counts.get(reason, 0) + 1
+
     if args.scan_all:
         budget = args.limit
         for sid, tg in _iter_nonterminal_graphs():
@@ -359,12 +369,15 @@ def main() -> int:
             if r["redispatched"] or r["escalated"]:
                 results.append(r)
                 budget -= len(r["redispatched"]) + len(r["escalated"])
+            elif r.get("skipped"):
+                note_skipped(r["skipped"])
     elif args.graph:
         graph = gs.load_graph(args.graph)
         r = redispatch_failed_nodes(graph, max_retry=args.max_retry, limit=args.limit, apply=args.apply)
         if args.apply and (r["redispatched"] or r["escalated"]):
             gs.save_graph(args.graph, graph)
         results.append(r)
+        note_skipped(r.get("skipped") or [])
     else:
         ap.error("need --graph or --scan-all")
 
@@ -373,6 +386,8 @@ def main() -> int:
         "sprints_touched": len(results),
         "total_redispatched": sum(len(r["redispatched"]) for r in results),
         "total_escalated": sum(len(r["escalated"]) for r in results),
+        "total_skipped": sum(len(r["skipped"]) for r in results) + skipped_only_count,
+        "skipped_reasons": skipped_reason_counts,
         "results": results,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=1 if not args.json else None))
