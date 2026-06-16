@@ -515,7 +515,7 @@ class PaneHygieneReconciler(Reconciler):
                 user_path = f"{extra}:{user_path}"
 
         bash = "/opt/homebrew/bin/bash"
-        if not pathlib.Path(bash).is_executable():
+        if not os.access(bash, os.X_OK):
             bash = "/bin/bash"
 
         incarnation = str(H / "start-incarnation.sh")

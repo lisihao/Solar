@@ -57,6 +57,42 @@ def _emit(event: str, severity: str, data: dict) -> None:
         print(f"capability_supply_registry: emit failed: {exc}", file=sys.stderr)
 
 
+# 跨轮去重 (2026-06-15): validate_required 每轮对同一批缺能力节点重复 emit
+# capability_demand_dropped → 94条/15min 撑爆 events.jsonl + 拖慢 solard。
+# 与 needs_human_review/notify 刷屏同源 (哨兵对同一对象反复报, 无去重)。
+# 持久化指纹缓存: 同 (context+dropped) 在 TTL 内只报一次。
+import hashlib as _hashlib
+
+_DEMAND_DROPPED_TTL = 1800  # 30min 内同指纹不重报
+_DEMAND_DROPPED_CACHE = EVENTS.parent.parent / "run" / "capability-demand-dropped-seen.json"
+
+
+def _should_emit_demand_dropped(context: str, dropped: list[str]) -> bool:
+    """同 (context, dropped) 指纹在 TTL 内只 emit 一次, 防刷屏。"""
+    import time
+    key = _hashlib.sha1(
+        (str(context) + "|" + ",".join(sorted(str(d) for d in dropped))).encode()
+    ).hexdigest()[:16]
+    now = time.time()
+    try:
+        cache = json.loads(_DEMAND_DROPPED_CACHE.read_text()) if _DEMAND_DROPPED_CACHE.is_file() else {}
+    except Exception:
+        cache = {}
+    # 清理过期 + 判定
+    cache = {k: v for k, v in cache.items() if isinstance(v, (int, float)) and now - v < _DEMAND_DROPPED_TTL}
+    if key in cache:
+        return False
+    cache[key] = now
+    try:
+        _DEMAND_DROPPED_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _DEMAND_DROPPED_CACHE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cache))
+        tmp.replace(_DEMAND_DROPPED_CACHE)
+    except Exception:
+        pass
+    return True
+
+
 class CapabilitySupplyRegistry:
     def __init__(self, supply: dict):
         self.supply = supply or {}
@@ -116,7 +152,7 @@ class CapabilitySupplyRegistry:
             elif target not in seen:
                 seen.add(target)
                 valid.append(target)
-        if dropped:
+        if dropped and _should_emit_demand_dropped(context, dropped):
             _emit("capability_demand_dropped", "warn",
                   {"context": context[:100], "dropped": dropped[:30],
                    "kept": len(valid), "reason": "not_in_supply_vocabulary"})
