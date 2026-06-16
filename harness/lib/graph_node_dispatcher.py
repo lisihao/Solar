@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -3665,6 +3666,7 @@ def _ensure_execution_plan_payload(
             str(node.get("id") or ""),
             capsule_plan=capsule_plan_ir,
             physical_plan=physical_plan_ir,
+            planner_artifact=compiled,
             base_dir=SPRINTS_DIR,
         )
     except Exception:
@@ -7783,10 +7785,21 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
     sid = graph.get("sprint_id") or Path(graph_path).stem.replace(".task_graph", "")
     effective_max_parallel = int(max_parallel) if max_parallel is not None else _effective_graph_max_parallel(8)
     reconciled: list[dict[str, Any]] = []
+    # G6 修复 (2026-06-16): 旧代码 enqueue 后无条件 save_graph, 即使 enqueue=0、
+    # 无任何变化也照写 → os.replace 刷新 .task_graph.json/.task_dag.state.json mtime
+    # → DirtyScanner 把 sprint 重新标脏 → scan→fork→0派→save→重新脏 死循环
+    # ("28 fork 只 enqueue 1" 里那 27 次空转的来源)。改为内容指纹比对, 只在
+    # graph 真变化时才 save。
+    def _graph_fingerprint(g: dict) -> str:
+        try:
+            return hashlib.sha1(
+                json.dumps(g, sort_keys=True, ensure_ascii=False, default=str).encode()
+            ).hexdigest()
+        except Exception:
+            return ""
+    fp_before = _graph_fingerprint(graph) if not dry_run else ""
     if not dry_run:
         reconciled = _reconcile_existing_dispatches(graph, graph_path)
-        if reconciled:
-            save_graph(graph_path, graph)
     enqueue_result = enqueue_ready(
         graph,
         graph_path,
@@ -7796,7 +7809,7 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
         ttl=ttl,
         dry_run=dry_run,
     )
-    if not dry_run:
+    if not dry_run and _graph_fingerprint(graph) != fp_before:
         save_graph(graph_path, graph)
     if dry_run:
         results = []

@@ -227,8 +227,18 @@ class GraphDispatchReconciler(Reconciler):
         import graph_scheduler as gs  # noqa
         graph = gs.load_graph(tg)
         ready = [str(n.get("id")) for n in gs.ready_nodes(graph)]
-        if mode() == "active" and ready:
-            # active 切流 (2026-06-12 监护人拍板 A): 调 dispatch-ready 真派。
+        # G3 修复 (2026-06-16): dispatch-ready 命令本身含幽灵收割逻辑
+        # (_reconcile_existing_dispatches), 但旧代码仅在 ready 非空时 fork。
+        # 当一个 sprint 所有节点都卡 dispatched (worker 死), ready=[] →
+        # 收割入口被锁死 → 幽灵永久。改为: 有占用态节点 (dispatched/assigned/...)
+        # 即使 ready=[] 也 fork 一次让它收割。
+        ACTIVE = {"assigned", "dispatched", "in_progress", "running", "reviewing"}
+        has_occupied = any(
+            str((n.get("status") or "")).lower() in ACTIVE
+            for n in graph.get("nodes", [])
+        )
+        if mode() == "active" and (ready or has_occupied):
+            # active 切流 (2026-06-12 监护人拍板 A): 调 dispatch-ready 真派 + 收割幽灵。
             # 该路径已人工验证 (P0 期间手动批量驱动同款命令); 超时保护;
             # 失败 raise 给框架落 error 事件 (R3 公约)。
             import subprocess

@@ -17,7 +17,7 @@ import sys
 import time
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 try:
     import readline  # type: ignore
@@ -2515,6 +2515,35 @@ def status_summary_for_graph(graph_path: Path) -> dict[str, Any]:
         }
 
 
+def epic_child_status_lines(graphs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize DAG graph summaries for status child rows."""
+    rows: list[dict[str, Any]] = []
+    for graph in graphs:
+        if not graph.get("ok"):
+            continue
+        rows.append({
+            "sid": str(graph.get("sid") or "N/A"),
+            "description": str(graph.get("description") or "N/A"),
+            "ready_nodes": list(graph.get("ready") or []),
+            "node_counts": dict(graph.get("counts") or {}),
+            "graph_updated_at": str(graph.get("graph_updated_at") or "N/A"),
+        })
+    return rows
+
+
+def _quota_blocker_text(graphs: list[dict[str, Any]], guard: dict[str, Any]) -> str:
+    """Render the launch guard quota blocker as compact status text."""
+    if guard.get("ok"):
+        return ""
+    reason = str(guard.get("reason") or "N/A")
+    if reason != "recent_quota_or_rate_limit":
+        return reason
+    hits = guard.get("hits") or []
+    if not hits:
+        return "quota_blocked"
+    return f"quota_blocked ({len(hits)} tasks)"
+
+
 def load_graph_summary_cache() -> dict[str, Any]:
     try:
         data = json.loads(GRAPH_SUMMARY_CACHE_PATH.read_text(encoding="utf-8"))
@@ -2533,6 +2562,26 @@ def save_graph_summary_cache(cache: dict[str, Any]) -> None:
         tmp.replace(GRAPH_SUMMARY_CACHE_PATH)
     except Exception:
         return
+
+
+def invalidate_graph_summary_cache(graph_path: Optional[Path] = None) -> int:
+    """Remove one graph summary cache entry, or all entries when no path is given."""
+    cache = load_graph_summary_cache()
+    entries = cache.setdefault("entries", {})
+    if not isinstance(entries, dict):
+        cache["entries"] = {}
+        save_graph_summary_cache(cache)
+        return 0
+    if graph_path is None:
+        removed = len(entries)
+        cache["entries"] = {}
+        save_graph_summary_cache(cache)
+        return removed
+    key = graph_cache_key(graph_path)
+    removed = 1 if key in entries else 0
+    entries.pop(key, None)
+    save_graph_summary_cache(cache)
+    return removed
 
 
 def graph_cache_key(graph_path: Path) -> str:
@@ -2821,6 +2870,21 @@ fi
   agent_pid=$!
   echo "$agent_pid" > "$TASK_DIR/agent.pid"
   echo "[solar-harness multi-task] sid=$SID node=$NODE_ID agent_pid=$agent_pid"
+  # G4 修复 (2026-06-16): 把 worker pid 写进 status.json, 否则
+  # _active_multi_task_status_for 的活性校验 (commit 4ac261180) 拿不到 pid 数据源,
+  # _pid_alive(None) 恒 False → 对真活 worker 也误判死。pid 只写 agent.pid 不够,
+  # 活性校验读的是 status.json。
+  python3 - "$STATUS_FILE" "$agent_pid" <<'PY' 2>/dev/null || true
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+try:
+    data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {{}}
+except Exception:
+    data = {{}}
+data["worker_pid"] = int(sys.argv[2])
+p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+PY
   sleep "${{SOLAR_MULTI_TASK_AGENT_START_GRACE_SEC:-2}}"
   if kill -0 "$agent_pid" >/dev/null 2>&1; then
     echo "[solar-harness multi-task] sid=$SID node=$NODE_ID agent_alive_after_grace=true"
@@ -3226,6 +3290,7 @@ def render_plain(result: dict[str, Any], no_clear: bool = False) -> None:
     if not no_clear and sys.stdout.isatty():
         print("\033[H\033[2J", end="")
     guard = result.get("guard") or {}
+    quota_blocker = _quota_blocker_text(result.get("graphs") or [], guard)
     mem = free_memory_gb()
     tasks = list_task_rows()[:20]
     active = [t for t in tasks if str(t.get("effective_status") or t.get("status", "")).lower() in ACTIVE_TASK_STATUSES]
@@ -3246,6 +3311,7 @@ def render_plain(result: dict[str, Any], no_clear: bool = False) -> None:
             ["data_source", "ok" if data_source == "live" else "warn", data_source],
             ["latest_task_age", "ok" if inventory["latest_age"] not in ("N/A",) and not inventory["stale"] else "warn", str(inventory["latest_age"])],
             ["launch_guard", "ok" if guard.get("ok") else "warn", str(guard.get("reason", "N/A"))],
+            ["quota_blocker", "warn" if quota_blocker else "ok", quota_blocker or "N/A"],
             ["free_memory_gb", "ok" if mem is None or mem >= DEFAULT_MEMORY_RESERVE_GB else "warn", "N/A" if mem is None else f"{mem:.2f}"],
             ["refresh_mode", "ok", str(result.get("refresh_mode") or "cached")],
             ["checked_at", "ok", str(result.get("observed_at") or now_iso())],
@@ -3621,7 +3687,14 @@ def screen_view_model(result: dict[str, Any], args: argparse.Namespace, width: i
             "target": _screen_short_target(d.get("sprint"), d.get("node")),
         }
 
-    dag: dict[str, Any] = {"sprint": "N/A", "counts": {"pass": 0, "pending": 0, "reviewing": 0}, "ready": "N/A"}
+    quota_blocker = _quota_blocker_text(graphs, guard)
+    dag: dict[str, Any] = {
+        "sprint": "N/A",
+        "counts": {"pass": 0, "pending": 0, "reviewing": 0},
+        "ready": "N/A",
+        "children": [],
+        "quota_blocker": quota_blocker,
+    }
     if graphs:
         g = graphs[0]
         sid = str(g.get("sid", "N/A"))
@@ -3635,6 +3708,8 @@ def screen_view_model(result: dict[str, Any], args: argparse.Namespace, width: i
                 "reviewing": int(gc.get("reviewing", 0) or 0),
             },
             "ready": g.get("ready") or "N/A",
+            "children": epic_child_status_lines(graphs),
+            "quota_blocker": quota_blocker,
         }
 
     degraded: list[dict[str, Any]] = []
