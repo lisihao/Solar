@@ -300,7 +300,12 @@ def redispatch_failed_nodes(graph: dict, *, max_retry: int = DEFAULT_MAX_RETRY,
         else:
             rec = {"ts": _now(), "sprint_id": sid, "node_id": node_id,
                    "redispatch_count": rc, "fail_summary": summary}
-            if apply:
+            # 去重 (2026-06-15): 节点已升级人工就别每轮重报。否则 redispatch 每轮
+            # 重扫所有 failed, 对同一批已升级节点反复 emit dag_node_needs_human_review
+            # → 1.6万条/天噪音, 撑爆 events.jsonl + 把 solard 每轮拖到 27s。
+            # 只在首次升级 (needs_human_review 尚未置位) 时 append/emit/notify。
+            already_escalated = bool(node.get("needs_human_review"))
+            if apply and not already_escalated:
                 _human_review_append(rec)
                 node["needs_human_review"] = True
                 _emit_event("dag_node_needs_human_review", {
@@ -308,7 +313,10 @@ def redispatch_failed_nodes(graph: dict, *, max_retry: int = DEFAULT_MAX_RETRY,
                     "fail_summary": summary[:140]})
                 _notify("Solar DAG 卡点需人工",
                         f"{sid[:36]} 节点 {node_id} 重派 {rc} 次仍 FAIL, 需裁决")
-            escalated.append(rec)
+            if not already_escalated:
+                escalated.append(rec)
+            else:
+                skipped.append({"node_id": node_id, "reason": "already_escalated"})
 
     return {"ok": True, "sprint_id": sid, "apply": apply, "max_retry": max_retry,
             "limit": limit, "failed_total": len(failed),
