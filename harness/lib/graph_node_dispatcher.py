@@ -40,6 +40,7 @@ MULTI_TASK_RUN_DIR = HARNESS_DIR / "run" / "multi-task"
 SESSION = os.environ.get("SOLAR_HARNESS_SESSION", "solar-harness")
 NO_DISPATCH_FLAG = HARNESS_DIR / "run" / "no-dispatch.flag"
 DISPATCH_LEDGER = HARNESS_DIR / "run" / "dispatch-ledger.jsonl"
+AUTOPILOT_STATE = HARNESS_DIR / "run" / "autopilot-routing.jsonl"
 PANE_RECOVER_COOLDOWN_SEC = int(os.environ.get("SOLAR_GRAPH_PANE_RECOVER_COOLDOWN_SEC", "900"))
 PANE_TUI_BUSY_RE = re.compile(
     r"Compacting conversation|压缩上下文|Reticulating|Scurrying|Roosting|"
@@ -208,6 +209,7 @@ try:
 except Exception:  # pragma: no cover - state sync is best-effort in partial installs
     task_graph_state_io = None  # type: ignore
 from pane_lease import acquire as acquire_lease, release as release_lease, read_lease, list_leases  # noqa: E402
+from actor_lease import ActorLeaseBroker  # noqa: E402
 import task_queue as _task_queue  # noqa: E402
 enqueue = _task_queue.enqueue
 try:
@@ -251,6 +253,23 @@ except Exception:  # pragma: no cover - hygiene helpers are additive
 
 def _json(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False)
+
+
+def _append_autopilot_routing_record(record: dict[str, Any]) -> None:
+    try:
+        AUTOPILOT_STATE.parent.mkdir(parents=True, exist_ok=True)
+        with AUTOPILOT_STATE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def check_node_capability_gate(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    return {"ok": True}
+
+
+def _sync_dispatch_package(**_kwargs: Any) -> tuple[str, str]:
+    return "", ""
 
 
 def _sync_state_node(
@@ -1635,6 +1654,13 @@ def _active_multi_task_status_for(sid: str, node_id: str) -> dict[str, Any] | No
             continue
         task_status = str(status.get("status") or "").lower()
         if task_status not in {"dispatched", "running", "in_progress"}:
+            continue
+        # 活性校验 (2026-06-16): status.json 写 dispatched/running 不等于进程真活。
+        # 僵尸 status (进程早死但状态没回写) 会每轮把节点钉回 dispatched →
+        # 幽灵 pane 永久占用 → 死锁。与 solard 假死/cmd_status 假阴性同源:
+        # 信状态文件不验进程。只有 pid 真活才算 active multi-task。
+        pid = status.get("pid") or status.get("worker_pid") or status.get("process_pid")
+        if not _pid_alive(pid):
             continue
         updated = str(status.get("updated_at") or status.get("created_at") or "")
         if newest is None or updated > newest[0]:
@@ -5563,12 +5589,63 @@ def _mark_parent_sprint_passed_if_ready(sid: str, parent: dict[str, Any], dry_ru
     return True
 
 
-def _ensure_lease(pane: str, sid: str, dispatch_id: str, ttl: int, dry_run: bool) -> dict[str, Any]:
+def _actor_lease_projection(lease: Any, *, compat_fallback: bool = False) -> dict[str, Any]:
+    data = lease.to_dict() if hasattr(lease, "to_dict") else dict(lease or {})
+    return {
+        "acquired": True,
+        "actor_first": True,
+        "compat_fallback": compat_fallback,
+        "actor_id": data.get("actor_id"),
+        "lease_id": data.get("lease_id"),
+        "task_id": data.get("task_id"),
+        "sprint_id": data.get("sprint_id"),
+        "node_id": data.get("node_id"),
+        "lease_state": data.get("state"),
+        "evidence_path": data.get("evidence_path"),
+    }
+
+
+def _ensure_lease(
+    pane: str,
+    sid: str,
+    dispatch_id: str,
+    ttl: int,
+    dry_run: bool,
+    *,
+    actor_id: str = "",
+    node_id: str = "",
+    evidence_path: str | None = None,
+) -> dict[str, Any]:
     if dry_run:
         return {"acquired": True, "dry_run": True}
+    if actor_id:
+        lease = ActorLeaseBroker().acquire(
+            actor_id,
+            dispatch_id,
+            sid,
+            node_id,
+            ttl_sec=ttl,
+            evidence_path=evidence_path,
+        )
+        if lease is not None:
+            return _actor_lease_projection(lease)
+        fallback = acquire_lease(pane, sid, dispatch_id, ttl)
+        if fallback.get("acquired"):
+            fallback.update({
+                "actor_first": False,
+                "compat_fallback": True,
+                "fallback_reason": "actor_lease_unavailable",
+                "fallback_to_pane": pane,
+                "actor_id": actor_id,
+            })
+        return fallback
     if _lease_active_for(pane, sid, dispatch_id):
         return {"acquired": True, "existing": True}
     return acquire_lease(pane, sid, dispatch_id, ttl)
+
+
+def _release_actor_lease(actor_id: str, reason: str = "graph_dispatch_release") -> bool:
+    return ActorLeaseBroker().release(actor_id, reason=reason) is not None
 
 
 def _builder_operator_pool_enabled() -> bool:
@@ -6750,7 +6827,23 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
                 "requeued": False,
             }
 
-    lease_result = _ensure_lease(pane, sid, dispatch_id, ttl, dry_run)
+    actor_lease_id = str(
+        assignment.get("selected_actor")
+        or assignment.get("actor_id")
+        or payload.get("selected_actor")
+        or payload.get("actor_id")
+        or node.get("actor_id")
+        or ""
+    ).strip()
+    lease_result = _ensure_lease(
+        pane,
+        sid,
+        dispatch_id,
+        ttl,
+        dry_run,
+        actor_id=actor_lease_id,
+        node_id=str(node_id),
+    )
     if not lease_result.get("acquired"):
         enqueue(sid, item.get("intent", f"graph_node|node_id={node_id}"), item.get("priority", 80), payload)
         _mark_graph_node(graph_path, node_id, "pending", clear_assignment=True)
@@ -6762,6 +6855,19 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             "lease": lease_result,
             "requeued": True,
         }
+    if actor_lease_id and lease_result.get("actor_first"):
+        _append_autopilot_routing_record(
+            {
+                "ts": _utc_now(),
+                "dispatch_id": dispatch_id,
+                "actor_id": lease_result.get("actor_id"),
+                "lease_id": lease_result.get("lease_id"),
+                "task_id": lease_result.get("task_id"),
+                "sprint_id": lease_result.get("sprint_id") or sid,
+                "node_id": lease_result.get("node_id") or node_id,
+                "compat_fallback": bool(lease_result.get("compat_fallback")),
+            }
+        )
 
     text_payload = _dispatch_via_pane_compatibility_payload(
         dict(payload, dispatch_id=dispatch_id, sprint_id=sid),
@@ -6770,10 +6876,16 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
     )
     text_payload = _ensure_execution_plan_payload(text_payload, graph_path=graph_path, sid=sid, node=node)
     actorhost = _actorhost_bridge(
+        actor_id=actor_lease_id,
         pane=pane,
         required_capabilities=list(node.get("required_capabilities") or []),
     )
-    capability_mismatch = _actorhost_capability_mismatch(actorhost)
+    capability_gate = check_node_capability_gate(node, actorhost=actorhost, pane=pane)
+    capability_mismatch = (
+        {}
+        if capability_gate.get("ok")
+        else _actorhost_capability_mismatch(actorhost)
+    )
     if capability_mismatch:
         if not dry_run:
             release_lease(pane, dispatch_id, "compatibility_fallback_capability_mismatch")
@@ -6804,6 +6916,7 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             **capability_mismatch,
         }
     text_payload["actorhost"] = actorhost
+    text_payload["lease"] = lease_result
     for key in ("actor_id", "host_id", "host_type", "lease_state"):
         text_payload[key] = actorhost.get(key)
     # Research node branch: mark fan-out section isolation for R-prefixed nodes
@@ -6855,6 +6968,7 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
             "fallback_reason": "explicit_pane_compatibility",
             "dry_run": dry_run,
             "graph_updated": graph_updated,
+            "lease": lease_result,
         }, actorhost)
 
     if not dry_run:
