@@ -4863,6 +4863,9 @@ def _dismiss_dispatch_prompt(pane: str, reason: str) -> bool:
         if reason == "feedback_survey_prompt":
             subprocess.run(["tmux", "send-keys", "-t", pane, "0", "Enter"], timeout=2)
             return True
+        if reason == "interrupt_prompt_blocked":
+            subprocess.run(["tmux", "send-keys", "-t", pane, "Escape"], timeout=2)
+            return True
         if reason == "rewind_prompt_blocked":
             subprocess.run(["tmux", "send-keys", "-t", pane, "Escape"], timeout=2)
             return True

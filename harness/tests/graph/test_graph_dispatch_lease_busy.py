@@ -761,6 +761,23 @@ def test_dismiss_plan_mode_cycles_shift_tab(monkeypatch) -> None:
     assert sent and "BTab" in sent[0]
 
 
+def test_dismiss_interrupt_prompt_sends_escape(monkeypatch) -> None:
+    sent: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        sent.append(list(args))
+
+        class Result:
+            stdout = ""
+
+        return Result()
+
+    monkeypatch.setattr(gnd.subprocess, "run", fake_run)
+
+    assert gnd._dismiss_dispatch_prompt("solar-harness-lab:0.3", "interrupt_prompt_blocked") is True
+    assert sent == [["tmux", "send-keys", "-t", "solar-harness-lab:0.3", "Escape"]]
+
+
 def test_assigned_multi_task_shell_is_not_direct_worker(monkeypatch) -> None:
     monkeypatch.setattr(gnd, "_pane_title", lambda pane: "MT builder | 状态:running | 能力:能力:N/A")
     monkeypatch.setattr(gnd, "_pane_health", lambda pane: {})
