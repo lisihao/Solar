@@ -58,8 +58,23 @@ ALLOWLIST: dict[str, str] = {
     "lib/hands_runtime.py": (
         "legacy PaneHand class; superseded by operator_runtime.submit"
     ),
+    "lib/pane_runtime_contract.py": (
+        "legacy pane send/observe contract helper; not normal DAG dispatch"
+    ),
+    "lib/persona_reinjector.py": (
+        "legacy persona/context reinjection adapter for TUI panes"
+    ),
     "coordinator.sh": (
         "legacy DAG coordinator pane-pusher; migration target"
+    ),
+    "tools/graph_node_dispatcher.py": (
+        "legacy graph pane dispatcher and pane recovery path; migration target"
+    ),
+    "tools/hands_runtime.py": (
+        "legacy hands runtime pane adapter; not normal DAG dispatch"
+    ),
+    "tools/persona_reinjector.py": (
+        "legacy persona/context reinjection adapter for TUI panes"
     ),
 
     # === APPROVED STARTUP / PANE LIFECYCLE ===
@@ -71,6 +86,9 @@ ALLOWLIST: dict[str, str] = {
         "centralised fix-keys helper (Escape / C-u); the ONLY approved "
         "location for prompt-clear keystrokes"
     ),
+    "tools/prompt-quarantine.sh": (
+        "centralised runtime fix-keys helper (Escape / C-u); not DAG dispatch"
+    ),
 
     # === RESEARCH TOOLING (non-DAG) ===
     "lib/research/cli.py": (
@@ -78,6 +96,9 @@ ALLOWLIST: dict[str, str] = {
         "research flow, not DAG dispatch"
     ),
     "lib/research/survey/backends.py": (
+        "research survey pane-packet backend; not a DAG dispatch path"
+    ),
+    "tools/research/survey/backends.py": (
         "research survey pane-packet backend; not a DAG dispatch path"
     ),
 
@@ -219,6 +240,11 @@ def find_send_keys_callsites(path: Path) -> list[tuple[int, str]]:
                 continue
 
         code = _strip_inline_comment(raw, suffix)
+
+        if suffix == ".py":
+            if _RE_PY_LIST.search(code) or re.search(r"\bsubprocess\.\w+\([^\n#]*tmux\s+send-keys", code):
+                hits.append((line_no, raw.rstrip()))
+            continue
 
         if _RE_SHELL_CALL.search(code) or _RE_PY_LIST.search(code):
             hits.append((line_no, raw.rstrip()))

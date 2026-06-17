@@ -3057,9 +3057,24 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
             semantic_proof = result_dir / "understand-anything-semantic-proof.json"
             semantic_request = result_dir / "understand-anything-semantic-phase-request.json"
             dispatch_result = result_dir / "understand-anything-result.json"
+            skill_dispatch_result = result_dir / "skill-dispatch-result.json"
+            skill_dispatch_prompt = result_dir / "skill-dispatch-pane-prompt.md"
+            skill_dispatch_selection = result_dir / "skill-dispatch-selection-proof.json"
+            skill_dispatch_contract = result_dir / "skill-dispatch-bridge-contract.json"
             semantic_proof_payload = _read_json_file_safe(semantic_proof)
             dispatch_payload = _read_json_file_safe(dispatch_result)
+            skill_contract_payload = _read_json_file_safe(skill_dispatch_contract)
             local_dispatch = dispatch_payload.get("dispatch_result") if isinstance(dispatch_payload.get("dispatch_result"), dict) else {}
+            command_protocol = (
+                skill_contract_payload.get("command_protocol")
+                if isinstance(skill_contract_payload.get("command_protocol"), dict)
+                else {}
+            )
+            workflow_contract = (
+                skill_contract_payload.get("workflow_contract")
+                if isinstance(skill_contract_payload.get("workflow_contract"), dict)
+                else {}
+            )
             presence.update(
                 {
                     "understand_anything_dispatch_result": dispatch_result.exists(),
@@ -3071,6 +3086,16 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
                     "check.meta_written": Path(str(local_dispatch.get("meta_path") or "")).exists(),
                     "check.semantic_backend_thunderomlx_declared": (
                         semantic_proof_payload.get("semantic_backend_declared") == "ThunderOMLX"
+                    ),
+                    "skill_dispatch_result": skill_dispatch_result.exists(),
+                    "check.skill_dispatch_result_written": skill_dispatch_result.exists(),
+                    "check.skill_dispatch_prompt_written": skill_dispatch_prompt.exists(),
+                    "check.skill_dispatch_selection_proof_written": skill_dispatch_selection.exists(),
+                    "check.skill_dispatch_contract_written": skill_dispatch_contract.exists(),
+                    "check.skill_dispatch_command_protocol_declared": bool(command_protocol.get("mode")),
+                    "check.skill_dispatch_workflow_phases_declared": bool(workflow_contract.get("phases")),
+                    "check.skill_dispatch_delivery_expectation_declared": bool(
+                        str(workflow_contract.get("delivery_expectation") or "").strip()
                     ),
                 }
             )
