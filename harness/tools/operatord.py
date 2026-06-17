@@ -122,6 +122,40 @@ def _dispatch_check(token: "CapabilityToken", req: dict[str, Any]) -> "PolicyDec
     )
 
 
+def _write_capability_decision_event(
+    envelope: dict[str, Any],
+    operator_id: str,
+    task_id: str,
+    decision: "PolicyDecision",
+    *,
+    event_type: str = "capability_decision",
+    kind: str = "",
+) -> None:
+    """Append a scrubbed capability decision event without blocking dispatch."""
+    try:
+        from event_ledger import EventLedger
+
+        EventLedger(str(HARNESS_DIR / "run")).append(
+            {
+                "event_type": event_type,
+                "sprint_id": str(envelope.get("sprint_id") or task_id or "operatord"),
+                "node_id": str(envelope.get("node_id") or ""),
+                "actor": operator_id,
+                "payload": {
+                    "task_id": task_id,
+                    "kind": kind,
+                    "allowed": bool(decision.allowed),
+                    "reason": decision.reason,
+                    "detail": decision.detail,
+                    "rule": decision.rule,
+                    "audit": decision.audit,
+                },
+            }
+        )
+    except Exception as exc:
+        _info(f"capability_pre_dispatch: event write failed: {exc}")
+
+
 def _capability_pre_dispatch(
     envelope: dict[str, Any],
     operator_id: str,
@@ -141,17 +175,35 @@ def _capability_pre_dispatch(
     policy_requests = envelope.get("policy_requests") or []
 
     if not token_ref:
+        decision = PolicyDecision(False, "missing_token", detail="capability_token_ref missing")
+        _write_capability_decision_event(
+            envelope,
+            operator_id,
+            task_id,
+            decision,
+            event_type="capability_decision_missing_token",
+            kind="token",
+        )
         _info(
             f"capability_pre_dispatch: no capability_token_ref in envelope "
-            f"(task={task_id}); writing missing_token warning"
+            f"(task={task_id}); wrote missing_token warning"
         )
         return None
 
     token = _load_capability_token(token_ref)
     if token is None:
+        decision = PolicyDecision(False, "missing_token", detail="capability_token_ref unresolved")
+        _write_capability_decision_event(
+            envelope,
+            operator_id,
+            task_id,
+            decision,
+            event_type="capability_decision_missing_token",
+            kind="token",
+        )
         _info(
             f"capability_pre_dispatch: could not load token from ref "
-            f"(task={task_id}); writing missing_token warning"
+            f"(task={task_id}); wrote missing_token warning"
         )
         return None
 
@@ -161,6 +213,13 @@ def _capability_pre_dispatch(
     for req in policy_requests:
         decision = _dispatch_check(token, req)
         if not decision.allowed:
+            _write_capability_decision_event(
+                envelope,
+                operator_id,
+                task_id,
+                decision,
+                kind=str(req.get("kind") or ""),
+            )
             _info(
                 f"capability_pre_dispatch: DENIED kind={req.get('kind')} "
                 f"reason={decision.reason} rule={decision.rule} "
@@ -175,6 +234,21 @@ def _capability_pre_dispatch(
             return decision
 
     return None
+
+
+def _load_run_pre_dispatch_envelope(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Load an optional run-time envelope for one-shot capability validation."""
+    envelope_path = (
+        getattr(args, "envelope", None)
+        or os.environ.get("SOLAR_OPERATORD_RUN_ENVELOPE")
+        or os.environ.get("SOLAR_OPERATOR_ENVELOPE")
+    )
+    if not envelope_path:
+        return None
+    path = Path(str(envelope_path)).expanduser()
+    if not path.is_absolute():
+        path = HARNESS_DIR / path
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +601,42 @@ def _pm_result_path(envelope: dict[str, Any]) -> Path | None:
     if not value:
         return None
     return Path(value).expanduser()
+
+
+def _required_pm_artifacts_for_envelope(envelope: dict[str, Any]) -> list[Path]:
+    task_type = str(envelope.get("task_type") or "").strip().lower()
+    requested_role = str(envelope.get("requested_role") or "").strip().lower().replace("_", "-")
+    sprint_id = str(envelope.get("sprint_id") or "").strip()
+    node_id = str(envelope.get("node_id") or "").strip()
+    if task_type == "graph_eval" and requested_role == "evaluator" and sprint_id and node_id:
+        return [
+            HARNESS_DIR / "sprints" / f"{sprint_id}.{node_id}-eval.md",
+            HARNESS_DIR / "sprints" / f"{sprint_id}.{node_id}-eval.json",
+        ]
+    return []
+
+
+def _artifact_gaps(paths: list[Path], started_at: str) -> tuple[list[str], list[str]]:
+    missing: list[str] = []
+    stale: list[str] = []
+    threshold: dt.datetime | None = None
+    try:
+        threshold = _parse_utc(started_at) - dt.timedelta(seconds=2)
+    except Exception:
+        threshold = None
+    for path in paths:
+        if not path.exists() or path.stat().st_size <= 0:
+            missing.append(str(path))
+            continue
+        if threshold is None:
+            continue
+        try:
+            artifact_mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+        except OSError:
+            continue
+        if artifact_mtime < threshold:
+            stale.append(str(path))
+    return missing, stale
 
 
 def _pm_dispatch_complete_command(task_id: str) -> list[str]:
@@ -974,9 +1084,12 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                     node_id=str(envelope.get("node_id", "")),
                     status="capability_denied",
                     exit_code=126,
-                    log_lines=[],
                     started_at=_now_utc(),
                     finished_at=_now_utc(),
+                    log_tail=(
+                        "capability_denied: "
+                        f"reason={_cap_decision.reason} detail={_cap_decision.detail}"
+                    ),
                 )
                 if _once_wait_expired():
                     break
@@ -1139,6 +1252,23 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                         pass
 
             if result_status == "completed" and pm_result_path is not None:
+                required_artifacts = _required_pm_artifacts_for_envelope(envelope)
+                missing_artifacts, stale_artifacts = _artifact_gaps(required_artifacts, started_at)
+                if missing_artifacts or stale_artifacts:
+                    if missing_artifacts:
+                        log_lines.append(
+                            "[ERROR] missing required graph_eval artifacts: "
+                            + ", ".join(missing_artifacts)
+                        )
+                    if stale_artifacts:
+                        log_lines.append(
+                            "[ERROR] stale required graph_eval artifacts: "
+                            + ", ".join(stale_artifacts)
+                        )
+                    result_status = "failed_contract_closeout"
+                    exit_code = exit_code or 68
+
+            if result_status == "completed" and pm_result_path is not None:
                 try:
                     completed = subprocess.run(
                         _pm_dispatch_complete_command(task_id),
@@ -1184,6 +1314,15 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                     if runtime_state:
                         log_lines.append(f"[flow-control] runtime_state={runtime_state}")
                 log_tail = "\n".join(log_lines[-50:])
+            # 连续失败熔断 (2026-06-17): classify_failure_state 只认 rate_limit/auth,
+            # TimeoutError/服务死/exit65 全漏 → 坏算子(thunderomlx)失败124次还接活。
+            # 按连续失败计数熔断, 覆盖所有失败类型。success 重置计数。
+            try:
+                import operator_flow_control as _ofc_breaker  # noqa: E402
+                _ofc_breaker.record_operator_outcome(
+                    operator_id, success=(result_status == "completed"))
+            except Exception as exc:
+                log_lines.append(f"[WARN] consecutive-failure breaker failed: {exc}")
             result_path = write_result(
                 operator_id=operator_id,
                 task_id=task_id,
@@ -1304,6 +1443,17 @@ def cmd_run(args: argparse.Namespace) -> int:
             "Pass --force to proceed anyway."
         )
         return 1
+
+    run_envelope = _load_run_pre_dispatch_envelope(args)
+    if run_envelope is not None:
+        task_id = str(run_envelope.get("task_id") or "operatord-run")
+        _cap_decision = _capability_pre_dispatch(run_envelope, operator_id, task_id)
+        if _cap_decision is not None:
+            _info(
+                f"Capability denied for run bootstrap {task_id}: "
+                f"reason={_cap_decision.reason} detail={_cap_decision.detail}"
+            )
+            return 126
 
     # ── Canonical ID ─────────────────────────────────────────────────────────
     canon_id = canonical_operator_id(operator_id, config)
@@ -1451,6 +1601,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Emit the ready signal as JSON.",
+    )
+    run_p.add_argument(
+        "--envelope",
+        metavar="PATH",
+        default=None,
+        help="Optional task envelope JSON to capability-check before the ready signal.",
     )
 
     # ── list ─────────────────────────────────────────────────────────────────

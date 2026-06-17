@@ -958,6 +958,64 @@ def apply_success_cooldown(operator_id: str, *, success_cooldown_seconds: int) -
     return set_operator_state(operator_id, "cooldown", ttl_seconds=int(success_cooldown_seconds))
 
 
+# 连续失败熔断 (2026-06-17): 根治"坏算子持续接活拖垮全队"。
+# 根因: classify_failure_state 只认 rate_limit/auth 两类失败, TimeoutError/
+# 服务死/exit65 等全返 "" → 不熔断 → thunderomlx 失败 124 次还在跑, 把全队
+# 成功率从 ~60% 砸到 32%。本机制按"连续失败计数"熔断, 覆盖所有失败类型。
+_CONSEC_FAIL_THRESHOLD = int_value(os.environ.get("SOLAR_OPERATOR_CONSEC_FAIL_THRESHOLD"), 3)
+_CONSEC_FAIL_COOLDOWN_SEC = int_value(os.environ.get("SOLAR_OPERATOR_CONSEC_FAIL_COOLDOWN_SEC"), 3600)
+_OPERATOR_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
+
+
+def record_operator_outcome(operator_id: str, *, success: bool) -> dict[str, Any] | None:
+    """记录算子任务结果, 连续失败 >= 阈值则熔断冷却。
+
+    success=True 重置连续失败计数; success=False 累加, 达阈值强制 cooldown。
+    计数持久化在 operator-status/{op}.json 的 consecutive_failures 字段。
+    返回 cooldown 决策 (若触发) 或 None。
+    """
+    operator_id = str(operator_id or "").strip()
+    if not operator_id:
+        return None
+    sf = _OPERATOR_STATUS_DIR / f"{operator_id}.json"
+    try:
+        data = json.loads(sf.read_text(encoding="utf-8")) if sf.exists() else {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    def _persist() -> None:
+        try:
+            sf.parent.mkdir(parents=True, exist_ok=True)
+            sf.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except Exception:
+            pass
+
+    if success:
+        if data.get("consecutive_failures"):
+            data["consecutive_failures"] = 0
+            _persist()
+        return None
+    n = int(data.get("consecutive_failures") or 0) + 1
+    data["consecutive_failures"] = n
+    data["last_failure_at"] = _iso_z(_now())
+    _persist()
+    if n >= _CONSEC_FAIL_THRESHOLD:
+        set_operator_state(operator_id, "cooldown", ttl_seconds=_CONSEC_FAIL_COOLDOWN_SEC)
+        block = persist_operator_block(
+            operator_id,
+            "cooldown",
+            expires_at=_iso_z(_now() + dt.timedelta(seconds=_CONSEC_FAIL_COOLDOWN_SEC)),
+            reason=f"consecutive_failures_{n}>={_CONSEC_FAIL_THRESHOLD}_circuit_break",
+            source="consecutive_failure_breaker",
+            evidence_text=f"{n} consecutive failures",
+        )
+        return {"circuit_broken": True, "consecutive_failures": n,
+                "cooldown_seconds": _CONSEC_FAIL_COOLDOWN_SEC, "block": block}
+    return {"circuit_broken": False, "consecutive_failures": n}
+
+
 def task_control_path(task_dir: Path) -> Path:
     return Path(task_dir) / TASK_CONTROL_FILENAME
 
