@@ -695,6 +695,48 @@ def write_heartbeat(
 
 # ── Result Artifacts ──────────────────────────────────────────────────────────
 
+def _failure_flow_control_metadata(result_dir: Path, operator_id: str, exit_code: int, log_tail: str) -> Dict[str, Any]:
+    if int(exit_code or 0) == 0 or not str(log_tail or "").strip():
+        return {}
+    try:
+        import operator_flow_control as ofc  # type: ignore
+    except Exception:
+        return {}
+
+    failure_text = str(log_tail or "")
+    runtime_state = ""
+    try:
+        runtime_state = str(ofc.classify_failure_state(failure_text) or "").strip()
+    except Exception:
+        runtime_state = ""
+    if runtime_state not in {"cooldown", "quota_exhausted", "auth_expired"}:
+        return {}
+
+    metadata: Dict[str, Any] = {
+        "failure_reason": failure_text[-1000:],
+        "runtime_state": runtime_state,
+    }
+    try:
+        flow = ofc.apply_failure_flow_control(
+            result_dir,
+            operator_id=operator_id,
+            failure_text=failure_text,
+            rate_limit_cooldown_seconds=int(os.environ.get("SOLAR_OPERATOR_RATE_LIMIT_COOLDOWN_SECONDS", "3600")),
+            auth_cooldown_seconds=int(os.environ.get("SOLAR_OPERATOR_AUTH_COOLDOWN_SECONDS", "21600")),
+        )
+        metadata["flow_control"] = flow
+        if str(flow.get("expires_at") or "").strip():
+            metadata["cooldown_until"] = str(flow["expires_at"])
+        if str(flow.get("runtime_state") or "").strip():
+            metadata["runtime_state"] = str(flow["runtime_state"])
+    except Exception as exc:
+        metadata["flow_control"] = {
+            "ok": False,
+            "reason": f"flow_control_apply_failed:{type(exc).__name__}",
+            "error": str(exc),
+        }
+    return metadata
+
 def write_result(
     operator_id: str,
     task_id: str,
@@ -728,6 +770,7 @@ def write_result(
         "finished_at": finished_at,
         "log_tail": scrub_secrets(log_tail),
     }
+    result.update(_failure_flow_control_metadata(result_dir, operator_id, exit_code, log_tail))
     if model_route:
         route = dict(model_route)
         result["model_route"] = route

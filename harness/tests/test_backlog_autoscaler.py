@@ -49,6 +49,7 @@ def test_build_snapshot_scales_from_backlog(monkeypatch, tmp_path):
             "planner-2": {"role": "planner", "enabled": True, "available": False},
             "builder-1": {"role": "builder", "enabled": True, "available": True},
             "builder-2": {"role": "builder", "enabled": False, "available": False},
+            "builder-3": {"role": "builder", "enabled": True, "available": True, "quota_guard_state": "cooldown"},
         }
     }
     registry_path = config_dir / "physical-operators.json"
@@ -139,7 +140,7 @@ def test_build_snapshot_scales_from_backlog(monkeypatch, tmp_path):
         "reviewing_handoff_ready": 4,
     }
     assert snapshot["role_capacity"]["planner"] == {"configured": 2, "enabled": 2, "available": 1}
-    assert snapshot["role_capacity"]["builder"] == {"configured": 2, "enabled": 1, "available": 1}
+    assert snapshot["role_capacity"]["builder"] == {"configured": 3, "enabled": 2, "available": 1}
     assert snapshot["profile_limits"]["pm"] == 5
     assert snapshot["profile_limits"]["builder"] == 6
     assert snapshot["logical_operator_limits"]["DeepArchitect"] == 8

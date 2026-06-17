@@ -23,7 +23,7 @@ BLOCKING_STATES = {"cooldown", "quota_exhausted", "auth_expired"}
 ANTIGRAVITY_PROBE_PROMPT = "Reply with exactly: SOLAR_AGY_OK"
 RATE_LIMIT_RE = re.compile(
     r"RESOURCE_EXHAUSTED|\bquota(?:\s+exhausted)?\b|monthly usage limit|"
-    r"rate[- ]?limit|\b429\b|too many requests|resets?\s+in|"
+    r"usage limit|rate[- ]?limit|\b429\b|too many requests|resets?\s+in|"
     r"Upgrade your plan|You've hit .*limit|Individual quota reached|"
     r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
     re.I,
@@ -45,7 +45,7 @@ AUTH_SUCCESS_RE = re.compile(
 )
 EXPLICIT_QUOTA_EVIDENCE_RE = re.compile(
     r"RESOURCE_EXHAUSTED|\bquota(?:\s+exhausted)?\b|monthly usage limit|"
-    r"rate[- ]?limit|\b429\b|too many requests|resets?\s+(?:in|at|on)|"
+    r"usage limit|rate[- ]?limit|\b429\b|too many requests|resets?\s+(?:in|at|on)|"
     r"Upgrade your plan|You've hit .*limit|Individual quota reached|"
     r"usage pattern|fair usage policy|request frequency has been limited|"
     r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
