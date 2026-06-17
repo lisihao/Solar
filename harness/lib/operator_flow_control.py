@@ -429,10 +429,14 @@ def recent_operator_quota_block(
         model_l = str(model_hint or "").lower()
         if model_l and "gpt-5.3-codex-spark" in text_l and "spark" not in model_l:
             continue
+        # 旧日志检查 (2026-06-17 修复): 不管有没有解析出 reset_at, 日志本身超过
+        # max_age 就忽略。否则一条 4 天前的 "resets 1:40am" 日志, parse 会把
+        # "1:40am" 算成"今天 1:40am"(永远在未来) → reset_at > now → 永久 cooldown,
+        # claude 算子被旧限流提示冤枉冻死 (实际配额早已恢复)。
+        if max_age > 0 and (now_dt - mtime).total_seconds() > max_age:
+            continue
         reset_at = parse_rate_limit_reset_at(text, now=now_dt)
         if reset_at is None:
-            if max_age > 0 and (now_dt - mtime).total_seconds() > max_age:
-                continue
             continue
         if reset_at <= now_dt:
             continue
