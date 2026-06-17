@@ -2917,6 +2917,15 @@ def set_node_status(graph: dict[str, Any], node_id: str, status: str,
             and not reclaiming_occupied):
         return
     updated_at = _now()
+    # P1 OccupancyTTL (2026-06-17): occupied_since 独立戳, 进占用态时盖 (仅首次进入,
+    # 重复 set 同占用态不刷新), 出占用态时清。OrphanReaper 用它判 grace 超时, 不用
+    # 每轮被刷新的 updated_at — 治 OrphanReaper 反复横跳 (派发器派成 dispatched 时
+    # 不盖戳 → reaper 退化用 updated_at → 判定不稳 → requeue↔dispatch 循环)。
+    if status in ACTIVE_OCCUPYING_STATUSES:
+        if current not in ACTIVE_OCCUPYING_STATUSES or not ids[node_id].get("occupied_since"):
+            ids[node_id]["occupied_since"] = updated_at
+    else:
+        ids[node_id].pop("occupied_since", None)
     ids[node_id]["status"] = status
     ids[node_id]["updated_at"] = updated_at
     if pane:
