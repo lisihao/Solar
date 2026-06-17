@@ -916,6 +916,7 @@ def materialize_execution_plan_artifacts(
     *,
     capsule_plan: Dict[str, Any],
     physical_plan: Dict[str, Any],
+    planner_artifact: Optional[Dict[str, Any]] = None,
     base_dir: Optional[Path] = None,
 ) -> Dict[str, str]:
     paths = execution_plan_artifact_paths(sprint_id, node_id, base_dir=base_dir)
@@ -923,6 +924,10 @@ def materialize_execution_plan_artifacts(
     physical_path = Path(paths["physical_plan_ir_path"])
     _write_json(capsule_path, capsule_plan)
     _write_json(physical_path, physical_plan)
+    if planner_artifact is not None:
+        planner_path = capsule_path.with_name(capsule_path.name.replace("-capsule-plan.json", "-planner-artifact.json"))
+        _write_json(planner_path, planner_artifact)
+        paths["planner_artifact_path"] = str(planner_path)
     return paths
 
 

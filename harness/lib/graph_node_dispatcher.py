@@ -210,7 +210,16 @@ try:
 except Exception:  # pragma: no cover - state sync is best-effort in partial installs
     task_graph_state_io = None  # type: ignore
 from pane_lease import acquire as acquire_lease, release as release_lease, read_lease, list_leases  # noqa: E402
-from actor_lease import ActorLeaseBroker  # noqa: E402
+from actor_lease import LeaseBroker as _ActorLeaseBrokerBase, READY as _ACTOR_READY  # noqa: E402
+
+
+class ActorLeaseBroker(_ActorLeaseBrokerBase):
+    """Compatibility adapter for older graph dispatcher actor-lease calls."""
+
+    def release(self, actor_id: str, reason: str = "graph_dispatch_release") -> Any:
+        return self.transition(actor_id, _ACTOR_READY)
+
+
 import task_queue as _task_queue  # noqa: E402
 enqueue = _task_queue.enqueue
 try:
@@ -265,7 +274,19 @@ def _append_autopilot_routing_record(record: dict[str, Any]) -> None:
         pass
 
 
-def check_node_capability_gate(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+def check_node_capability_gate(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    node = args[0] if args and isinstance(args[0], dict) else {}
+    actorhost = kwargs.get("actorhost") if isinstance(kwargs.get("actorhost"), dict) else {}
+    match = actorhost.get("capability_match") if isinstance(actorhost.get("capability_match"), dict) else {}
+    required = [str(item).strip() for item in node.get("required_capabilities") or match.get("required") or [] if str(item).strip()]
+    missing = [str(item).strip() for item in match.get("missing") or [] if str(item).strip()]
+    if required and missing:
+        return {
+            "ok": False,
+            "reason": "missing_required_capabilities",
+            "required_capabilities": sorted(set(required)),
+            "missing_capabilities": sorted(set(missing)),
+        }
     return {"ok": True}
 
 
@@ -2759,6 +2780,64 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
         set_node_status(graph, node_id, "dispatched", pane=pane or None, dispatch_id=dispatch_id or None)
         repaired.append({"node": node_id, "pane": pane, "dispatch_id": dispatch_id, "reason": "submit_ack_exists"})
     return repaired
+
+
+_TERMINAL_EVAL_RECONCILE_REASONS = {
+    "eval_sidecar_exists",
+    "canonical_eval_verdict_projected_to_node",
+    "canonical_eval_verdict_cleared_stale_eval_state",
+    "canonical_eval_verdict_backfilled_node_results",
+}
+
+
+def _finalize_reconciled_eval_sidecars(
+    graph: dict[str, Any],
+    graph_path: str | Path,
+    reconciled: list[dict[str, Any]],
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Sync status sidecars and parent closeout after eval sidecar projection."""
+    sid = str(graph.get("sprint_id") or Path(graph_path).stem.replace(".task_graph", ""))
+    terminal: list[dict[str, Any]] = []
+    for item in reconciled:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "").strip().lower()
+        reason = str(item.get("reason") or "").strip()
+        node_id = str(item.get("node") or "").strip()
+        if not node_id or status not in {"passed", "failed"}:
+            continue
+        if reason not in _TERMINAL_EVAL_RECONCILE_REASONS:
+            continue
+        if dry_run:
+            terminal.append({"node": node_id, "status": status, "reason": reason, "state_sync": {"skipped": "dry_run"}})
+            continue
+        state_sync = _sync_state_node(
+            sid,
+            node_id,
+            status,
+            note=f"graph_eval_sidecar_reconcile:{reason}",
+        )
+        terminal.append({"node": node_id, "status": status, "reason": reason, "state_sync": state_sync})
+
+    parent: dict[str, Any] = {"ready": False, "skipped": "no_terminal_sidecar_reconcile"}
+    parent_status_updated = False
+    coverage_refresh: dict[str, Any] = {"ok": True, "skipped": "no_terminal_sidecar_reconcile"}
+    if terminal:
+        parent = parent_ready_check(graph)
+        parent_status_updated = _mark_parent_sprint_passed_if_ready(sid, parent, dry_run)
+        coverage_refresh = _refresh_requirement_coverage_artifacts(sid, dry_run=dry_run)
+
+    return {
+        "ok": True,
+        "sprint_id": sid,
+        "terminal_nodes": terminal,
+        "parent": parent,
+        "parent_status_updated": parent_status_updated,
+        "coverage_refresh": coverage_refresh,
+        "dry_run": dry_run,
+    }
 
 
 def _eval_dispatch_file(sid: str, node_id: str) -> Path:
@@ -6837,15 +6916,18 @@ def dispatch_queue_item(item: dict[str, Any], dry_run: bool = False, ttl: int = 
         or node.get("actor_id")
         or ""
     ).strip()
-    lease_result = _ensure_lease(
-        pane,
-        sid,
-        dispatch_id,
-        ttl,
-        dry_run,
-        actor_id=actor_lease_id,
-        node_id=str(node_id),
-    )
+    if actor_lease_id:
+        lease_result = _ensure_lease(
+            pane,
+            sid,
+            dispatch_id,
+            ttl,
+            dry_run,
+            actor_id=actor_lease_id,
+            node_id=str(node_id),
+        )
+    else:
+        lease_result = _ensure_lease(pane, sid, dispatch_id, ttl, dry_run)
     if not lease_result.get("acquired"):
         enqueue(sid, item.get("intent", f"graph_node|node_id={node_id}"), item.get("priority", 80), payload)
         _mark_graph_node(graph_path, node_id, "pending", clear_assignment=True)
@@ -7416,10 +7498,17 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
     dispatched: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     reconciled: list[dict[str, Any]] = []
+    reconcile_closeout: dict[str, Any] = {"ok": True, "skipped": "no_reconciled_sidecars"}
     used_evaluator_panes: set[str] = set()
     if not dry_run:
         reconciled = _reconcile_existing_dispatches(graph, graph_path)
         if reconciled:
+            reconcile_closeout = _finalize_reconciled_eval_sidecars(
+                graph,
+                graph_path,
+                reconciled,
+                dry_run=dry_run,
+            )
             save_graph(graph_path, graph)
     evaluators: list[dict[str, Any]] | None = None
 
@@ -7686,6 +7775,8 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             node["status"] = "reviewing"
             node["eval_dispatch_group_id"] = dispatch_group_id
             for stale_key in ("eval_retry_reason", "eval_retry_detail", "eval_retry_requested_at"):
+                if stale_key == "eval_retry_reason" and node.get(stale_key) == "force_retry_archived_stale_eval_sidecars":
+                    continue
                 node.pop(stale_key, None)
             _store_eval_assignments(node, successful_assignments, _utc_now(), sprint_id=sid)
             save_graph(graph_path, graph)
@@ -7746,6 +7837,7 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
         "ok": not skipped,
         "sprint_id": sid,
         "reconciled": reconciled,
+        "reconcile_closeout": reconcile_closeout,
         "dispatched": dispatched,
         "skipped": skipped,
     }
@@ -7785,6 +7877,7 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
     sid = graph.get("sprint_id") or Path(graph_path).stem.replace(".task_graph", "")
     effective_max_parallel = int(max_parallel) if max_parallel is not None else _effective_graph_max_parallel(8)
     reconciled: list[dict[str, Any]] = []
+    reconcile_closeout: dict[str, Any] = {"ok": True, "skipped": "no_reconciled_sidecars"}
     # G6 修复 (2026-06-16): 旧代码 enqueue 后无条件 save_graph, 即使 enqueue=0、
     # 无任何变化也照写 → os.replace 刷新 .task_graph.json/.task_dag.state.json mtime
     # → DirtyScanner 把 sprint 重新标脏 → scan→fork→0派→save→重新脏 死循环
@@ -7812,6 +7905,13 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
     fp_before = _graph_fingerprint(graph) if not dry_run else ""
     if not dry_run:
         reconciled = _reconcile_existing_dispatches(graph, graph_path)
+        if reconciled:
+            reconcile_closeout = _finalize_reconciled_eval_sidecars(
+                graph,
+                graph_path,
+                reconciled,
+                dry_run=dry_run,
+            )
     enqueue_result = enqueue_ready(
         graph,
         graph_path,
@@ -7841,6 +7941,7 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
     return {
         "ok": enqueue_result.get("ok") and drain_result.get("ok"),
         "reconciled": reconciled,
+        "reconcile_closeout": reconcile_closeout,
         "concurrency": {"graph_max_parallel": effective_max_parallel},
         "enqueue": enqueue_result,
         "drain": drain_result,

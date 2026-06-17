@@ -260,17 +260,22 @@ def _reconcile_existing_sidecars_only(
             "dry_run": True,
         }
     reconciler = getattr(gnd, "_reconcile_existing_dispatches", None)
+    finalizer = getattr(gnd, "_finalize_reconciled_eval_sidecars", None)
     save_graph = getattr(gnd, "save_graph", None)
     if not callable(reconciler) or not callable(save_graph):
         return {"ok": False, "reason": "reconcile_api_missing", "reconciled": []}
     graph = gnd.load_graph(str(graph_path))
     reconciled = reconciler(graph, graph_path)
+    reconcile_closeout: dict[str, Any] = {"ok": True, "skipped": "finalizer_unavailable"}
+    if reconciled and callable(finalizer):
+        reconcile_closeout = finalizer(graph, graph_path, reconciled, dry_run=False)
     if reconciled:
         save_graph(str(graph_path), graph)
     return {
         "ok": True,
         "sprint_id": str(graph.get("sprint_id") or sid),
         "reconciled": reconciled if isinstance(reconciled, list) else [],
+        "reconcile_closeout": reconcile_closeout,
         "dispatched": [],
         "skipped": [],
     }

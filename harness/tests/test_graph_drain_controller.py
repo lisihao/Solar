@@ -526,6 +526,15 @@ def test_graph_drain_reconciles_terminal_sidecar_missing_node_result(monkeypatch
             return [{"node": "E1", "status": "passed", "reason": "canonical_eval_verdict_backfilled_node_results"}]
 
         @staticmethod
+        def _finalize_reconciled_eval_sidecars(graph, path, reconciled, dry_run=False):
+            graph["finalized_sidecar_closeout"] = {
+                "path": str(path),
+                "nodes": [item["node"] for item in reconciled],
+                "dry_run": dry_run,
+            }
+            return {"ok": True, "terminal_nodes": [{"node": "E1", "status": "passed"}]}
+
+        @staticmethod
         def save_graph(path, graph):
             Path(path).write_text(json.dumps(graph), encoding="utf-8")
 
@@ -545,6 +554,8 @@ def test_graph_drain_reconciles_terminal_sidecar_missing_node_result(monkeypatch
     assert calls == [graph_path.name]
     saved = json.loads(graph_path.read_text(encoding="utf-8"))
     assert saved["node_results"]["E1"]["status"] == "passed"
+    assert saved["finalized_sidecar_closeout"]["nodes"] == ["E1"]
+    assert payload["actions"][0]["payload"]["reconcile_closeout"]["terminal_nodes"][0]["node"] == "E1"
 
 
 def test_graph_drain_apply_does_not_count_unavailable_builder_retry(monkeypatch, tmp_path):

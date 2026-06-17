@@ -462,6 +462,57 @@ class TestSendToPaneLiteral:
         assert saved["nodes"][0]["status"] == "passed"
         assert discovery_calls == []
 
+    def test_dispatch_evals_sidecar_reconcile_syncs_state_and_parent_status(self, tmp_path, monkeypatch):
+        """Sidecar-only eval closeout must update runtime state and parent sprint status."""
+        import graph_node_dispatcher as gnd
+
+        sprints = tmp_path / "sprints"
+        sprints.mkdir()
+        sid = "test-sidecar-parent-closeout"
+        graph_path = sprints / f"{sid}.task_graph.json"
+        status_path = sprints / f"{sid}.status.json"
+        graph = {
+            "sprint_id": sid,
+            "nodes": [
+                {
+                    "id": "N1",
+                    "goal": "ready sidecar should close parent",
+                    "status": "reviewing",
+                    "handoff_md": f"{sid}.N1-handoff.md",
+                }
+            ],
+            "node_results": {"N1": {"status": "reviewing"}},
+            "gate_results": {},
+            "required_gates": [],
+        }
+        graph_path.write_text(json.dumps(graph) + "\n", encoding="utf-8")
+        status_path.write_text(
+            json.dumps({"sprint_id": sid, "status": "reviewing", "phase": "handoff_ready", "history": []}) + "\n",
+            encoding="utf-8",
+        )
+        (sprints / f"{sid}.N1-handoff.md").write_text("# handoff\n", encoding="utf-8")
+        (sprints / f"{sid}.N1-eval.json").write_text(
+            json.dumps({"verdict": "PASS", "node_id": "N1"}) + "\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(gnd, "SPRINTS_DIR", sprints)
+        monkeypatch.setattr(gnd, "_discover_evaluators", lambda *_: (_ for _ in ()).throw(AssertionError("no eval dispatch expected")))
+        monkeypatch.setattr(gnd, "release_lease", lambda *a, **k: {"released": True})
+
+        result = gnd.dispatch_node_evals(str(graph_path), dry_run=False)
+
+        assert result["ok"] is True
+        assert result["reconciled"][0]["reason"] == "eval_sidecar_exists"
+        assert result["reconcile_closeout"]["parent_status_updated"] is True
+        assert result["reconcile_closeout"]["terminal_nodes"][0]["state_sync"]["ok"] is True
+        state = json.loads((sprints / f"{sid}.task_dag.state.json").read_text(encoding="utf-8"))
+        assert state["node_results"]["N1"]["status"] == "passed"
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        assert status["status"] == "passed"
+        assert status["phase"] == "completed"
+
     def test_successful_eval_dispatch_clears_stale_retry_reason(self, tmp_harness, monkeypatch):
         """A fresh evaluator assignment must not keep stale retry blockers on the node."""
         tmp_path, sprints, sid, graph = tmp_harness

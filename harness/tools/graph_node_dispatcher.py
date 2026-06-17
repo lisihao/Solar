@@ -2675,6 +2675,64 @@ def _reconcile_existing_dispatches(graph: dict[str, Any], graph_path: str | Path
     return repaired
 
 
+_TERMINAL_EVAL_RECONCILE_REASONS = {
+    "eval_sidecar_exists",
+    "canonical_eval_verdict_projected_to_node",
+    "canonical_eval_verdict_cleared_stale_eval_state",
+    "canonical_eval_verdict_backfilled_node_results",
+}
+
+
+def _finalize_reconciled_eval_sidecars(
+    graph: dict[str, Any],
+    graph_path: str | Path,
+    reconciled: list[dict[str, Any]],
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Sync status sidecars and parent closeout after eval sidecar projection."""
+    sid = str(graph.get("sprint_id") or Path(graph_path).stem.replace(".task_graph", ""))
+    terminal: list[dict[str, Any]] = []
+    for item in reconciled:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "").strip().lower()
+        reason = str(item.get("reason") or "").strip()
+        node_id = str(item.get("node") or "").strip()
+        if not node_id or status not in {"passed", "failed"}:
+            continue
+        if reason not in _TERMINAL_EVAL_RECONCILE_REASONS:
+            continue
+        if dry_run:
+            terminal.append({"node": node_id, "status": status, "reason": reason, "state_sync": {"skipped": "dry_run"}})
+            continue
+        state_sync = _sync_state_node(
+            sid,
+            node_id,
+            status,
+            note=f"graph_eval_sidecar_reconcile:{reason}",
+        )
+        terminal.append({"node": node_id, "status": status, "reason": reason, "state_sync": state_sync})
+
+    parent: dict[str, Any] = {"ready": False, "skipped": "no_terminal_sidecar_reconcile"}
+    parent_status_updated = False
+    coverage_refresh: dict[str, Any] = {"ok": True, "skipped": "no_terminal_sidecar_reconcile"}
+    if terminal:
+        parent = parent_ready_check(graph)
+        parent_status_updated = _mark_parent_sprint_passed_if_ready(sid, parent, dry_run)
+        coverage_refresh = _refresh_requirement_coverage_artifacts(sid, dry_run=dry_run)
+
+    return {
+        "ok": True,
+        "sprint_id": sid,
+        "terminal_nodes": terminal,
+        "parent": parent,
+        "parent_status_updated": parent_status_updated,
+        "coverage_refresh": coverage_refresh,
+        "dry_run": dry_run,
+    }
+
+
 def _eval_dispatch_file(sid: str, node_id: str) -> Path:
     return SPRINTS_DIR / f"{sid}.{_safe_node_id(node_id)}-eval-dispatch.md"
 
@@ -3468,13 +3526,22 @@ def _ensure_execution_plan_payload(
         payload["logical_plan_node"] = dict(compiled.get("logical_plan_node") or {})
         payload["capsule_plan_ir"] = capsule_plan_ir
         payload["physical_plan_ir"] = physical_plan_ir
-        payload["plan_artifacts"] = materialize_execution_plan_artifacts(
+        plan_artifacts = materialize_execution_plan_artifacts(
             sid,
             str(node.get("id") or ""),
             capsule_plan=capsule_plan_ir,
             physical_plan=physical_plan_ir,
             base_dir=SPRINTS_DIR,
         )
+        plan_artifacts["task_classification"] = compiled.get("task_classification") or {}
+        plan_artifacts["logical_workflow"] = compiled.get("logical_workflow") or {}
+        plan_artifacts["skill_plan"] = compiled.get("skill_plan") or {}
+        plan_artifacts["mcp_plan"] = compiled.get("mcp_plan") or {}
+        plan_artifacts["capsule_plan_artifact"] = compiled.get("capsule_plan_artifact") or {}
+        plan_artifacts["physical_plan_artifact"] = compiled.get("physical_plan_artifact") or {}
+        plan_artifacts["selection_rationale"] = compiled.get("selection_rationale") or {}
+        plan_artifacts["evidence_policy"] = compiled.get("evidence_policy") or {}
+        payload["plan_artifacts"] = plan_artifacts
     except Exception:
         return payload
     return payload
@@ -7075,10 +7142,17 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
     dispatched: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     reconciled: list[dict[str, Any]] = []
+    reconcile_closeout: dict[str, Any] = {"ok": True, "skipped": "no_reconciled_sidecars"}
     used_evaluator_panes: set[str] = set()
     if not dry_run:
         reconciled = _reconcile_existing_dispatches(graph, graph_path)
         if reconciled:
+            reconcile_closeout = _finalize_reconciled_eval_sidecars(
+                graph,
+                graph_path,
+                reconciled,
+                dry_run=dry_run,
+            )
             save_graph(graph_path, graph)
     evaluators: list[dict[str, Any]] | None = None
 
@@ -7345,6 +7419,8 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
             node["status"] = "reviewing"
             node["eval_dispatch_group_id"] = dispatch_group_id
             for stale_key in ("eval_retry_reason", "eval_retry_detail", "eval_retry_requested_at"):
+                if stale_key == "eval_retry_reason" and node.get(stale_key) == "force_retry_archived_stale_eval_sidecars":
+                    continue
                 node.pop(stale_key, None)
             _store_eval_assignments(node, successful_assignments, _utc_now(), sprint_id=sid)
             save_graph(graph_path, graph)
@@ -7405,6 +7481,7 @@ def dispatch_node_evals(graph_path: str, dry_run: bool = False, ttl: int = 900,
         "ok": not skipped,
         "sprint_id": sid,
         "reconciled": reconciled,
+        "reconcile_closeout": reconcile_closeout,
         "dispatched": dispatched,
         "skipped": skipped,
     }
@@ -7444,9 +7521,16 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
     sid = graph.get("sprint_id") or Path(graph_path).stem.replace(".task_graph", "")
     effective_max_parallel = int(max_parallel) if max_parallel is not None else _effective_graph_max_parallel(8)
     reconciled: list[dict[str, Any]] = []
+    reconcile_closeout: dict[str, Any] = {"ok": True, "skipped": "no_reconciled_sidecars"}
     if not dry_run:
         reconciled = _reconcile_existing_dispatches(graph, graph_path)
         if reconciled:
+            reconcile_closeout = _finalize_reconciled_eval_sidecars(
+                graph,
+                graph_path,
+                reconciled,
+                dry_run=dry_run,
+            )
             save_graph(graph_path, graph)
     enqueue_result = enqueue_ready(
         graph,
@@ -7477,6 +7561,7 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
     return {
         "ok": enqueue_result.get("ok") and drain_result.get("ok"),
         "reconciled": reconciled,
+        "reconcile_closeout": reconcile_closeout,
         "concurrency": {"graph_max_parallel": effective_max_parallel},
         "enqueue": enqueue_result,
         "drain": drain_result,
