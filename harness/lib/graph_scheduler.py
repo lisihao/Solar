@@ -2585,7 +2585,14 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             for item in worker_missing_caps:
                 missing_cap_union.add(item)
             if not _skills_match(worker, required_skills, required_capabilities):
-                continue
+                # P1.5 修复 (2026-06-17): 之前 skills 不匹配硬淘汰 worker, 但软约束
+                # (task #18) 只对 capabilities 生效, skills 仍是硬门 → 纯 required_skills
+                # 节点 (无 required_capabilities) 差一个 skill 就 no_matching_worker
+                # → 98% enqueue 失败 → operator 无活 → pool=0 → 吞吐归零。
+                # soft 模式: skills 不满足也不淘汰, 降级匹配 (排序仍偏好 skill_match_count
+                # 高者, 见下方 cap_score/missing_count 排序键)。hard 模式保持硬淘汰。
+                if _capability_match_mode() == "hard":
+                    continue
             if not _capabilities_match(worker, required_capabilities):
                 # P0 软约束: soft 模式不淘汰, 降级为 role+skills 匹配 (排序仍偏好
                 # cap_score 高者); hard 模式保持原行为。见 _capability_match_mode()。
