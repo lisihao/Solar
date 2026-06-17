@@ -406,7 +406,7 @@ def recent_operator_quota_block(
     if not root.exists():
         return None
     now_dt = now or _now()
-    max_age = int(max_age_seconds if max_age_seconds is not None else os.environ.get("SOLAR_OPERATOR_RESULT_QUOTA_BLOCK_MAX_AGE_SECONDS", "172800"))
+    max_age = int(max_age_seconds if max_age_seconds is not None else os.environ.get("SOLAR_OPERATOR_RESULT_QUOTA_BLOCK_MAX_AGE_SECONDS", "7200"))
     limit = int(max_files if max_files is not None else os.environ.get("SOLAR_OPERATOR_RESULT_QUOTA_BLOCK_MAX_FILES", "40"))
     bytes_limit = int(tail_bytes if tail_bytes is not None else os.environ.get("SOLAR_OPERATOR_RESULT_QUOTA_BLOCK_TAIL_BYTES", "12000"))
     candidates: list[Path] = []
