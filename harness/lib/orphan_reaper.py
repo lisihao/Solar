@@ -167,6 +167,14 @@ def reap_orphans(*, apply: bool = False, limit: int = DEFAULT_REAP_LIMIT,
             if o["action"] == "harvest_passed":
                 _gs.set_node_status(g, nid, "passed", allow_reopen_failed=True, force_reclaim=True)
             else:
+                # 清旧 eval/handoff artifact, 让重试是干净的 (2026-06-17): 否则
+                # 下一轮 reconcile 读到旧 eval.json/handoff 又用旧结论判 failed,
+                # 节点假重试永远过不了。复用 graph_redispatch._clear_eval_artifacts。
+                try:
+                    import graph_redispatch as _grd  # noqa
+                    _grd._clear_eval_artifacts(g, nid)
+                except Exception:
+                    pass
                 # force_reclaim 旁路 G2 单调守卫 (占用态→pending 是降级, 默认被挡)
                 _gs.set_node_status(g, nid, "pending", allow_reopen_failed=True, force_reclaim=True)
                 node = next((n for n in g.get("nodes", []) if str(n.get("id")) == nid), None)
