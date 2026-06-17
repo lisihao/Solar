@@ -3772,14 +3772,15 @@ def build_eval_dispatch_text(graph: dict[str, Any], graph_path: str, node: dict[
     canonical_eval_json_path = canonical_eval_json_path or str(_eval_json_file(sid, node_id))
     canonical_eval_md_path = canonical_eval_md_path or str(_eval_md_file(sid, node_id))
     peer_block = "\n".join(f"- `{path}`" for path in peer_eval_json_paths) if peer_eval_json_paths else "- `N/A`"
+    harness_cli = f"{HARNESS_DIR}/solar-harness.sh"
     verdict_step = f"""3. 提交节点 verdict。通过时会自动释放下游 ready node；失败时只阻塞依赖它的下游：
    ```bash
-   {HARNESS_DIR}/solar-harness.sh graph-dispatch node-verdict --graph "{graph_path}" --node "{node_id}" --verdict pass --eval-json "{eval_json}"
+   {harness_cli} graph-dispatch node-verdict --graph "{graph_path}" --node "{node_id}" --verdict pass --eval-json "{eval_json}"
    ```
 
    如果失败，改用：
    ```bash
-   {HARNESS_DIR}/solar-harness.sh graph-dispatch node-verdict --graph "{graph_path}" --node "{node_id}" --verdict fail --eval-json "{eval_json}" --reason "写清楚失败原因"
+   {harness_cli} graph-dispatch node-verdict --graph "{graph_path}" --node "{node_id}" --verdict fail --eval-json "{eval_json}" --reason "写清楚失败原因"
    ```
 """ if evaluator_role == "primary" else f"""3. 不要直接提交 node verdict。你是并行副评审，只负责产出 sidecar 评审结果：
    - Markdown sidecar: `{eval_md}`
@@ -3805,6 +3806,7 @@ Evaluator Role: `{evaluator_role}`
 Evaluator Index: `{evaluator_index}/{evaluator_total}`
 Graph: `{graph_path}`
 Handoff: `{handoff}`
+Harness CLI: `{harness_cli}` (不要调用裸 `solar-harness`；pane PATH 可能没有该命令)
 
 ## Handoff Candidates
 
@@ -3851,7 +3853,7 @@ cat "{graph_path}"
 cat "{contract}"
 cat "{node_dispatch}"
 test -f "{handoff}" && cat "{handoff}"
-solar-harness session evaluate "{sid}" --json
+{harness_cli} session evaluate "{sid}" --json
 ```
 
 ## Log-Native Evaluation Requirement
@@ -3867,7 +3869,7 @@ solar-harness session evaluate "{sid}" --json
   - `verification_results`: 记录 `checked_artifacts / missing_artifacts / proof_gate`
 - 如果本 node 涉及 DeepResearch / evidence ledger / claim ledger / citation / report compiler，必须先运行 deterministic artifact gate：
   ```bash
-  solar-harness research eval-artifacts --eval-json "<path-to-research_eval.json>" --json
+  {harness_cli} research eval-artifacts --eval-json "<path-to-research_eval.json>" --json
   ```
   并把返回 JSON 原样写入 `{eval_json}` 的 `research_quality_gate` 字段。没有 `research_quality_gate.ok=true` 不允许 PASS。
 
@@ -4107,13 +4109,20 @@ def _pane_current_prompt_has_residue(text: str) -> bool:
     `❯ text` makes an idle pane unavailable after any recent submitted command.
     Only inspect the final prompt line and stop at status/footer lines.
     """
+    if _tail_has_idle_prompt_footer(text):
+        return False
     lines = [line.rstrip() for line in text.splitlines()]
     wrapped_prompt_continuations: list[str] = []
     for line in reversed(lines):
         stripped = line.strip()
         if not stripped:
             continue
-        if stripped.startswith(("⏵", "?", "────────────────", "Esc ", "esc ", "Tab ", "Press up ")):
+        lowered = stripped.lower()
+        if (
+            stripped.startswith(("⏵", "?", "────────────────", "Esc ", "esc ", "Tab ", "Press up "))
+            or "tokens" in lowered
+            or re.search(r"\btok\s+ns\b", lowered)
+        ):
             continue
         if stripped.startswith("❯"):
             remainder = stripped[1:].strip()
@@ -4176,7 +4185,12 @@ def _tail_has_idle_prompt_footer(text: str) -> bool:
         if stripped.startswith("❯"):
             remainder = stripped[1:].strip()
             return remainder.startswith("Try ") or (not remainder and saw_footer)
-        if lowered.startswith(footer_prefixes) or "tokens" in lowered or "/effort" in lowered:
+        if (
+            lowered.startswith(footer_prefixes)
+            or "tokens" in lowered
+            or re.search(r"\btok\s+ns\b", lowered)
+            or "/effort" in lowered
+        ):
             saw_footer = True
             continue
         return False
@@ -4569,6 +4583,8 @@ def _pane_has_matching_queued_prompt(pane: str, instruction_file: Path) -> bool:
 
 def _pane_dispatch_prompt_reason(tail: str) -> str:
     bottom = "\n".join((tail or "").splitlines()[-40:])
+    if _tail_has_idle_prompt_footer(bottom):
+        return ""
     overlay = pane_overlay_detail(tail) if pane_overlay_detail else {"state": "none", "type": ""}
     if overlay.get("state") == "stale_scrollback_ignored":
         return ""
@@ -5569,14 +5585,14 @@ def _builder_operator_pool_available_count() -> int:
         return 0
     now = time.time()
     try:
-        cache_ttl = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "20") or "20")
+        cache_ttl = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "90") or "20")
     except Exception:
         cache_ttl = 20.0
     cached_at = float(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("checked_at") or 0.0)
     if cache_ttl > 0 and cached_at > 0 and now - cached_at <= cache_ttl:
         return max(0, int(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("available") or 0))
     try:
-        timeout = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_TIMEOUT_SEC", "12") or "12")
+        timeout = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_TIMEOUT_SEC", "60") or "12")
     except Exception:
         timeout = 12.0
     try:
@@ -7134,8 +7150,18 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
         if assignments and dispatched_at:
             age = datetime.datetime.now(datetime.timezone.utc) - dispatched_at
             if age.total_seconds() < 900:
-                return False
+                idle_without_sidecar = False
+                for assignment in assignments:
+                    pane = str(assignment.get("pane") or "")
+                    if not pane or pane.startswith("operator:"):
+                        return False
+                    if _pane_tui_busy(pane) or not _pane_visibly_idle(pane):
+                        return False
+                    idle_without_sidecar = True
+                if not idle_without_sidecar:
+                    return False
         lease_matches = False
+        idle_live_lease_released = False
         for assignment in assignments:
             pane = str(assignment.get("pane") or "")
             dispatch_id = str(assignment.get("dispatch_id") or "")
@@ -7145,6 +7171,10 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
                 and str(lease.get("sid") or lease.get("sprint_id") or "") == sid
                 and str(lease.get("dispatch_id") or "") == dispatch_id
             ):
+                if _pane_visibly_idle(pane) and not _pane_tui_busy(pane):
+                    release_lease(pane, dispatch_id, "graph_eval_dispatch_idle_without_sidecar")
+                    idle_live_lease_released = True
+                    continue
                 lease_matches = True
                 break
         # If the graph says eval was dispatched but no eval artifact exists and
@@ -7153,7 +7183,11 @@ def _node_eval_needed(graph: dict[str, Any], sid: str, node: dict[str, Any], for
         if lease_matches:
             return False
         _clear_eval_assignments(node)
-        node["eval_retry_reason"] = "eval_dispatched_without_artifact_or_active_lease"
+        node["eval_retry_reason"] = (
+            "eval_idle_without_sidecar"
+            if idle_live_lease_released
+            else "eval_dispatched_without_artifact_or_active_lease"
+        )
     # Use graph_scheduler.node_status so node_results (the durable scheduler
     # result map) and inline node.status do not drift. A node can be reviewing
     # in node_results while its static node entry still says pending; relying

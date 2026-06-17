@@ -54,6 +54,18 @@ def test_operator_pool_evaluator_advisor_sorts_before_generic_pool() -> None:
     assert items[0]["pane"] == "operator-pool:evaluator.mini-codex-gpt55-medium-builder-2"
 
 
+def test_operator_pool_evaluator_defaults_include_sonnet_and_glm(monkeypatch) -> None:
+    monkeypatch.delenv("SOLAR_GRAPH_EVAL_ADVISOR_FALLBACK_OPERATORS", raising=False)
+    monkeypatch.setattr(gnd, "_operator_pool_role_available", lambda role: False)
+    monkeypatch.setattr(gnd, "_operator_pool_operator_can_closeout_eval_sidecar", lambda operator_id: True)
+    monkeypatch.setattr(gnd, "_operator_pool_operator_available_for_role", lambda operator_id, role: True)
+
+    panes = [item["pane"] for item in gnd._evaluator_operator_pool_workers()]
+
+    assert "operator-pool:evaluator.mini-claude-sonnet-builder-2" in panes
+    assert "operator-pool:evaluator.mini-glm51-builder-1" in panes
+
+
 def test_operator_pool_advisor_sorts_before_lab_spillover() -> None:
     items = [
         {
@@ -448,6 +460,38 @@ def test_dispatch_node_evals_send_failed_restores_reviewing(monkeypatch) -> None
     assert saved["graph"] is graph
 
 
+def test_node_eval_needed_retries_recent_idle_pane_missing_sidecar(monkeypatch, tmp_path) -> None:
+    sid = "sid-recent-idle-eval"
+    dispatch_id = f"graph-eval-{sid}-N1-20260617T230454Z-q1"
+    node = {
+        "id": "N1",
+        "goal": "recent eval returned to idle prompt without sidecars",
+        "status": "reviewing",
+        "eval_dispatched_at": gnd._utc_now(),
+        "eval_assignments": [
+            {
+                "pane": "solar-harness-lab:0.0",
+                "dispatch_id": dispatch_id,
+                "role": "primary",
+                "eval_md_path": str(tmp_path / f"{sid}.N1-eval.md"),
+                "eval_json_path": str(tmp_path / f"{sid}.N1-eval.json"),
+            }
+        ],
+    }
+    graph = {"sprint_id": sid, "nodes": [node], "node_results": {"N1": {"status": "reviewing"}}}
+
+    monkeypatch.setattr(gnd, "list_leases", lambda: [])
+    monkeypatch.setattr(gnd, "read_lease", lambda pane: {})
+    monkeypatch.setattr(gnd, "_pane_visibly_idle", lambda pane: True)
+    monkeypatch.setattr(gnd, "_pane_tui_busy", lambda pane: False)
+    monkeypatch.setattr(gnd, "_existing_node_handoff", lambda sid_arg, node_arg, graph_arg: tmp_path / "handoff.md")
+    monkeypatch.setattr(gnd, "_eval_json_file", lambda sid_arg, node_id: tmp_path / f"{sid_arg}.{node_id}-eval.json")
+
+    assert gnd._node_eval_needed(graph, sid, node) is True
+    assert "eval_assignments" not in node
+    assert node["eval_retry_reason"] == "eval_dispatched_without_artifact_or_active_lease"
+
+
 def test_dispatch_node_evals_operator_pool_send_failed_records_submit_detail(monkeypatch) -> None:
     graph = {
         "sprint_id": "sid-eval-pool-send-failed",
@@ -587,6 +631,7 @@ def test_force_dispatch_node_evals_archives_stale_eval_sidecars(monkeypatch, tmp
     monkeypatch.setattr(gnd, "_eval_json_file", lambda sid, node_id: eval_json)
     monkeypatch.setattr(gnd, "_dispatch_file", lambda sid, node_id: tmp_path / "dispatch.md")
     monkeypatch.setattr(gnd, "_eval_dispatch_file", lambda sid, node_id: tmp_path / "eval-dispatch.md")
+    monkeypatch.setattr(gnd, "_eval_dispatch_member_file", lambda sid, node_id, idx: tmp_path / f"eval-dispatch-q{idx}.md")
     monkeypatch.setattr(gnd, "_inject_dispatch_context", lambda *args, **kwargs: None)
     monkeypatch.setattr(gnd, "_write_submit_ack", lambda *args, **kwargs: None)
     monkeypatch.setattr(gnd, "_send_to_pane", lambda *args, **kwargs: True)
@@ -831,6 +876,7 @@ def test_reconcile_does_not_clear_operator_eval_without_terminal_result(monkeypa
         "node_results": {"N1": {"status": "reviewing"}},
     }
     node = graph["nodes"][0]
+    monkeypatch.setattr(gnd, "_latest_pm_task_record_for", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(gnd, "_latest_operator_result_for", lambda *_args, **_kwargs: None)
 
     repaired = gnd._reconcile_existing_dispatches(graph, tmp_path / f"{sid}.task_graph.json")
@@ -838,6 +884,120 @@ def test_reconcile_does_not_clear_operator_eval_without_terminal_result(monkeypa
     assert repaired == []
     assert node["eval_assignments"][0]["pane"] == "operator:mini-codex-gpt55-medium-builder-1"
     assert "eval_retry_reason" not in node
+
+
+def test_reconcile_backfills_bold_eval_md_verdict_for_operator_assignment(monkeypatch, tmp_path) -> None:
+    sid = "sid-operator-eval-md-backfill"
+    dispatch_id = f"graph-eval-{sid}-N1-20260614T013000Z-q1"
+    eval_md = tmp_path / f"{sid}.N1-eval.md"
+    eval_json = tmp_path / f"{sid}.N1-eval.json"
+    eval_md.write_text("# Node Evaluation\n\n## Verdict\n\n**FAIL**\n", encoding="utf-8")
+    graph = {
+        "sprint_id": sid,
+        "nodes": [
+            {
+                "id": "N1",
+                "goal": "operator wrote md but not json",
+                "status": "reviewing",
+                "eval_assignments": [
+                    {
+                        "pane": "operator:mini-claude-sonnet-builder-2",
+                        "dispatch_id": dispatch_id,
+                        "operator_id": "mini-claude-sonnet-builder-2",
+                        "role": "primary",
+                        "eval_md_path": str(eval_md),
+                        "eval_json_path": str(eval_json),
+                    }
+                ],
+            }
+        ],
+        "node_results": {"N1": {"status": "reviewing"}},
+    }
+
+    monkeypatch.setattr(gnd, "_eval_md_file", lambda sid_arg, node_id: eval_md)
+    monkeypatch.setattr(gnd, "_eval_json_file", lambda sid_arg, node_id: eval_json)
+    monkeypatch.setattr(gnd, "_existing_node_handoff", lambda *_args, **_kwargs: tmp_path / f"{sid}.N1-handoff.md")
+    monkeypatch.setattr(
+        gnd,
+        "_latest_pm_task_record_for",
+        lambda *_args, **_kwargs: {
+            "status": "failed_contract_closeout",
+            "_pm_task_json": str(tmp_path / "pm.json"),
+        },
+    )
+    monkeypatch.setattr(gnd, "_latest_operator_result_for", lambda *_args, **_kwargs: None)
+
+    repaired = gnd._reconcile_existing_dispatches(graph, tmp_path / f"{sid}.task_graph.json")
+
+    assert eval_json.exists()
+    assert repaired[0]["reason"] == "eval_sidecar_exists"
+    assert graph["nodes"][0]["status"] == "failed"
+    assert graph["node_results"]["N1"]["status"] == "failed"
+
+
+def test_reconcile_operator_eval_prefers_pm_contract_closeout(monkeypatch, tmp_path) -> None:
+    sid = "sid-operator-pm-closeout"
+    dispatch_id = f"graph-eval-{sid}-N1-20260614T013100Z-q1"
+    eval_md = tmp_path / f"{sid}.N1-eval.md"
+    eval_json = tmp_path / f"{sid}.N1-eval.json"
+    graph = {
+        "sprint_id": sid,
+        "nodes": [
+            {
+                "id": "N1",
+                "goal": "pm record is the closeout authority",
+                "status": "reviewing",
+                "eval_assignments": [
+                    {
+                        "pane": "operator:mini-claude-sonnet-builder-2",
+                        "dispatch_id": dispatch_id,
+                        "operator_id": "mini-claude-sonnet-builder-2",
+                        "role": "primary",
+                        "eval_md_path": str(eval_md),
+                        "eval_json_path": str(eval_json),
+                    }
+                ],
+            }
+        ],
+        "node_results": {"N1": {"status": "reviewing"}},
+    }
+    releases: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(gnd, "_eval_md_file", lambda sid_arg, node_id: eval_md)
+    monkeypatch.setattr(gnd, "_eval_json_file", lambda sid_arg, node_id: eval_json)
+    monkeypatch.setattr(
+        gnd,
+        "_latest_pm_task_record_for",
+        lambda *_args, **_kwargs: {
+            "status": "failed_contract_closeout",
+            "_pm_task_json": str(tmp_path / "pm.json"),
+            "failure_reason": "completed_without_required_artifacts",
+        },
+    )
+    monkeypatch.setattr(
+        gnd,
+        "_latest_operator_result_for",
+        lambda *_args, **_kwargs: {
+            "status": "completed",
+            "_result_json": str(tmp_path / "result.json"),
+        },
+    )
+    monkeypatch.setattr(gnd, "_cooldown_operator_after_contract_closeout", lambda operator_id, closeout: {"ok": True})
+    monkeypatch.setattr(
+        gnd,
+        "release_lease",
+        lambda pane, dispatch, reason: releases.append((pane, dispatch, reason)) or {"released": True},
+    )
+
+    repaired = gnd._reconcile_existing_dispatches(graph, tmp_path / f"{sid}.task_graph.json")
+
+    assert repaired[0]["reason"] == "eval_failed_contract_closeout"
+    assert graph["nodes"][0]["last_eval_closeout_failure"]["pm_task_json"].endswith("pm.json")
+    assert graph["nodes"][0]["last_eval_closeout_failure"]["result_json"] == ""
+    assert "eval_assignments" not in graph["nodes"][0]
+    assert releases == [
+        ("operator:mini-claude-sonnet-builder-2", dispatch_id, "graph_eval_reconcile_failed_contract_closeout")
+    ]
 
 
 def test_reconcile_projects_terminal_node_result_to_static_node_status(monkeypatch, tmp_path) -> None:
@@ -1117,3 +1277,7 @@ def test_build_eval_dispatch_text_includes_evaluation_plan(monkeypatch, tmp_path
     assert "## Sidecar Closeout Gate" in text
     assert 'test -s "' in text
     assert 'python3 -m json.tool "' in text
+    assert "Harness CLI: `" in text
+    assert "/solar-harness.sh session evaluate" in text
+    assert "\nsolar-harness session evaluate" not in text
+    assert "\n  solar-harness research eval-artifacts" not in text

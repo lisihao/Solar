@@ -996,6 +996,24 @@ def test_watchdog_eval_retry_signal_allows_failed_node_without_force(monkeypatch
     assert gnd._node_eval_needed(graph, "sid-watchdog-retry", node, force=False) is True
 
 
+def test_tail_has_idle_prompt_footer_accepts_truncated_token_footer():
+    tail = """
+⏺ I read the dispatch file.
+
+────────────────────────────────────────
+❯\u00a0
+────────────────────────────────────────
+   ⏵ bypass permissions on (shift+tab…
+  28642 tokens
+  ⏵⏵ bypass permissions on (shift+tab…
+  28642 tok ns
+"""
+
+    assert gnd._tail_has_idle_prompt_footer(tail) is True
+    assert gnd._pane_current_prompt_has_residue(tail) is False
+    assert gnd._pane_dispatch_prompt_reason(tail) == ""
+
+
 def test_node_verdict_rejects_stale_eval_dispatched_before_pm_repair(tmp_path) -> None:
     graph_path = tmp_path / "sid-stale-repair.task_graph.json"
     graph_path.write_text(
