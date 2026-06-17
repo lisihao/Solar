@@ -1790,10 +1790,30 @@ def _operator_runtime_worker_alive(operator_id: str, task_id: str) -> bool:
     return False
 
 
+def _actor_runtime_unavailable_reason(node: dict[str, Any]) -> str:
+    result = node.get("actor_runtime_result")
+    if not isinstance(result, dict):
+        return ""
+    if _actor_runtime_outbox_has_task_result(result):
+        return ""
+    pane = str(node.get("assigned_to") or "")
+    actor_id = pane.split(":", 1)[1].strip() if pane.startswith("actor:") else str(node.get("operator_id") or "").strip()
+    if not actor_id:
+        return ""
+    status = _read_json_file_safe(HARNESS_DIR / "run" / "operator-status" / f"{actor_id}.json")
+    runtime_state = str(status.get("runtime_state") or "").strip().lower() if isinstance(status, dict) else ""
+    if runtime_state in {"auth_expired", "cooldown", "quota_exhausted", "disabled", "unavailable"}:
+        return f"actor_runtime_unavailable:{runtime_state}"
+    return ""
+
+
 def _actor_runtime_dead_daemon_reason(node: dict[str, Any]) -> str:
     result = node.get("actor_runtime_result")
     if not isinstance(result, dict):
         return ""
+    unavailable_reason = _actor_runtime_unavailable_reason(node)
+    if unavailable_reason:
+        return unavailable_reason
     pane = str(node.get("assigned_to") or "")
     actor_id = pane.split(":", 1)[1].strip() if pane.startswith("actor:") else str(node.get("operator_id") or "").strip()
     task_id = _actor_runtime_task_id(result)
@@ -5524,14 +5544,14 @@ def _builder_operator_pool_available_count() -> int:
         return 0
     now = time.time()
     try:
-        cache_ttl = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "20") or "20")
+        cache_ttl = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "90") or "20")
     except Exception:
         cache_ttl = 20.0
     cached_at = float(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("checked_at") or 0.0)
     if cache_ttl > 0 and cached_at > 0 and now - cached_at <= cache_ttl:
         return max(0, int(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("available") or 0))
     try:
-        timeout = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_TIMEOUT_SEC", "12") or "12")
+        timeout = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_TIMEOUT_SEC", "60") or "12")
     except Exception:
         timeout = 12.0
     try:
