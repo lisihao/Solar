@@ -7790,10 +7790,22 @@ def dispatch_ready(graph_path: str, dry_run: bool = False, ttl: int = 900,
     # → DirtyScanner 把 sprint 重新标脏 → scan→fork→0派→save→重新脏 死循环
     # ("28 fork 只 enqueue 1" 里那 27 次空转的来源)。改为内容指纹比对, 只在
     # graph 真变化时才 save。
+    # 关键 (2026-06-17): 指纹必须排除 volatile 时间戳字段 (capability_inference
+    # .generated_at 等每次 enrichment 都刷新), 否则功能无变化也指纹变 → 仍死循环。
+    _VOLATILE_KEYS = {"generated_at", "updated_at", "enriched_at", "last_checked_at",
+                      "cached_at", "computed_at", "inferred_at"}
+
+    def _strip_volatile(obj):
+        if isinstance(obj, dict):
+            return {k: _strip_volatile(v) for k, v in obj.items() if k not in _VOLATILE_KEYS}
+        if isinstance(obj, list):
+            return [_strip_volatile(x) for x in obj]
+        return obj
+
     def _graph_fingerprint(g: dict) -> str:
         try:
             return hashlib.sha1(
-                json.dumps(g, sort_keys=True, ensure_ascii=False, default=str).encode()
+                json.dumps(_strip_volatile(g), sort_keys=True, ensure_ascii=False, default=str).encode()
             ).hexdigest()
         except Exception:
             return ""

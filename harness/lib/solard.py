@@ -227,19 +227,13 @@ class GraphDispatchReconciler(Reconciler):
         import graph_scheduler as gs  # noqa
         graph = gs.load_graph(tg)
         ready = [str(n.get("id")) for n in gs.ready_nodes(graph)]
-        # G3 修复 (2026-06-16): dispatch-ready 命令本身含幽灵收割逻辑
-        # (_reconcile_existing_dispatches), 但旧代码仅在 ready 非空时 fork。
-        # 当一个 sprint 所有节点都卡 dispatched (worker 死), ready=[] →
-        # 收割入口被锁死 → 幽灵永久。改为: 有占用态节点 (dispatched/assigned/...)
-        # 即使 ready=[] 也 fork 一次让它收割。
-        ACTIVE = {"assigned", "dispatched", "in_progress", "running", "reviewing"}
-        has_occupied = any(
-            str((n.get("status") or "")).lower() in ACTIVE
-            for n in graph.get("nodes", [])
-        )
-        if mode() == "active" and (ready or has_occupied):
-            # active 切流 (2026-06-12 监护人拍板 A): 调 dispatch-ready 真派 + 收割幽灵。
-            # 该路径已人工验证 (P0 期间手动批量驱动同款命令); 超时保护;
+        # G3 收割职责已移交 OrphanReaper (P1, bb7272ccf): 收割幽灵不再需要
+        # GraphDispatch 为占用态 sprint fork 昂贵的 dispatch-ready 子进程
+        # (每个十几秒, 占用态多时累加把 loop_ms 拖到 35s+)。
+        # GraphDispatch 回归单一职责: 只为 ready 非空的 sprint fork 真派发;
+        # 全卡死 (ready=[]) 的幽灵收割交给进程内的 OrphanReaper (~1s, 不 fork)。
+        if mode() == "active" and ready:
+            # active 切流 (2026-06-12 监护人拍板 A): 调 dispatch-ready 真派。
             # 失败 raise 给框架落 error 事件 (R3 公约)。
             import subprocess
             r = subprocess.run(
