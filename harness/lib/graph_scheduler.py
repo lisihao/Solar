@@ -799,6 +799,42 @@ def sync_status_cache_from_graph(
             )
             result.update({"updated": True, "status": current, "reason": "terminal_projection_reopened"})
             return result
+        reviewing_nodes = [
+            node_id
+            for node_id in _node_map(graph)
+            if node_status(graph, node_id) in {"reviewing", "ready_for_review", "needs_human_review"}
+        ]
+        stale_reviewing_projection = (
+            current_status in {"reviewing", "ready_for_review", "needs_human_review"}
+            and graph_inflight_hint
+            and not reviewing_nodes
+            and bool(open_nodes or failed_nodes)
+        )
+        if stale_reviewing_projection:
+            current = _project_status_via_runtime(
+                status_path,
+                new_status="active",
+                actor=actor,
+                event="graph_parent_projection_reopened_stale_reviewing",
+                graph_path=graph_path,
+                allow_reopen=True,
+                status_fields={
+                    "phase": "graph_in_progress",
+                    "stage": "graph_in_progress",
+                    "handoff_to": "builder_main",
+                    "target_role": "builder_main",
+                    "active_node": desired_active_node,
+                    "open_nodes": open_nodes,
+                    "failed_nodes": failed_nodes,
+                    "graph_parent_ready": parent,
+                    "task_graph_status": "active",
+                },
+                extra={
+                    "note": "task_graph has no reviewing node; reopening stale evaluator legacy status projection"
+                },
+            )
+            result.update({"updated": True, "status": current, "reason": "stale_reviewing_projection_reopened"})
+            return result
         projection_changed = any([
             current.get("active_node") != desired_active_node,
             list(current.get("open_nodes") or []) != list(open_nodes),

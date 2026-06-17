@@ -335,6 +335,67 @@ def test_sync_status_cache_reopens_stale_cancelled_inflight_projection(tmp_path,
     assert updated["cancel_reason"] is None
 
 
+def test_sync_status_cache_reopens_stale_reviewing_projection_without_reviewing_node(tmp_path, monkeypatch):
+    import graph_scheduler as gs
+
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    monkeypatch.setattr(gs, "SPRINTS_DIR", sprints)
+
+    sid = "sprint-test-stale-reviewing-drift"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    status_path = sprints / f"{sid}.status.json"
+    graph = {
+        "sprint_id": sid,
+        "title": "Active graph with stale reviewing status",
+        "required_gates": ["G1", "G2"],
+        "nodes": [
+            {"id": "N1", "status": "passed", "depends_on": [], "gate": "G1"},
+            {"id": "N2", "status": "failed", "depends_on": ["N1"], "gate": "G2"},
+            {"id": "N3", "status": "pending", "depends_on": ["N2"], "gate": "G2"},
+        ],
+        "node_results": {
+            "N1": {"status": "passed"},
+            "N2": {"status": "failed"},
+            "N3": {"status": "pending"},
+        },
+        "gate_results": {"G1": {"status": "passed"}},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    status_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": sid,
+                "status": "reviewing",
+                "phase": "handoff_ready",
+                "stage": "graph_in_progress",
+                "handoff_to": "evaluator",
+                "target_role": "evaluator",
+                "active_node": "N2",
+                "open_nodes": ["N2", "N3"],
+                "failed_nodes": ["N2"],
+                "task_graph_status": "active",
+                "task_graph": str(graph_path),
+                "history": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_projection_refresh")
+
+    assert result["ok"] is True
+    assert result["updated"] is True
+    assert result["reason"] == "stale_reviewing_projection_reopened"
+    updated = json.loads(status_path.read_text(encoding="utf-8"))
+    assert updated["status"] == "active"
+    assert updated["phase"] == "graph_in_progress"
+    assert updated["handoff_to"] == "builder_main"
+    assert updated["target_role"] == "builder_main"
+    assert updated["active_node"] == "N2"
+    assert updated["failed_nodes"] == ["N2"]
+
+
 def test_parent_ready_check_self_heals_stale_blocked_gate(tmp_path, monkeypatch):
     import graph_scheduler as gs
 
