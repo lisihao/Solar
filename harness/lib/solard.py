@@ -588,6 +588,33 @@ class PaneHygieneReconciler(Reconciler):
                 "respawned_count": len(respawned)}
 
 
+class OrphanReaperReconciler(Reconciler):
+    """统一孤儿回收 (P1 组件3, 2026-06-16) — 幽灵 pane 死锁根治核心。
+
+    用 LivenessProbe 扫所有占用态 graph 节点, 孤儿 (持有者死/超时无证据) 统一
+    回收: operatord 已完成+handoff→passed; 否则退 pending 释放 pane。不依赖
+    ready 门 (治 G3) 也不依赖 sprint 标脏 (治 G19) — 独立定时扫描。
+
+    替代之前的零散补丁 (multi-task活性/closeout/pane_hygiene 各修一类幽灵),
+    用统一活性判定覆盖所有占用态, 不管幽灵的具体成因。
+
+    shadow: apply=False 只汇总 would_reap。active: 真回收 + save + emit。
+    开关: SOLAR_ORPHAN_REAPER_ENABLED=0 可禁用 (出问题即退回当前行为)。
+    """
+
+    name = "orphan_reaper"
+    scope = "global"
+    interval = int(os.environ.get("SOLAR_ORPHAN_REAPER_INTERVAL", "120"))
+
+    def reconcile(self, sid: str | None = None) -> dict:
+        if os.environ.get("SOLAR_ORPHAN_REAPER_ENABLED", "1") == "0":
+            return {"ok": True, "skipped": "disabled"}
+        import orphan_reaper as orp  # noqa
+        apply = (mode() == "active")
+        limit = int(os.environ.get("SOLAR_ORPHAN_REAP_LIMIT", "20"))
+        return orp.reap_orphans(apply=apply, limit=limit)
+
+
 RECONCILERS: list[Reconciler] = [
     GraphDispatchReconciler(),
     CapabilityProbeReconciler(),
@@ -595,6 +622,7 @@ RECONCILERS: list[Reconciler] = [
     GraphRedispatchReconciler(),
     InboxPumpReconciler(),
     PaneHygieneReconciler(),
+    OrphanReaperReconciler(),
 ]
 
 

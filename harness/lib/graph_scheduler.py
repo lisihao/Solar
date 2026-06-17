@@ -2877,9 +2877,13 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
     return parent
 
 
+ACTIVE_OCCUPYING_STATUSES = {"assigned", "dispatched", "in_progress", "running", "reviewing"}
+
+
 def set_node_status(graph: dict[str, Any], node_id: str, status: str,
                     pane: str | None = None, dispatch_id: str | None = None,
-                    allow_reopen_failed: bool = False) -> None:
+                    allow_reopen_failed: bool = False,
+                    force_reclaim: bool = False) -> None:
     ids = _node_map(graph)
     if node_id not in ids:
         raise ValueError(f"unknown node: {node_id}")
@@ -2893,7 +2897,17 @@ def set_node_status(graph: dict[str, Any], node_id: str, status: str,
     reopening_from_fail = (
         allow_reopen_failed and current == "failed" and status in {"pending", "queued"}
     )
-    if _status_rank(current) > _status_rank(status) and not reopening_from_pass and not reopening_from_fail:
+    # G2 修复 (2026-06-16, P1 OccupancyTTL): 单调 rank 守卫封死了占用态降级,
+    # 导致 OrphanReaper 诊断出幽灵后 set_node_status(node,'pending') 是静默 no-op,
+    # 占用态节点永远无法被回收。force_reclaim 是孤儿回收专用旁路: 仅放行
+    # 占用态(assigned/dispatched/in_progress/running/reviewing)→pending/queued,
+    # 不破坏其他状态语义。只有 OrphanReaper 等回收路径显式传 True。
+    reclaiming_occupied = (
+        force_reclaim and current in ACTIVE_OCCUPYING_STATUSES and status in {"pending", "queued"}
+    )
+    if (_status_rank(current) > _status_rank(status)
+            and not reopening_from_pass and not reopening_from_fail
+            and not reclaiming_occupied):
         return
     updated_at = _now()
     ids[node_id]["status"] = status
@@ -2969,6 +2983,7 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
                     node_id,
                     capsule_plan=capsule_plan_ir,
                     physical_plan=physical_plan_ir,
+                    planner_artifact=compiled_plan,
                     base_dir=SPRINTS_DIR,
                 )
             # Store APO supply-chain planning artifact for evidence ledger and downstream
@@ -3012,6 +3027,7 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
                     node_id,
                     capsule_plan=capsule_plan_ir,
                     physical_plan=physical_plan_ir,
+                    planner_artifact=compiled_plan,
                     base_dir=SPRINTS_DIR,
                 )
         node["logical_plan_node"] = dict(compiled_plan.get("logical_plan_node") or {})
