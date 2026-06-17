@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import importlib.util
+import fcntl
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -116,6 +118,41 @@ def test_watchdog_apply_prunes_and_applies_reconcile(monkeypatch, tmp_path):
     assert payload["summary"]["pruned_blocks"] == 1
     assert payload["summary"]["kept_blocks"] == 1
     assert payload["summary"]["hard_blocked_groups"] == ["claude-opus"]
+
+
+def test_watchdog_lock_busy_does_not_overwrite_latest(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    latest_path = tmp_path / "latest.json"
+    history_path = tmp_path / "history.jsonl"
+    lock_path = tmp_path / "lock"
+    latest_path.write_text('{"run_id":"previous-ok","ok":true}\n', encoding="utf-8")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+        class FakePM:
+            PM_INBOX_DIR = tmp_path / "pm-inbox"
+
+        monkeypatch.setattr(watchdog, "_load_tool", lambda name: FakePM())
+
+        payload = watchdog.run_watchdog(
+            apply=True,
+            max_age_minutes=15,
+            lock_path=lock_path,
+            latest_path=latest_path,
+            history_path=history_path,
+            lock_timeout_seconds=1,
+        )
+
+        assert payload["lock_acquired"] is False
+        assert payload["degraded_reason"] == "lock_busy"
+        assert json.loads(latest_path.read_text(encoding="utf-8"))["run_id"] == "previous-ok"
+        history = [json.loads(line) for line in history_path.read_text(encoding="utf-8").splitlines()]
+        assert history[-1]["degraded_reason"] == "lock_busy"
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def test_watchdog_prefers_operator_and_lease_adapters(monkeypatch, tmp_path):

@@ -82,6 +82,28 @@ def test_operator_bridge_failure_releases_lease_and_removes_inbox(monkeypatch):
         assert not list(inbox.glob("task-*.json"))
 
 
+def test_submit_blocks_auth_expired_actor_before_mailbox(monkeypatch):
+    fake_runtime = types.SimpleNamespace(
+        get_operator_config=lambda actor_id: {"id": actor_id},
+        get_operator_runtime_state=lambda actor_id: "auth_expired",
+    )
+    monkeypatch.setitem(sys.modules, "operator_runtime", fake_runtime)
+    with tempfile.TemporaryDirectory() as td:
+        rt = _make_runtime(td, actor_ids=("a1",))
+
+        result = rt.submit({"task_id": "t1", "action": "build"}, actor_id="a1", sprint_id="s1", node_id="n1")
+
+        assert not result.success
+        assert result.error == "actor_runtime_unavailable:auth_expired:a1"
+        assert result.scheduler_decision == {
+            "rejected_candidates": [
+                {"actor_id": "a1", "reason": "runtime_state_blocked", "runtime_state": "auth_expired"}
+            ]
+        }
+        assert rt.broker.get("a1") is None
+        assert not list((Path(td) / "actors" / "a1" / "inbox").glob("task-*.json"))
+
+
 def test_operator_bridge_materializes_dispatch_text(monkeypatch):
     captured = {}
 

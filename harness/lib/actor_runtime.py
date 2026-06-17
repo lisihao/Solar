@@ -25,6 +25,15 @@ from apo_plan_compiler import compile_execution_plan_for_node, materialize_execu
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
+DISPATCH_BLOCKED_RUNTIME_STATES = {
+    "auth_expired",
+    "cooldown",
+    "disabled",
+    "leased",
+    "quota_exhausted",
+    "running",
+    "unavailable",
+}
 
 
 class SubmitResult:
@@ -102,24 +111,12 @@ class ActorRuntime:
             import operator_runtime  # type: ignore  # noqa: WPS433
         except Exception:
             return set()
-        unavailable_states = {
-            "auth_expired",
-            "cooldown",
-            "disabled",
-            "leased",
-            "quota_exhausted",
-            "running",
-            "unavailable",
-        }
         unavailable: set[str] = set()
         for actor_id in self.router.get_candidates(logical_operator):
             if not actor_id:
                 continue
-            try:
-                state = str(operator_runtime.get_operator_runtime_state(actor_id) or "").strip().lower()
-            except Exception:
-                continue
-            if state in unavailable_states:
+            state = self._runtime_state_for_actor(actor_id)
+            if state in DISPATCH_BLOCKED_RUNTIME_STATES:
                 unavailable.add(actor_id)
         return unavailable
 
@@ -129,6 +126,9 @@ class ActorRuntime:
         except Exception:
             return ""
         try:
+            get_config = getattr(operator_runtime, "get_operator_config", None)
+            if callable(get_config) and not get_config(actor_id):
+                return ""
             return str(operator_runtime.get_operator_runtime_state(actor_id) or "").strip().lower()
         except Exception:
             return ""
@@ -137,15 +137,6 @@ class ActorRuntime:
         physical_plan = task_envelope.get("physical_plan_ir")
         if not isinstance(physical_plan, dict):
             return None
-        unavailable_states = {
-            "auth_expired",
-            "cooldown",
-            "disabled",
-            "leased",
-            "quota_exhausted",
-            "running",
-            "unavailable",
-        }
         for candidate in physical_plan.get("execution_candidates") or []:
             if not isinstance(candidate, dict):
                 continue
@@ -155,7 +146,7 @@ class ActorRuntime:
             profile = str(candidate.get("profile") or "").strip().lower()
             if "advisory" in profile:
                 continue
-            if self._runtime_state_for_actor(actor_id) in unavailable_states:
+            if self._runtime_state_for_actor(actor_id) in DISPATCH_BLOCKED_RUNTIME_STATES:
                 continue
             return actor_id
         return None
@@ -403,6 +394,18 @@ class ActorRuntime:
                 actor_id = selected
         elif not actor_id:
             return SubmitResult(success=False, error="no_actor_id_or_logical_operator")
+
+        runtime_state = self._runtime_state_for_actor(actor_id)
+        if runtime_state in DISPATCH_BLOCKED_RUNTIME_STATES:
+            return SubmitResult(
+                success=False,
+                error=f"actor_runtime_unavailable:{runtime_state}:{actor_id}",
+                scheduler_decision={
+                    "rejected_candidates": [
+                        {"actor_id": actor_id, "reason": "runtime_state_blocked", "runtime_state": runtime_state}
+                    ]
+                },
+            )
 
         task_envelope = self._ensure_execution_plan_metadata(
             task_envelope,

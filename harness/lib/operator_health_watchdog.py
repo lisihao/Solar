@@ -829,7 +829,6 @@ def run_watchdog(
                 "lock_file": str(lock_path),
             },
         }
-        _atomic_write_text(latest_path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         _append_jsonl(history_path, payload)
         return payload
 
