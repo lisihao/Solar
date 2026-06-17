@@ -64,6 +64,18 @@ def _load_runtime_module() -> Any | None:
         return None
 
 
+def _load_flow_control_module() -> Any | None:
+    try:
+        lib_dir = HARNESS_DIR / "lib"
+        if str(lib_dir) not in sys.path:
+            sys.path.insert(0, str(lib_dir))
+        import operator_flow_control  # type: ignore
+
+        return operator_flow_control
+    except Exception:
+        return None
+
+
 def _model_key(op: dict[str, Any]) -> str:
     provider = str(op.get("provider") or "").lower()
     model = str(op.get("model") or op.get("model_config") or "").lower()
@@ -98,6 +110,19 @@ def _runtime_state(op_id: str, op: dict[str, Any], runtime: Any | None) -> str:
     state_name = str(state.get("runtime_state") or "").strip().lower()
     if state_name in BLOCKED_STATES:
         return state_name
+    flow_control = _load_flow_control_module()
+    if flow_control is not None and hasattr(flow_control, "recent_operator_quota_block"):
+        try:
+            recent_block = flow_control.recent_operator_quota_block(
+                op_id,
+                model_hint=str(op.get("model") or op.get("model_config") or ""),
+            )
+        except Exception:
+            recent_block = None
+        if isinstance(recent_block, dict):
+            recent_state = str(recent_block.get("runtime_state") or "").strip().lower()
+            if recent_state in BLOCKED_STATES:
+                return recent_state
     if runtime is not None:
         try:
             rt = str(runtime.get_operator_runtime_state(op_id) or "").strip().lower()
@@ -206,8 +231,24 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
     registry = _load_json(PHYSICAL_OPERATORS_PATH, {"operators": {}})
     operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
     runtime = _load_runtime_module()
+    flow_control = _load_flow_control_module()
     policy_mod = _load_policy_module()
     policy = policy_mod.load_policy() if policy_mod else _load_json(HARNESS_DIR / "config" / "concurrency-policy.json", {})
+
+    shared_model_blocks: dict[str, dict[str, Any]] = {}
+    if flow_control is not None and hasattr(flow_control, "recent_operator_quota_block"):
+        for op_id, spec in operators.items():
+            if not isinstance(spec, dict) or not bool(spec.get("enabled", False)):
+                continue
+            try:
+                recent_block = flow_control.recent_operator_quota_block(
+                    str(op_id),
+                    model_hint=str(spec.get("model") or spec.get("model_config") or ""),
+                )
+            except Exception:
+                recent_block = None
+            if isinstance(recent_block, dict):
+                shared_model_blocks.setdefault(_model_key({"operator_id": op_id, **dict(spec)}), recent_block)
 
     groups: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
@@ -217,7 +258,7 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
         if not bool(op.get("enabled", False)):
             continue
         key = _model_key(op)
-        state = _runtime_state(op_id, op, runtime)
+        state = "cooldown" if key in shared_model_blocks else _runtime_state(op_id, op, runtime)
         available = bool(op.get("available", False)) and state not in BLOCKED_STATES
         total += 1
         usable += 1 if available else 0

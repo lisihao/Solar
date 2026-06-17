@@ -463,6 +463,77 @@ class TestQuotaRecoveryPrune:
         )
         assert not status_path.exists()
 
+    def test_registry_prune_keeps_dynamic_status_with_explicit_quota_evidence(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        status_dir = tmp_path / "run" / "operator-status"
+        registry_path.parent.mkdir(parents=True)
+        status_dir.mkdir(parents=True)
+        operator_id = "mini-codex-gpt53-spark-builder-1"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        operator_id: {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "openai",
+                            "model": "gpt-5.3-codex-spark",
+                            "quota_guard_state": "ok",
+                            "quota_refresh_at": None,
+                            "state": {
+                                "runtime_state": "idle",
+                                "cooldown_until": None,
+                                "last_pruned_at": "2026-06-17T01:48:10Z",
+                            },
+                            "flow_control": {
+                                "last_pruned_at": "2026-06-17T01:48:10Z",
+                                "last_prune_reason": "weak_failure_flow_rate_limit_evidence",
+                            },
+                        }
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        status_path = status_dir / f"{operator_id}.json"
+        status_path.write_text(
+            json.dumps(
+                {
+                    "operator_id": operator_id,
+                    "runtime_state": "cooldown",
+                    "reason": "rate_limit",
+                    "evidence_text": "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark.",
+                    "updated_at": "2026-06-17T01:47:00Z",
+                    "expires_at": "2026-06-18T04:20:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        class FakeRuntime:
+            OPERATOR_STATUS_DIR = status_dir
+
+            @staticmethod
+            def clear_operator_status(op_id):
+                if op_id == operator_id and status_path.exists():
+                    status_path.unlink()
+
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+        monkeypatch.setattr(ofc, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(ofc, "_operator_runtime_module", lambda: FakeRuntime)
+        monkeypatch.setattr(ofc, "_now", lambda: datetime.datetime(2026, 6, 17, 2, 0, tzinfo=datetime.timezone.utc))
+
+        result = ofc.prune_expired_operator_config_blocks()
+
+        assert result["ok"] is True
+        assert not any(item["operator_id"] == operator_id for item in result["pruned"])
+        assert any(item["operator_id"] == operator_id for item in result["kept"])
+        assert status_path.exists()
+
     def test_weak_failure_flow_cooldown_is_pruned(self, ofc, tmp_path, monkeypatch):
         import datetime
 
@@ -525,6 +596,98 @@ class TestQuotaRecoveryPrune:
         assert updated["quota_guard_state"] == "ok"
         assert updated["quota_refresh_at"] is None
         assert updated["state"]["runtime_state"] == "idle"
+
+    def test_persist_operator_block_clears_stale_prune_markers(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        registry_path.parent.mkdir(parents=True)
+        operator_id = "mini-codex-gpt53-spark-builder-1"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        operator_id: {
+                            "enabled": True,
+                            "available": True,
+                            "quota_guard_state": "ok",
+                            "quota_refresh_at": None,
+                            "state": {
+                                "runtime_state": "idle",
+                                "last_pruned_at": "2026-06-17T01:48:10Z",
+                            },
+                            "flow_control": {
+                                "last_pruned_at": "2026-06-17T01:48:10Z",
+                                "last_prune_reason": "weak_failure_flow_rate_limit_evidence",
+                            },
+                        }
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+
+        result = ofc.persist_operator_block(
+            operator_id,
+            "cooldown",
+            expires_at=datetime.datetime(2026, 6, 18, 4, 20, tzinfo=datetime.timezone.utc),
+            reason="rate_limit",
+            source="failure_flow_control",
+            evidence_text="ERROR: usage limit reached for GPT-5.3-Codex-Spark.",
+        )
+
+        assert result["ok"] is True
+        updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"][operator_id]
+        assert updated["quota_guard_state"] == "cooldown"
+        assert "last_pruned_at" not in updated["state"]
+        assert "last_pruned_at" not in updated["flow_control"]
+        assert "last_prune_reason" not in updated["flow_control"]
+
+    def test_recent_operator_quota_block_reads_result_logs(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        operator_id = "mini-codex-gpt53-spark-builder-1"
+        log_path = tmp_path / "run" / "operator-results" / operator_id / "task-1" / "codex-cli-output.log"
+        log_path.parent.mkdir(parents=True)
+        log_path.write_text(
+            "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. "
+            "Switch to another model now, or try again at Jun 18th, 2026 12:20 AM.\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(ofc, "OPERATOR_RESULTS_DIR", tmp_path / "run" / "operator-results")
+
+        block = ofc.recent_operator_quota_block(
+            operator_id,
+            now=datetime.datetime(2026, 6, 17, 11, 0, tzinfo=datetime.timezone.utc),
+        )
+
+        assert block is not None
+        assert block["runtime_state"] == "cooldown"
+        assert block["expires_at"] == "2026-06-18T04:20:00Z"
+
+    def test_recent_operator_quota_block_ignores_other_model_marker(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        operator_id = "mini-codex-gpt55-medium-builder-1"
+        log_path = tmp_path / "run" / "operator-results" / operator_id / "task-1" / "codex-cli-output.log"
+        log_path.parent.mkdir(parents=True)
+        log_path.write_text(
+            "diagnostic output: ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. "
+            "Switch to another model now, or try again at Jun 18th, 2026 12:20 AM.\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(ofc, "OPERATOR_RESULTS_DIR", tmp_path / "run" / "operator-results")
+
+        block = ofc.recent_operator_quota_block(
+            operator_id,
+            model_hint="gpt-5.5",
+            now=datetime.datetime(2026, 6, 17, 11, 0, tzinfo=datetime.timezone.utc),
+        )
+
+        assert block is None
 
     def test_claude_live_heartbeat_clears_future_registry_and_status_cooldown(self, ofc, tmp_path, monkeypatch):
         import datetime

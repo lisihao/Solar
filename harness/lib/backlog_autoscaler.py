@@ -14,6 +14,7 @@ HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
 THIS_HARNESS_DIR = Path(__file__).resolve().parents[1]
 SPRINTS_DIR = Path(os.environ.get("HARNESS_SPRINTS_DIR", HARNESS_DIR / "sprints"))
 PHYSICAL_OPERATORS_PATH = Path(os.environ.get("SOLAR_MULTI_TASK_OPERATORS", HARNESS_DIR / "config" / "physical-operators.json"))
+OPERATOR_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
 STATUS_FULL_LOAD_MAX_BYTES = int(os.environ.get("SOLAR_BACKLOG_STATUS_JSON_FULL_LOAD_MAX_BYTES", str(1024 * 1024)))
 STATUS_SCAN_BYTES = int(os.environ.get("SOLAR_BACKLOG_STATUS_JSON_SCAN_BYTES", str(256 * 1024)))
 STATUS_FIELD_RE = re.compile(r'"(status|phase|handoff_to)"\s*:\s*("(?:\\.|[^"\\])*")')
@@ -56,6 +57,16 @@ def _decode_json_string(raw: str) -> str:
     return str(value) if value is not None else ""
 
 
+def _parse_utc(value: str) -> dt.datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(dt.timezone.utc)
+    except Exception:
+        return None
+
+
 def _scan_status_fields(path: Path) -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -76,6 +87,32 @@ def _load_status_fields(path: Path) -> dict[str, Any]:
     except Exception:
         pass
     return _scan_status_fields(path)
+
+
+def _operator_dynamic_block_state(operator_id: str, op: dict[str, Any] | None = None) -> str:
+    path = OPERATOR_STATUS_DIR / f"{operator_id}.json"
+    data = _load_json(path, {}) if path.exists() else {}
+    if isinstance(data, dict):
+        expires = _parse_utc(str(data.get("expires_at") or ""))
+        if expires is None or expires > dt.datetime.now(dt.timezone.utc):
+            state = str(data.get("runtime_state") or data.get("state") or "").strip().lower()
+            if state in BLOCKED_OPERATOR_STATES:
+                return state
+    try:
+        import operator_flow_control as ofc  # type: ignore
+
+        op_data = op if isinstance(op, dict) else {}
+        recent_block = ofc.recent_operator_quota_block(
+            operator_id,
+            model_hint=str(op_data.get("model") or op_data.get("model_config") or ""),
+        )
+    except Exception:
+        recent_block = None
+    if isinstance(recent_block, dict):
+        state = str(recent_block.get("runtime_state") or "").strip().lower()
+        if state in BLOCKED_OPERATOR_STATES:
+            return state
+    return ""
 
 
 def load_policy() -> dict[str, Any]:
@@ -168,12 +205,90 @@ def operator_capacity_by_role() -> dict[str, dict[str, int]]:
             bucket["enabled"] += 1
         state = spec.get("state") if isinstance(spec.get("state"), dict) else {}
         block_state = str(
+            _operator_dynamic_block_state(str(op_id), spec)
+            or
             spec.get("quota_guard_state")
             or state.get("runtime_state")
             or ""
         ).strip().lower()
         if bool(spec.get("enabled", False)) and bool(spec.get("available", False)) and block_state not in BLOCKED_OPERATOR_STATES:
             bucket["available"] += 1
+    return result
+
+
+def _infer_builder_group(op: dict[str, Any]) -> str:
+    pool = op.get("builder_pool") if isinstance(op.get("builder_pool"), dict) else {}
+    explicit = str(pool.get("group") or "").strip().lower()
+    if explicit:
+        return explicit
+
+    provider = str(op.get("provider") or "").strip().lower()
+    model = str(op.get("model") or op.get("model_config") or "").strip().lower()
+    op_id = str(op.get("operator_id") or "").strip().lower()
+    combined = " ".join([provider, model, op_id])
+    if "glm" in combined:
+        return "glm-5.1"
+    if "sonnet" in combined:
+        return "sonnet"
+    if "thunderomlx" in combined or "qwen3.6" in combined:
+        return "thunderomlx"
+    if "deepseek" in combined and "flash" in combined:
+        return "deepseek-v4-flash"
+    if "spark" in combined and ("codex" in combined or "gpt-5.3" in combined):
+        return "codex-gpt-5.3-spark"
+    if "codex" in combined or "gpt-5.5" in combined:
+        return "codex-gpt-5.5-medium"
+    if "antigravity" in combined or "gemini-3.5" in combined:
+        return "antigravity-gemini-3.5-flash"
+    return ""
+
+
+def builder_pool_capacity_by_group() -> dict[str, dict[str, int]]:
+    registry = _load_json(PHYSICAL_OPERATORS_PATH, {"operators": {}})
+    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
+    result: dict[str, dict[str, int]] = {}
+    blocked_groups: set[str] = set()
+    try:
+        import operator_flow_control as ofc  # type: ignore
+    except Exception:
+        ofc = None  # type: ignore
+    for op_id, spec in operators.items():
+        if not isinstance(spec, dict):
+            continue
+        pool = spec.get("builder_pool") if isinstance(spec.get("builder_pool"), dict) else {}
+        if not bool(pool.get("enabled", False)):
+            continue
+        op = {"operator_id": op_id, **spec}
+        group = _infer_builder_group(op) or "unknown"
+        if ofc is not None and hasattr(ofc, "recent_operator_quota_block"):
+            try:
+                if isinstance(
+                    ofc.recent_operator_quota_block(
+                        str(op_id),
+                        model_hint=str(spec.get("model") or spec.get("model_config") or ""),
+                    ),
+                    dict,
+                ):
+                    blocked_groups.add(group)
+            except Exception:
+                pass
+        bucket = result.setdefault(group, {"configured": 0, "enabled": 0, "available": 0})
+        bucket["configured"] += 1
+        if bool(spec.get("enabled", False)):
+            bucket["enabled"] += 1
+        state = spec.get("state") if isinstance(spec.get("state"), dict) else {}
+        block_state = str(
+            _operator_dynamic_block_state(str(op_id), spec)
+            or
+            spec.get("quota_guard_state")
+            or state.get("runtime_state")
+            or ""
+        ).strip().lower()
+        if bool(spec.get("enabled", False)) and bool(spec.get("available", False)) and block_state not in BLOCKED_OPERATOR_STATES:
+            bucket["available"] += 1
+    for group in blocked_groups:
+        if group in result:
+            result[group]["available"] = 0
     return result
 
 
@@ -254,36 +369,59 @@ def _logical_targets(config: dict[str, Any], metrics: dict[str, int]) -> tuple[d
     return targets, reasoning
 
 
-def _builder_pool_targets(config: dict[str, Any], metrics: dict[str, int]) -> dict[str, Any]:
+def _builder_pool_targets(config: dict[str, Any], metrics: dict[str, int], group_capacity: dict[str, dict[str, int]] | None = None) -> dict[str, Any]:
     raw = config.get("builder_pool_targets") if isinstance(config.get("builder_pool_targets"), dict) else {}
-    result: dict[str, Any] = {"desired_total": None, "groups": {}, "reasoning": {}}
+    capacity = group_capacity if group_capacity is not None else builder_pool_capacity_by_group()
+    capacity_known = bool(capacity)
+    result: dict[str, Any] = {
+        "desired_total": None,
+        "requested_desired_total": None,
+        "groups": {},
+        "requested_groups": {},
+        "group_capacity": capacity,
+        "quota_aware": capacity_known,
+        "reasoning": {},
+    }
     desired_total = raw.get("desired_total") if isinstance(raw.get("desired_total"), dict) else None
     if desired_total:
         metric_name = str(desired_total.get("metric") or "").strip()
         metric_value = int(metrics.get(metric_name, 0))
         target = _scaled_target(metric_value, desired_total)
-        result["desired_total"] = target
+        available_total = sum(int(item.get("available", 0) or 0) for item in capacity.values())
+        effective_target = min(target, available_total) if capacity_known else target
+        result["desired_total"] = effective_target
+        result["requested_desired_total"] = target
         result["reasoning"]["desired_total"] = {
             "metric": metric_name,
             "metric_value": metric_value,
             "base": desired_total.get("base"),
             "max": desired_total.get("max"),
             "target": target,
+            "available": available_total if capacity_known else None,
+            "effective_target": effective_target,
+            "quota_capped": capacity_known and effective_target < target,
         }
     groups = raw.get("groups") if isinstance(raw.get("groups"), dict) else {}
     for name, spec in groups.items():
         if not isinstance(spec, dict):
             continue
+        group_name = str(name)
         metric_name = str(spec.get("metric") or "").strip()
         metric_value = int(metrics.get(metric_name, 0))
         target = _scaled_target(metric_value, spec)
-        result["groups"][str(name)] = target
-        result["reasoning"][str(name)] = {
+        available = int((capacity.get(group_name) or {}).get("available", 0) or 0)
+        effective_target = min(target, available) if capacity_known else target
+        result["requested_groups"][group_name] = target
+        result["groups"][group_name] = effective_target
+        result["reasoning"][group_name] = {
             "metric": metric_name,
             "metric_value": metric_value,
             "base": spec.get("base"),
             "max": spec.get("max"),
             "target": target,
+            "available": available if capacity_known else None,
+            "effective_target": effective_target,
+            "quota_capped": capacity_known and effective_target < target,
         }
     return result
 
@@ -309,9 +447,10 @@ def build_snapshot(policy: dict[str, Any] | None = None) -> dict[str, Any]:
     config = autoscaling_config(policy)
     metrics = backlog_metrics(config)
     capacities = operator_capacity_by_role()
+    builder_group_capacity = builder_pool_capacity_by_group()
     profile_targets, profile_reasoning = _profile_targets(config, metrics)
     logical_targets, logical_reasoning = _logical_targets(config, metrics)
-    pool_targets = _builder_pool_targets(config, metrics)
+    pool_targets = _builder_pool_targets(config, metrics, builder_group_capacity)
     global_targets = _global_targets(config, profile_targets)
     return {
         "ok": True,

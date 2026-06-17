@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
 PHYSICAL_OPERATORS_PATH = Path(os.environ.get("SOLAR_MULTI_TASK_OPERATORS", HARNESS_DIR / "config" / "physical-operators.json"))
+OPERATOR_RESULTS_DIR = Path(os.environ.get("SOLAR_OPERATOR_RESULTS_DIR", HARNESS_DIR / "run" / "operator-results"))
 TASK_CONTROL_FILENAME = "operator-task-control.json"
 BLOCKING_STATES = {"cooldown", "quota_exhausted", "auth_expired"}
 ANTIGRAVITY_PROBE_PROMPT = "Reply with exactly: SOLAR_AGY_OK"
@@ -374,6 +375,75 @@ def int_value(value: Any, default: int) -> int:
 
 def has_explicit_quota_evidence(text: str) -> bool:
     return bool(EXPLICIT_QUOTA_EVIDENCE_RE.search(text or ""))
+
+
+def _read_tail(path: Path, max_bytes: int) -> str:
+    try:
+        with path.open("rb") as handle:
+            try:
+                handle.seek(-max_bytes, os.SEEK_END)
+            except OSError:
+                handle.seek(0)
+            return handle.read(max_bytes).decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def recent_operator_quota_block(
+    operator_id: str,
+    *,
+    model_hint: str = "",
+    now: dt.datetime | None = None,
+    max_age_seconds: int | None = None,
+    max_files: int | None = None,
+    tail_bytes: int | None = None,
+) -> dict[str, Any] | None:
+    """Return a current quota block inferred from recent operator result logs."""
+    op_id = str(operator_id or "").strip()
+    if not op_id:
+        return None
+    root = OPERATOR_RESULTS_DIR / op_id
+    if not root.exists():
+        return None
+    now_dt = now or _now()
+    max_age = int(max_age_seconds if max_age_seconds is not None else os.environ.get("SOLAR_OPERATOR_RESULT_QUOTA_BLOCK_MAX_AGE_SECONDS", "172800"))
+    limit = int(max_files if max_files is not None else os.environ.get("SOLAR_OPERATOR_RESULT_QUOTA_BLOCK_MAX_FILES", "40"))
+    bytes_limit = int(tail_bytes if tail_bytes is not None else os.environ.get("SOLAR_OPERATOR_RESULT_QUOTA_BLOCK_TAIL_BYTES", "12000"))
+    candidates: list[Path] = []
+    for pattern in ("*/codex-cli-output.log", "*/output.log"):
+        candidates.extend(root.glob(pattern))
+    candidates = sorted(
+        {path for path in candidates if path.is_file()},
+        key=lambda path: path.stat().st_mtime if path.exists() else 0.0,
+        reverse=True,
+    )[: max(1, limit)]
+    for path in candidates:
+        try:
+            mtime = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+        except Exception:
+            continue
+        text = _read_tail(path, max(1024, bytes_limit))
+        if classify_failure_state(text) != "cooldown" or not has_explicit_quota_evidence(text):
+            continue
+        text_l = text.lower()
+        model_l = str(model_hint or "").lower()
+        if model_l and "gpt-5.3-codex-spark" in text_l and "spark" not in model_l:
+            continue
+        reset_at = parse_rate_limit_reset_at(text, now=now_dt)
+        if reset_at is None:
+            if max_age > 0 and (now_dt - mtime).total_seconds() > max_age:
+                continue
+            continue
+        if reset_at <= now_dt:
+            continue
+        return {
+            "operator_id": op_id,
+            "runtime_state": "cooldown",
+            "expires_at": _iso_z(reset_at),
+            "source": "operator_result_log",
+            "path": str(path),
+        }
+    return None
 
 
 def classify_failure_state(text: str) -> str:
@@ -762,6 +832,7 @@ def _prune_dynamic_operator_status_blocks(
         expires = _parse_time(expires_raw)
         reason = str(status.get("reason") or status.get("last_error") or status.get("source") or "").strip()
         evidence = str(status.get("evidence") or status.get("evidence_text") or status.get("last_output_excerpt") or "").strip()
+        explicit_quota_evidence = has_explicit_quota_evidence(" ".join([reason, evidence]).lower())
         weak_cooldown = runtime_state == "cooldown" and not reason and not evidence
         op = operators.get(operator_id) if isinstance(operators.get(operator_id), dict) else {}
         status_provider = str(status.get("effective_provider") or "").strip().lower()
@@ -796,7 +867,7 @@ def _prune_dynamic_operator_status_blocks(
             runtime.clear_operator_status(operator_id)
             pruned.append({"operator_id": operator_id, "runtime_state": runtime_state, "expired_at": "weak_no_evidence_health_ok"})
             continue
-        if registry_cleared_after_status:
+        if registry_cleared_after_status and not explicit_quota_evidence:
             runtime.clear_operator_status(operator_id)
             pruned.append({"operator_id": operator_id, "runtime_state": runtime_state, "expired_at": "registry_pruned_after_status_block"})
             continue
@@ -861,6 +932,7 @@ def persist_operator_block(
             "last_error_at": _iso_z(),
         }
     )
+    state.pop("last_pruned_at", None)
     op["state"] = state
     flow = op.get("flow_control") if isinstance(op.get("flow_control"), dict) else {}
     flow.update(
@@ -873,6 +945,8 @@ def persist_operator_block(
             "last_block_excerpt": _excerpt(evidence_text),
         }
     )
+    flow.pop("last_pruned_at", None)
+    flow.pop("last_prune_reason", None)
     op["flow_control"] = flow
     _write_operator_registry(registry)
     return {"ok": True, "operator_id": operator_id, "runtime_state": runtime_state, "expires_at": expires_iso}

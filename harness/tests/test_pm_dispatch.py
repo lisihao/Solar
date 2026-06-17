@@ -628,6 +628,125 @@ def test_is_dispatchable_does_not_share_key_ref_across_distinct_models(monkeypat
     assert reason == ""
 
 
+def test_is_dispatchable_honors_recent_result_log_quota_block(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "_recent_operator_quota_block",
+        lambda op: {"runtime_state": "cooldown", "expires_at": "2099-01-01T00:00:00Z"},
+    )
+
+    ok, reason = pm_dispatch.is_dispatchable(
+        {
+            "enabled": True,
+            "available": True,
+            "operator_id": "spark-builder-1",
+            "model": "gpt-5.3-codex-spark",
+        }
+    )
+
+    assert ok is False
+    assert "result_log_quota_block=cooldown" in reason
+    assert "2099-01-01T00:00:00Z" in reason
+
+
+def test_builder_pool_snapshot_shares_result_log_quota_block_with_group(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    registry = {
+        "version": 1,
+        "operators": {
+            "spark-builder-1": {
+                "enabled": True,
+                "available": True,
+                "roles": ["builder"],
+                "model": "gpt-5.3-codex-spark",
+                "builder_pool": {"enabled": True, "group": "codex-gpt-5.3-spark"},
+            },
+            "spark-builder-2": {
+                "enabled": True,
+                "available": True,
+                "roles": ["builder"],
+                "model": "gpt-5.3-codex-spark",
+                "builder_pool": {"enabled": True, "group": "codex-gpt-5.3-spark"},
+            },
+        },
+    }
+    policy = {
+        "concurrency": {"level": "normal"},
+        "builder_pool": {
+            "enabled": True,
+            "desired_total": 2,
+            "groups": {"codex-gpt-5.3-spark": {"desired": 2}},
+        },
+    }
+    policy_mod = types.SimpleNamespace(
+        load_policy=lambda: policy,
+        builder_pool_config=lambda p=None: policy["builder_pool"],
+        pool_group_desired=lambda group, p=None: 2,
+        is_pool_member=lambda op: bool(op.get("builder_pool", {}).get("enabled")),
+        infer_builder_group=lambda op: op.get("builder_pool", {}).get("group", ""),
+        builder_pool_desired_total=lambda p=None: 2,
+        recovery_settings=lambda p=None: {"high_backlog_pending_tasks": 6, "min_available_ratio": 0.5},
+        active_level=lambda p=None: "normal",
+    )
+    monkeypatch.setattr(pm_dispatch, "load_registry", lambda: registry)
+    monkeypatch.setattr(pm_dispatch, "_load_concurrency_policy_module", lambda: policy_mod)
+    monkeypatch.setattr(pm_dispatch, "_builder_pool_backlog_breakdown", lambda: {"total": 0})
+    monkeypatch.setattr(pm_dispatch, "get_operator_runtime_state", lambda operator_id: "idle")
+    monkeypatch.setattr(pm_dispatch, "get_operator_status_data", lambda operator_id: {})
+    monkeypatch.setattr(pm_dispatch, "_operator_external_health", lambda op: (True, ""))
+    monkeypatch.setattr(pm_dispatch, "_rate_limit_pruner_status", lambda: {})
+    monkeypatch.setattr(pm_dispatch, "_operator_health_watchdog_status", lambda: {})
+    monkeypatch.setattr(
+        pm_dispatch,
+        "_recent_operator_quota_block",
+        lambda op: {"runtime_state": "cooldown", "expires_at": "2099-01-01T00:00:00Z"}
+        if op.get("operator_id") == "spark-builder-1"
+        else None,
+    )
+
+    snapshot = pm_dispatch.builder_pool_snapshot()
+
+    group = snapshot["groups"]["codex-gpt-5.3-spark"]
+    assert group["configured"] == 2
+    assert group["available"] == 0
+    assert group["blocked"] == 2
+    assert group["cooldown"] == 2
+    assert len(snapshot["rate_limit_blocks"]) == 2
+    assert {row["available"] for row in snapshot["operators"]} == {False}
+
+
+def test_builder_pool_snapshot_preserves_zero_dynamic_group_desired(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    policy = {
+        "concurrency": {"level": "normal"},
+        "builder_pool": {
+            "enabled": True,
+            "desired_total": 0,
+            "groups": {"codex-gpt-5.3-spark": {"desired": 1}},
+        },
+    }
+    policy_mod = types.SimpleNamespace(
+        load_policy=lambda: policy,
+        builder_pool_config=lambda p=None: policy["builder_pool"],
+        pool_group_desired=lambda group, p=None: 0,
+        is_pool_member=lambda op: False,
+        infer_builder_group=lambda op: "",
+        builder_pool_desired_total=lambda p=None: 0,
+        recovery_settings=lambda p=None: {"high_backlog_pending_tasks": 6, "min_available_ratio": 0.5},
+        active_level=lambda p=None: "normal",
+    )
+    monkeypatch.setattr(pm_dispatch, "load_registry", lambda: {"version": 1, "operators": {}})
+    monkeypatch.setattr(pm_dispatch, "_load_concurrency_policy_module", lambda: policy_mod)
+    monkeypatch.setattr(pm_dispatch, "_builder_pool_backlog_breakdown", lambda: {"total": 0})
+    monkeypatch.setattr(pm_dispatch, "_rate_limit_pruner_status", lambda: {})
+    monkeypatch.setattr(pm_dispatch, "_operator_health_watchdog_status", lambda: {})
+
+    snapshot = pm_dispatch.builder_pool_snapshot()
+
+    assert snapshot["groups"]["codex-gpt-5.3-spark"]["desired"] == 0
+
+
 def test_operator_external_health_expands_home_in_command_path(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
     monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)

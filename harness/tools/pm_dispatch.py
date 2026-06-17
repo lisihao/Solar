@@ -339,6 +339,19 @@ def _load_operator_runtime_module() -> Any | None:
         return None
 
 
+def _load_operator_flow_control_module() -> Any | None:
+    """Best-effort load of operator_flow_control for log-backed quota state."""
+    try:
+        lib_dir = HARNESS_DIR / "lib"
+        if str(lib_dir) not in sys.path:
+            sys.path.insert(0, str(lib_dir))
+        import operator_flow_control  # type: ignore
+
+        return operator_flow_control
+    except Exception:
+        return None
+
+
 def get_operator_runtime_state(operator_id: str) -> str:
     runtime_mod = _load_operator_runtime_module()
     if runtime_mod is not None:
@@ -357,6 +370,22 @@ def get_operator_runtime_state(operator_id: str) -> str:
         return str(data.get("runtime_state", "idle"))
     except Exception:
         return "idle"
+
+
+def _recent_operator_quota_block(op: dict[str, Any]) -> dict[str, Any] | None:
+    operator_id = str(op.get("operator_id") or "").strip()
+    if not operator_id:
+        return None
+    flow_mod = _load_operator_flow_control_module()
+    if flow_mod is None or not hasattr(flow_mod, "recent_operator_quota_block"):
+        return None
+    try:
+        return flow_mod.recent_operator_quota_block(
+            operator_id,
+            model_hint=str(op.get("model") or op.get("profile") or ""),
+        )
+    except Exception:
+        return None
 
 
 def get_operator_status_data(operator_id: str) -> dict[str, Any]:
@@ -539,6 +568,11 @@ def _operator_block_info(op_id: str, op: dict[str, Any], runtime_state: str, rea
         block_type = quota_state
     elif state_l in {"cooldown", "quota_exhausted", "auth_expired"}:
         block_type = state_l
+    elif "result_log_quota_block" in reason_l:
+        block_type = "cooldown"
+        match = re.search(r"\(until ([^)]+)\)", reason or "")
+        if match and not expires_at:
+            expires_at = match.group(1).strip()
     elif "health_check_failed" in reason_l or "unavailable:" in reason_l:
         block_type = "health"
     elif state_l in {"leased", "running", "draining"}:
@@ -889,6 +923,16 @@ def is_dispatchable(op: dict[str, Any]) -> tuple[bool, str]:
             if expires_at:
                 reason += f" (until {expires_at})"
             return False, reason
+    result_log_block = _recent_operator_quota_block(op)
+    if result_log_block:
+        expires_at = str(result_log_block.get("expires_at") or "")
+        reason = f"result_log_quota_block={result_log_block.get('runtime_state', 'cooldown')}"
+        eta = _format_reset_eta(expires_at)
+        if eta:
+            reason += f", resets {eta}"
+        if expires_at:
+            reason += f" (until {expires_at})"
+        return False, reason
     shared_block = _shared_quota_block_for_operator(op)
     if shared_block:
         state = shared_block.get("state", "cooldown")
@@ -2971,9 +3015,15 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
     groups: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
     recovery_actions: list[dict[str, Any]] = []
+    def group_desired(group: str, spec: dict[str, Any] | None = None) -> int:
+        try:
+            return int(policy_mod.pool_group_desired(group, policy))
+        except Exception:
+            return int((spec or {}).get("desired", 0) or 0)
+
     for group, spec in groups_cfg.items():
         groups[group] = {
-            "desired": int(policy_mod.pool_group_desired(group, policy) or (spec or {}).get("desired", 0)),
+            "desired": group_desired(group, spec if isinstance(spec, dict) else {}),
             "configured": 0,
             "available": 0,
             "blocked": 0,
@@ -2986,16 +3036,28 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
             "other_blocked": 0,
         }
 
-    rate_limit_blocks: list[dict[str, Any]] = []
+    pool_member_specs: list[tuple[str, dict[str, Any], str]] = []
+    group_result_log_blocks: dict[str, dict[str, Any]] = {}
     for op_id, spec in operators.items():
         op = {"operator_id": op_id, **dict(spec)}
         if not policy_mod.is_pool_member(op):
             continue
         group = policy_mod.infer_builder_group(op) or "unknown"
+        pool_member_specs.append((str(op_id), dict(spec), group))
+        result_log_block = _recent_operator_quota_block(op)
+        if result_log_block and group not in group_result_log_blocks:
+            group_result_log_blocks[group] = {
+                **result_log_block,
+                "peer_operator_id": str(op_id),
+            }
+
+    rate_limit_blocks: list[dict[str, Any]] = []
+    for op_id, spec, group in pool_member_specs:
+        op = {"operator_id": op_id, **dict(spec)}
         groups.setdefault(
             group,
             {
-                "desired": policy_mod.pool_group_desired(group, policy),
+                "desired": group_desired(group),
                 "configured": 0,
                 "available": 0,
                 "blocked": 0,
@@ -3010,6 +3072,19 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
         )
         groups[group]["configured"] += 1
         ok, reason = is_dispatchable(op)
+        group_block = group_result_log_blocks.get(group)
+        if ok and group_block:
+            expires_at = str(group_block.get("expires_at") or "")
+            reason = (
+                f"shared_result_log_quota_block={group_block.get('runtime_state', 'cooldown')}"
+                f", peer={group_block.get('peer_operator_id', 'unknown')}"
+            )
+            eta = _format_reset_eta(expires_at)
+            if eta:
+                reason += f", resets {eta}"
+            if expires_at:
+                reason += f" (until {expires_at})"
+            ok = False
         if recover and not ok and "health_check_failed" in reason:
             started, start_reason = _try_auto_start_operator(op)
             recovery_actions.append({"operator_id": op_id, "action": "auto_start", "ok": started, "reason": start_reason})
