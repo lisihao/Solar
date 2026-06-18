@@ -40,6 +40,8 @@ class Task:
     script: Path
     date_env: str
     target_offset_days: int = 0
+    cadence: str = "daily"
+    catchup_lookback_days: int | None = None
 
 
 TASKS: tuple[Task, ...] = (
@@ -67,11 +69,20 @@ TASKS: tuple[Task, ...] = (
         target_offset_days=1,
     ),
     Task(
+        key="youtube_digest",
+        label="YouTube 洞察摘要",
+        due_time=(8, 17),
+        script=HARNESS_DIR / "scripts" / "run_youtube_influence_digest.sh",
+        date_env="YOUTUBE_INFLUENCE_DIGEST_DATE",
+        catchup_lookback_days=1,
+    ),
+    Task(
         key="hf_papers",
         label="Hugging Face Papers",
         due_time=(9, 20),
         script=HARNESS_DIR / "scripts" / "run_hf_paper_weekly_report.sh",
         date_env="HF_WEEKLY_REPORT_DATE",
+        cadence="weekly",
     ),
 )
 
@@ -113,6 +124,19 @@ def validation_ok(path: Path) -> bool:
     return str(payload.get("status") or "").lower() == "ok"
 
 
+def youtube_digest_mail_sent(path: Path, reference_path: Path) -> bool:
+    payload = load_json(path)
+    mail = payload.get("mail") if isinstance(payload.get("mail"), dict) else payload
+    if str(mail.get("status") or "").lower() != "sent":
+        return False
+    try:
+        if path.stat().st_mtime + 1 < reference_path.stat().st_mtime:
+            return False
+    except OSError:
+        return False
+    return True
+
+
 def report_complete(task_key: str, date_str: str) -> tuple[bool, str]:
     if task_key == "github":
         root = KNOWLEDGE_DIR / "_raw" / "tech-hotspot-radar" / "github-trend-report" / date_str
@@ -140,6 +164,19 @@ def report_complete(task_key: str, date_str: str) -> tuple[bool, str]:
         if not mail_sent(root / "mail-result.json", report_html):
             return False, "missing fresh sent mail-result.json"
         return True, "html+mail sent"
+
+    if task_key == "youtube_digest":
+        year, month, day = date_str.split("-")
+        root = KNOWLEDGE_DIR / "_raw" / "youtube-influence-digest" / year / month / day
+        if not root.is_dir():
+            return False, "missing youtube influence digest dir"
+        digests = sorted(root.glob("*/*youtube-influence-digest.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not digests:
+            return False, "missing youtube-influence-digest.md"
+        digest_path = digests[0]
+        if not youtube_digest_mail_sent(digest_path.parent / "mail-result.json", digest_path):
+            return False, "missing fresh sent mail-result.json"
+        return True, "digest+mail sent"
 
     if task_key == "youtube_planned":
         reports_root = KNOWLEDGE_DIR / "_raw" / "tech-hotspot-radar" / "ai-influence-planned" / date_str / "reports"
@@ -229,6 +266,7 @@ def active_queue_task(task: Task, date_str: str) -> tuple[bool, str]:
         "youtube_planned": ("youtube-daily-ai-influence-report", script_name),
         "ai_digest": ("ai-influence-daily-digest", script_name),
         "github": ("github-trend-report", script_name),
+        "youtube_digest": ("youtube-influence-digest", script_name),
         "hf_papers": ("hf-paper-weekly-report", script_name),
     }.get(task.key, (script_name,))
 
@@ -278,16 +316,34 @@ def recently_enqueued(
     return False, f"cooldown expired age={int(age)}s"
 
 
+def previous_completed_iso_week_end(day: dt.date) -> dt.date:
+    return day - dt.timedelta(days=day.isoweekday())
+
+
 def target_dates(task: Task, now_local: dt.datetime, lookback_days: int, include_today: bool) -> list[str]:
+    effective_lookback_days = max(1, lookback_days)
+    if task.catchup_lookback_days is not None:
+        effective_lookback_days = min(effective_lookback_days, max(1, task.catchup_lookback_days))
+    if task.cadence == "weekly":
+        base = previous_completed_iso_week_end(now_local.date())
+        week_count = max(1, (effective_lookback_days + 6) // 7)
+        return [(base - dt.timedelta(days=7 * offset)).isoformat() for offset in range(week_count)]
     start = 0 if include_today else 1
     return [
         (now_local.date() - dt.timedelta(days=task.target_offset_days + offset)).isoformat()
-        for offset in range(start, lookback_days)
+        for offset in range(start, effective_lookback_days)
     ]
 
 
 def due_for_date(task: Task, date_str: str, now_local: dt.datetime, grace_minutes: int) -> tuple[bool, str]:
     date_value = dt.date.fromisoformat(date_str)
+    if task.cadence == "weekly":
+        due_day = date_value + dt.timedelta(days=1)
+        due = dt.datetime.combine(due_day, dt.time(task.due_time[0], task.due_time[1]), tzinfo=now_local.tzinfo)
+        due += dt.timedelta(minutes=grace_minutes)
+        if now_local >= due:
+            return True, f"weekly due after {due.strftime('%Y-%m-%d %H:%M')}"
+        return False, f"weekly not due until {due.strftime('%Y-%m-%d %H:%M')}"
     if date_value < now_local.date():
         return True, "past date"
     due = now_local.replace(
@@ -330,6 +386,7 @@ def base_env() -> dict[str, str]:
             "GITHUB_TREND_REPORT_SEND_MAIL": env.get("GITHUB_TREND_REPORT_SEND_MAIL") or "true",
             "HF_WEEKLY_REPORT_SEND_MAIL": env.get("HF_WEEKLY_REPORT_SEND_MAIL") or "true",
             "YOUTUBE_DAILY_REPORT_SEND_MAIL": env.get("YOUTUBE_DAILY_REPORT_SEND_MAIL") or "true",
+            "YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL": env.get("YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL") or "true",
         }
     )
     return env
