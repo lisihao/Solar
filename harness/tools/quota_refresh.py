@@ -25,7 +25,8 @@ SNAPSHOT_DIR = HARNESS_DIR / "run" / "quota-snapshots"
 LATEST_SNAPSHOT = SNAPSHOT_DIR / "latest.json"
 HISTORY_PATH = SNAPSHOT_DIR / "history.jsonl"
 
-BLOCKED_STATES = {"cooldown", "quota_exhausted", "auth_expired", "disabled"}
+BLOCKED_STATES = {"cooldown", "quota_exhausted", "auth_expired", "disabled", "no_subscription", "needs_human_review"}
+HARD_BLOCKED_STATES = {"cooldown", "quota_exhausted", "auth_expired", "no_subscription", "needs_human_review"}
 LEVEL_ORDER = ["low", "normal", "high", "burst"]
 
 
@@ -178,6 +179,16 @@ def _quota_provider_probe(model_key: str) -> dict[str, Any]:
 
 def _provider_probe(model_key: str, ops: list[dict[str, Any]]) -> dict[str, Any]:
     providers = {str(op.get("provider") or "").lower() for op in ops}
+    states = {str(op.get("state") or "").strip().lower() for op in ops}
+    if "no_subscription" in states:
+        return {
+            "provider": model_key,
+            "status": "error",
+            "metric": "subscription",
+            "value": "missing",
+            "unit": "",
+            "note": "no_subscription_user_marked_manual_enable_required",
+        }
     if providers & {"anthropic", "claude", "claude-code"}:
         return {
             "provider": "claude-code",
@@ -259,6 +270,60 @@ def _recommend_level(*, policy: dict[str, Any], total: int, usable: int, hard_bl
     return LEVEL_ORDER[idx], reason
 
 
+def _manual_attention_alerts(rows: list[dict[str, Any]], groups: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    alerts: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        state = str(row.get("state") or "").strip().lower()
+        if state != "no_subscription":
+            continue
+        key = str(row.get("model_key") or "unknown")
+        marker = (key, state)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        group = groups.get(key, {})
+        alerts.append(
+            {
+                "type": "subscription_required",
+                "severity": "manual_action_required",
+                "model_key": key,
+                "provider": row.get("provider") or "unknown",
+                "state": state,
+                "operators": int(group.get("operators") or 0),
+                "blocked": int(group.get("hard_blocked") or 0),
+                "message": f"{key} is marked no_subscription; scheduler must not use it until manually re-enabled.",
+            }
+        )
+    return alerts
+
+
+def _notify_manual_attention_alerts(alerts: list[dict[str, Any]]) -> None:
+    if not alerts:
+        return
+    script = HARNESS_DIR / "osascript-notify.sh"
+    if not script.exists():
+        return
+    env = os.environ.copy()
+    env.setdefault("SOLAR_NOTIFY", "1")
+    env.setdefault("SOLAR_NOTIFY_THROTTLE_SEC", "86400")
+    for alert in alerts:
+        title = f"Solar operator disabled: {alert.get('model_key', 'unknown')}"
+        message = str(alert.get("message") or "manual action required")[:220]
+        try:
+            subprocess.run(
+                ["bash", str(script), title, message, "Blow"],
+                cwd=str(HARNESS_DIR),
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            pass
+
+
 def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
     registry = _load_json(PHYSICAL_OPERATORS_PATH, {"operators": {}})
     operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
@@ -298,7 +363,7 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
         available = bool(op.get("available", False)) and state not in BLOCKED_STATES
         total += 1
         usable += 1 if available else 0
-        hard_blocked += 1 if state in {"cooldown", "quota_exhausted", "auth_expired"} else 0
+        hard_blocked += 1 if state in HARD_BLOCKED_STATES else 0
         group = groups.setdefault(
             key,
             {
@@ -313,7 +378,7 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
         )
         group["operators"] += 1
         group["usable"] += 1 if available else 0
-        group["hard_blocked"] += 1 if state in {"cooldown", "quota_exhausted", "auth_expired"} else 0
+        group["hard_blocked"] += 1 if state in HARD_BLOCKED_STATES else 0
         group["states"][state] = int(group["states"].get(state, 0)) + 1
         rows.append({"operator_id": op_id, "model_key": key, "provider": op.get("provider", ""), "model": op.get("model", ""), "state": state, "usable": available})
 
@@ -325,6 +390,10 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
 
     backlog = _pending_pm_backlog_count()
     recommended, reason = _recommend_level(policy=policy, total=total, usable=usable, hard_blocked=hard_blocked, backlog=backlog)
+    manual_alerts = _manual_attention_alerts(rows, groups)
+    if apply:
+        _notify_manual_attention_alerts(manual_alerts)
+
     payload = {
         "ok": True,
         "generated_at": _now(),
@@ -340,6 +409,7 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
         "hard_blocked_ratio": round(hard_blocked / max(total, 1), 3),
         "groups": groups,
         "operators": rows,
+        "manual_attention_alerts": manual_alerts,
     }
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     tmp = str(LATEST_SNAPSHOT) + ".tmp"

@@ -76,7 +76,17 @@ ROLE_ALIASES: dict[str, str] = {
     "product-manager": "pm",
 }
 
-NON_DISPATCHABLE_STATES = {"leased", "running", "draining", "cooldown", "quota_exhausted", "auth_expired", "disabled"}
+NON_DISPATCHABLE_STATES = {
+    "leased",
+    "running",
+    "draining",
+    "cooldown",
+    "quota_exhausted",
+    "auth_expired",
+    "disabled",
+    "no_subscription",
+    "needs_human_review",
+}
 GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD = int(os.environ.get("SOLAR_GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD", "3"))
 GRAPH_TRANSIENT_FAILURE_BLOCK_WINDOW_SEC = int(os.environ.get("SOLAR_GRAPH_TRANSIENT_FAILURE_BLOCK_WINDOW_SEC", "900"))
 TRANSIENT_OPERATOR_FAILURE_RE = re.compile(
@@ -592,9 +602,9 @@ def _operator_block_info(op_id: str, op: dict[str, Any], runtime_state: str, rea
     block_type = "none"
     reason_l = (reason or "").lower()
     state_l = (runtime_state or "").lower()
-    if quota_state in {"cooldown", "quota_exhausted", "auth_expired"}:
+    if quota_state in {"cooldown", "quota_exhausted", "auth_expired", "no_subscription"}:
         block_type = quota_state
-    elif state_l in {"cooldown", "quota_exhausted", "auth_expired"}:
+    elif state_l in {"cooldown", "quota_exhausted", "auth_expired", "no_subscription", "needs_human_review"}:
         block_type = state_l
     elif "result_log_quota_block" in reason_l:
         block_type = "cooldown"
@@ -903,7 +913,7 @@ def _shared_quota_block_for_operator(op: dict[str, Any]) -> dict[str, str]:
             or (peer_spec.get("state") or {}).get("runtime_state")
             or ""
         ).strip().lower()
-        if state not in {"cooldown", "quota_exhausted", "auth_expired"}:
+        if state not in {"cooldown", "quota_exhausted", "auth_expired", "no_subscription", "needs_human_review"}:
             continue
         peer_op = {"operator_id": str(peer_id), **dict(peer_spec)}
         if _claude_stale_quota_block_without_recent_evidence(peer_op, state):
@@ -3066,6 +3076,8 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
             "cooldown": 0,
             "quota_exhausted": 0,
             "auth_expired": 0,
+            "no_subscription": 0,
+            "needs_human_review": 0,
             "health": 0,
             "busy": 0,
             "disabled": 0,
@@ -3100,6 +3112,8 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
                 "cooldown": 0,
                 "quota_exhausted": 0,
                 "auth_expired": 0,
+                "no_subscription": 0,
+                "needs_human_review": 0,
                 "health": 0,
                 "busy": 0,
                 "disabled": 0,
@@ -3131,11 +3145,11 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
             groups[group]["available"] += 1
         else:
             groups[group]["blocked"] += 1
-            if block_type in {"cooldown", "quota_exhausted", "auth_expired", "health", "busy", "disabled"}:
+            if block_type in {"cooldown", "quota_exhausted", "auth_expired", "no_subscription", "needs_human_review", "health", "busy", "disabled"}:
                 groups[group][block_type] += 1
             else:
                 groups[group]["other_blocked"] += 1
-        if block_type in {"cooldown", "quota_exhausted", "auth_expired"}:
+        if block_type in {"cooldown", "quota_exhausted", "auth_expired", "no_subscription", "needs_human_review"}:
             rate_limit_blocks.append(
                 {
                     "operator_id": op_id,

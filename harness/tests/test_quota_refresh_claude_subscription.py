@@ -185,3 +185,45 @@ def test_scoped_model_quota_block_can_cool_spark_model_group(monkeypatch, tmp_pa
 
     assert {row["state"] for row in payload["operators"]} == {"cooldown"}
     assert payload["groups"]["codex-gpt-5.3-spark"]["hard_blocked"] == 2
+
+
+def test_no_subscription_operator_is_hard_blocked_and_notifies(monkeypatch, tmp_path):
+    registry_path = tmp_path / "physical-operators.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    "mini-glm51-builder-1": {
+                        "enabled": True,
+                        "available": False,
+                        "provider": "glm",
+                        "model": "glm-5.1",
+                        "quota_guard_state": "no_subscription",
+                        "state": {"runtime_state": "needs_human_review"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    notifications = []
+
+    monkeypatch.setattr(quota_refresh, "PHYSICAL_OPERATORS_PATH", registry_path)
+    monkeypatch.setattr(quota_refresh, "SNAPSHOT_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(quota_refresh, "LATEST_SNAPSHOT", tmp_path / "snapshots" / "latest.json")
+    monkeypatch.setattr(quota_refresh, "HISTORY_PATH", tmp_path / "snapshots" / "history.jsonl")
+    monkeypatch.setattr(quota_refresh, "_load_flow_control_module", lambda: _NoRecentQuotaBlock)
+    monkeypatch.setattr(quota_refresh, "_load_runtime_module", lambda: None)
+    monkeypatch.setattr(quota_refresh, "_load_policy_module", lambda: None)
+    monkeypatch.setattr(quota_refresh, "_pending_pm_backlog_count", lambda: 1)
+    monkeypatch.setattr(quota_refresh, "_notify_manual_attention_alerts", lambda alerts: notifications.extend(alerts))
+
+    payload = quota_refresh.refresh_snapshot(apply=True)
+
+    assert payload["operators_total"] == 1
+    assert payload["operators_usable"] == 0
+    assert payload["operators_hard_blocked"] == 1
+    assert payload["groups"]["glm-5.1"]["states"] == {"no_subscription": 1}
+    assert payload["groups"]["glm-5.1"]["probe"]["status"] == "error"
+    assert payload["manual_attention_alerts"][0]["model_key"] == "glm-5.1"
+    assert notifications == payload["manual_attention_alerts"]

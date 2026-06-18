@@ -5826,7 +5826,7 @@ def _operator_usable_from_watchdog_snapshot(operator_id: str) -> bool:
         data = json.loads(latest.read_text(encoding="utf-8"))
     except Exception:
         return False
-    blocked_states = {"cooldown", "quota_exhausted", "auth_expired", "disabled", "error"}
+    blocked_states = {"cooldown", "quota_exhausted", "auth_expired", "disabled", "error", "no_subscription", "needs_human_review"}
     stack: list[Any] = [data]
     while stack:
         item = stack.pop()
@@ -6052,7 +6052,6 @@ def _builder_operator_pool_workers(
     models = [
         "operator-pool",
         "sonnet",
-        "glm-5.1",
         "deepseek-v4-flash",
         "gpt-5.5",
         "thunderomlx",
