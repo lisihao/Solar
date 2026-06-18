@@ -650,6 +650,79 @@ def test_is_dispatchable_honors_recent_result_log_quota_block(monkeypatch):
     assert "2099-01-01T00:00:00Z" in reason
 
 
+def test_is_dispatchable_ignores_claude_stale_registry_cooldown_without_recent_evidence(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "_recent_operator_quota_block", lambda op: None)
+    monkeypatch.setattr(pm_dispatch, "get_operator_runtime_state", lambda operator_id: "idle")
+    monkeypatch.setattr(pm_dispatch, "_operator_external_health", lambda op: (True, ""))
+
+    ok, reason = pm_dispatch.is_dispatchable(
+        {
+            "enabled": True,
+            "available": True,
+            "operator_id": "mini-claude-sonnet-builder",
+            "provider": "anthropic",
+            "backend": "claude-cli",
+            "model": "sonnet",
+            "quota_guard_state": "cooldown",
+            "quota_refresh_at": "2026-06-19T00:00:00Z",
+            "state": {"runtime_state": "cooldown", "cooldown_until": "2026-06-19T00:00:00Z"},
+        }
+    )
+
+    assert ok is True
+    assert reason == ""
+
+
+def test_is_dispatchable_keeps_claude_recent_result_log_cooldown(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(
+        pm_dispatch,
+        "_recent_operator_quota_block",
+        lambda op: {"runtime_state": "cooldown", "expires_at": "2026-06-19T00:00:00Z"},
+    )
+
+    ok, reason = pm_dispatch.is_dispatchable(
+        {
+            "enabled": True,
+            "available": True,
+            "operator_id": "mini-claude-sonnet-builder",
+            "provider": "anthropic",
+            "backend": "claude-cli",
+            "model": "sonnet",
+            "quota_guard_state": "cooldown",
+            "quota_refresh_at": "2026-06-19T00:00:00Z",
+            "state": {"runtime_state": "cooldown", "cooldown_until": "2026-06-19T00:00:00Z"},
+        }
+    )
+
+    assert ok is False
+    assert "quota_guard_state=cooldown" in reason
+
+
+def test_is_dispatchable_ignores_claude_stale_runtime_cooldown_without_recent_evidence(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    monkeypatch.setattr(pm_dispatch, "_recent_operator_quota_block", lambda op: None)
+    monkeypatch.setattr(pm_dispatch, "get_operator_runtime_state", lambda operator_id: "cooldown")
+    monkeypatch.setattr(pm_dispatch, "get_operator_status_data", lambda operator_id: {"expires_at": "2026-06-19T00:00:00Z"})
+    monkeypatch.setattr(pm_dispatch, "_operator_external_health", lambda op: (True, ""))
+
+    ok, reason = pm_dispatch.is_dispatchable(
+        {
+            "enabled": True,
+            "available": True,
+            "operator_id": "mini-claude-opus-evaluator",
+            "provider": "anthropic",
+            "backend": "claude-cli",
+            "model": "opus",
+            "quota_guard_state": "ok",
+        }
+    )
+
+    assert ok is True
+    assert reason == ""
+
+
 def test_builder_pool_snapshot_shares_result_log_quota_block_with_group(monkeypatch):
     pm_dispatch = _load_pm_dispatch()
     registry = {

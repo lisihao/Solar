@@ -388,6 +388,34 @@ def _recent_operator_quota_block(op: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+def _is_claude_code_operator(op: dict[str, Any]) -> bool:
+    flow_mod = _load_operator_flow_control_module()
+    operator_id = str(op.get("operator_id") or "")
+    if flow_mod is not None and hasattr(flow_mod, "_is_claude_code_operator"):
+        try:
+            return bool(flow_mod._is_claude_code_operator(operator_id, op))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    provider = str(op.get("provider") or "").strip().lower()
+    model = str(op.get("model") or "").strip().lower()
+    if provider and provider not in {"anthropic", "claude", "claude-code"}:
+        return False
+    return (
+        "claude" in operator_id.lower()
+        or provider in {"anthropic", "claude", "claude-code"}
+        or model in {"opus", "sonnet", "haiku"}
+    )
+
+
+def _claude_stale_quota_block_without_recent_evidence(op: dict[str, Any], state: str) -> bool:
+    state_l = str(state or "").strip().lower()
+    if state_l not in {"cooldown", "quota_exhausted"}:
+        return False
+    if not _is_claude_code_operator(op):
+        return False
+    return _recent_operator_quota_block(op) is None
+
+
 def get_operator_status_data(operator_id: str) -> dict[str, Any]:
     """Return the full status JSON for an operator, or empty dict if absent/expired."""
     status_file = OPERATOR_STATUS_DIR / f"{operator_id}.json"
@@ -877,6 +905,9 @@ def _shared_quota_block_for_operator(op: dict[str, Any]) -> dict[str, str]:
         ).strip().lower()
         if state not in {"cooldown", "quota_exhausted", "auth_expired"}:
             continue
+        peer_op = {"operator_id": str(peer_id), **dict(peer_spec)}
+        if _claude_stale_quota_block_without_recent_evidence(peer_op, state):
+            continue
         expires_at = str(
             status.get("expires_at")
             or peer_spec.get("quota_refresh_at")
@@ -903,26 +934,29 @@ def is_dispatchable(op: dict[str, Any]) -> tuple[bool, str]:
     operator_id = op.get("operator_id", "")
     quota_state = str(op.get("quota_guard_state") or "ok").strip().lower()
     if quota_state not in {"", "ok", "ready"}:
-        expires_at = str(op.get("quota_refresh_at") or (op.get("state") or {}).get("cooldown_until") or "")
-        expires_dt = _parse_utc(expires_at)
-        if expires_dt is not None and expires_dt <= datetime.datetime.now(datetime.timezone.utc):
-            try:
-                lib_dir = HARNESS_DIR / "lib"
-                if str(lib_dir) not in sys.path:
-                    sys.path.insert(0, str(lib_dir))
-                import operator_flow_control as ofc  # type: ignore
-
-                ofc.clear_expired_operator_config_block(str(operator_id))
-            except Exception:
-                pass
+        if _claude_stale_quota_block_without_recent_evidence(op, quota_state):
+            quota_state = "ok"
         else:
-            reason = f"quota_guard_state={quota_state}"
-            eta = _format_reset_eta(expires_at)
-            if eta:
-                reason += f", resets {eta}"
-            if expires_at:
-                reason += f" (until {expires_at})"
-            return False, reason
+            expires_at = str(op.get("quota_refresh_at") or (op.get("state") or {}).get("cooldown_until") or "")
+            expires_dt = _parse_utc(expires_at)
+            if expires_dt is not None and expires_dt <= datetime.datetime.now(datetime.timezone.utc):
+                try:
+                    lib_dir = HARNESS_DIR / "lib"
+                    if str(lib_dir) not in sys.path:
+                        sys.path.insert(0, str(lib_dir))
+                    import operator_flow_control as ofc  # type: ignore
+
+                    ofc.clear_expired_operator_config_block(str(operator_id))
+                except Exception:
+                    pass
+            else:
+                reason = f"quota_guard_state={quota_state}"
+                eta = _format_reset_eta(expires_at)
+                if eta:
+                    reason += f", resets {eta}"
+                if expires_at:
+                    reason += f" (until {expires_at})"
+                return False, reason
     result_log_block = _recent_operator_quota_block(op)
     if result_log_block:
         expires_at = str(result_log_block.get("expires_at") or "")
@@ -950,6 +984,8 @@ def is_dispatchable(op: dict[str, Any]) -> tuple[bool, str]:
         return False, reason
     state = get_operator_runtime_state(operator_id)
     state = _maybe_clear_stale_runtime(str(operator_id), state)
+    if _claude_stale_quota_block_without_recent_evidence(op, state):
+        state = "idle"
     if state in NON_DISPATCHABLE_STATES:
         if state in ("cooldown", "quota_exhausted", "auth_expired"):
             status = get_operator_status_data(operator_id)

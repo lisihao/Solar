@@ -279,13 +279,49 @@ def _is_claude_code_operator(operator_id: str, op: dict[str, Any]) -> bool:
     model = str(op.get("model") or "").strip().lower()
     surface = op.get("surface") if isinstance(op.get("surface"), dict) else {}
     surface_type = str(surface.get("type") or "").strip().lower()
-    return (
+    if provider and provider not in {"anthropic", "claude", "claude-code"}:
+        return False
+    explicit_claude = (
         "claude" in operator_id.lower()
         or provider in {"anthropic", "claude", "claude-code"}
-        or backend in {"claude-cli", "claude-sdk"}
         or surface_type.startswith("claude_")
         or model in {"opus", "sonnet", "haiku"}
     )
+    return (
+        explicit_claude
+        or backend in {"claude-cli", "claude-sdk"}
+    )
+
+
+def _claude_models_named_in_text(text: str) -> set[str]:
+    text_l = str(text or "").lower()
+    models: set[str] = set()
+    for model in ("opus", "sonnet", "haiku"):
+        if re.search(rf"(?:^|[^a-z0-9])(?:claude[-_ ]?)?{model}(?:[^a-z0-9]|$)", text_l):
+            models.add(model)
+    return models
+
+
+def _claude_operator_models(operator_id: str, op: dict[str, Any]) -> set[str]:
+    text_l = " ".join(
+        str(value or "").lower()
+        for value in (
+            operator_id,
+            op.get("model"),
+            op.get("model_config"),
+            op.get("display_name"),
+            op.get("name"),
+        )
+    )
+    return _claude_models_named_in_text(text_l)
+
+
+def _claude_quota_evidence_matches_operator(operator_id: str, op: dict[str, Any], evidence_text: str) -> bool:
+    named = _claude_models_named_in_text(evidence_text)
+    if not named:
+        return True
+    operator_models = _claude_operator_models(operator_id, op)
+    return bool(named & operator_models)
 
 
 def _antigravity_auth_probe_enabled() -> bool:
@@ -731,6 +767,20 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
             and source == "failure_flow_control"
             and not explicit_quota_evidence
         )
+        mis_scoped_claude_pane_cooldown = (
+            runtime_state == "cooldown"
+            and source.startswith("tmux_pane:")
+            and _is_claude_code_operator(str(operator_id), op)
+            and not _claude_quota_evidence_matches_operator(str(operator_id), op, excerpt)
+        )
+        if mis_scoped_claude_pane_cooldown:
+            _clear_registry_block(op, now=now, reason="claude_pane_quota_model_mismatch")
+            pruned.append({
+                "operator_id": str(operator_id),
+                "runtime_state": runtime_state,
+                "expired_at": "claude_pane_quota_model_mismatch",
+            })
+            continue
         if expires is not None and expires > now:
             if _is_claude_code_operator(str(operator_id), op):
                 try:

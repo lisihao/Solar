@@ -327,7 +327,7 @@ def test_acknowledged_dispatch_idle_pane_requeues_after_grace(monkeypatch, tmp_p
     assert released == [(pane, dispatch_id, "graph_dispatch_reconcile_ack_idle_no_worker_activity")]
 
 
-def test_worker_discovery_marks_claude_monthly_limit_as_anthropic_quota(monkeypatch) -> None:
+def test_worker_discovery_scopes_claude_monthly_limit_to_named_model(monkeypatch) -> None:
     monkeypatch.setattr(gnd, "SESSION", "solar-harness")
     monkeypatch.setattr(
         gnd.subprocess,
@@ -349,11 +349,39 @@ def test_worker_discovery_marks_claude_monthly_limit_as_anthropic_quota(monkeypa
     workers = gnd._discover_workers(dry_run=False)
 
     assert len(workers) == 1
-    assert "anthropic" in workers[0]["quota_exhausted"]
-    assert "claude" in workers[0]["quota_exhausted"]
     assert "opus" in workers[0]["quota_exhausted"]
+    assert "sonnet" not in workers[0]["quota_exhausted"]
+    assert "anthropic" not in workers[0]["quota_exhausted"]
     assert workers[0]["busy"] is True
     assert workers[0]["unavailable_reason"] == "rate_limit_or_api_error"
+
+
+def test_claude_opus_quota_does_not_match_sonnet_operator() -> None:
+    quota_models = gnd._quota_exhausted_models(
+        "Evaluator | 模型:Opus",
+        "You've hit your limit · resets 8pm (America/Toronto)",
+        {},
+        ["anthropic-sonnet", "claude-sonnet", "sonnet"],
+    )
+
+    assert "opus" in quota_models
+    assert "sonnet" not in quota_models
+    assert gnd._operator_models_match(
+        {
+            "operator_id": "mini-claude-opus-evaluator",
+            "provider": "anthropic",
+            "model": "opus",
+        },
+        quota_models,
+    )
+    assert not gnd._operator_models_match(
+        {
+            "operator_id": "mini-claude-sonnet-builder",
+            "provider": "anthropic",
+            "model": "sonnet",
+        },
+        quota_models,
+    )
 
 
 def test_worker_discovery_marks_edit_confirmation_as_busy(monkeypatch) -> None:
