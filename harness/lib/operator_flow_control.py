@@ -783,6 +783,28 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
             continue
         if expires is not None and expires > now:
             if _is_claude_code_operator(str(operator_id), op):
+                # codex 接力分析 P0-1 (2026-06-18 验真): claude-code 是订阅算子,
+                # registry 里的 cooldown 若没有"近期真实限流日志证据"就不该 kept。
+                # 旧逻辑只在 live 心跳存在时才清, 但算子被冷却→不派活→无心跳→
+                # 检查失败→永久 kept (鸡生蛋死锁)。改为: 无近期真实 quota 日志证据
+                # → 清理 (不依赖心跳)。真限流日志在 max_age(2h) 内才保留。
+                recent = None
+                try:
+                    recent = recent_operator_quota_block(
+                        str(operator_id),
+                        model_hint=str(op.get("model") or op.get("model_config") or ""),
+                    )
+                except Exception:
+                    recent = None
+                if not recent:
+                    _clear_registry_block(op, now=now, reason="claude_registry_cooldown_no_live_quota_evidence")
+                    pruned.append({
+                        "operator_id": str(operator_id),
+                        "runtime_state": runtime_state,
+                        "expired_at": "claude_registry_cooldown_no_live_quota_evidence",
+                    })
+                    continue
+                # 有近期真实限流证据 — 保留 block (claude 真撞限流了)
                 try:
                     runtime = _operator_runtime_module()
                     live_status = runtime.get_operator_status(str(operator_id)) or {}
