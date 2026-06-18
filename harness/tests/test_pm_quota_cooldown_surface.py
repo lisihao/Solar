@@ -766,3 +766,128 @@ class TestQuotaRecoveryPrune:
         assert updated["quota_refresh_at"] is None
         assert updated["state"]["runtime_state"] == "idle"
         assert not status_path.exists()
+
+    def test_claude_pane_quota_only_prunes_mismatched_model_blocks(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        registry_path.parent.mkdir(parents=True)
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        "mini-claude-opus-evaluator": {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "anthropic",
+                            "backend": "claude-cli",
+                            "model": "opus",
+                            "quota_guard_state": "cooldown",
+                            "quota_refresh_at": "2026-06-19T00:00:00Z",
+                            "state": {"runtime_state": "cooldown", "cooldown_until": "2026-06-19T00:00:00Z"},
+                            "flow_control": {
+                                "last_block_reason": "pane_tui_rate_limit",
+                                "last_block_source": "tmux_pane:solar-harness:0.3",
+                                "last_block_excerpt": "Claude Code claude-opus-4-8\nYou've hit your limit · resets 8pm",
+                            },
+                        },
+                        "mini-claude-sonnet-builder": {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "anthropic",
+                            "backend": "claude-cli",
+                            "model": "sonnet",
+                            "quota_guard_state": "cooldown",
+                            "quota_refresh_at": "2026-06-19T00:00:00Z",
+                            "state": {"runtime_state": "cooldown", "cooldown_until": "2026-06-19T00:00:00Z"},
+                            "flow_control": {
+                                "last_block_reason": "pane_tui_rate_limit",
+                                "last_block_source": "tmux_pane:solar-harness:0.3",
+                                "last_block_excerpt": "Claude Code claude-opus-4-8\nYou've hit your limit · resets 8pm",
+                            },
+                        },
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        class FakeRuntime:
+            OPERATOR_STATUS_DIR = tmp_path / "run" / "operator-status"
+
+            @staticmethod
+            def get_operator_status(_op_id):
+                return None
+
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+        monkeypatch.setattr(ofc, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(ofc, "_operator_runtime_module", lambda: FakeRuntime)
+        monkeypatch.setattr(ofc, "_now", lambda: datetime.datetime(2026, 6, 18, 0, 15, tzinfo=datetime.timezone.utc))
+
+        result = ofc.prune_expired_operator_config_blocks()
+
+        assert result["ok"] is True
+        assert any(
+            item["operator_id"] == "mini-claude-sonnet-builder"
+            and item["expired_at"] == "claude_pane_quota_model_mismatch"
+            for item in result["pruned"]
+        )
+        assert any(item["operator_id"] == "mini-claude-opus-evaluator" for item in result["kept"])
+        updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"]
+        assert updated["mini-claude-sonnet-builder"]["quota_guard_state"] == "ok"
+        assert updated["mini-claude-sonnet-builder"]["state"]["runtime_state"] == "idle"
+        assert updated["mini-claude-opus-evaluator"]["quota_guard_state"] == "cooldown"
+
+    def test_claude_compatible_glm_is_not_pruned_by_claude_model_mismatch(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        registry_path.parent.mkdir(parents=True)
+        operator_id = "mini-glm51-builder-1"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        operator_id: {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "glm",
+                            "backend": "claude-cli",
+                            "model": "glm-5.1",
+                            "model_config": "glm-5.1;claude-compatible;print_once;builder-pool",
+                            "quota_guard_state": "cooldown",
+                            "quota_refresh_at": "2026-06-19T00:00:00Z",
+                            "state": {"runtime_state": "cooldown", "cooldown_until": "2026-06-19T00:00:00Z"},
+                            "flow_control": {
+                                "last_block_reason": "pane_tui_rate_limit",
+                                "last_block_source": "tmux_pane:solar-harness:0.3",
+                                "last_block_excerpt": "Claude Code claude-opus-4-8\nYou've hit your limit · resets 8pm",
+                            },
+                        },
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        class FakeRuntime:
+            OPERATOR_STATUS_DIR = tmp_path / "run" / "operator-status"
+
+            @staticmethod
+            def get_operator_status(_op_id):
+                return None
+
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+        monkeypatch.setattr(ofc, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(ofc, "_operator_runtime_module", lambda: FakeRuntime)
+        monkeypatch.setattr(ofc, "_now", lambda: datetime.datetime(2026, 6, 18, 0, 15, tzinfo=datetime.timezone.utc))
+
+        result = ofc.prune_expired_operator_config_blocks()
+
+        assert result["ok"] is True
+        assert not any(item["operator_id"] == operator_id for item in result["pruned"])
+        assert any(item["operator_id"] == operator_id for item in result["kept"])

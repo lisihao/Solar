@@ -1220,26 +1220,62 @@ def _quota_models_for_provider(provider: str) -> list[str]:
     return []
 
 
+def _claude_quota_models_from_context(combined: str, models: list[str]) -> list[str]:
+    """Return Claude model aliases when pane text names a concrete model."""
+    text = str(combined or "").lower()
+    values: set[str] = set()
+    if re.search(r"(?:^|[^a-z0-9])(?:claude[-_ ]?)?opus(?:[^a-z0-9]|$)", text):
+        values.update(_model_alias_set("claude-opus"))
+        values.add("opus")
+    if re.search(r"(?:^|[^a-z0-9])(?:claude[-_ ]?)?sonnet(?:[^a-z0-9]|$)", text):
+        values.update(_model_alias_set("anthropic-sonnet"))
+        values.add("sonnet")
+    if re.search(r"(?:^|[^a-z0-9])(?:claude[-_ ]?)?haiku(?:[^a-z0-9]|$)", text):
+        values.update(_model_alias_set("haiku"))
+        values.add("haiku")
+    if values:
+        return sorted(values)
+
+    model_text = " ".join(str(model or "").strip().lower() for model in models)
+    if "opus" in model_text:
+        values.update(_model_alias_set("claude-opus"))
+        values.add("opus")
+    if "sonnet" in model_text:
+        values.update(_model_alias_set("anthropic-sonnet"))
+        values.add("sonnet")
+    if "haiku" in model_text:
+        values.update(_model_alias_set("haiku"))
+        values.add("haiku")
+    return sorted(values)
+
+
 def _quota_exhausted_models(title: str, tail: str, health: dict[str, Any], models: list[str]) -> list[str]:
     values: set[str] = set()
     combined = re.sub(r"\s+", " ", f"{title}\n{tail}").lower()
     health_reason = str(health.get("reason") or health.get("status") or "").lower()
     health_provider = str(health.get("provider") or health.get("vendor") or "").lower()
+    quota_hit = bool(PANE_QUOTA_EXHAUSTED_RE.search(combined) or "quota" in health_reason or "rate_limit" in health_reason)
+    claude_context = (
+        "anthropic" in combined
+        or "claude" in combined
+        or "monthly usage limit" in combined
+        or bool(re.search(r"(?:^|[^a-z0-9])(?:opus|sonnet|haiku)(?:[^a-z0-9]|$)", combined))
+        or health_provider in {"anthropic", "claude", "claude-code"}
+    )
+    scoped_claude_models = _claude_quota_models_from_context(combined, models) if quota_hit and claude_context else []
 
-    if PANE_QUOTA_EXHAUSTED_RE.search(combined) or "quota" in health_reason or "rate_limit" in health_reason:
-        values.update(str(model).lower() for model in models if str(model).strip())
+    if quota_hit:
+        values.update(scoped_claude_models or [str(model).lower() for model in models if str(model).strip()])
 
-    if ("anthropic" in combined or "claude" in combined or "monthly usage limit" in combined
-            or health_provider in {"anthropic", "claude", "claude-code"}):
-        if PANE_QUOTA_EXHAUSTED_RE.search(combined) or "quota" in health_reason or "rate_limit" in health_reason:
-            values.update(_quota_models_for_provider("anthropic"))
+    if claude_context and quota_hit:
+        values.update(scoped_claude_models or _quota_models_for_provider("anthropic"))
 
     if "glm" in combined or health_provider in {"zhipu", "glm", "bigmodel"}:
-        if PANE_QUOTA_EXHAUSTED_RE.search(combined) or "quota" in health_reason or "rate_limit" in health_reason:
+        if quota_hit:
             values.update(_quota_models_for_provider("zhipu"))
 
     if "deepseek" in combined or health_provider == "deepseek":
-        if PANE_QUOTA_EXHAUSTED_RE.search(combined) or "quota" in health_reason or "rate_limit" in health_reason:
+        if quota_hit:
             values.update(_quota_models_for_provider("deepseek"))
 
     return sorted(v for v in values if v)
@@ -1304,7 +1340,8 @@ def _persist_pane_rate_limit_block(pane: str, title: str, tail: str, models: lis
             continue
         if not spec.get("enabled", True):
             continue
-        if not (_pane_matches_operator(pane, spec) or _operator_models_match({"operator_id": op_id, **spec}, models)):
+        exact_pane_match = str(spec.get("pane") or "").strip() == pane
+        if not (exact_pane_match or _operator_models_match({"operator_id": op_id, **spec}, models)):
             continue
         result = ofc.persist_operator_block(
             str(op_id),

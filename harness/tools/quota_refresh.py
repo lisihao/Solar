@@ -100,15 +100,36 @@ def _model_key(op: dict[str, Any]) -> str:
     return re.sub(r"[^a-z0-9._-]+", "-", model or provider or "unknown").strip("-")
 
 
+def _is_claude_code_operator(op_id: str, op: dict[str, Any]) -> bool:
+    provider = str(op.get("provider") or "").strip().lower()
+    backend = str(op.get("backend") or op.get("runtime") or op.get("command_backend") or "").strip().lower()
+    model = str(op.get("model") or op.get("model_config") or "").strip().lower()
+    surface = op.get("surface") if isinstance(op.get("surface"), dict) else {}
+    surface_type = str(surface.get("type") or "").strip().lower()
+    if provider and provider not in {"anthropic", "claude", "claude-code"}:
+        return False
+    explicit_claude = (
+        "claude" in str(op_id or "").lower()
+        or provider in {"anthropic", "claude", "claude-code"}
+        or surface_type.startswith("claude_")
+        or model in {"opus", "sonnet", "haiku"}
+    )
+    return (
+        explicit_claude
+        or backend in {"claude-cli", "claude-sdk"}
+    )
+
+
 def _runtime_state(op_id: str, op: dict[str, Any], runtime: Any | None) -> str:
     if not bool(op.get("enabled", False)):
         return "disabled"
+    is_claude_code = _is_claude_code_operator(op_id, op)
     quota_state = str(op.get("quota_guard_state") or "").strip().lower()
-    if quota_state and quota_state not in {"ok", "ready"}:
+    if quota_state and quota_state not in {"ok", "ready"} and not (is_claude_code and quota_state in {"cooldown", "quota_exhausted"}):
         return quota_state
     state = op.get("state") if isinstance(op.get("state"), dict) else {}
     state_name = str(state.get("runtime_state") or "").strip().lower()
-    if state_name in BLOCKED_STATES:
+    if state_name in BLOCKED_STATES and not (is_claude_code and state_name in {"cooldown", "quota_exhausted"}):
         return state_name
     flow_control = _load_flow_control_module()
     if flow_control is not None and hasattr(flow_control, "recent_operator_quota_block"):
@@ -126,10 +147,12 @@ def _runtime_state(op_id: str, op: dict[str, Any], runtime: Any | None) -> str:
     if runtime is not None:
         try:
             rt = str(runtime.get_operator_runtime_state(op_id) or "").strip().lower()
-            if rt:
+            if rt and not (is_claude_code and rt in {"cooldown", "quota_exhausted"}):
                 return rt
         except Exception:
             pass
+    if is_claude_code and state_name in {"cooldown", "quota_exhausted"}:
+        return "idle"
     return state_name or "idle"
 
 
@@ -155,6 +178,15 @@ def _quota_provider_probe(model_key: str) -> dict[str, Any]:
 
 def _provider_probe(model_key: str, ops: list[dict[str, Any]]) -> dict[str, Any]:
     providers = {str(op.get("provider") or "").lower() for op in ops}
+    if providers & {"anthropic", "claude", "claude-code"}:
+        return {
+            "provider": "claude-code",
+            "status": "estimated",
+            "metric": "subscription",
+            "value": "N/A",
+            "unit": "",
+            "note": "claude-code-subscription-uses-live-failure-evidence",
+        }
     if "local" in providers:
         return {"provider": "local", "status": "ok", "metric": "capacity", "value": "local", "unit": "", "note": "local-runtime"}
     if "google" in providers:
