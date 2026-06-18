@@ -767,7 +767,7 @@ class TestQuotaRecoveryPrune:
         assert updated["state"]["runtime_state"] == "idle"
         assert not status_path.exists()
 
-    def test_claude_pane_quota_only_prunes_mismatched_model_blocks(self, ofc, tmp_path, monkeypatch):
+    def test_claude_pane_quota_prunes_registry_only_blocks_without_recent_result_evidence(self, ofc, tmp_path, monkeypatch):
         import datetime
 
         registry_path = tmp_path / "config" / "physical-operators.json"
@@ -830,14 +830,78 @@ class TestQuotaRecoveryPrune:
 
         assert result["ok"] is True
         assert any(
+            item["operator_id"] == "mini-claude-opus-evaluator"
+            and item["expired_at"] == "claude_registry_cooldown_no_live_quota_evidence"
+            for item in result["pruned"]
+        )
+        assert any(
             item["operator_id"] == "mini-claude-sonnet-builder"
             and item["expired_at"] == "claude_pane_quota_model_mismatch"
             for item in result["pruned"]
         )
-        assert any(item["operator_id"] == "mini-claude-opus-evaluator" for item in result["kept"])
         updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"]
+        assert updated["mini-claude-opus-evaluator"]["quota_guard_state"] == "ok"
+        assert updated["mini-claude-opus-evaluator"]["state"]["runtime_state"] == "idle"
         assert updated["mini-claude-sonnet-builder"]["quota_guard_state"] == "ok"
         assert updated["mini-claude-sonnet-builder"]["state"]["runtime_state"] == "idle"
+        assert not any(item["operator_id"].startswith("mini-claude") for item in result["kept"])
+
+    def test_claude_registry_cooldown_kept_with_recent_result_quota_evidence(self, ofc, tmp_path, monkeypatch):
+        import datetime
+
+        registry_path = tmp_path / "config" / "physical-operators.json"
+        registry_path.parent.mkdir(parents=True)
+        operator_id = "mini-claude-opus-evaluator"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "operators": {
+                        operator_id: {
+                            "enabled": True,
+                            "available": True,
+                            "provider": "anthropic",
+                            "backend": "claude-cli",
+                            "model": "opus",
+                            "quota_guard_state": "cooldown",
+                            "quota_refresh_at": "2026-06-19T00:00:00Z",
+                            "state": {"runtime_state": "cooldown", "cooldown_until": "2026-06-19T00:00:00Z"},
+                            "flow_control": {
+                                "last_block_reason": "rate_limit",
+                                "last_block_source": "operator_result_log",
+                                "last_block_excerpt": "You've hit your limit · resets 8pm",
+                            },
+                        },
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        class FakeRuntime:
+            OPERATOR_STATUS_DIR = tmp_path / "run" / "operator-status"
+
+            @staticmethod
+            def get_operator_status(_op_id):
+                return None
+
+        monkeypatch.setattr(ofc, "PHYSICAL_OPERATORS_PATH", registry_path)
+        monkeypatch.setattr(ofc, "HARNESS_DIR", tmp_path)
+        monkeypatch.setattr(ofc, "_operator_runtime_module", lambda: FakeRuntime)
+        monkeypatch.setattr(ofc, "_now", lambda: datetime.datetime(2026, 6, 18, 0, 15, tzinfo=datetime.timezone.utc))
+        monkeypatch.setattr(
+            ofc,
+            "recent_operator_quota_block",
+            lambda op_id, **_kwargs: {"operator_id": op_id, "runtime_state": "cooldown", "expires_at": "2026-06-19T00:00:00Z"},
+        )
+
+        result = ofc.prune_expired_operator_config_blocks()
+
+        assert result["ok"] is True
+        assert any(item["operator_id"] == operator_id for item in result["kept"])
+        assert not any(item["operator_id"] == operator_id for item in result["pruned"])
+        updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"]
         assert updated["mini-claude-opus-evaluator"]["quota_guard_state"] == "cooldown"
 
     def test_claude_compatible_glm_is_not_pruned_by_claude_model_mismatch(self, ofc, tmp_path, monkeypatch):
