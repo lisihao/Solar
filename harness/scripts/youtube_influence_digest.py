@@ -202,12 +202,13 @@ def save_seen(state_dir: Path, seen: dict[str, str]) -> None:
 def wiki_dispatch_dir_for_raw(raw_path: Path, config: dict[str, Any]) -> Path | None:
     out_cfg = config.get("output") or {}
     if out_cfg.get("dispatch_dir"):
-        return Path(out_cfg["dispatch_dir"]).expanduser()
+        return Path(os.path.expandvars(str(out_cfg["dispatch_dir"]))).expanduser()
+    knowledge_raw = Path(os.path.expandvars("${SOLAR_KNOWLEDGE_DIR}/_raw")).expanduser()
     try:
-        raw_path.resolve().relative_to(Path("${SOLAR_KNOWLEDGE_DIR}/_raw").resolve())
+        raw_path.resolve().relative_to(knowledge_raw.resolve())
     except Exception:
         return None
-    return Path("${SOLAR_KNOWLEDGE_DIR}/_raw/solar-harness/.dispatch")
+    return knowledge_raw / "solar-harness" / ".dispatch"
 
 
 def create_wiki_dispatch_for_source(source: Path, project: str, config: dict[str, Any]) -> str:
@@ -232,7 +233,7 @@ type: wiki-dispatch
 action: ingest
 skill: wiki-ingest
 generated_at: {generated}
-vault_path: ${SOLAR_KNOWLEDGE_DIR}
+vault_path: ${{SOLAR_KNOWLEDGE_DIR}}
 status: pending
 source: {source}
 project: {project}
