@@ -267,6 +267,7 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
     policy_mod = _load_policy_module()
     policy = policy_mod.load_policy() if policy_mod else _load_json(HARNESS_DIR / "config" / "concurrency-policy.json", {})
 
+    operator_blocks: dict[str, dict[str, Any]] = {}
     shared_model_blocks: dict[str, dict[str, Any]] = {}
     if flow_control is not None and hasattr(flow_control, "recent_operator_quota_block"):
         for op_id, spec in operators.items():
@@ -280,7 +281,10 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
             except Exception:
                 recent_block = None
             if isinstance(recent_block, dict):
-                shared_model_blocks.setdefault(_model_key({"operator_id": op_id, **dict(spec)}), recent_block)
+                operator_blocks[str(op_id)] = recent_block
+                scope = str(recent_block.get("scope") or "").strip().lower()
+                if scope in {"model", "provider", "account"}:
+                    shared_model_blocks.setdefault(_model_key({"operator_id": op_id, **dict(spec)}), recent_block)
 
     groups: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
@@ -290,7 +294,7 @@ def refresh_snapshot(*, apply: bool = False) -> dict[str, Any]:
         if not bool(op.get("enabled", False)):
             continue
         key = _model_key(op)
-        state = "cooldown" if key in shared_model_blocks else _runtime_state(op_id, op, runtime)
+        state = "cooldown" if str(op_id) in operator_blocks or key in shared_model_blocks else _runtime_state(op_id, op, runtime)
         available = bool(op.get("available", False)) and state not in BLOCKED_STATES
         total += 1
         usable += 1 if available else 0

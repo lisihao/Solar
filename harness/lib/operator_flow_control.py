@@ -324,6 +324,12 @@ def _claude_quota_evidence_matches_operator(operator_id: str, op: dict[str, Any]
     return bool(named & operator_models)
 
 
+def _mis_scoped_claude_pane_evidence_for_non_claude_operator(operator_id: str, op: dict[str, Any], evidence_text: str) -> bool:
+    if _is_claude_code_operator(operator_id, op):
+        return False
+    return bool(_claude_models_named_in_text(evidence_text))
+
+
 def _antigravity_auth_probe_enabled() -> bool:
     return bool_value(os.environ.get("SOLAR_ANTIGRAVITY_AUTH_PROBE"), True)
 
@@ -773,12 +779,25 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
             and _is_claude_code_operator(str(operator_id), op)
             and not _claude_quota_evidence_matches_operator(str(operator_id), op, excerpt)
         )
+        mis_scoped_non_claude_pane_cooldown = (
+            runtime_state == "cooldown"
+            and source.startswith("tmux_pane:")
+            and _mis_scoped_claude_pane_evidence_for_non_claude_operator(str(operator_id), op, excerpt)
+        )
         if mis_scoped_claude_pane_cooldown:
             _clear_registry_block(op, now=now, reason="claude_pane_quota_model_mismatch")
             pruned.append({
                 "operator_id": str(operator_id),
                 "runtime_state": runtime_state,
                 "expired_at": "claude_pane_quota_model_mismatch",
+            })
+            continue
+        if mis_scoped_non_claude_pane_cooldown:
+            _clear_registry_block(op, now=now, reason="pane_quota_model_mismatch")
+            pruned.append({
+                "operator_id": str(operator_id),
+                "runtime_state": runtime_state,
+                "expired_at": "pane_quota_model_mismatch",
             })
             continue
         if expires is not None and expires > now:

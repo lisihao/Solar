@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -84,3 +85,103 @@ def test_claude_compatible_non_claude_provider_is_not_subscription_operator():
     }
 
     assert quota_refresh._is_claude_code_operator("mini-glm51-builder-1", op) is False
+
+
+def test_recent_operator_quota_block_does_not_cool_entire_spark_model_group(monkeypatch, tmp_path):
+    registry_path = tmp_path / "physical-operators.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    "mini-codex-gpt53-spark-builder-1": {
+                        "enabled": True,
+                        "available": True,
+                        "provider": "openai",
+                        "model": "gpt-5.3-codex-spark",
+                        "state": {"runtime_state": "idle"},
+                    },
+                    "mini-codex-gpt53-spark-builder-2": {
+                        "enabled": True,
+                        "available": True,
+                        "provider": "openai",
+                        "model": "gpt-5.3-codex-spark",
+                        "state": {"runtime_state": "idle"},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class OperatorOnlyBlock:
+        @staticmethod
+        def recent_operator_quota_block(op_id, **_kwargs):
+            if op_id == "mini-codex-gpt53-spark-builder-1":
+                return {"operator_id": op_id, "runtime_state": "cooldown", "expires_at": "2026-06-18T12:59:17Z"}
+            return None
+
+    monkeypatch.setattr(quota_refresh, "PHYSICAL_OPERATORS_PATH", registry_path)
+    monkeypatch.setattr(quota_refresh, "SNAPSHOT_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(quota_refresh, "LATEST_SNAPSHOT", tmp_path / "snapshots" / "latest.json")
+    monkeypatch.setattr(quota_refresh, "HISTORY_PATH", tmp_path / "snapshots" / "history.jsonl")
+    monkeypatch.setattr(quota_refresh, "_load_flow_control_module", lambda: OperatorOnlyBlock)
+    monkeypatch.setattr(quota_refresh, "_load_runtime_module", lambda: None)
+    monkeypatch.setattr(quota_refresh, "_load_policy_module", lambda: None)
+    monkeypatch.setattr(quota_refresh, "_pending_pm_backlog_count", lambda: 1)
+
+    payload = quota_refresh.refresh_snapshot(apply=False)
+    rows = {row["operator_id"]: row for row in payload["operators"]}
+
+    assert rows["mini-codex-gpt53-spark-builder-1"]["state"] == "cooldown"
+    assert rows["mini-codex-gpt53-spark-builder-1"]["usable"] is False
+    assert rows["mini-codex-gpt53-spark-builder-2"]["state"] == "idle"
+    assert rows["mini-codex-gpt53-spark-builder-2"]["usable"] is True
+    assert payload["groups"]["codex-gpt-5.3-spark"]["hard_blocked"] == 1
+
+
+def test_scoped_model_quota_block_can_cool_spark_model_group(monkeypatch, tmp_path):
+    registry_path = tmp_path / "physical-operators.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    "mini-codex-gpt53-spark-builder-1": {
+                        "enabled": True,
+                        "available": True,
+                        "provider": "openai",
+                        "model": "gpt-5.3-codex-spark",
+                        "state": {"runtime_state": "idle"},
+                    },
+                    "mini-codex-gpt53-spark-builder-2": {
+                        "enabled": True,
+                        "available": True,
+                        "provider": "openai",
+                        "model": "gpt-5.3-codex-spark",
+                        "state": {"runtime_state": "idle"},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class ModelScopedBlock:
+        @staticmethod
+        def recent_operator_quota_block(op_id, **_kwargs):
+            if op_id == "mini-codex-gpt53-spark-builder-1":
+                return {"operator_id": op_id, "runtime_state": "cooldown", "scope": "model", "expires_at": "2026-06-18T12:59:17Z"}
+            return None
+
+    monkeypatch.setattr(quota_refresh, "PHYSICAL_OPERATORS_PATH", registry_path)
+    monkeypatch.setattr(quota_refresh, "SNAPSHOT_DIR", tmp_path / "snapshots")
+    monkeypatch.setattr(quota_refresh, "LATEST_SNAPSHOT", tmp_path / "snapshots" / "latest.json")
+    monkeypatch.setattr(quota_refresh, "HISTORY_PATH", tmp_path / "snapshots" / "history.jsonl")
+    monkeypatch.setattr(quota_refresh, "_load_flow_control_module", lambda: ModelScopedBlock)
+    monkeypatch.setattr(quota_refresh, "_load_runtime_module", lambda: None)
+    monkeypatch.setattr(quota_refresh, "_load_policy_module", lambda: None)
+    monkeypatch.setattr(quota_refresh, "_pending_pm_backlog_count", lambda: 1)
+
+    payload = quota_refresh.refresh_snapshot(apply=False)
+
+    assert {row["state"] for row in payload["operators"]} == {"cooldown"}
+    assert payload["groups"]["codex-gpt-5.3-spark"]["hard_blocked"] == 2

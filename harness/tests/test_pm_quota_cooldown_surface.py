@@ -904,7 +904,7 @@ class TestQuotaRecoveryPrune:
         updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"]
         assert updated["mini-claude-opus-evaluator"]["quota_guard_state"] == "cooldown"
 
-    def test_claude_compatible_glm_is_not_pruned_by_claude_model_mismatch(self, ofc, tmp_path, monkeypatch):
+    def test_glm_pane_cooldown_with_claude_model_evidence_is_pruned(self, ofc, tmp_path, monkeypatch):
         import datetime
 
         registry_path = tmp_path / "config" / "physical-operators.json"
@@ -953,5 +953,12 @@ class TestQuotaRecoveryPrune:
         result = ofc.prune_expired_operator_config_blocks()
 
         assert result["ok"] is True
-        assert not any(item["operator_id"] == operator_id for item in result["pruned"])
-        assert any(item["operator_id"] == operator_id for item in result["kept"])
+        assert any(
+            item["operator_id"] == operator_id
+            and item["expired_at"] == "pane_quota_model_mismatch"
+            for item in result["pruned"]
+        )
+        assert not any(item["operator_id"] == operator_id for item in result["kept"])
+        updated = json.loads(registry_path.read_text(encoding="utf-8"))["operators"][operator_id]
+        assert updated["quota_guard_state"] == "ok"
+        assert updated["state"]["runtime_state"] == "idle"
