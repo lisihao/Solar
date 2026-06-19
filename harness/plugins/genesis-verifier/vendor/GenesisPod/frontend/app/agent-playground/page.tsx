@@ -90,6 +90,32 @@ export default function PlaygroundIndexPage() {
     }
   };
 
+  const launchActions = (
+    <div className="mx-auto mt-6 flex w-full max-w-2xl flex-col items-center rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-sm">
+      <div className="text-sm font-medium text-gray-900">
+        选择洞察 Mission 类型
+      </div>
+      <div className="mt-1 text-xs text-gray-500">
+        原生 GenesisPod 保持基线；Solar 使用 deep-insight-solar 强模型链路
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+        <Button onClick={() => setCreateOpen(true)} size="lg">
+          <Plus className="mr-2 h-4 w-4" />
+          启动洞察 Mission
+        </Button>
+        <Button
+          onClick={() => setSolarCreateOpen(true)}
+          size="lg"
+          variant="outline"
+          className="border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800"
+        >
+          <Zap className="mr-2 h-4 w-4" />
+          启动洞察 Mission-solar
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <>
       <MissionGalleryView
@@ -98,23 +124,8 @@ export default function PlaygroundIndexPage() {
         iconGradient="from-violet-500 to-purple-600"
         createButtonLabel="新建 Mission"
         showHeaderCreateButton={false}
-        emptyStateActions={
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <Button onClick={() => setCreateOpen(true)} size="lg">
-              <Plus className="mr-2 h-4 w-4" />
-              启动洞察 Mission
-            </Button>
-            <Button
-              onClick={() => setSolarCreateOpen(true)}
-              size="lg"
-              variant="outline"
-              className="border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800"
-            >
-              <Zap className="mr-2 h-4 w-4" />
-              启动洞察 Mission-solar
-            </Button>
-          </div>
-        }
+        bodyCallout={launchActions}
+        emptyStateActions={<span className="sr-only">启动入口已在上方显示</span>}
         onCreateMission={() => setCreateOpen(true)}
         onCleanup={handleCleanup}
         fetchMissions={listMissions}
