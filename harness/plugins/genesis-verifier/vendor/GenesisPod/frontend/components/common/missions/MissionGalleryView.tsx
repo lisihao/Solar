@@ -260,6 +260,8 @@ export interface MissionGalleryViewProps {
   bodyCallout?: ReactNode;
   /** 空状态附加 action；用于让页面首屏空态也露出第二启动入口。 */
   emptyStateExtraAction?: ReactNode;
+  /** 空状态完整 action 区；调用方需要强控制并排按钮时优先使用。 */
+  emptyStateActions?: ReactNode;
   /** 空状态主 action；不传则使用 onCreateMission + emptyState.ctaLabel。 */
   emptyStatePrimaryAction?: {
     label: string;
@@ -321,6 +323,7 @@ export function MissionGalleryView({
   showHeaderCreateButton = true,
   bodyCallout,
   emptyStateExtraAction,
+  emptyStateActions,
   emptyStatePrimaryAction,
   extraCreateCard,
   onCreateMission,
@@ -529,15 +532,17 @@ export function MissionGalleryView({
               </p>
             </div>
             {missions.length === 0 && (
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <Button onClick={emptyPrimaryAction.onClick}>
-                  {emptyPrimaryAction.icon ?? (
-                    <Plus className="mr-2 h-4 w-4" />
-                  )}
-                  {emptyPrimaryAction.label}
-                </Button>
-                {emptyStateExtraAction}
-              </div>
+              emptyStateActions ?? (
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button onClick={emptyPrimaryAction.onClick}>
+                    {emptyPrimaryAction.icon ?? (
+                      <Plus className="mr-2 h-4 w-4" />
+                    )}
+                    {emptyPrimaryAction.label}
+                  </Button>
+                  {emptyStateExtraAction}
+                </div>
+              )
             )}
           </div>
         ) : (

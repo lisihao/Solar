@@ -11,7 +11,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Zap } from 'lucide-react';
+import { Plus, Zap } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import {
   listMissions,
@@ -98,19 +98,22 @@ export default function PlaygroundIndexPage() {
         iconGradient="from-violet-500 to-purple-600"
         createButtonLabel="新建 Mission"
         showHeaderCreateButton={false}
-        emptyStatePrimaryAction={{
-          label: '启动原生 Mission',
-          onClick: () => setCreateOpen(true),
-        }}
-        emptyStateExtraAction={
-          <Button
-            onClick={() => setSolarCreateOpen(true)}
-            variant="outline"
-            className="border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800"
-          >
-            <Zap className="mr-2 h-4 w-4" />
-            启动 Solar Mission
-          </Button>
+        emptyStateActions={
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button onClick={() => setCreateOpen(true)} size="lg">
+              <Plus className="mr-2 h-4 w-4" />
+              启动洞察 Mission
+            </Button>
+            <Button
+              onClick={() => setSolarCreateOpen(true)}
+              size="lg"
+              variant="outline"
+              className="border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm hover:bg-emerald-100 hover:text-emerald-800"
+            >
+              <Zap className="mr-2 h-4 w-4" />
+              启动洞察 Mission-solar
+            </Button>
+          </div>
         }
         onCreateMission={() => setCreateOpen(true)}
         onCleanup={handleCleanup}
