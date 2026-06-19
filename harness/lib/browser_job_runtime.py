@@ -603,6 +603,7 @@ def _stage_browser_profile(
     profile_directory: str | None,
     *,
     strategy: str = "isolated",
+    refresh_persistent: bool = False,
 ) -> tuple[str | Path | None, Optional[Path]]:
     """Create an isolated Chrome profile copy without session-restore artifacts.
 
@@ -624,7 +625,11 @@ def _stage_browser_profile(
     elif _STAGED_PROFILE_PREFIX in str(source_root):
         return str(source_root), None
     if strategy == "persistent":
-        runtime_root = prepare_browser_profile_runtime(source_root, profile_directory)
+        runtime_root = prepare_browser_profile_runtime(
+            source_root,
+            profile_directory,
+            refresh=refresh_persistent,
+        )
         return (str(runtime_root), None) if runtime_root else (None, None)
     if _is_protected_app_data_root(source_root):
         cache_root = _browser_profile_cache_path(source_root, profile_directory)

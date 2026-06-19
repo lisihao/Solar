@@ -50,6 +50,13 @@ def _headed_run_allowed() -> bool:
     )
 
 
+def _policy_bool(policy: dict[str, Any], *keys: str) -> bool | None:
+    for key in keys:
+        if key in policy:
+            return bool(policy.get(key))
+    return None
+
+
 def _env_disabled(*names: str) -> bool:
     for name in names:
         value = str(os.environ.get(name) or "").strip().lower()
@@ -81,7 +88,7 @@ def _policy_key_for_purpose(purpose: str) -> str:
         return "hf_paper_insight"
     if lowered.startswith("github-trend-report") or "github-trend-report" in lowered:
         return "github_trend_report"
-    if lowered.startswith("ai-influence-report") or "ai-influence-report" in lowered:
+    if lowered.startswith("ai-influence-") or "ai-influence-" in lowered:
         return "ai_influence_report"
     if lowered.startswith("deep-insight-solar") or "deep-insight-solar" in lowered:
         return "deep_insight_solar"
@@ -163,6 +170,8 @@ def _select_chatgpt_profile_policy(purpose: str) -> dict[str, Any]:
         "force_headed": bool(policy.get("force_headed", False)),
         "allow_default_profile": bool(policy.get("allow_default_profile", False)),
         "scrub_client_state": policy.get("scrub_client_state"),
+        "refresh_profile_runtime_on_start": policy.get("refresh_profile_runtime_on_start"),
+        "refresh_persistent_runtime_on_start": policy.get("refresh_persistent_runtime_on_start"),
         "profile_strategy": profile_strategy,
         "user_data_dir": user_data_dir,
         "ignore_explicit_profile_id": bool(policy.get("ignore_explicit_profile_id", True)),
@@ -1823,6 +1832,19 @@ async def _run(prompt: str) -> int:
             scrub_client_state = bool(profile_policy.get("scrub_client_state"))
     if profile_strategy not in {"persistent", "isolated"}:
         profile_strategy = "persistent"
+    refresh_profile_runtime = _env_flag(
+        "BROWSER_AGENT_REFRESH_PROFILE_RUNTIME_ON_START",
+        "TECH_HOTSPOT_BROWSER_REFRESH_PROFILE_RUNTIME_ON_START",
+        default=False,
+    )
+    if profile_policy.get("enabled"):
+        policy_refresh = _policy_bool(
+            profile_policy,
+            "refresh_profile_runtime_on_start",
+            "refresh_persistent_runtime_on_start",
+        )
+        if policy_refresh is not None:
+            refresh_profile_runtime = policy_refresh
     browser_channel = _browser_channel()
     browser_user_agent = _browser_user_agent(browser_channel=browser_channel)
     allowed_domains = [
@@ -1839,6 +1861,7 @@ async def _run(prompt: str) -> int:
             user_data_dir,
             profile_directory,
             strategy=profile_strategy,
+            refresh_persistent=refresh_profile_runtime,
         )
         if user_data_dir and not staged_dir:
             raise RuntimeError("protected_browser_profile_cache_missing")
@@ -1853,6 +1876,7 @@ async def _run(prompt: str) -> int:
         "action": action,
         "profile_directory": profile_directory,
         "profile_strategy": profile_strategy,
+        "refresh_profile_runtime_on_start": refresh_profile_runtime,
         "browser_channel": browser_channel,
         "browser_user_agent": browser_user_agent,
         "headless": headless,

@@ -104,6 +104,41 @@ def test_profile_policy_selects_hf_default_profile(tmp_path, monkeypatch):
     assert selected["force_headed"] is True
 
 
+def test_profile_policy_selects_ai_influence_for_grouping_purpose(tmp_path, monkeypatch):
+    ns = _load_namespace()
+    policy = tmp_path / "browser-agent-chatgpt-local.json"
+    policy.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "policies": {
+                    "default": {
+                        "expected_account_email": "wrong@example.com",
+                        "allowed_profiles": ["Default"],
+                    },
+                    "ai_influence_report": {
+                        "expected_account_email": "browser-agent@example.com",
+                        "allowed_profiles": ["Profile 1"],
+                        "allow_headless": False,
+                        "force_headed": True,
+                        "refresh_profile_runtime_on_start": True,
+                        "profile_strategy": "persistent",
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE", str(policy))
+    selected = ns["_select_chatgpt_profile_policy"]("ai-influence-video-grouping-2026-06-19")
+    assert selected["enabled"] is True
+    assert selected["policy_key"] == "ai_influence_report"
+    assert selected["selected_profile_directory"] == "Profile 1"
+    assert selected["selected_account_email"] == "browser-agent@example.com"
+    assert selected["refresh_profile_runtime_on_start"] is True
+
+
 def test_profile_policy_selects_deep_insight_solar_policy(tmp_path, monkeypatch):
     ns = _load_namespace()
     policy = tmp_path / "browser-agent-chatgpt-local.json"

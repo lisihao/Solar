@@ -105,7 +105,7 @@ def _policy_key_for_purpose(purpose: str) -> str:
         return "hf_paper_insight"
     if lowered.startswith("github-trend-report"):
         return "github_trend_report"
-    if lowered.startswith("ai-influence-report"):
+    if lowered.startswith("ai-influence-"):
         return "ai_influence_report"
     return "default"
 
@@ -215,6 +215,13 @@ def apply_profile_policy(env: dict[str, str], *, purpose: str) -> dict[str, Any]
         scrub_value = "true" if bool(scrub_client_state) else "false"
         env["BROWSER_AGENT_CHATGPT_SCRUB_CLIENT_STATE"] = scrub_value
         env["TECH_HOTSPOT_BROWSER_CHATGPT_SCRUB_CLIENT_STATE"] = scrub_value
+    refresh_runtime = policy.get("refresh_profile_runtime_on_start")
+    if refresh_runtime is None:
+        refresh_runtime = policy.get("refresh_persistent_runtime_on_start")
+    if refresh_runtime is not None:
+        refresh_value = "true" if bool(refresh_runtime) else "false"
+        env["BROWSER_AGENT_REFRESH_PROFILE_RUNTIME_ON_START"] = refresh_value
+        env["TECH_HOTSPOT_BROWSER_REFRESH_PROFILE_RUNTIME_ON_START"] = refresh_value
     allow_headless = policy.get("allow_headless")
     force_headed = bool(
         policy.get("force_headed")

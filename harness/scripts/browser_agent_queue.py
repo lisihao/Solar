@@ -66,6 +66,9 @@ DAILY_SLA_JOB_PREFIXES = (
     "hf-paper-weekly-report",
     "youtube-daily-ai-influence-report",
 )
+COLLECTOR_PREREQUISITE_JOB_PREFIXES = (
+    "youtube-daily-previous-day",
+)
 LOW_PRIORITY_JOB_PREFIXES = (
     "deepdive-",
     "tech-hotspot-hf-paper-report-section-",
@@ -261,6 +264,8 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def _job_priority(job: dict[str, Any]) -> int:
     name = str(job.get("name") or "").strip()
+    if any(name.startswith(prefix) for prefix in COLLECTOR_PREREQUISITE_JOB_PREFIXES):
+        return -10
     if any(name.startswith(prefix) for prefix in DAILY_SLA_JOB_PREFIXES):
         return 0
     if name.startswith("youtube-weekly-ai-influence-report"):

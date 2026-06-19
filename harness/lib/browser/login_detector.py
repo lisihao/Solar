@@ -10,15 +10,33 @@ def classify_login_state(
     error_text: str | None = None,
     page_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    state_payload = page_state or {}
+
+    if bool(state_payload.get("challenge_wall")):
+        return {
+            "service": str(service or "").strip().lower(),
+            "state": "human_gate_required",
+            "reason": "cloudflare",
+            "human_required": True,
+            "success": False,
+        }
+
+    if bool(state_payload.get("login_wall")):
+        return {
+            "service": str(service or "").strip().lower(),
+            "state": "reauth_required",
+            "reason": "login_wall",
+            "human_required": False,
+            "success": False,
+        }
+
     sample = "\n".join(
         [
             str(service or ""),
             str(error_text or ""),
-            str((page_state or {}).get("title") or ""),
-            str((page_state or {}).get("url") or ""),
-            str((page_state or {}).get("login_wall") or ""),
-            str((page_state or {}).get("challenge_wall") or ""),
-            str((page_state or {}).get("text_excerpt") or ""),
+            str(state_payload.get("title") or ""),
+            str(state_payload.get("url") or ""),
+            str(state_payload.get("text_excerpt") or ""),
         ]
     ).lower()
 

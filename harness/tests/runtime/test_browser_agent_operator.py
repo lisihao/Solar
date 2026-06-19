@@ -430,6 +430,36 @@ def test_prepare_browser_profile_runtime_reuses_persistent_copy(tmp_path, monkey
     assert (second / "Profile 1" / "Automation Marker").read_text(encoding="utf-8") == "persist-me"
 
 
+def test_stage_browser_profile_can_refresh_persistent_runtime(tmp_path, monkeypatch):
+    root = tmp_path / "Chrome"
+    profile = root / "Profile 1"
+    profile.mkdir(parents=True)
+    (profile / "Cookies").write_text("old-cookie", encoding="utf-8")
+    (root / "Local State").write_text('{"profile":{"last_used":"Profile 1"}}', encoding="utf-8")
+
+    runtime_root = tmp_path / "runtime-cache"
+    monkeypatch.setattr(bjrt, "PROFILE_RUNTIME_ROOT", runtime_root)
+
+    first_dir, first_cleanup = bjrt._stage_browser_profile(root, "Profile 1", strategy="persistent")
+    assert first_cleanup is None
+    first = Path(first_dir)
+    assert (first / "Profile 1" / "Cookies").read_text(encoding="utf-8") == "old-cookie"
+    (first / "Profile 1" / "Automation Marker").write_text("stale-runtime", encoding="utf-8")
+
+    (profile / "Cookies").write_text("fresh-cookie", encoding="utf-8")
+    second_dir, second_cleanup = bjrt._stage_browser_profile(
+        root,
+        "Profile 1",
+        strategy="persistent",
+        refresh_persistent=True,
+    )
+    assert second_cleanup is None
+    second = Path(second_dir)
+    assert second == first
+    assert (second / "Profile 1" / "Cookies").read_text(encoding="utf-8") == "fresh-cookie"
+    assert not (second / "Profile 1" / "Automation Marker").exists()
+
+
 def test_stage_browser_profile_persistent_strategy_returns_reusable_runtime(tmp_path, monkeypatch):
     root = tmp_path / "Chrome"
     profile = root / "Profile 1"

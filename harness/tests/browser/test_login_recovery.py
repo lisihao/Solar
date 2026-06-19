@@ -21,6 +21,17 @@ def test_login_detector_flags_cloudflare_as_human_gate() -> None:
     assert result["human_required"] is True
 
 
+def test_login_detector_flags_structured_login_wall() -> None:
+    result = classify_login_state(
+        service="chatgpt",
+        page_state={"title": "ChatGPT", "login_wall": True, "composer_ready": True},
+    )
+    assert result["state"] == "reauth_required"
+    assert result["reason"] == "login_wall"
+    assert result["human_required"] is False
+    assert result["success"] is False
+
+
 def test_login_recovery_selects_playwright_for_precise_control() -> None:
     executor = select_executor(
         runtime_owner="browser_use",
