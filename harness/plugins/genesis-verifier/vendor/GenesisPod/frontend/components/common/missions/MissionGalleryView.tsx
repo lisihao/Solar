@@ -425,6 +425,7 @@ export function MissionGalleryView({
 
   return (
     <div
+      data-mission-gallery-scroll
       className={`h-full min-w-0 flex-1 overflow-auto ${hideHeader ? '' : 'bg-gray-50'}`}
     >
       {hideHeader ? (

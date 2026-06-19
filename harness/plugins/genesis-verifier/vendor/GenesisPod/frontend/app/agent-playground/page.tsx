@@ -9,7 +9,7 @@
  *             Insight / Custom Agents 视觉一致。
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Zap } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
@@ -32,6 +32,13 @@ export default function PlaygroundIndexPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [solarCreateOpen, setSolarCreateOpen] = useState(false);
   const [galleryReloadKey, setGalleryReloadKey] = useState(0);
+
+  useEffect(() => {
+    const scroller = document.querySelector<HTMLElement>(
+      '[data-mission-gallery-scroll]'
+    );
+    scroller?.scrollTo({ top: 0, behavior: 'auto' });
+  }, []);
 
   // 2026-05-13 #67: 删除主页"可继续"徽章 / banner / 继续按钮 ——
   // 用户反馈：homepage 提示"继续"无意义。续跑入口移到 mission 详情页的「更新」按钮
@@ -91,7 +98,7 @@ export default function PlaygroundIndexPage() {
   };
 
   const launchActions = (
-    <div className="mx-auto mt-6 flex w-full max-w-2xl flex-col items-center rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-sm">
+    <div className="sticky top-24 z-30 mx-auto mt-4 flex w-full max-w-2xl flex-col items-center rounded-2xl border border-gray-200 bg-white/95 p-5 text-center shadow-lg backdrop-blur">
       <div className="text-sm font-medium text-gray-900">
         选择洞察 Mission 类型
       </div>
