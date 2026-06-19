@@ -254,6 +254,8 @@ export interface MissionGalleryViewProps {
   createButtonLabel?: string;
   /** 调用方附加 header action；用于页面级 opt-in，不影响其它 mission gallery。 */
   extraActions?: ReactNode;
+  /** 是否在 header 显示创建按钮；默认显示，页面可选择只把入口放在空态中心。 */
+  showHeaderCreateButton?: boolean;
   /** 列表正文顶部的页面级 callout；用于稳定露出入口，不依赖空态/任务列表状态。 */
   bodyCallout?: ReactNode;
   /** 空状态附加 action；用于让页面首屏空态也露出第二启动入口。 */
@@ -316,6 +318,7 @@ export function MissionGalleryView({
   iconShadowClass,
   createButtonLabel = '新建 Mission',
   extraActions,
+  showHeaderCreateButton = true,
   bodyCallout,
   emptyStateExtraAction,
   emptyStatePrimaryAction,
@@ -441,7 +444,7 @@ export function MissionGalleryView({
             </Button>
           )}
           {!showSignInPrompt && extraActions}
-          {!showSignInPrompt && (
+          {!showSignInPrompt && showHeaderCreateButton && (
             <Button onClick={onCreateMission}>
               <Plus className="mr-2 h-5 w-5" />
               {createButtonLabel}
@@ -470,10 +473,12 @@ export function MissionGalleryView({
                     </Button>
                   )}
                   {extraActions}
-                  <Button onClick={onCreateMission}>
-                    <Plus className="mr-2 h-5 w-5" />
-                    {createButtonLabel}
-                  </Button>
+                  {showHeaderCreateButton && (
+                    <Button onClick={onCreateMission}>
+                      <Plus className="mr-2 h-5 w-5" />
+                      {createButtonLabel}
+                    </Button>
+                  )}
                 </div>
               )
             }

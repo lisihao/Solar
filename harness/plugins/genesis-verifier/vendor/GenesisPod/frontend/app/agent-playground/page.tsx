@@ -97,6 +97,7 @@ export default function PlaygroundIndexPage() {
         subtitle="多智能体协作的深度洞察任务"
         iconGradient="from-violet-500 to-purple-600"
         createButtonLabel="新建 Mission"
+        showHeaderCreateButton={false}
         emptyStateExtraAction={
           <Button
             onClick={() => setSolarCreateOpen(true)}
