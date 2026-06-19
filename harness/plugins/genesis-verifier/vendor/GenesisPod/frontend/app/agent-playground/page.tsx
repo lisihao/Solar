@@ -11,6 +11,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Zap } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
 import {
   listMissions,
@@ -22,12 +23,14 @@ import {
 } from '@/services/agent-playground/api';
 import { MissionGalleryView } from '@/components/common/missions/MissionGalleryView';
 import { PlaygroundMissionDialog } from '@/components/agent-playground';
+import { Button } from '@/components/ui/primitives/button';
 import { toast, confirm } from '@/stores';
 
 export default function PlaygroundIndexPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
+  const [solarCreateOpen, setSolarCreateOpen] = useState(false);
   const [galleryReloadKey, setGalleryReloadKey] = useState(0);
 
   // 2026-05-13 #67: 删除主页"可继续"徽章 / banner / 继续按钮 ——
@@ -94,6 +97,16 @@ export default function PlaygroundIndexPage() {
         subtitle="多智能体协作的深度洞察任务"
         iconGradient="from-violet-500 to-purple-600"
         createButtonLabel="新建 Mission"
+        emptyStateExtraAction={
+          <Button
+            onClick={() => setSolarCreateOpen(true)}
+            variant="outline"
+            className="border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+          >
+            <Zap className="mr-2 h-4 w-4" />
+            启动洞察 Mission-solar
+          </Button>
+        }
         onCreateMission={() => setCreateOpen(true)}
         onCleanup={handleCleanup}
         fetchMissions={listMissions}
@@ -104,7 +117,7 @@ export default function PlaygroundIndexPage() {
         reloadKey={galleryReloadKey}
         emptyState={{
           title: '还没有 Mission',
-          hint: '启动你的第一个深度洞察 Mission',
+          hint: '选择原生 GenesisPod 流程，或 Solar 强模型实验线',
           ctaLabel: '启动洞察 Mission',
         }}
       />
@@ -114,6 +127,20 @@ export default function PlaygroundIndexPage() {
         onCreated={(missionId) => {
           setGalleryReloadKey((n) => n + 1);
           router.push(`/agent-playground/team/${missionId}`);
+        }}
+      />
+      <PlaygroundMissionDialog
+        isOpen={solarCreateOpen}
+        capabilityId="deep-insight-solar"
+        title="新建 Solar 强模型洞察 Mission"
+        subtitle="启动 deep-insight-solar：GenesisPod mission kernel + Solar browser-agent 强模型算子"
+        submitLabel="启动 Mission-solar"
+        onClose={() => setSolarCreateOpen(false)}
+        onCreated={(missionId) => {
+          setSolarCreateOpen(false);
+          router.push(
+            `/agents?tab=missions&missionId=${encodeURIComponent(missionId)}`
+          );
         }}
       />
     </>

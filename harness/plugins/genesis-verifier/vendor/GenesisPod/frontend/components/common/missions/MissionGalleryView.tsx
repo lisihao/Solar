@@ -14,7 +14,7 @@
  *
  * 内部封装：搜索 / 卡片网格 / dashed 占位卡 / 加载态 / 错误态。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
   CheckCircle2,
@@ -31,7 +31,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import { ErrorState } from '@/components/ui/states/ErrorState';
-import { EmptyState } from '@/components/ui/states/EmptyState';
 import { LoadingState } from '@/components/ui/states/LoadingState';
 import { Button } from '@/components/ui/primitives/button';
 import { Input } from '@/components/ui/form/Input';
@@ -253,6 +252,25 @@ export interface MissionGalleryViewProps {
   iconShadowClass?: string;
   /** "新建 Mission" 按钮文案 */
   createButtonLabel?: string;
+  /** 调用方附加 header action；用于页面级 opt-in，不影响其它 mission gallery。 */
+  extraActions?: ReactNode;
+  /** 列表正文顶部的页面级 callout；用于稳定露出入口，不依赖空态/任务列表状态。 */
+  bodyCallout?: ReactNode;
+  /** 空状态附加 action；用于让页面首屏空态也露出第二启动入口。 */
+  emptyStateExtraAction?: ReactNode;
+  /** 空状态主 action；不传则使用 onCreateMission + emptyState.ctaLabel。 */
+  emptyStatePrimaryAction?: {
+    label: string;
+    onClick: () => void;
+    icon?: ReactNode;
+  };
+  /** 任务网格末尾附加一个创建卡片；不传则保持原行为。 */
+  extraCreateCard?: {
+    title: string;
+    description?: string;
+    onClick: () => void;
+    icon?: ReactNode;
+  };
   /** 点 "新建 Mission" 触发 */
   onCreateMission: () => void;
   /**
@@ -297,6 +315,11 @@ export function MissionGalleryView({
   iconGradient = 'from-violet-500 to-purple-600',
   iconShadowClass,
   createButtonLabel = '新建 Mission',
+  extraActions,
+  bodyCallout,
+  emptyStateExtraAction,
+  emptyStatePrimaryAction,
+  extraCreateCard,
   onCreateMission,
   onCleanup,
   cleanupButtonLabel = '清理已结束',
@@ -388,6 +411,11 @@ export function MissionGalleryView({
         triggerReload();
       }
     : undefined;
+  const emptyPrimaryAction = emptyStatePrimaryAction ?? {
+    label: emptyState?.ctaLabel ?? '启动研究 Mission',
+    onClick: onCreateMission,
+    icon: <Plus className="mr-2 h-4 w-4" />,
+  };
 
   return (
     <div
@@ -412,6 +440,7 @@ export function MissionGalleryView({
               {cleanupButtonLabel}
             </Button>
           )}
+          {!showSignInPrompt && extraActions}
           {!showSignInPrompt && (
             <Button onClick={onCreateMission}>
               <Plus className="mr-2 h-5 w-5" />
@@ -440,6 +469,7 @@ export function MissionGalleryView({
                       {cleanupButtonLabel}
                     </Button>
                   )}
+                  {extraActions}
                   <Button onClick={onCreateMission}>
                     <Plus className="mr-2 h-5 w-5" />
                     {createButtonLabel}
@@ -462,6 +492,8 @@ export function MissionGalleryView({
         </div>
       )}
 
+      {bodyCallout}
+
       {/* Body */}
       <div className="px-8 py-6">
         {showSignInPrompt ? (
@@ -474,29 +506,35 @@ export function MissionGalleryView({
         ) : error ? (
           <ErrorState error={error} title="加载失败" onRetry={triggerReload} />
         ) : filtered.length === 0 ? (
-          <EmptyState
-            type="noData"
-            icon={<Sparkles className="h-10 w-10 text-gray-300" />}
-            title={
-              missions.length === 0
-                ? (emptyState?.title ?? '还没有 Mission')
-                : '没有匹配项'
-            }
-            description={
-              missions.length === 0
-                ? (emptyState?.hint ??
-                  '基于 Harness runtime 启动你的第一个研究 mission')
-                : '换个关键字试试'
-            }
-            action={
-              missions.length === 0
-                ? {
-                    label: emptyState?.ctaLabel ?? '启动研究 Mission',
-                    onClick: onCreateMission,
-                  }
-                : undefined
-            }
-          />
+          <div className="flex min-h-[300px] flex-col items-center justify-center gap-4 p-8 text-center">
+            <div className="text-gray-300">
+              <Sparkles className="h-10 w-10" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="font-medium text-gray-900">
+                {missions.length === 0
+                  ? (emptyState?.title ?? '还没有 Mission')
+                  : '没有匹配项'}
+              </h3>
+              <p className="text-sm text-gray-500">
+                {missions.length === 0
+                  ? (emptyState?.hint ??
+                    '基于 Harness runtime 启动你的第一个研究 mission')
+                  : '换个关键字试试'}
+              </p>
+            </div>
+            {missions.length === 0 && (
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button onClick={emptyPrimaryAction.onClick}>
+                  {emptyPrimaryAction.icon ?? (
+                    <Plus className="mr-2 h-4 w-4" />
+                  )}
+                  {emptyPrimaryAction.label}
+                </Button>
+                {emptyStateExtraAction}
+              </div>
+            )}
+          </div>
         ) : (
           <>
             {/* 2026-05-13 #67: 删除"可继续 banner" —— 续跑入口迁到详情页 */}
@@ -524,6 +562,14 @@ export function MissionGalleryView({
                 />
               ))}
               <CreateCard title={createButtonLabel} onClick={onCreateMission} />
+              {extraCreateCard && (
+                <CreateCard
+                  title={extraCreateCard.title}
+                  description={extraCreateCard.description}
+                  onClick={extraCreateCard.onClick}
+                  icon={extraCreateCard.icon}
+                />
+              )}
             </div>
           </>
         )}
