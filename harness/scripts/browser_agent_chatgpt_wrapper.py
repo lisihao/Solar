@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
 import shutil
 import sys
@@ -91,7 +93,7 @@ def _policy_key_for_purpose(purpose: str) -> str:
     if lowered.startswith("ai-influence-") or "ai-influence-" in lowered:
         return "ai_influence_report"
     if lowered.startswith("deep-insight-solar") or "deep-insight-solar" in lowered:
-        return "deep_insight_solar"
+        return os.environ.get("DEEP_INSIGHT_SOLAR_PROFILE_POLICY_KEY", "deep_insight_solar")
     return "default"
 
 
@@ -124,18 +126,25 @@ def _select_chatgpt_profile_policy(purpose: str) -> dict[str, Any]:
     policies = data.get("policies") if isinstance(data.get("policies"), dict) else {}
     policy_key = _policy_key_for_purpose(purpose)
     policy = policies.get(policy_key) if isinstance(policies.get(policy_key), dict) else None
+    effective_policy_key = policy_key
     if policy is None:
         policy = policies.get("default") if isinstance(policies.get("default"), dict) else data
+        effective_policy_key = "default" if "default" in policies else policy_key
     if not isinstance(policy, dict):
         raise RuntimeError(f"browser_agent_profile_policy_missing:{path}:{policy_key}")
     allowed_profiles = [str(item).strip() for item in (policy.get("allowed_profiles") or []) if str(item).strip()]
+    protected_policy_keys = {"hf_paper_insight", "github_trend_report", "ai_influence_report", "deep_insight_solar"}
     selected_profile = ""
     explicit_profile = str(
         os.environ.get("BROWSER_AGENT_PROFILE_DIRECTORY")
         or os.environ.get("TECH_HOTSPOT_BROWSER_CHATGPT_PROFILE_DIRECTORY")
         or ""
     ).strip()
-    if explicit_profile:
+    ignore_explicit_profile = effective_policy_key in protected_policy_keys and bool(
+        policy.get("ignore_explicit_profile_id", True)
+    )
+    ignored_explicit_profile = explicit_profile if ignore_explicit_profile else ""
+    if explicit_profile and not ignore_explicit_profile:
         if allowed_profiles and explicit_profile not in allowed_profiles:
             raise RuntimeError(
                 "browser_agent_profile_policy_profile_mismatch:"
@@ -162,7 +171,7 @@ def _select_chatgpt_profile_policy(purpose: str) -> dict[str, Any]:
     return {
         "enabled": True,
         "policy_path": str(path),
-        "policy_key": policy_key if policy_key in policies else ("default" if "default" in policies else policy_key),
+        "policy_key": effective_policy_key,
         "selected_profile_directory": selected_profile,
         "selected_account_email": account_email,
         "allowed_profiles": allowed_profiles,
@@ -175,6 +184,7 @@ def _select_chatgpt_profile_policy(purpose: str) -> dict[str, Any]:
         "profile_strategy": profile_strategy,
         "user_data_dir": user_data_dir,
         "ignore_explicit_profile_id": bool(policy.get("ignore_explicit_profile_id", True)),
+        "explicit_profile_ignored": ignored_explicit_profile,
     }
 
 
@@ -185,6 +195,20 @@ def _browser_channel() -> str:
         or DEFAULT_BROWSER_CHANNEL
     ).strip().lower()
     return value or DEFAULT_BROWSER_CHANNEL
+
+
+def _lease_task_id(request_dir: Path) -> str:
+    explicit = str(os.environ.get("TASK_ID") or "").strip()
+    if explicit and explicit != "chatgpt-browser-agent-request":
+        return explicit
+    for key in ("BROWSER_AGENT_QUEUE_JOB_ID", "SOLAR_TASK_ID", "DISPATCH_ID"):
+        value = str(os.environ.get(key) or "").strip()
+        if value:
+            digest = hashlib.sha256(str(request_dir.resolve()).encode("utf-8")).hexdigest()[:12]
+            safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", value).strip("-._").lower() or "task"
+            return f"chatgpt-{safe}-{digest}"
+    digest = hashlib.sha256(str(request_dir.resolve()).encode("utf-8")).hexdigest()[:16]
+    return f"chatgpt-{digest}"
 
 
 def _system_chrome_version() -> str:
@@ -265,6 +289,62 @@ def _minimum_answer_chars() -> int:
         return 0
 
 
+def _generating_without_output_timeout_seconds() -> int:
+    raw = str(
+        os.environ.get("BROWSER_AGENT_GENERATING_NO_OUTPUT_TIMEOUT_SECONDS")
+        or os.environ.get("BROWSER_AGENT_CHATGPT_GENERATING_NO_OUTPUT_TIMEOUT_SECONDS")
+        or "420"
+    ).strip()
+    try:
+        return max(60, int(raw))
+    except ValueError:
+        return 420
+
+
+def _submitted_no_generation_retry_limit() -> int:
+    raw = str(
+        os.environ.get("BROWSER_AGENT_SUBMITTED_NO_GENERATION_RETRIES")
+        or os.environ.get("BROWSER_AGENT_CHATGPT_SUBMITTED_NO_GENERATION_RETRIES")
+        or "2"
+    ).strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 2
+
+
+def _submitted_no_generation_retry_prompt(attempt: int) -> str:
+    expected = str(os.environ.get("BROWSER_AGENT_EXPECTED_OUTPUT") or "markdown").strip().lower()
+    if expected == "json":
+        return (
+            f"上一条用户消息已经提交，但没有触发模型生成。请现在直接执行上一条用户消息中的完整任务，输出合法 JSON object。"
+            f"这是第 {attempt} 次恢复提交；不要解释、不要复述问题、不要使用 Markdown 代码块；第一个字符必须是 {{，最后一个字符必须是 }}。"
+        )
+    return (
+        f"上一条用户消息已经提交，但没有触发模型生成。请现在直接执行上一条用户消息中的完整任务，输出完整结果。"
+        f"这是第 {attempt} 次恢复提交；不要解释、不要复述问题，直接输出正文。"
+    )
+
+
+def _is_status_only_assistant_text(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    status_prefixes = (
+        "正在思考",
+        "已思考",
+        "思考中",
+        "thinking",
+        "reasoning",
+        "pro 思考中",
+        "pro thinking",
+    )
+    if any(lowered.startswith(item) for item in status_prefixes):
+        return True
+    return bool(re.fullmatch(r"(pro\s*)?(正在)?思考中[。\.…\s]*", lowered))
+
+
 def _should_attempt_reasoning_retry(post_submit: dict, *, elapsed_s: float, retried: bool) -> bool:
     if retried or elapsed_s < float(os.environ.get("BROWSER_AGENT_CHATGPT_REASONING_RETRY_AFTER_SECONDS") or os.environ.get("BROWSER_AGENT_REASONING_RETRY_AFTER_SECONDS") or 20):
         return False
@@ -279,9 +359,8 @@ def _should_attempt_reasoning_retry(post_submit: dict, *, elapsed_s: float, retr
 def _normalize_capture_payload(payload: dict) -> dict:
     normalized = dict(payload or {})
     latest = str(normalized.get("latest_assistant_text") or "").strip()
-    status_only = {"正在思考", "已思考", "thinking", "reasoning"}
     normalized["latest_assistant_text_raw"] = latest
-    if latest and any(latest.lower().startswith(item) for item in status_only):
+    if latest and _is_status_only_assistant_text(latest):
         assistant_texts = [
             str(msg.get("text") or "").strip()
             for msg in (normalized.get("messages") or [])
@@ -290,7 +369,7 @@ def _normalize_capture_payload(payload: dict) -> dict:
         substantive = [
             text
             for text in assistant_texts
-            if text and not any(text.lower().startswith(item) for item in status_only)
+            if text and not _is_status_only_assistant_text(text)
         ]
         normalized["latest_assistant_text"] = substantive[-1] if substantive else ""
     return normalized
@@ -352,6 +431,10 @@ CAPTURE_JS = r"""() => {
   const actionLabels = Array.from(document.querySelectorAll("button,a,[role='button'],[role='menuitem'],[role='menuitemradio']"))
     .map((el) => clean(el.getAttribute("aria-label") || el.textContent || ""))
     .filter(Boolean);
+  const requestRateLimitWall = /请求过于频繁|你的请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试|too many requests|requests? (are )?too frequent|temporarily limited/i.test(lowered);
+  const requestRateLimitActionVisible = actionLabels.some((label) =>
+    /^(明白了|知道了|我知道了|ok|okay|got it)$/i.test(label)
+  );
   const loginActionVisible = actionLabels.some((label) =>
     /^(log in|sign in|login|sign up|登录|免费注册|注册)$/i.test(label)
   );
@@ -369,6 +452,8 @@ CAPTURE_JS = r"""() => {
     login_wall: loginWall,
     challenge_wall: challengeWall,
     challenge_reason: challengeFrame ? "challenge_frame" : (challengeTitleOrUrl ? "title_or_url" : (explicitHumanCheck && !composer ? "explicit_human_check" : "")),
+    request_rate_limit_wall: requestRateLimitWall,
+    request_rate_limit_action_visible: requestRateLimitActionVisible,
     composer_ready: !!composer,
     is_generating: !!stopButton,
     message_count: messages.length,
@@ -385,7 +470,7 @@ SET_PROMPT_JS = r"""(promptText) => {
     const style = window.getComputedStyle(el);
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
-  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], textarea[name='prompt-textarea'], textarea"));
+  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], div[contenteditable='true'], [contenteditable='true'], textarea[name='prompt-textarea'], textarea"));
   const composer = candidates.find(visible) || candidates[0];
   if (!composer) {
     return JSON.stringify({ ok: false, error: "composer_not_found" });
@@ -439,6 +524,44 @@ SET_PROMPT_JS = r"""(promptText) => {
   return JSON.stringify({ ok: true, mode: "contenteditable" });
 }"""
 
+PASTE_EVENT_PROMPT_JS = r"""(promptText) => {
+  const visible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  };
+  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], div[contenteditable='true'], [contenteditable='true'], textarea[name='prompt-textarea'], textarea"));
+  const composer = candidates.find(visible) || candidates[0];
+  if (!composer) {
+    return JSON.stringify({ ok: false, error: "composer_not_found" });
+  }
+  const prompt = String(promptText || "").replace(/\r\n/g, "\n");
+  composer.focus();
+  const selection = window.getSelection();
+  if (selection && composer.isContentEditable) {
+    const range = document.createRange();
+    range.selectNodeContents(composer);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  try {
+    const data = new DataTransfer();
+    data.setData("text/plain", prompt);
+    const event = new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: data,
+    });
+    composer.dispatchEvent(event);
+  } catch (err) {
+    return JSON.stringify({ ok: false, error: String(err && err.message || err) });
+  }
+  composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertFromPaste", data: prompt }));
+  return JSON.stringify({ ok: true, mode: "synthetic_paste_event" });
+}"""
+
 FOCUS_COMPOSER_JS = r"""() => {
   const visible = (el) => {
     if (!el) return false;
@@ -446,7 +569,7 @@ FOCUS_COMPOSER_JS = r"""() => {
     const style = window.getComputedStyle(el);
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
-  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], textarea[name='prompt-textarea'], textarea"));
+  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], div[contenteditable='true'], [contenteditable='true'], textarea[name='prompt-textarea'], textarea"));
   const composer = candidates.find(visible) || candidates[0];
   if (!composer) {
     return JSON.stringify({ ok: false, error: "composer_not_found" });
@@ -462,7 +585,7 @@ COMPOSER_STATE_JS = r"""() => {
     const style = window.getComputedStyle(el);
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
-  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], textarea[name='prompt-textarea'], textarea"));
+  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], div[contenteditable='true'], [contenteditable='true'], textarea[name='prompt-textarea'], textarea"));
   const composer = candidates.find(visible) || candidates[0];
   if (!composer) return JSON.stringify({ ok: false, error: "composer_not_found" });
   const text = String(composer.value || composer.innerText || composer.textContent || "").trim();
@@ -476,7 +599,7 @@ CLEAR_PROMPT_JS = r"""() => {
     const style = window.getComputedStyle(el);
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   };
-  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], textarea[name='prompt-textarea'], textarea"));
+  const candidates = Array.from(document.querySelectorAll("#prompt-textarea, div[contenteditable='true'][role='textbox'], div[contenteditable='true'], [contenteditable='true'], textarea[name='prompt-textarea'], textarea"));
   const composer = candidates.find(visible) || candidates[0];
   if (!composer) return JSON.stringify({ ok: false, error: "composer_not_found" });
   composer.focus();
@@ -541,6 +664,59 @@ DISMISS_BLOCKING_MODALS_JS = r"""() => {
     clicked.push({ text: action.text, aria: action.aria, modal: modalId || modalText.slice(0, 80) });
   }
   return JSON.stringify({ ok: true, dismissed_count: clicked.length, clicked });
+}"""
+
+DISMISS_REQUEST_RATE_LIMIT_MODAL_JS = r"""() => {
+  const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+  const visible = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  };
+  const cueLike = (text) =>
+    /请求过于频繁|你的请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试|too many requests|requests? (are )?too frequent|temporarily limited/i.test(text);
+  const actionLike = (text) =>
+    /^(明白了|知道了|我知道了|ok|okay|got it)$/i.test(text);
+  const clickNode = (node) => {
+    node.scrollIntoView({ block: "center", inline: "center" });
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
+      node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+    }
+    node.click();
+  };
+  const scopes = Array.from(document.querySelectorAll("dialog[open], [role='dialog'], [aria-modal='true'], body"))
+    .filter(visible);
+  const scope = scopes.find((node) => cueLike(clean(node.innerText || node.textContent || "")));
+  if (!scope) {
+    return JSON.stringify({ ok: true, dismissed: false, reason: "modal_not_found" });
+  }
+  const actions = Array.from(scope.querySelectorAll("button,[role='button'],a"))
+    .filter(visible)
+    .map((node) => ({
+      node,
+      text: clean(node.innerText || node.textContent || ""),
+      aria: clean(node.getAttribute("aria-label") || ""),
+      title: clean(node.getAttribute("title") || ""),
+    }));
+  const action = actions.find((item) => actionLike(clean(`${item.text} ${item.aria} ${item.title}`)))
+    || actions.find((item) => /明白|知道|ok|okay|got it/i.test(`${item.text} ${item.aria} ${item.title}`));
+  if (!action) {
+    return JSON.stringify({
+      ok: false,
+      dismissed: false,
+      reason: "action_not_found",
+      modal_text: clean(scope.innerText || scope.textContent || "").slice(0, 500),
+      actions: actions.map((item) => ({ text: item.text, aria: item.aria, title: item.title })).slice(0, 20),
+    });
+  }
+  clickNode(action.node);
+  return JSON.stringify({
+    ok: true,
+    dismissed: true,
+    clicked: { text: action.text, aria: action.aria, title: action.title },
+    modal_text: clean(scope.innerText || scope.textContent || "").slice(0, 500),
+  });
 }"""
 
 SUBMIT_JS = r"""() => {
@@ -985,6 +1161,174 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _write_json_atomic(path: Path, payload: object) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _append_jsonl(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
+def _completion_payload(
+    *,
+    status: str,
+    data: dict,
+    prompt: str | None,
+    reason: str = "",
+    model: str = "",
+    reasoning_effort: str = "",
+    started_at: float | None = None,
+    artifacts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    latest = str(data.get("latest_assistant_text") or "").strip()
+    now = time.time()
+    payload = {
+        "schema": "browser_agent_completion_signal.v1",
+        "status": status,
+        "reason": reason,
+        "request_id": os.environ.get("BROWSER_AGENT_QUEUE_JOB_ID") or os.environ.get("TASK_ID") or "",
+        "task_id": os.environ.get("TASK_ID") or os.environ.get("BROWSER_AGENT_QUEUE_JOB_ID") or "",
+        "profile_id": os.environ.get("BROWSER_AGENT_PROFILE_ID") or "",
+        "conversation_id": data.get("conversation_id") or "",
+        "url": data.get("url") or "",
+        "prompt_sha256": _sha256_text(prompt or ""),
+        "latest_text_sha256": _sha256_text(latest) if latest else "",
+        "latest_text_chars": len(latest),
+        "message_count": data.get("message_count"),
+        "assistant_count": data.get("assistant_count"),
+        "login_wall": bool(data.get("login_wall")),
+        "challenge_wall": bool(data.get("challenge_wall")),
+        "challenge_reason": data.get("challenge_reason") or "",
+        "request_rate_limit_wall": bool(data.get("request_rate_limit_wall")),
+        "request_rate_limit_action_visible": bool(data.get("request_rate_limit_action_visible")),
+        "composer_ready": bool(data.get("composer_ready")),
+        "is_generating": bool(data.get("is_generating")),
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+        "created_at": bjrt._now(),
+    }
+    if started_at is not None:
+        payload["elapsed_seconds"] = round(max(0.0, now - started_at), 3)
+    if artifacts:
+        payload["artifacts"] = artifacts
+    return payload
+
+
+def _write_completion_heartbeat(
+    request_dir: Path,
+    data: dict,
+    *,
+    prompt: str | None,
+    started_at: float,
+    status: str = "generating",
+    reason: str = "",
+) -> None:
+    try:
+        _write_json_atomic(
+            request_dir / "heartbeat.json",
+            _completion_payload(
+                status=status,
+                data=data,
+                prompt=prompt,
+                reason=reason,
+                started_at=started_at,
+            ),
+        )
+    except OSError:
+        pass
+
+
+def _write_completion_signal(
+    request_dir: Path,
+    *,
+    status: str,
+    data: dict,
+    prompt: str | None,
+    reason: str = "",
+    model: str = "",
+    reasoning_effort: str = "",
+    started_at: float | None = None,
+    artifacts: list[dict[str, Any]] | None = None,
+) -> None:
+    try:
+        _write_json_atomic(
+            request_dir / "completion-signal.json",
+            _completion_payload(
+                status=status,
+                data=data,
+                prompt=prompt,
+                reason=reason,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                started_at=started_at,
+                artifacts=artifacts,
+            ),
+        )
+    except OSError:
+        pass
+
+
+async def _dismiss_request_rate_limit_modal(page, request_dir: Path | None = None, *, reason: str = "") -> dict:
+    """Dismiss ChatGPT's transient request-frequency modal when it blocks observation.
+
+    The modal is not an auth wall; it usually appears after ChatGPT accepts a
+    prompt or when opening conversation history too aggressively. Dismissing it
+    lets the wrapper continue observing the current conversation instead of
+    misclassifying the run as no-result.
+    """
+    before = json.loads(await page.evaluate(CAPTURE_JS))
+    if not before.get("request_rate_limit_wall"):
+        return {"ok": True, "dismissed": False, "reason": "not_detected", "before": before}
+    result = json.loads(await page.evaluate(DISMISS_REQUEST_RATE_LIMIT_MODAL_JS))
+    await asyncio.sleep(2)
+    after = json.loads(await page.evaluate(CAPTURE_JS))
+    note = {
+        "ts": bjrt._now(),
+        "reason": reason or "request_rate_limit_wall",
+        "before": {
+            "url": before.get("url"),
+            "conversation_id": before.get("conversation_id"),
+            "request_rate_limit_wall": before.get("request_rate_limit_wall"),
+            "request_rate_limit_action_visible": before.get("request_rate_limit_action_visible"),
+            "message_count": before.get("message_count"),
+            "assistant_count": before.get("assistant_count"),
+            "is_generating": before.get("is_generating"),
+        },
+        "dismiss": result,
+        "after": {
+            "url": after.get("url"),
+            "conversation_id": after.get("conversation_id"),
+            "request_rate_limit_wall": after.get("request_rate_limit_wall"),
+            "request_rate_limit_action_visible": after.get("request_rate_limit_action_visible"),
+            "message_count": after.get("message_count"),
+            "assistant_count": after.get("assistant_count"),
+            "is_generating": after.get("is_generating"),
+        },
+    }
+    if request_dir is not None:
+        try:
+            _append_jsonl(request_dir / "rate-limit-modal-dismissals.jsonl", note)
+            _write_json_atomic(request_dir / "rate-limit-modal-last.json", note)
+        except OSError:
+            pass
+    return note
+
+
 def _kill_browser_profile_processes(profile_dir: Path | None) -> None:
     if not profile_dir:
         return
@@ -1230,7 +1574,9 @@ async def _ensure_prompt_visible(page, prompt: str) -> dict:
         focused = json.loads(await page.evaluate(FOCUS_COMPOSER_JS))
         if focused.get("ok"):
             session_id = await page._ensure_session()
-            await page._client.send.Input.insertText({"text": prompt}, session_id=session_id)
+            for index in range(0, len(prompt), 4000):
+                await page._client.send.Input.insertText({"text": prompt[index : index + 4000]}, session_id=session_id)
+                await asyncio.sleep(0.05)
             await asyncio.sleep(0.8)
     except Exception:
         pass
@@ -1319,6 +1665,23 @@ async def _submit_prompt(page, prompt: str) -> dict:
             post_submit["_composer_state_before_submit"] = clipboard_note.get("composer_state_after_paste") or {}
             if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
                 return post_submit
+            paste_event_note = json.loads(await page.evaluate(PASTE_EVENT_PROMPT_JS, prompt))
+            await asyncio.sleep(1.0)
+            paste_event_composer_state = await _ensure_prompt_visible(page, prompt)
+            paste_event_submit = json.loads(await page.evaluate(SUBMIT_JS))
+            if not paste_event_submit.get("ok") and int(paste_event_composer_state.get("text_length") or 0) > 0:
+                await page.press("Meta+Enter")
+                paste_event_submit = {"mode": "meta_enter_after_paste_event", "js_error": paste_event_submit.get("error")}
+            post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+            post_submit["_submit_note"] = {
+                "mode": "synthetic_paste_event_submit_retry",
+                "clipboard": clipboard_note,
+                "paste_event": paste_event_note,
+                "submit": paste_event_submit,
+            }
+            post_submit["_composer_state_before_submit"] = paste_event_composer_state
+            if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
+                return post_submit
             raise RuntimeError(f"clipboard_prompt_submit_no_message:{post_submit.get('_submit_note')}")
         except Exception as exc:
             raise RuntimeError(f"long_prompt_clipboard_submit_failed:{type(exc).__name__}: {exc}")
@@ -1357,19 +1720,33 @@ async def _submit_prompt(page, prompt: str) -> dict:
 
 
 def _post_submit_is_isolated_current_prompt(post_submit: dict, prompt: str) -> bool:
-    """Ensure the submitted prompt is not appended to an older conversation."""
+    """Ensure the submitted prompt is present after the pre-submit blank gate.
+
+    The caller already rejects non-blank conversations before submit. After a
+    successful submit, ChatGPT's DOM can transiently expose duplicated user
+    entries in a freshly-created `/c/...` route, so requiring exactly one user
+    message causes false non-isolated failures.
+    """
+    return bool(_post_submit_has_current_prompt(post_submit, prompt))
+
+
+def _post_submit_has_current_prompt(post_submit: dict, prompt: str) -> bool:
     user_texts = [
         str(msg.get("text") or "")
         for msg in (post_submit.get("messages") or [])
         if isinstance(msg, dict) and msg.get("role") == "user"
     ]
-    if len(user_texts) != 1:
+    if not user_texts:
         return False
-    marker_ok = _post_submit_has_current_prompt(post_submit, prompt)
-    return bool(marker_ok)
+    # ChatGPT occasionally accepts only the first paragraph of very large
+    # clipboard submissions. A leading marker can still match, so require that
+    # the captured user message has a meaningful fraction of the original.
+    if len(prompt) > 2000:
+        longest_user_text = max(len(text) for text in user_texts)
+        min_expected_chars = min(50000, max(1000, int(len(prompt) * 0.2)))
+        if longest_user_text < min_expected_chars:
+            return False
 
-
-def _post_submit_has_current_prompt(post_submit: dict, prompt: str) -> bool:
     markers: list[str] = []
     for line in str(prompt or "").splitlines():
         stripped = line.strip()
@@ -1383,11 +1760,6 @@ def _post_submit_has_current_prompt(post_submit: dict, prompt: str) -> bool:
             if len(stripped) >= 40:
                 markers.append(stripped[:120])
                 break
-    user_texts = [
-        str(msg.get("text") or "")
-        for msg in (post_submit.get("messages") or [])
-        if isinstance(msg, dict) and msg.get("role") == "user"
-    ]
     return bool(markers) and any(marker in text for marker in markers for text in user_texts)
 
 
@@ -1401,7 +1773,9 @@ async def _keyboard_insert_prompt(page, prompt: str) -> dict:
         await page.press("Backspace")
         await asyncio.sleep(0.2)
         session_id = await page._ensure_session()
-        await page._client.send.Input.insertText({"text": prompt}, session_id=session_id)
+        for index in range(0, len(prompt), 4000):
+            await page._client.send.Input.insertText({"text": prompt[index : index + 4000]}, session_id=session_id)
+            await asyncio.sleep(0.05)
         await asyncio.sleep(0.8)
         state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
         return {"ok": int(state.get("text_length") or 0) > 0, "composer_state": state}
@@ -1456,28 +1830,206 @@ async def _clipboard_paste_and_submit(page, prompt: str) -> dict:
             pass
 
 
-async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: int = 900) -> dict:
+async def _wait_for_answer(
+    page,
+    baseline_assistant_count: int,
+    *,
+    timeout_s: int = 900,
+    request_dir: Path | None = None,
+    prompt: str | None = None,
+) -> dict:
     deadline = time.time() + timeout_s
+    started_at = time.time()
     last_text = ""
     stable = 0
     first_response_seen = False
     stable_required = int(os.environ.get("BROWSER_AGENT_STABLE_POLLS") or "8")
+    no_generation_since: float | None = None
+    no_generation_timeout_s = int(os.environ.get("BROWSER_AGENT_SUBMITTED_NO_GENERATION_TIMEOUT_SECONDS") or "150")
+    submitted_no_generation_retries = 0
+    submitted_no_generation_retry_limit = _submitted_no_generation_retry_limit()
+    generating_without_output_since: float | None = None
+    generating_without_output_timeout_s = _generating_without_output_timeout_seconds()
+    min_answer_chars = _minimum_answer_chars()
+    rate_limit_dismissed_at: float | None = None
+    rate_limit_retry_submitted = False
+    rate_limit_retry_delay_s = int(os.environ.get("BROWSER_AGENT_RATE_LIMIT_RETRY_SUBMIT_AFTER_SECONDS") or "20")
     challenge_since: float | None = None
     challenge_grace_s = _challenge_grace_seconds()
     while time.time() < deadline:
         data = json.loads(await page.evaluate(CAPTURE_JS))
+        if request_dir is not None:
+            _write_completion_heartbeat(
+                request_dir,
+                data,
+                prompt=prompt,
+                started_at=started_at,
+                status="generating" if data.get("is_generating") else "observing",
+            )
         if data.get("login_wall"):
+            if request_dir is not None:
+                _write_completion_signal(
+                    request_dir,
+                    status="blocked",
+                    data=data,
+                    prompt=prompt,
+                    reason="login_wall",
+                    started_at=started_at,
+                )
             raise RuntimeError("chatgpt_login_wall_detected")
         if data.get("challenge_wall"):
             if challenge_since is None:
                 challenge_since = time.time()
             if _challenge_persisted_too_long(challenge_since, grace_s=challenge_grace_s):
+                if request_dir is not None:
+                    _write_completion_signal(
+                        request_dir,
+                        status="blocked",
+                        data=data,
+                        prompt=prompt,
+                        reason="challenge_wall",
+                        started_at=started_at,
+                    )
                 raise RuntimeError("chatgpt_cloudflare_challenge_detected")
             await asyncio.sleep(3)
             continue
         challenge_since = None
+        if data.get("request_rate_limit_wall"):
+            note = await _dismiss_request_rate_limit_modal(
+                page,
+                request_dir,
+                reason="wait_for_answer",
+            )
+            if note.get("dismiss", {}).get("dismissed"):
+                rate_limit_dismissed_at = time.time()
+            if request_dir is not None:
+                _write_completion_heartbeat(
+                    request_dir,
+                    data,
+                    prompt=prompt,
+                    started_at=started_at,
+                    status="rate_limited",
+                    reason="request_rate_limit_modal_dismissed" if note.get("dismiss", {}).get("dismissed") else "request_rate_limit_modal_seen",
+                )
+            await asyncio.sleep(5)
+            continue
         assistant_count = int(data.get("assistant_count") or 0)
         latest_text = str(data.get("latest_assistant_text") or "").strip()
+        current_prompt_submitted = bool(prompt) and _post_submit_has_current_prompt(data, prompt)
+        latest_text_too_short = bool(latest_text) and min_answer_chars > 0 and len(latest_text) < min_answer_chars
+        if (
+            current_prompt_submitted
+            and data.get("is_generating")
+            and assistant_count <= baseline_assistant_count
+            and (not latest_text or latest_text_too_short)
+        ):
+            if generating_without_output_since is None:
+                generating_without_output_since = time.time()
+            elif time.time() - generating_without_output_since >= generating_without_output_timeout_s:
+                if request_dir is not None:
+                    _write_completion_signal(
+                        request_dir,
+                        status="timed_out",
+                        data=data,
+                        prompt=prompt,
+                        reason="generating_without_output",
+                        started_at=started_at,
+                    )
+                raise TimeoutError("chatgpt_generating_without_output")
+        else:
+            generating_without_output_since = None
+        if (
+            current_prompt_submitted
+            and assistant_count <= baseline_assistant_count
+            and not latest_text
+            and not data.get("is_generating")
+        ):
+            if data.get("request_rate_limit_wall"):
+                await _dismiss_request_rate_limit_modal(
+                    page,
+                    request_dir,
+                    reason="submitted_without_generation_guard",
+                )
+                await asyncio.sleep(5)
+                continue
+            if no_generation_since is None:
+                no_generation_since = time.time()
+            elif (
+                rate_limit_dismissed_at is not None
+                and not rate_limit_retry_submitted
+                and time.time() - rate_limit_dismissed_at >= max(5, rate_limit_retry_delay_s)
+            ):
+                retry_note = await _submit_prompt(page, prompt or "")
+                rate_limit_retry_submitted = True
+                no_generation_since = None
+                if request_dir is not None:
+                    _write_json(
+                        request_dir / "rate-limit-modal-retry-submit.json",
+                        {
+                            "ts": bjrt._now(),
+                            "reason": "request_rate_limit_dismissed_but_no_generation",
+                            "retry_after_seconds": round(time.time() - rate_limit_dismissed_at, 3),
+                            "post_submit": retry_note,
+                        },
+                    )
+                    _write_completion_heartbeat(
+                        request_dir,
+                        retry_note,
+                        prompt=prompt,
+                        started_at=started_at,
+                        status="retry_submitted",
+                        reason="request_rate_limit_dismissed_but_no_generation",
+                    )
+                await asyncio.sleep(5)
+                continue
+            elif time.time() - no_generation_since >= max(30, no_generation_timeout_s):
+                if submitted_no_generation_retries < submitted_no_generation_retry_limit:
+                    submitted_no_generation_retries += 1
+                    retry_prompt = _submitted_no_generation_retry_prompt(submitted_no_generation_retries)
+                    retry_note = await _submit_prompt(page, retry_prompt)
+                    no_generation_since = None
+                    if request_dir is not None:
+                        retry_payload = {
+                            "ts": bjrt._now(),
+                            "reason": "submitted_without_generation",
+                            "attempt": submitted_no_generation_retries,
+                            "limit": submitted_no_generation_retry_limit,
+                            "pre_retry": {
+                                "url": data.get("url"),
+                                "conversation_id": data.get("conversation_id"),
+                                "message_count": data.get("message_count"),
+                                "assistant_count": data.get("assistant_count"),
+                                "is_generating": data.get("is_generating"),
+                            },
+                            "post_submit": retry_note,
+                        }
+                        _write_json(
+                            request_dir / f"submitted-no-generation-retry-{submitted_no_generation_retries}.json",
+                            retry_payload,
+                        )
+                        _append_jsonl(request_dir / "submitted-no-generation-retries.jsonl", retry_payload)
+                        _write_completion_heartbeat(
+                            request_dir,
+                            retry_note,
+                            prompt=prompt,
+                            started_at=started_at,
+                            status="retry_submitted",
+                            reason="submitted_without_generation",
+                        )
+                    await asyncio.sleep(5)
+                    continue
+                if request_dir is not None:
+                    _write_completion_signal(
+                        request_dir,
+                        status="blocked",
+                        data=data,
+                        prompt=prompt,
+                        reason="submitted_without_generation",
+                        started_at=started_at,
+                    )
+                raise RuntimeError("chatgpt_submitted_without_generation")
+        else:
+            no_generation_since = None
         if assistant_count > baseline_assistant_count and latest_text:
             first_response_seen = True
             if latest_text == last_text:
@@ -1490,6 +2042,16 @@ async def _wait_for_answer(page, baseline_assistant_count: int, *, timeout_s: in
         await asyncio.sleep(3)
     if first_response_seen:
         return json.loads(await page.evaluate(CAPTURE_JS))
+    final_state = json.loads(await page.evaluate(CAPTURE_JS))
+    if request_dir is not None:
+        _write_completion_signal(
+            request_dir,
+            status="timed_out",
+            data=final_state,
+            prompt=prompt,
+            reason="response_timeout",
+            started_at=started_at,
+        )
     raise TimeoutError("chatgpt_response_timeout")
 
 
@@ -1497,12 +2059,20 @@ async def _continue_if_answer_too_short(page, final_data: dict, *, min_chars: in
     latest = str(final_data.get("latest_assistant_text") or "").strip()
     if min_chars <= 0 or len(latest) >= min_chars:
         return final_data
+    expected = str(os.environ.get("BROWSER_AGENT_EXPECTED_OUTPUT") or "").strip().lower()
     baseline_assistant_count = int(final_data.get("assistant_count") or 0)
-    continuation_prompt = (
-        "上一条回复只是确认或摘要，没有完成原始任务。"
-        f"请立即基于上方已经提交的全部输入，输出完整结果，正文不少于 {min_chars} 个字符。"
-        "不要解释、不要确认、不要说你将要做什么，直接从报告标题开始写完整正文。"
-    )
+    if expected == "json":
+        continuation_prompt = (
+            "上一条回复只是确认或计划，没有完成原始任务，也不是可解析 JSON。"
+            f"请立即基于上方已经提交的全部输入，输出完整 JSON 对象，字符数不少于 {min_chars}。"
+            "不要解释、不要确认、不要使用 Markdown 代码块、不要说你将要做什么；第一个字符必须是 {，最后一个字符必须是 }。"
+        )
+    else:
+        continuation_prompt = (
+            "上一条回复只是确认或摘要，没有完成原始任务。"
+            f"请立即基于上方已经提交的全部输入，输出完整结果，正文不少于 {min_chars} 个字符。"
+            "不要解释、不要确认、不要说你将要做什么，直接从报告标题开始写完整正文。"
+        )
     await _submit_prompt(page, continuation_prompt)
     continued = await _wait_for_answer(page, baseline_assistant_count, timeout_s=timeout_s)
     continued["_continuation_trigger"] = {
@@ -1553,6 +2123,30 @@ async def _write_conversation_artifacts(
     })
     if screenshot_b64:
         (request_dir / "screenshot.png").write_bytes(base64.b64decode(screenshot_b64))
+    artifacts = []
+    for artifact_path in (
+        request_dir / "assistant-response.txt",
+        request_dir / "conversation.json",
+        request_dir / "page.json",
+    ):
+        if artifact_path.exists():
+            artifacts.append(
+                {
+                    "path": str(artifact_path),
+                    "sha256": _file_sha256(artifact_path),
+                    "bytes": artifact_path.stat().st_size,
+                }
+            )
+    _write_completion_signal(
+        request_dir,
+        status="completed",
+        data=final_data,
+        prompt=prompt,
+        reason="final_artifacts_written",
+        model=model,
+        reasoning_effort=reasoning_effort,
+        artifacts=artifacts,
+    )
     return latest
 
 
@@ -1778,6 +2372,65 @@ def _scrub_chatgpt_client_state(staged_dir: str | Path | None, profile_directory
     return removed
 
 
+def _finalize_runtime_contract_safely(
+    control_ctx: dict[str, Any] | None,
+    *,
+    success: bool,
+    error_text: str | None,
+    page_state: dict | None,
+    logged_in_state_verified: bool,
+    details: dict[str, Any] | None = None,
+    requires_precise_page_control: bool = False,
+) -> dict[str, Any] | None:
+    if not control_ctx:
+        return None
+    request_dir = Path(control_ctx["request_dir"])
+    try:
+        return brtc.finalize_runtime_contract(
+            control_ctx,
+            success=success,
+            error_text=error_text,
+            page_state=page_state,
+            logged_in_state_verified=logged_in_state_verified,
+            details=details,
+            requires_precise_page_control=requires_precise_page_control,
+        )
+    except Exception as exc:
+        fallback_release: dict[str, Any] | None = None
+        try:
+            lease_manager = control_ctx.get("lease_manager")
+            if lease_manager is not None:
+                fallback_release = lease_manager.release(
+                    str(control_ctx.get("profile_id") or ""),
+                    str(control_ctx.get("task_id") or ""),
+                )
+        except Exception as release_exc:
+            fallback_release = {
+                "released": False,
+                "reason": "fallback_release_failed",
+                "error_type": type(release_exc).__name__,
+                "error": str(release_exc),
+            }
+        try:
+            _write_json(
+                request_dir / "runtime-finalize-error.json",
+                {
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "fallback_release": fallback_release,
+                    "failed_at": bjrt._now(),
+                },
+            )
+        except Exception:
+            pass
+        return {
+            "ok": False,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "fallback_release": fallback_release,
+        }
+
+
 async def _run(prompt: str) -> int:
     request_dir = _request_dir()
     expected = str(os.environ.get("BROWSER_AGENT_EXPECTED_OUTPUT") or "markdown").strip().lower()
@@ -1917,7 +2570,7 @@ async def _run(prompt: str) -> int:
             if profile_policy.get("enabled") and profile_policy.get("ignore_explicit_profile_id")
             else str(os.environ.get("BROWSER_AGENT_PROFILE_ID") or "").strip() or None
         ),
-        task_id=str(os.environ.get("TASK_ID") or request_dir.name),
+        task_id=_lease_task_id(request_dir),
         control_modes={
             "browser_use_session": True,
             "playwright_cdp_attach": False,
@@ -1957,10 +2610,18 @@ async def _run(prompt: str) -> int:
             page = await asyncio.wait_for(browser.get_current_page(), timeout=15)
             if page is None:
                 page = await asyncio.wait_for(browser.new_page(), timeout=15)
+        navigation_timeout_s = int(os.environ.get("BROWSER_AGENT_CHATGPT_NAVIGATION_TIMEOUT") or "120")
         try:
-            await asyncio.wait_for(page.goto(target_url), timeout=30)
-        except Exception:
-            await asyncio.wait_for(page.navigate(target_url), timeout=30)
+            await asyncio.wait_for(page.goto(target_url), timeout=navigation_timeout_s)
+        except Exception as first_nav_exc:
+            try:
+                await asyncio.wait_for(page.navigate(target_url), timeout=navigation_timeout_s)
+            except Exception as second_nav_exc:
+                raise TimeoutError(
+                    f"chatgpt_navigation_timeout:{target_url}:"
+                    f"goto={type(first_nav_exc).__name__}:"
+                    f"navigate={type(second_nav_exc).__name__}"
+                ) from second_nav_exc
         if action == "login_hold":
             hold = await _hold_for_login(page, request_dir, timeout_s=timeout_s)
             _write_json(request_dir / "login-hold-result.json", hold)
@@ -1977,8 +2638,9 @@ async def _run(prompt: str) -> int:
                 print(json.dumps(hold, ensure_ascii=False))
                 return 0
             raise RuntimeError("chatgpt_login_hold_timeout")
+        ready_timeout_s = int(os.environ.get("BROWSER_AGENT_CHATGPT_READY_TIMEOUT") or "90")
         try:
-            ready = await _wait_for_ready(page, timeout_s=90)
+            ready = await _wait_for_ready(page, timeout_s=ready_timeout_s)
         except Exception:
             try:
                 html = await page.evaluate(HTML_JS)
@@ -2003,8 +2665,13 @@ async def _run(prompt: str) -> int:
             "login_wall": ready.get("login_wall"),
             "challenge_wall": ready.get("challenge_wall"),
         }
+        new_chat_timeout_s = int(os.environ.get("BROWSER_AGENT_CHATGPT_NEW_CHAT_TIMEOUT") or "45")
         if action == "run" and not open_project_first and (force_new_chat or int(ready.get("message_count") or 0) > 0):
-            new_chat_result = await _force_new_blank_chat(page, request_dir=request_dir, timeout_s=45)
+            new_chat_result = await _force_new_blank_chat(
+                page,
+                request_dir=request_dir,
+                timeout_s=new_chat_timeout_s,
+            )
             _write_json(request_dir / "new-chat-result.json", new_chat_result)
             if not new_chat_result.get("ok"):
                 raise RuntimeError(
@@ -2208,7 +2875,13 @@ async def _run(prompt: str) -> int:
             logged_in_verified = True
             print(json.dumps(submitted, ensure_ascii=False))
             return 0
-        final_data = await _wait_for_answer(page, baseline_assistant_count, timeout_s=timeout_s)
+        final_data = await _wait_for_answer(
+            page,
+            baseline_assistant_count,
+            timeout_s=timeout_s,
+            request_dir=request_dir,
+            prompt=prompt,
+        )
         final_data = _normalize_capture_payload(final_data)
         final_data = await _continue_if_answer_too_short(
             page,
@@ -2217,6 +2890,24 @@ async def _run(prompt: str) -> int:
             timeout_s=timeout_s,
         )
         final_data = _normalize_capture_payload(final_data)
+        min_answer_chars = _minimum_answer_chars()
+        latest_after_continuation = str(final_data.get("latest_assistant_text") or "").strip()
+        if min_answer_chars > 0 and len(latest_after_continuation) < min_answer_chars:
+            if request_dir is not None:
+                _write_completion_signal(
+                    request_dir,
+                    status="failed",
+                    data=final_data,
+                    prompt=prompt,
+                    reason="answer_too_short_after_continuation",
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    started_at=started_at,
+                )
+            raise RuntimeError(
+                "chatgpt_answer_too_short_after_continuation: "
+                f"chars={len(latest_after_continuation)} min_answer_chars={min_answer_chars}"
+            )
         final_page_state = {
             "url": final_data.get("url"),
             "conversation_id": final_data.get("conversation_id"),
@@ -2275,7 +2966,7 @@ async def _run(prompt: str) -> int:
                 )
         if cleanup_dir is not None:
             shutil.rmtree(cleanup_dir, ignore_errors=True)
-        brtc.finalize_runtime_contract(
+        _finalize_runtime_contract_safely(
             control_ctx,
             success=logged_in_verified and not final_error_text,
             error_text=final_error_text,
