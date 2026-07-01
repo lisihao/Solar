@@ -132,6 +132,21 @@ function citationFromReference(
   };
 }
 
+function isMissionDetailViewLike(value: unknown): value is MissionDetailView {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as {
+    mission?: unknown;
+    agents?: unknown;
+    stages?: unknown;
+  };
+  return (
+    !!candidate.mission &&
+    typeof candidate.mission === 'object' &&
+    Array.isArray(candidate.agents) &&
+    Array.isArray(candidate.stages)
+  );
+}
+
 export interface DeepInsightMissionDetailProps {
   data: DeepInsightMissionView;
   onBack?: () => void;
@@ -259,11 +274,11 @@ export function DeepInsightMissionDetail({
   );
 
   // ── canonical view（collab / CapabilityMeters 需要；company 无 → undefined）──
-  // company 侧 fromCompanyMissionResult 不产出 canonical view；playground 侧 adapter
-  // 可在 reportArtifact / events 之外携带原始 view。契约未直接承载 MissionDetailView，
-  // collab/CapabilityMeters 仅在 events 存在（= playground live）时才有意义 → 用 events
-  // 有无作为 live 闸门，无 live 数据时这两处降级隐藏。
-  const canonicalView = data.reportArtifact as MissionDetailView | undefined;
+  // reportArtifact 是报告成品，不等于 MissionDetailView。旧代码强转会让
+  // MissionFlowView 读取 view.mission.startedAt 时崩溃；这里只接受真实 canonical shape。
+  const canonicalView = isMissionDetailViewLike(data.reportArtifact)
+    ? data.reportArtifact
+    : undefined;
 
   // ── CapabilityMeters 最小 fake view（company 无 canonical view 也能渲染 cost tab）──
   // CapabilityMeters 只读 view.mission.{finalScore/status/startedAt/finishedAt} + view.verdicts
@@ -281,6 +296,16 @@ export function DeepInsightMissionDetail({
     return {
       mission: {
         id: data.id,
+        title: data.title,
+        topic: data.topic,
+        depth: data.depth,
+        language: data.language,
+        maxCredits: data.maxCredits,
+        dimensions: data.dimensionDetails.map((d, i) => ({
+          id: d.id ?? `dimension-${i + 1}`,
+          name: d.name,
+          rationale: d.rationale,
+        })),
         // idle は 'starting' に写像（MissionViewStatus に 'idle' がない）
         status:
           data.missionStatus === 'completed'
@@ -302,12 +327,31 @@ export function DeepInsightMissionDetail({
             ? new Date(data.createdAt).toISOString()
             : undefined,
         finishedAt:
-          data.missionStatus === 'completed' || data.missionStatus === 'failed'
-            ? new Date().toISOString()
+          data.completedAt != null
+            ? new Date(data.completedAt).toISOString()
             : undefined,
       },
-      stages: [],
-      agents: [],
+      stages: data.stages.map((stage) => ({
+        id: stage.id,
+        label: stage.id,
+        status: stage.status,
+        startedAt:
+          stage.startedAt != null
+            ? new Date(stage.startedAt).toISOString()
+            : undefined,
+        endedAt:
+          stage.endedAt != null ? new Date(stage.endedAt).toISOString() : undefined,
+        detail: stage.detail,
+        attempts: stage.attempts,
+      })),
+      agents: data.agents.map((agent) => ({
+        id: agent.agentId,
+        role: agent.role,
+        phase: agent.phase,
+        modelId: agent.modelId,
+        retryCount: agent.retryCount,
+        failureMessage: agent.failureMessage,
+      })),
       verdicts: playgroundVerdicts,
       memoryIndex: data.memory
         ? {
@@ -323,9 +367,18 @@ export function DeepInsightMissionDetail({
     };
   }, [
     data.id,
+    data.title,
+    data.topic,
+    data.depth,
+    data.language,
+    data.maxCredits,
+    data.dimensionDetails,
     data.missionStatus,
     data.finalScore,
     data.createdAt,
+    data.completedAt,
+    data.stages,
+    data.agents,
     data.verdicts,
     data.memory,
   ]);
@@ -614,6 +667,7 @@ export function DeepInsightMissionDetail({
             <MissionGraphTab
               missionId={data.id}
               basePath={data.graphBasePath}
+              source={data.graphSource}
             />
           ) : (
             <div className="rounded-2xl border border-gray-100 bg-white p-10 text-center text-sm text-gray-500 shadow-sm">
@@ -642,6 +696,8 @@ export function DeepInsightMissionDetail({
                 data.missionStatus === 'failed' ||
                 data.missionStatus === 'cancelled'
                   ? 'aborted'
+                  : memory == null && data.missionStatus === 'completed'
+                    ? 'not-applicable'
                   : data.missionStatus === 'completed'
                     ? 'completed-noindex'
                     : 'running'
@@ -724,6 +780,7 @@ const STEP_STATUS_TO_TODO: Record<
   MissionTodo['status']
 > = {
   done: 'done',
+  degraded: 'blocked',
   failed: 'failed',
   skipped: 'cancelled',
   running: 'in_progress',
@@ -741,15 +798,25 @@ function buildTodosFromSteps(steps: MissionStep[]): MissionTodo[] {
     origin: s.systemStageId ? 'system-stage' : 'leader-plan',
     createdBy: s.systemStageId ? 'system' : 'leader',
     createdAt: 0,
-    reasonText: '',
+    reasonText:
+      s.status === 'degraded'
+        ? s.statusLabel ?? '报告已交付，但该子任务使用了降级结果'
+        : '',
     // systemStageId 锚定的步骤 scope=system，MissionFlowView 据 systemStageId 点亮 14-chip。
     scope: s.systemStageId ? 'system' : 'mission',
     title: s.label,
-    assignee: { role: normalizeTodoRole(s.role) },
+    assignee: {
+      role: normalizeTodoRole(s.role),
+      ...(s.dimension ? { dimensionName: s.dimension } : {}),
+    },
     status: STEP_STATUS_TO_TODO[s.status],
     artifacts: [],
     narrativeLog: [],
     dimensionRef: s.dimension,
+    modelId:
+      s.modelId ??
+      s.modelTrail?.find((model) => model.modelId)?.modelId ??
+      undefined,
     // W5：透传 systemStageId → MissionFlowView 的 systemTodoMap 据此点亮对应 chip。
     systemStageId: s.systemStageId,
   })) as unknown as MissionTodo[];

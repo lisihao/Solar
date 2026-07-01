@@ -164,9 +164,11 @@ export interface MissionStep {
   label: string;
   role: string;
   dimension?: string;
-  status: 'done' | 'failed' | 'skipped' | 'running';
+  status: 'done' | 'degraded' | 'failed' | 'skipped' | 'running';
   tokens?: number;
   costCents?: number;
+  modelId?: string;
+  modelTrail?: Array<{ modelId?: string }>;
   /**
    * 14 阶段点亮锚点（W5）。后端 W1 契约 telemetry.systemStageId 透传到这里 →
    * buildTodosFromSteps 透传给 MissionTodo.systemStageId → MissionFlowView 点亮 14-chip。
@@ -174,10 +176,40 @@ export interface MissionStep {
    */
   systemStageId?: SystemStageId;
   /**
-   * 运行中阶段内部子状态文案（如「采集完成·评审中」）。
-   * 仅 status=running 时有意义；终态不携带。
+   * 运行中阶段内部子状态文案（如「采集完成·评审中」）；
+   * 或终态降级说明（status=degraded）。
    */
   statusLabel?: string;
+}
+
+function isStepCompleteForProgress(status: MissionStep['status']): boolean {
+  return status === 'done' || status === 'degraded';
+}
+
+function normalizeMissionStepStatus(
+  raw: unknown,
+  missionStatus?:
+    | CompanyMissionInput['status']
+    | DeepInsightMissionView['status']
+): MissionStep['status'] {
+  if (
+    raw === 'done' ||
+    raw === 'degraded' ||
+    raw === 'skipped' ||
+    raw === 'running'
+  ) {
+    return raw;
+  }
+  if (raw === 'failed') {
+    return missionStatus === 'done' ? 'degraded' : 'failed';
+  }
+  if (raw === 'blocked') {
+    return 'degraded';
+  }
+  if (raw === 'in_progress' || raw === 'pending') {
+    return 'running';
+  }
+  return 'done';
 }
 
 /** 算力消耗汇总归一（company cents / playground USD 在 adapter 内换算成 cents）。 */
@@ -317,6 +349,8 @@ export interface DeepInsightMissionView extends BaseMissionView {
    * `${apiBaseUrl}/api/v1/company`；playground 留空走默认 playground base。
    */
   graphBasePath?: string;
+  /** 图谱 API 来源；company mission 必须显式走 company graph controller。 */
+  graphSource?: 'playground' | 'company';
   /** 研究主题概述（tasks tab themeSummary；真实字段，非 statusDetail 误用）。 */
   themeSummary?: string;
   /** 完成时刻（epoch ms）；与 createdAt 算真实运行耗时，不显示假 0s。 */
@@ -448,8 +482,31 @@ function enrichAgentsFromEvents(
   const researcherIdByDim = new Map<string, string>();
   dimNames.forEach((d, i) => researcherIdByDim.set(d, `researcher#${i}`));
 
-  const resolveId = (role?: string, dim?: string): string | undefined => {
+  const resolveSolarAgentId = (
+    agentId?: string,
+    stepId?: string
+  ): string | undefined => {
+    const key = `${agentId ?? ''} ${stepId ?? ''}`.toLowerCase();
+    if (key.includes('leader') || key.includes('s2-')) return 'leader';
+    if (key.includes('researcher') || key.includes('s3-'))
+      return 'researcher#0';
+    if (key.includes('analyst') || key.includes('s6-')) return 'writer';
+    if (key.includes('longform') || key.includes('writer') || key.includes('s8-'))
+      return 'writer';
+    if (key.includes('critic') || key.includes('reviewer') || key.includes('s9-'))
+      return 'reviewer';
+    return undefined;
+  };
+
+  const resolveId = (
+    role?: string,
+    dim?: string,
+    agentId?: string,
+    stepId?: string
+  ): string | undefined => {
     if (dim && researcherIdByDim.has(dim)) return researcherIdByDim.get(dim);
+    const solarId = resolveSolarAgentId(agentId, stepId);
+    if (solarId) return solarId;
     if (role === 'leader' || role === 'writer' || role === 'reviewer')
       return role;
     return undefined;
@@ -459,20 +516,35 @@ function enrichAgentsFromEvents(
     const p = e.payload ?? {};
     const role = typeof p.role === 'string' ? p.role : undefined;
     const dim = typeof p.dimension === 'string' ? p.dimension : undefined;
-    const id = resolveId(role, dim);
+    const agentId = typeof p.agentId === 'string' ? p.agentId : undefined;
+    const stepId = typeof p.stepId === 'string' ? p.stepId : undefined;
+    const id = resolveId(role, dim, agentId, stepId);
     if (!id) continue;
     const agent = byId.get(id);
     if (!agent) continue;
 
     if (e.type === 'company.agent:lifecycle') {
+      const metrics =
+        p.metrics && typeof p.metrics === 'object'
+          ? (p.metrics as Record<string, unknown>)
+          : undefined;
       if (typeof p.tokensUsed === 'number')
         agent.tokensUsed = Math.max(agent.tokensUsed ?? 0, p.tokensUsed);
       if (typeof p.costCents === 'number')
         agent.costUsd = Math.max(agent.costUsd ?? 0, p.costCents / 100);
-      // Fix 2: prefer direct modelId field; fall back to modelTrail[0].modelId.
+      // Solar browser-agent stores model metadata under payload.metrics.
       if (!agent.modelId && typeof p.modelId === 'string' && p.modelId) {
         agent.modelId = p.modelId;
       }
+      if (
+        !agent.modelId &&
+        metrics &&
+        typeof metrics.modelId === 'string' &&
+        metrics.modelId
+      ) {
+        agent.modelId = metrics.modelId;
+      }
+      // Fix 2: prefer direct modelId field; fall back to modelTrail[0].modelId.
       if (
         !agent.modelId &&
         Array.isArray(p.modelTrail) &&
@@ -493,6 +565,16 @@ function enrichAgentsFromEvents(
         p.phase === 'running'
       )
         agent.phase = p.phase;
+      if (role === 'solar-browser-agent' && p.phase === 'completed') {
+        agent.trace.push({
+          kind: 'action',
+          ts: typeof e.timestamp === 'number' ? e.timestamp : 0,
+          text: stepId ? `Solar browser-agent completed ${stepId}` : undefined,
+          toolId: agentId ?? stepId,
+          tokensUsed:
+            typeof p.tokensUsed === 'number' ? p.tokensUsed : undefined,
+        });
+      }
     } else if (e.type === 'company.agent:narrative') {
       const text = typeof p.text === 'string' ? p.text : undefined;
       if (text) {
@@ -616,6 +698,8 @@ function normalizeVerdict(verdict: string | undefined | null): Verdict {
 /** company mission.result 形状（mirror MissionReportResult）。 */
 export interface MissionReportResultLike {
   summary?: string;
+  report?: string;
+  reportArtifact?: unknown;
   review?: { score?: number; verdict?: string; notes?: string[] } | null;
   dimensions?: string[];
   themeSummary?: string;
@@ -626,6 +710,11 @@ export interface MissionReportResultLike {
   usage?: ComputeUsage;
   /** 持久化协作动态事件（终态落库；详情重开时回放，live WS 断开后不丢）。 */
   collab?: unknown[];
+  __terminal?: {
+    report?: unknown;
+    reportArtifact?: unknown;
+    leaderSignOff?: unknown;
+  };
   /** 失败时后端写入的真实错误信息（runMission catch → result.error）。 */
   error?: string;
   /** 完成时刻 ISO（runViaCapability 写入 completedAt）；算真实运行耗时。 */
@@ -913,6 +1002,18 @@ export function fromCompanyMissionResult(
   input: CompanyMissionInput
 ): DeepInsightMissionView {
   const result = input.result ?? {};
+  const terminal = result.__terminal;
+  const reportArtifact =
+    result.reportArtifact ?? terminal?.reportArtifact ?? undefined;
+  const artifactReport =
+    isRecord(reportArtifact) && isRecord(reportArtifact.content)
+      ? getStr(reportArtifact.content, 'fullMarkdown')
+      : undefined;
+  const report =
+    result.summary ??
+    (typeof result.report === 'string' ? result.report : undefined) ??
+    (typeof terminal?.report === 'string' ? terminal.report : undefined) ??
+    artifactReport;
   const review = result.review ?? null;
   const dimensions = result.dimensions ?? [];
   const persistedSteps = result.steps ?? [];
@@ -921,10 +1022,18 @@ export function fromCompanyMissionResult(
     input.status === 'failed' ||
     input.status === 'cancelled';
   // 运行中 result.steps 尚未落库 → 用事件派生 live 任务，逐个展示并推进。
-  const steps =
+  const rawSteps =
     persistedSteps.length > 0
       ? persistedSteps
       : deriveLiveSteps(input.events ?? []);
+  const steps = rawSteps.map((s) => ({
+    ...s,
+    status: normalizeMissionStepStatus(s.status, input.status),
+    statusLabel:
+      input.status === 'done' && s.status === 'failed'
+        ? s.statusLabel ?? '报告已交付，原始研究维度降级'
+        : s.statusLabel,
+  }));
   const references = result.references ?? [];
   const facts = result.factTable ?? [];
 
@@ -946,7 +1055,9 @@ export function fromCompanyMissionResult(
     typeof review?.score === 'number' ? review.score : undefined;
 
   // task 计数：用 steps 计 done / total（与降级 tasks 列表同源）。
-  const completedSteps = steps.filter((s) => s.status === 'done').length;
+  const completedSteps = steps.filter((s) =>
+    isStepCompleteForProgress(s.status)
+  ).length;
   const taskProgress =
     steps.length > 0
       ? { completed: completedSteps, total: steps.length }
@@ -982,10 +1093,14 @@ export function fromCompanyMissionResult(
   // 事件源（终态回放 result.collab / live WS）——同时喂 collab tab + 富化 agent telemetry。
   // Fix 3: 归一化事件（展开 company.agent:trace → company.agent:narrative）让
   // MissionFlowView 能渲染 ThinkingCard / ToolCallChip。
+  const persistedEvents = Array.isArray(result.collab) ? result.collab : [];
+  const liveEvents = input.events ?? [];
   const rawEvents =
-    input.events && input.events.length > 0
-      ? input.events
-      : (result.collab ?? []);
+    isTerminal && persistedEvents.length > 0
+      ? persistedEvents
+      : liveEvents.length > 0
+        ? liveEvents
+        : persistedEvents;
   const adapterEvents = normalizeCompanyEvents(rawEvents);
   const resultMeta = result as Record<string, unknown>;
   const checkpoint = resultMeta.__checkpoint as
@@ -1040,10 +1155,10 @@ export function fromCompanyMissionResult(
     failedMessage:
       companyStatus(input.status) === 'failed' ? result.error : undefined,
     // 右侧 tab
-    // live WS 事件优先；无（重开已完成任务）→ 回放持久化的 result.collab。
+    // 终态优先回放持久化 result.collab；运行中才优先使用 live WS。
     events: adapterEvents,
-    reportArtifact: undefined,
-    report: result.summary,
+    reportArtifact,
+    report,
     dimensionPipelines: [],
     reconciliationReport: result.reconciliationReport,
     references,
@@ -1052,8 +1167,9 @@ export function fromCompanyMissionResult(
     memory: undefined,
     verdicts,
     // 有报告正文即可构建图谱（company endpoint 用平台共享构建器从 report 抽图）。
-    hasGraph: !!result.summary,
+    hasGraph: !!report,
     graphBasePath: `${config.apiBaseUrl}/api/v1/company`,
+    graphSource: 'company',
     // 旧契约兼容承载
     score,
     reviewNotes: review?.notes ?? [],
@@ -1477,17 +1593,13 @@ export function fromPlaygroundMissionView(
       const label = getStr(it, 'label') ?? getStr(it, 'title');
       if (!label) return undefined;
       const itStatus = getStr(it, 'status');
-      const stepStatus: MissionStep['status'] =
-        itStatus === 'failed'
-          ? 'failed'
-          : itStatus === 'skipped'
-            ? 'skipped'
-            : 'done';
+      const stepStatus = normalizeMissionStepStatus(itStatus, status);
       return {
         label,
         role: getStr(it, 'assignee') ?? getStr(it, 'role') ?? '—',
         dimension: getStr(it, 'dimension'),
         status: stepStatus,
+        modelId: getStr(it, 'modelId'),
       };
     })
     .filter((s): s is MissionStep => s !== undefined);
@@ -1499,7 +1611,8 @@ export function fromPlaygroundMissionView(
     taskProgress ??
     (steps.length > 0
       ? {
-          completed: steps.filter((s) => s.status === 'done').length,
+          completed: steps.filter((s) => isStepCompleteForProgress(s.status))
+            .length,
           total: steps.length,
         }
       : undefined);

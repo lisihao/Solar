@@ -23,7 +23,7 @@ import {
   AUDIT_LAYERS_OPTIONS,
 } from '@/lib/constants/mission-profile-options';
 import { useCompanyStore } from '@/stores/company/companyStore';
-import type { CompanyMission } from '@/stores/company/companyStore';
+import type { CompanyMission, Hero } from '@/stores/company/companyStore';
 import { useCompanyMissionStream } from '@/hooks/features/useCompanyMissionStream';
 import {
   DeepInsightMissionDetail,
@@ -31,6 +31,7 @@ import {
   normalizeCompanyEvents,
   type MissionReportResultLike,
 } from '@/components/missions/deep-insight';
+import { toast } from '@/stores';
 
 /** 运行中实时阶段三态（WS 事件驱动详情页 live rail；纯运行态，不入 kit 契约）。 */
 type LiveStageStatus = 'pending' | 'active' | 'done';
@@ -49,36 +50,100 @@ const STATUS_MAP: Record<string, string> = {
   review: 'running',
   done: 'completed',
   failed: 'failed',
+  cancelled: 'cancelled',
 };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function readNestedString(
+  value: unknown,
+  path: readonly string[]
+): string | undefined {
+  let current: unknown = value;
+  for (const key of path) {
+    const record = asRecord(current);
+    if (!(key in record)) return undefined;
+    current = record[key];
+  }
+  return asString(current);
+}
+
+function extractCompanyMissionReportMarkdown(
+  result: Record<string, unknown>
+): string | undefined {
+  const terminal = asRecord(result.__terminal);
+  return (
+    asString(result.summary) ??
+    asString(result.report) ??
+    readNestedString(result.reportArtifact, ['content', 'fullMarkdown']) ??
+    asString(terminal.summary) ??
+    asString(terminal.report) ??
+    readNestedString(terminal.reportArtifact, ['content', 'fullMarkdown'])
+  );
+}
+
+function hasFailedCompanyMissionStep(
+  result: Record<string, unknown>
+): boolean {
+  const steps = Array.isArray(result.steps) ? result.steps : [];
+  return steps.some((step) => {
+    const status = asString(asRecord(step).status);
+    return status === 'failed' || status === 'quality-failed';
+  });
+}
 
 /** company mission → canonical MissionListItem（喂给 MissionGalleryView）。 */
 function toListItem(m: CompanyMission): MissionListItem {
-  const r = (m.result ?? {}) as {
-    review?: { score?: number };
-    usage?: { totalTokens?: number; totalCostCents?: number };
-    summary?: string;
-    themeSummary?: string;
-    depth?: string;
-    language?: string;
-  };
+  const result = asRecord(m.result);
+  const review = asRecord(result.review);
+  const usage = asRecord(result.usage);
+  const reportMarkdown = extractCompanyMissionReportMarkdown(result);
+  const normalizedStatus = STATUS_MAP[m.status] ?? m.status;
+  const missingReportMessage =
+    normalizedStatus === 'completed' && !reportMarkdown
+      ? '报告缺失：任务被标记完成，但未持久化报告正文。'
+      : null;
+  const displayStatus =
+    missingReportMessage != null
+      ? 'failed'
+      : normalizedStatus === 'completed' && hasFailedCompanyMissionStep(result)
+        ? 'degraded'
+        : normalizedStatus;
   const iso = new Date(m.createdAt).toISOString();
   return {
     id: m.id,
     topic: m.title,
-    depth: r.depth ?? 'deep',
-    language: r.language ?? 'zh-CN',
-    status: STATUS_MAP[m.status] ?? m.status,
+    depth: asString(result.depth) ?? 'deep',
+    language: asString(result.language) ?? 'zh-CN',
+    status: displayStatus,
     startedAt: iso,
     completedAt: m.status === 'done' ? iso : null,
     elapsedWallTimeMs: null,
-    finalScore: r.review?.score ?? null,
-    tokensUsed: r.usage?.totalTokens ?? null,
+    finalScore:
+      typeof review.score === 'number' ? review.score : null,
+    tokensUsed:
+      typeof usage.totalTokens === 'number' ? usage.totalTokens : null,
     costUsd:
-      r.usage?.totalCostCents != null ? r.usage.totalCostCents / 100 : null,
+      typeof usage.totalCostCents === 'number'
+        ? usage.totalCostCents / 100
+        : null,
     reportTitle: m.title,
     reportSummary:
-      r.themeSummary ?? (r.summary ? r.summary.slice(0, 200) : null),
-    errorMessage: null,
+      reportMarkdown ?? asString(result.themeSummary) ?? null,
+    errorMessage:
+      missingReportMessage ??
+      asString(result.errorMessage) ??
+      asString(result.error) ??
+      asString(result.latestError) ??
+      null,
     visibility: 'PRIVATE',
   };
 }
@@ -88,6 +153,14 @@ const DEPTH_OPTIONS = [
   { value: 'standard', label: '标准', hint: '~10 分钟' },
   { value: 'deep', label: '深度', hint: '~20 分钟' },
 ] as const;
+
+function pickPreferredHero(heroes: Hero[]): Hero | null {
+  return (
+    heroes.find((h) => h.capabilityId === 'deep-insight-solar') ??
+    heroes[0] ??
+    null
+  );
+}
 
 /** 下发任务表单字段壳（label + 选填提示 + 内容），对齐 playground 视觉。 */
 function Field({
@@ -124,9 +197,17 @@ function Field({
 
 export function MissionRunView({
   embedded = false,
+  initialHeroId = null,
+  initialCapabilityId = null,
+  initialReportMissionId = null,
+  dispatchRequestKey = 0,
   onDetailOpenChange,
 }: {
   embedded?: boolean;
+  initialHeroId?: string | null;
+  initialCapabilityId?: string | null;
+  initialReportMissionId?: string | null;
+  dispatchRequestKey?: number;
   /** 进入/退出任务详情态时上报父级（嵌「我的团队」时用于隐藏团队页头 + Tab）。 */
   onDetailOpenChange?: (open: boolean) => void;
 } = {}) {
@@ -145,7 +226,14 @@ export function MissionRunView({
     createHeroMission,
   } = useCompanyStore();
 
-  const [heroId, setHeroId] = useState<string>(heroes[0]?.id ?? '');
+  const preferredInitialHero = pickPreferredHero(heroes);
+  const [heroId, setHeroId] = useState<string>(preferredInitialHero?.id ?? '');
+  const [expectedCapabilityId, setExpectedCapabilityId] = useState<
+    string | null
+  >(preferredInitialHero?.capabilityId ?? null);
+  const [lockedDispatchHeroId, setLockedDispatchHeroId] = useState<
+    string | null
+  >(null);
   const [title, setTitle] = useState('');
   // 点开查看的任务详情
   const [reportMissionId, setReportMissionId] = useState<string | null>(null);
@@ -226,12 +314,48 @@ export function MissionRunView({
     setGalleryReload((n) => n + 1);
   }, [missions]);
 
-  // 同步第一个专家 id（避免初始渲染时 heroes 为空）
+  // 同步默认专家 id（避免初始渲染时 heroes 为空；默认优先 Solar 强模型线）
   useEffect(() => {
     if (heroes.length > 0 && !heroId) {
-      setHeroId(heroes[0].id);
+      const preferred = pickPreferredHero(heroes);
+      if (!preferred) return;
+      setHeroId(preferred.id);
+      setExpectedCapabilityId(preferred.capabilityId);
     }
   }, [heroes, heroId]);
+
+  const handledInitialReportMissionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialReportMissionId) return;
+    if (handledInitialReportMissionRef.current === initialReportMissionId) {
+      return;
+    }
+    if (!missions.some((m) => m.id === initialReportMissionId)) return;
+    handledInitialReportMissionRef.current = initialReportMissionId;
+    setReportMissionId(initialReportMissionId);
+  }, [initialReportMissionId, missions]);
+
+  const handledDispatchKeyRef = useRef(0);
+  useEffect(() => {
+    if (dispatchRequestKey <= 0) return;
+    if (handledDispatchKeyRef.current === dispatchRequestKey) return;
+    if (!initialHeroId && !initialCapabilityId) return;
+    const selected =
+      heroes.find(
+        (h) =>
+          h.id === initialHeroId &&
+          (!initialCapabilityId || h.capabilityId === initialCapabilityId)
+      ) ??
+      (initialCapabilityId
+        ? heroes.find((h) => h.capabilityId === initialCapabilityId)
+        : null);
+    if (!selected) return;
+    handledDispatchKeyRef.current = dispatchRequestKey;
+    setHeroId(selected.id);
+    setExpectedCapabilityId(selected.capabilityId);
+    setLockedDispatchHeroId(selected.id);
+    setDispatchOpen(true);
+  }, [heroes, initialHeroId, initialCapabilityId, dispatchRequestKey]);
 
   // 处理 WS 事件 → 更新 store 进度 + 阶段状态（详情页 live rail 用）
   const processedTsRef = useRef<number>(0);
@@ -312,6 +436,16 @@ export function MissionRunView({
 
   const dispatch = async () => {
     if (!activeHero || !title.trim() || running) return;
+    if (
+      expectedCapabilityId &&
+      activeHero.capabilityId !== expectedCapabilityId
+    ) {
+      toast.error(
+        '下发任务被阻止',
+        `专家能力不匹配：期望 ${expectedCapabilityId}，实际 ${activeHero.capabilityId}`
+      );
+      return;
+    }
     const taskTitle = title.trim();
     const taskDescription = description.trim();
     setTitle('');
@@ -336,6 +470,7 @@ export function MissionRunView({
       lengthProfile,
       audienceProfile,
       auditLayers,
+      expectedCapabilityId: expectedCapabilityId ?? activeHero.capabilityId,
     });
     if (!missionId) {
       setRunning(false);
@@ -507,7 +642,10 @@ export function MissionRunView({
     <>
       <MissionDialogShell
         isOpen={dispatchOpen}
-        onClose={() => setDispatchOpen(false)}
+        onClose={() => {
+          setDispatchOpen(false);
+          setLockedDispatchHeroId(null);
+        }}
         title="下发任务"
         subtitle="选择专家、描述要做的事，交给专家执行"
         submitLabel="下发任务"
@@ -528,8 +666,15 @@ export function MissionRunView({
               <Field label="派给哪个专家" required>
                 <select
                   value={heroId}
-                  onChange={(e) => setHeroId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                  disabled={lockedDispatchHeroId !== null}
+                  onChange={(e) => {
+                    const nextHero = heroes.find(
+                      (h) => h.id === e.target.value
+                    );
+                    setHeroId(e.target.value);
+                    setExpectedCapabilityId(nextHero?.capabilityId ?? null);
+                  }}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary disabled:bg-gray-50 disabled:text-gray-500"
                 >
                   {heroes.map((h) => (
                     <option key={h.id} value={h.id}>
@@ -537,6 +682,12 @@ export function MissionRunView({
                     </option>
                   ))}
                 </select>
+                {lockedDispatchHeroId && activeHero && (
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    已按专家卡入口锁定：{activeHero.name}（
+                    {activeHero.capabilityId}）
+                  </p>
+                )}
               </Field>
 
               <Field label="任务话题" required>

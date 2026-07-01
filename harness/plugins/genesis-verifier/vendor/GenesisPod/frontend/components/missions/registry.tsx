@@ -38,6 +38,11 @@ const MISSION_KITS: Record<string, MissionKit> = {
     label: '深度洞察',
     DetailComponent: DeepInsightDetail,
   },
+  'deep-insight-solar': {
+    type: 'deep-insight-solar',
+    label: 'Solar 强模型深度洞察（实验线）',
+    DetailComponent: DeepInsightDetail,
+  },
 };
 
 /** 按 mission-type 解析 MissionKit；未注册返回 undefined。 */

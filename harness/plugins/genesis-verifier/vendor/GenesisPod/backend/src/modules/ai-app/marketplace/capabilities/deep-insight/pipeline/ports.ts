@@ -172,6 +172,10 @@ export const CS_KEY = {
   modelTrail: "deep-insight.modelTrail",
   // ★ W2.5 富增强：s4 patch 失败跟踪（s10 据此强制拒签，对齐 playground s4PatchFailures）。
   s4PatchFailures: "deep-insight.s4PatchFailures",
+  // ★ S4 closure ledger：deep-insight capability 的 assess primitive 不负责真实补跑。
+  //   Leader 返回 patch/redirect 时，先按 accept-degraded 闭环并在 S10/metadata 披露；
+  //   真正 retry 失败仍写 s4PatchFailures 并触发硬拒签。
+  s4PatchClosures: "deep-insight.s4PatchClosures",
   // ★ W2.5 富增强：s10 leader finalScore（QualityTrace 客观计算，落 CapabilityRunResult）。
   finalScore: "deep-insight.finalScore",
   // ★ W2.5 富增强：s9b 客观评估 10 维结果（落 reportArtifact.metadata.pipelineEvaluation）。

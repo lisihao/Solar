@@ -1,5 +1,6 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { spawn } from "node:child_process";
+import { AIFacade } from "@/modules/ai-harness/facade";
 
 export type SolarOperatorStatus =
   | "succeeded"
@@ -9,6 +10,7 @@ export type SolarOperatorStatus =
 
 export interface SolarOperatorRequest {
   readonly missionId: string;
+  readonly userId?: string;
   readonly capabilityId: "deep-insight-solar";
   readonly pipelineId: "deep-insight-solar";
   readonly stepId: string;
@@ -62,10 +64,77 @@ function parseArgs(raw: string | undefined): string[] {
   return raw.split(/\s+/).filter(Boolean);
 }
 
+function parseSolarOperatorResult(raw: string): SolarOperatorResult | null {
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text) as SolarOperatorResult;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function modelStrategyFromRequest(
+  request: SolarOperatorRequest,
+): Record<string, unknown> {
+  const constraints = request.constraints as
+    | { modelStrategy?: unknown }
+    | undefined;
+  const strategy = constraints?.modelStrategy;
+  return strategy && typeof strategy === "object"
+    ? (strategy as Record<string, unknown>)
+    : {};
+}
+
 @Injectable()
 export class SubprocessSolarHarnessOperatorPort
   implements SolarHarnessOperatorPort
 {
+  constructor(
+    @Optional()
+    @Inject(AIFacade)
+    private readonly aiFacade?: AIFacade,
+  ) {}
+
+  private async buildModelEnv(
+    request: SolarOperatorRequest,
+  ): Promise<NodeJS.ProcessEnv> {
+    const strategy = modelStrategyFromRequest(request);
+    const nativeFastModelId =
+      typeof strategy.nativeFastModelId === "string"
+        ? strategy.nativeFastModelId.trim()
+        : "";
+    if (!nativeFastModelId || !this.aiFacade) return {};
+
+    try {
+      const config = await this.aiFacade.getFullModelConfig(
+        nativeFastModelId,
+        request.userId,
+      );
+      if (!config?.apiKey) return {};
+      const provider = String(config.provider ?? "").toLowerCase();
+      const endpoint = config.apiEndpoint?.trim();
+      const modelId = config.modelId?.trim() || nativeFastModelId;
+      if (!provider.includes("deepseek") && !endpoint?.includes("deepseek")) {
+        return {};
+      }
+      return {
+        DEEP_INSIGHT_SOLAR_DEEPSEEK_API_KEY: config.apiKey,
+        DEEP_INSIGHT_SOLAR_DEEPSEEK_MODEL: modelId,
+        GENESISPOD_SOLAR_MODEL_ENV_SOURCE: "aiFacade.getFullModelConfig",
+        GENESISPOD_SOLAR_MODEL_ENV_USER_ID_PRESENT: request.userId ? "1" : "0",
+        GENESISPOD_SOLAR_MODEL_ENV_MODEL_ID: modelId,
+        GENESISPOD_SOLAR_MODEL_ENV_PROVIDER: provider || "N/A",
+        GENESISPOD_SOLAR_MODEL_ENV_API_KEY_PRESENT: "1",
+        ...(endpoint ? { DEEP_INSIGHT_SOLAR_DEEPSEEK_BASE_URL: endpoint } : {}),
+      };
+    } catch {
+      return {};
+    }
+  }
+
   async runOperator(
     request: SolarOperatorRequest,
   ): Promise<SolarOperatorResult> {
@@ -86,12 +155,14 @@ export class SubprocessSolarHarnessOperatorPort
       process.env.GENESISPOD_SOLAR_OPERATOR_TIMEOUT_MS ?? "900000",
     );
     const args = parseArgs(process.env.GENESISPOD_SOLAR_OPERATOR_ARGS);
+    const modelEnv = await this.buildModelEnv(request);
 
     return new Promise<SolarOperatorResult>((resolve) => {
       const child = spawn(command, args, {
         stdio: ["pipe", "pipe", "pipe"],
         env: {
           ...process.env,
+          ...modelEnv,
           GENESISPOD_SOLAR_OPERATOR_REQUEST: request.idempotencyKey,
         },
       });
@@ -130,6 +201,11 @@ export class SubprocessSolarHarnessOperatorPort
       child.on("close", (code) => {
         clearTimeout(timer);
         if (code !== 0) {
+          const parsed = parseSolarOperatorResult(stdout);
+          if (parsed) {
+            resolve(parsed);
+            return;
+          }
           resolve({
             status: "failed",
             error: {

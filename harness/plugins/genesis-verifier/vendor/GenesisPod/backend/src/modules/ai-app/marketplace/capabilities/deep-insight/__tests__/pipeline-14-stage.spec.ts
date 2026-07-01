@@ -538,6 +538,128 @@ describe("deep-insight 14 阶段执行内核（W2）", () => {
     expect(res.report).toContain("## H1");
   });
 
+  it("s8b 引用密度硬门禁：复用已有 citations 为缺引用维度章节补锚点", async () => {
+    const rich = makeRichStubs();
+    rich.reportArtifactAssembler.assemble.mockReturnValue({
+      title: "报告",
+      content: {
+        fullMarkdown: "# 报告\n\n## 维度一\n\n正文一\n\n## 维度二\n\n正文二",
+        fullReportSize: 64,
+      },
+      sections: [
+        {
+          id: "sec-d1",
+          type: "dimension",
+          title: "维度一",
+          content: "正文一",
+          sourceDimensionId: "d1",
+          citations: [],
+          figureIds: [],
+          startOffset: 6,
+          endOffset: 18,
+          wordCount: 3,
+        },
+        {
+          id: "sec-d2",
+          type: "dimension",
+          title: "维度二",
+          content: "正文二",
+          sourceDimensionId: "d2",
+          citations: [],
+          figureIds: [],
+          startOffset: 20,
+          endOffset: 32,
+          wordCount: 3,
+        },
+      ],
+      citations: [
+        {
+          index: 1,
+          uuid: "c1",
+          title: "维度一",
+          url: "https://维度一.com",
+          domain: "维度一.com",
+          accessedAt: "2026-06-14T00:00:00.000Z",
+          sourceType: "other",
+          credibilityScore: 80,
+          occurrences: [],
+        },
+        {
+          index: 2,
+          uuid: "c2",
+          title: "维度二",
+          url: "https://维度二.com",
+          domain: "维度二.com",
+          accessedAt: "2026-06-14T00:00:00.000Z",
+          sourceType: "other",
+          credibilityScore: 80,
+          occurrences: [],
+        },
+      ],
+      figures: [],
+      quickView: {
+        executiveSummary: {
+          markdown: "摘要内容足够长，用于 reviewer schema 校验。",
+        },
+        conclusion: {
+          markdown: "结论内容足够长，用于 reviewer schema 校验。",
+        },
+      },
+      factTable: [],
+      metadata: { wordCount: 2000 },
+      quality: {
+        overall: 40,
+        dimensions: {
+          traceability: 0,
+          citationDensity: 0,
+          coverage: 100,
+          lengthAccuracy: 80,
+        },
+        hardGateViolations: [
+          {
+            dimension: "citationDensity",
+            severity: "error",
+            message: "引用密度仅 0/100（< 30 阈值）",
+          },
+        ],
+        warnings: [],
+        qualityTrace: [],
+        finalVerdict: "poor",
+      },
+    });
+    const { runner } = makeRunnerWith(makeAgentRunner(), rich);
+    const res = await runner.run(
+      { topic: "AI", language: "zh-CN" },
+      { userId: "u", missionId: "m-citation-remediate" },
+    );
+    expect(res.status).toBe("completed");
+    expect(res.report).toContain("本节可回溯来源 [1]");
+    expect(res.report).toContain("本节可回溯来源 [2]");
+    const stageOutputs = res.stageOutputs as {
+      reportArtifact?: {
+        quality?: {
+          dimensions?: { citationDensity?: number };
+          hardGateViolations?: Array<{ dimension?: string }>;
+        };
+        metadata?: {
+          citationDensityRemediation?: { repairedSections?: number };
+        };
+      };
+    };
+    expect(
+      stageOutputs.reportArtifact?.quality?.hardGateViolations?.some(
+        (v) => v.dimension === "citationDensity",
+      ),
+    ).toBe(false);
+    expect(
+      stageOutputs.reportArtifact?.quality?.dimensions?.citationDensity,
+    ).toBe(100);
+    expect(
+      stageOutputs.reportArtifact?.metadata?.citationDensityRemediation
+        ?.repairedSections,
+    ).toBe(2);
+  });
+
   it("s8b 富补救：长 section 跑 SectionSelfEval；overallOk 时不触发 remediation", async () => {
     const longBody = "x".repeat(400);
     const agentRunner = makeAgentRunner();
@@ -949,6 +1071,86 @@ describe("deep-insight 14 阶段执行内核（W2）", () => {
     expect(outlineCalls).toHaveLength(0);
   });
 
+  it("多维/研讨会长任务：即使 auditLayers=default 也强制跑 S7 outline，S8 接收维度清单和 rawFindings", async () => {
+    const agentRunner = makeAgentRunner();
+    agentRunner.run.mockImplementation(
+      async (Spec: { name?: string }, input: unknown) => {
+        const id = (Spec?.name ?? "").toLowerCase();
+        agentRunner.calls.push({ agentId: id, input });
+        const phase = (input as { phase?: string }).phase;
+        if ((id.includes("leader") || phase) && phase === "plan") {
+          return {
+            output: {
+              phase: "plan",
+              themeSummary: "agent system seminar",
+              dimensions: Array.from({ length: 9 }, (_, i) => ({
+                id: `d${i + 1}`,
+                name:
+                  i === 2
+                    ? "方向三：KV Cache 演进路线"
+                    : i === 3
+                      ? "方向四：Agentic Workload 计算架构"
+                      : `方向${i + 1}`,
+                rationale: "必须覆盖的研讨会方向",
+                toolHint: { categories: ["general"] },
+              })),
+              goals: {
+                successCriteria: ["覆盖所有方向"],
+                qualityBar: {
+                  minSources: 0,
+                  minCoverage: 0,
+                  hardConstraints: [],
+                },
+                deliverables: ["研究报告", "在线研讨会组织指南"],
+              },
+              initialRisks: [],
+            },
+            state: "completed" as const,
+            tokensUsed: { prompt: 1, completion: 1, total: 2 },
+            costCents: 1,
+          };
+        }
+        return {
+          output: routeOutput(id, input),
+          state: "completed" as const,
+          tokensUsed: { prompt: 1, completion: 1, total: 2 },
+          costCents: 1,
+        };
+      },
+    );
+    const { runner } = makeRunnerWith(agentRunner, makeRichStubs());
+    const res = await runner.run(
+      {
+        topic:
+          "从MLSys 2026和CAIS 2026的议题看面向Agent system的计算架构演进趋势，输出12000字在线研讨会素材",
+        language: "zh-CN",
+      },
+      { userId: "u", missionId: "m-long-seminar" },
+    );
+    expect(res.status).toBe("completed");
+    const outlineCalls = agentRunner.calls.filter((c) =>
+      c.agentId.includes("outline"),
+    );
+    expect(outlineCalls).toHaveLength(1);
+    const writerCall = agentRunner.calls.find(
+      (c) => c.agentId.includes("writer") && !c.agentId.includes("outline"),
+    );
+    const requiredDimensions =
+      (writerCall?.input as { requiredDimensions?: Array<{ name?: string }> })
+        .requiredDimensions ?? [];
+    expect(requiredDimensions.length).toBeGreaterThanOrEqual(8);
+    expect(requiredDimensions.map((d) => d.name).join("\n")).toContain(
+      "KV Cache",
+    );
+    expect(requiredDimensions.map((d) => d.name).join("\n")).toContain(
+      "Agentic Workload",
+    );
+    expect(
+      ((writerCall?.input as { rawFindings?: unknown[] }).rawFindings ?? [])
+        .length,
+    ).toBeGreaterThanOrEqual(8);
+  });
+
   it("s8 figure 精排 fail-open：精排抛错不阻断报告（仍 completed，保留原候选）", async () => {
     const agentRunner = makeAgentRunner();
     agentRunner.run.mockImplementation(
@@ -1340,6 +1542,65 @@ describe("deep-insight 14 阶段执行内核（W2）", () => {
       expect(typeof ev.data.dimension).toBe("string");
       expect(typeof ev.data.overall).toBe("number");
     }
+  });
+
+  it("S4 patch 决策在 deep-insight capability 中写 accepted-degraded 闭环，不再伪造成未闭环失败", async () => {
+    const agentRunner = makeAgentRunner();
+    agentRunner.run.mockImplementation(
+      async (Spec: { name?: string }, input: unknown) => {
+        const id = (Spec?.name ?? "").toLowerCase();
+        const phase = (input as { phase?: string }).phase;
+        if ((id.includes("leader") || phase) && phase === "assess-research") {
+          return {
+            output: {
+              decision: "patch",
+              rationale: "两个维度需要补强，但 capability 当前没有真实 retry executor",
+              perDimension: [
+                {
+                  dimensionId: "d1",
+                  action: "retry-with-critique",
+                  critique: "补充来源",
+                },
+                {
+                  dimensionId: "d2",
+                  action: "replace-spec",
+                  critique: "重写调研要求",
+                },
+              ],
+              newDimensions: [],
+            },
+            state: "completed" as const,
+            tokensUsed: { prompt: 1, completion: 1, total: 2 },
+            costCents: 1,
+          };
+        }
+        return {
+          output: routeOutput(id, input),
+          state: "completed" as const,
+          tokensUsed: { prompt: 1, completion: 1, total: 2 },
+          costCents: 1,
+        };
+      },
+    );
+
+    const { runner } = makeRunnerWith(agentRunner, makeRichStubs());
+    const res = await runner.run(
+      { topic: "AI", language: "zh-CN" },
+      { userId: "u", missionId: "m-s4-closure" },
+    );
+
+    expect(res.status).toBe("completed");
+    const stageOutputs = res.stageOutputs as {
+      s4PatchClosures?: unknown[];
+      s4PatchFailures?: unknown[];
+      leaderSignOff?: { signed?: boolean; accountabilityNote?: string };
+    };
+    expect(stageOutputs.s4PatchClosures).toHaveLength(2);
+    expect(stageOutputs.s4PatchFailures).toEqual([]);
+    expect(stageOutputs.leaderSignOff?.signed).toBe(true);
+    expect(stageOutputs.leaderSignOff?.accountabilityNote).toContain(
+      "S4-Degraded-Closure",
+    );
   });
 
   it("P1-5 leader 拒签 → applyTerminal failed + LEADER_REFUSED_SIGN + stageOutputs 保留报告", async () => {

@@ -152,6 +152,7 @@ export interface WriterReportShape {
     title?: string;
     body?: string;
     sources?: string[];
+    sourceDimensions?: string[];
   }>;
   conclusion?: string;
   citations?: string[];
@@ -410,11 +411,17 @@ export function buildAssembleInput(args: {
 /** reportArtifact section 的最小投影（assembler 输出 ArtifactSection 子集）。 */
 interface ArtifactSectionLite {
   id?: string;
+  type?: string;
   title?: string;
   heading?: string;
   content?: string;
   body?: string;
   citationIds?: unknown[];
+  citations?: unknown[];
+  sourceDimensionId?: string;
+  startOffset?: number;
+  endOffset?: number;
+  wordCount?: number;
 }
 
 export interface ReportArtifactLite {
@@ -422,10 +429,26 @@ export interface ReportArtifactLite {
   content?: { fullMarkdown?: string; fullReportSize?: number };
   sections?: ArtifactSectionLite[];
   citations?: unknown[];
+  factTable?: unknown[];
   figures?: unknown[];
-  quality?: { overall?: number; dimensions?: Record<string, unknown> };
+  quality?: {
+    overall?: number;
+    dimensions?: Record<string, unknown>;
+    hardGateViolations?: unknown[];
+    warnings?: Array<{ dimension: string; message: string }>;
+    qualityTrace?: Array<{
+      stage: string;
+      check: string;
+      passed: boolean;
+      timestamp: number;
+    }>;
+    finalVerdict?: "excellent" | "good" | "acceptable" | "poor";
+  };
   metadata?: Record<string, unknown>;
-  quickView?: { foresight?: unknown };
+  quickView?: {
+    executiveSummary?: { markdown?: string; wordCount?: number };
+    foresight?: unknown;
+  };
 }
 
 /** ArtifactSectionLite 公开（s8b 补救逐 section 读写用）。 */
@@ -464,13 +487,17 @@ export function buildCriticArtifactSummary(
 ): Record<string, unknown> {
   const sections = artifact?.sections ?? [];
   const sectionTitles = sections.map((s) => s.title ?? s.heading ?? "");
+  const executiveSummary =
+    trimText(artifact?.quickView?.executiveSummary?.markdown) ??
+    firstNonHeadingParagraph(artifact?.content?.fullMarkdown) ??
+    "";
   return {
     title: artifact?.title ?? topic,
-    executiveSummary: "",
+    executiveSummary,
     sectionCount: sectionTitles.length,
     sectionTitles,
     citationCount: artifact?.citations?.length ?? 0,
-    factCount: 0,
+    factCount: artifact?.factTable?.length ?? 0,
     figureCount: artifact?.figures?.length ?? 0,
     overallQuality:
       typeof artifact?.quality?.overall === "number"
@@ -478,4 +505,19 @@ export function buildCriticArtifactSummary(
         : 70,
     qualityDimensions: artifact?.quality?.dimensions ?? {},
   };
+}
+
+function trimText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function firstNonHeadingParagraph(markdown: unknown): string | undefined {
+  if (typeof markdown !== "string") return undefined;
+  const paragraph = markdown
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .find((part) => part.length > 0 && !part.startsWith("#"));
+  return paragraph ? paragraph.slice(0, 1200) : undefined;
 }
