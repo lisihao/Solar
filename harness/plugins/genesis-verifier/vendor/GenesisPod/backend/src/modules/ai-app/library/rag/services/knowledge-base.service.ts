@@ -20,6 +20,7 @@ import { DocumentProcessorService } from "./document-processor.service";
 import { EmbeddingProcessorService } from "./embedding-processor.service";
 import { KnowledgeBaseStats } from "@/modules/ai-harness/facade";
 import { PreparseService } from "../../document/preparse";
+import { withUserContext } from "@/common/context";
 
 export interface CreateKnowledgeBaseInput {
   name: string;
@@ -43,6 +44,18 @@ export interface AddDocumentInput {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- document metadata shape varies by ingestion source
   metadata?: Record<string, any>;
 }
+
+export interface ProcessDocumentsInput {
+  documentIds?: string[];
+  limit?: number;
+}
+
+export interface EnqueuedProcessDocumentsResult {
+  async: true;
+  status: KnowledgeBaseStatus;
+}
+
+const PROCESSING_STALE_MS = 2 * 60 * 60 * 1000;
 
 @Injectable()
 export class KnowledgeBaseService {
@@ -477,7 +490,11 @@ export class KnowledgeBaseService {
    * 2026-05-12 失败要红：generatedCount=0 但 totalNeeded>0 → ERROR；部分失败也 ERROR
    * 携带 lastError，前端可见后点重试。原行为是无论 0/X 一律 READY + lastSyncedAt 撒谎。
    */
-  async processAllDocuments(knowledgeBaseId: string) {
+  async processAllDocuments(
+    knowledgeBaseId: string,
+    userId?: string,
+    input: ProcessDocumentsInput = {},
+  ) {
     this.logger.log(`Processing all documents for KB ${knowledgeBaseId}`);
 
     // Update KB status
@@ -490,17 +507,37 @@ export class KnowledgeBaseService {
     });
 
     try {
-      // Process documents (chunking)
-      const processedCount =
-        await this.documentProcessor.processAllPendingDocuments(
+      const run = async () => {
+        const targetDocIds = await this.resolveProcessTargetDocumentIds(
           knowledgeBaseId,
+          input,
         );
+        const scopedRun = !!input.limit || !!input.documentIds?.length;
 
-      // Generate embeddings
-      const embedResult =
-        await this.embeddingProcessor.generateEmbeddingsForKnowledgeBase(
-          knowledgeBaseId,
-        );
+        const processedCount =
+          await this.documentProcessor.processAllPendingDocuments(
+            knowledgeBaseId,
+            {
+              documentIds: targetDocIds,
+            },
+          );
+
+        const embedResult =
+          scopedRun || targetDocIds.length
+            ? await this.generateEmbeddingsForDocuments(targetDocIds, userId)
+            : await this.embeddingProcessor.generateEmbeddingsForKnowledgeBase(
+                knowledgeBaseId,
+                userId,
+              );
+
+        return { processedCount, embedResult, scopedRun };
+      };
+
+      // Process documents (chunking) and generate embeddings under the request
+      // user so strict BYOK routing can use the user's embedding model.
+      const { processedCount, embedResult, scopedRun } = userId
+        ? await withUserContext(userId, run)
+        : await run();
 
       // 全失败：0/N → 红
       if (embedResult.totalNeeded > 0 && embedResult.generatedCount === 0) {
@@ -546,11 +583,23 @@ export class KnowledgeBaseService {
         };
       }
 
-      // 全部成功
+      const remainingPending = scopedRun
+        ? await this.prisma.knowledgeBaseDocument.count({
+            where: {
+              knowledgeBaseId,
+              status: KnowledgeBaseStatus.PENDING,
+            },
+          })
+        : 0;
+
+      // 全部成功；限量/指定文档处理后如果仍有待处理文档，KB 保持 PENDING。
       await this.prisma.knowledgeBase.update({
         where: { id: knowledgeBaseId },
         data: {
-          status: KnowledgeBaseStatus.READY,
+          status:
+            remainingPending > 0
+              ? KnowledgeBaseStatus.PENDING
+              : KnowledgeBaseStatus.READY,
           lastSyncedAt: new Date(),
           lastError: null,
         },
@@ -576,6 +625,125 @@ export class KnowledgeBaseService {
       });
       throw error;
     }
+  }
+
+  async enqueueProcessAllDocuments(
+    knowledgeBaseId: string,
+    userId: string,
+    input: ProcessDocumentsInput = {},
+  ): Promise<EnqueuedProcessDocumentsResult> {
+    const startedAt = new Date().toISOString();
+    await this.prisma.knowledgeBase.update({
+      where: { id: knowledgeBaseId },
+      data: {
+        status: KnowledgeBaseStatus.PROCESSING,
+        lastError: null,
+        progressJson: {
+          stage: "queued",
+          processed: 0,
+          total: 0,
+          startedAt,
+        },
+      },
+    });
+
+    void this.processAllDocuments(knowledgeBaseId, userId, input).catch(
+      (error) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Background document processing failed for KB ${knowledgeBaseId}: ${msg}`,
+        );
+      },
+    );
+
+    return {
+      async: true,
+      status: KnowledgeBaseStatus.PROCESSING,
+    };
+  }
+
+  private async resolveProcessTargetDocumentIds(
+    knowledgeBaseId: string,
+    input: ProcessDocumentsInput,
+  ): Promise<string[]> {
+    if (input.documentIds?.length) {
+      const owned = await this.prisma.knowledgeBaseDocument.findMany({
+        where: {
+          knowledgeBaseId,
+          id: { in: input.documentIds },
+          OR: [
+            { status: KnowledgeBaseStatus.PENDING },
+            {
+              parentChunks: {
+                some: {
+                  childChunks: {
+                    some: {
+                      embeddings: { none: {} },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      });
+      return owned.map((doc) => doc.id);
+    }
+
+    if (input.limit) {
+      const pending = await this.prisma.knowledgeBaseDocument.findMany({
+        where: {
+          knowledgeBaseId,
+          status: KnowledgeBaseStatus.PENDING,
+        },
+        orderBy: { createdAt: "asc" },
+        take: input.limit,
+        select: { id: true },
+      });
+      return pending.map((doc) => doc.id);
+    }
+
+    return [];
+  }
+
+  private async generateEmbeddingsForDocuments(
+    documentIds: string[],
+    userId?: string,
+  ): Promise<{
+    generatedCount: number;
+    totalNeeded: number;
+    failedBatches: number;
+    lastError?: string;
+  }> {
+    let generatedCount = 0;
+    let totalNeeded = 0;
+    let failedBatches = 0;
+    let lastError: string | undefined;
+
+    for (const documentId of documentIds) {
+      const totalForDocument = await this.prisma.childChunk.count({
+        where: {
+          parentChunk: { documentId },
+          embeddings: { none: {} },
+        },
+      });
+      totalNeeded += totalForDocument;
+      if (totalForDocument === 0) continue;
+
+      try {
+        generatedCount +=
+          await this.embeddingProcessor.generateEmbeddingsForDocument(
+            documentId,
+            userId,
+          );
+      } catch (error) {
+        failedBatches++;
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    return { generatedCount, totalNeeded, failedBatches, lastError };
   }
 
   private buildEmbedErrorMessage(result: {
@@ -610,9 +778,41 @@ export class KnowledgeBaseService {
   async getProgress(knowledgeBaseId: string) {
     const kb = await this.prisma.knowledgeBase.findUnique({
       where: { id: knowledgeBaseId },
-      select: { status: true, progressJson: true, lastError: true },
+      select: {
+        status: true,
+        progressJson: true,
+        lastError: true,
+        updatedAt: true,
+      },
     });
     if (!kb) return null;
+    if (
+      kb.status === KnowledgeBaseStatus.PROCESSING &&
+      Date.now() - kb.updatedAt.getTime() > PROCESSING_STALE_MS
+    ) {
+      const staleMessage =
+        "向量化后台任务长时间没有进度更新，可能已因后端重启中断；请重试。";
+      const staleProgress = {
+        stage: "stale",
+        processed: 0,
+        total: 0,
+        startedAt: kb.updatedAt.toISOString(),
+        lastError: staleMessage,
+      };
+      await this.prisma.knowledgeBase.update({
+        where: { id: knowledgeBaseId },
+        data: {
+          status: KnowledgeBaseStatus.ERROR,
+          lastError: staleMessage,
+          progressJson: staleProgress,
+        },
+      });
+      return {
+        status: KnowledgeBaseStatus.ERROR,
+        progress: staleProgress,
+        lastError: staleMessage,
+      };
+    }
     return {
       status: kb.status,
       progress: kb.progressJson,

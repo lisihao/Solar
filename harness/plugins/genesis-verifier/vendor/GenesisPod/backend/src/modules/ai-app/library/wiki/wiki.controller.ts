@@ -34,7 +34,7 @@ import {
   PatchWikiDiffDto,
   PatchWikiLintFindingDto,
 } from "./dto/wiki-diff.dto";
-import { WikiLintType } from "@prisma/client";
+import { WikiDiffStatus, WikiLintType } from "@prisma/client";
 import {
   WikiQueryRequestDto,
   WikiLintFindingsQueryDto,
@@ -203,6 +203,25 @@ export class WikiController {
     const items = await this.ingestService.listIngestCandidates(
       req.user.id,
       kbId,
+    );
+    return { items };
+  }
+
+  @Get(":kbId/diffs")
+  @UseGuards(JwtAuthGuard)
+  async listDiffs(
+    @Request() req: RequestWithUser,
+    @Param("kbId") kbId: string,
+    @Query("status") status?: string,
+  ) {
+    const normalized =
+      status && Object.values(WikiDiffStatus).includes(status as WikiDiffStatus)
+        ? (status as WikiDiffStatus)
+        : undefined;
+    const items = await this.diffService.listDiffs(
+      req.user.id,
+      kbId,
+      normalized,
     );
     return { items };
   }

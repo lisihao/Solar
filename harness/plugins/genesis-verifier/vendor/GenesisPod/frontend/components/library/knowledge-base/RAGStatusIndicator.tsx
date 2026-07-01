@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   CheckCircle2,
   XCircle,
+  AlertCircle,
   Loader2,
   Cpu,
   Database,
@@ -15,7 +16,7 @@ import { useI18n } from '@/lib/i18n/i18n-context';
 // RAG服务状态类型
 export interface RAGServiceStatus {
   embedding: {
-    status: 'ok' | 'error' | 'loading';
+    status: 'ok' | 'error' | 'loading' | 'not_configured';
     modelId?: string;
     provider?: string;
     dimensions?: number;
@@ -65,6 +66,8 @@ export default function RAGStatusIndicator({
   const overallStatus =
     status.embedding.status === 'ok' && status.database.status === 'ok'
       ? 'ok'
+      : status.embedding.status === 'not_configured'
+        ? 'not_configured'
       : status.embedding.status === 'error' ||
           status.database.status === 'error'
         ? 'error'
@@ -78,6 +81,8 @@ export default function RAGStatusIndicator({
         className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-all ${
           overallStatus === 'ok'
             ? 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100'
+            : overallStatus === 'not_configured'
+              ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
             : overallStatus === 'error'
               ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
               : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'
@@ -96,6 +101,14 @@ export default function RAGStatusIndicator({
             <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
             <span className="hidden sm:inline">
               {t('library.rag.status.error')}
+            </span>
+          </>
+        )}
+        {overallStatus === 'not_configured' && (
+          <>
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            <span className="hidden sm:inline">
+              {t('library.rag.status.notConfigured')}
             </span>
           </>
         )}
@@ -142,6 +155,8 @@ export default function RAGStatusIndicator({
                   className={`flex h-8 w-8 items-center justify-center rounded-lg ${
                     status.embedding.status === 'ok'
                       ? 'bg-green-100 text-green-600'
+                      : status.embedding.status === 'not_configured'
+                        ? 'bg-amber-100 text-amber-600'
                       : status.embedding.status === 'error'
                         ? 'bg-red-100 text-red-600'
                         : 'bg-gray-100 text-gray-400'
@@ -165,10 +180,18 @@ export default function RAGStatusIndicator({
                       {status.embedding.error}
                     </p>
                   )}
+                  {status.embedding.status === 'not_configured' && (
+                    <p className="text-xs text-amber-600">
+                      {status.embedding.error ||
+                        t('dataSources.errors.embeddingNotConfigured')}
+                    </p>
+                  )}
                 </div>
               </div>
               {status.embedding.status === 'ok' ? (
                 <CheckCircle2 className="h-5 w-5 text-green-500" />
+              ) : status.embedding.status === 'not_configured' ? (
+                <AlertCircle className="h-5 w-5 text-amber-500" />
               ) : status.embedding.status === 'error' ? (
                 <XCircle className="h-5 w-5 text-red-500" />
               ) : (
@@ -222,6 +245,11 @@ export default function RAGStatusIndicator({
           {overallStatus === 'error' && (
             <p className="mt-3 text-xs text-gray-500">
               {t('library.rag.status.errorHint')}
+            </p>
+          )}
+          {overallStatus === 'not_configured' && (
+            <p className="mt-3 text-xs text-amber-600">
+              {t('library.rag.status.notConfiguredHint')}
             </p>
           )}
         </div>

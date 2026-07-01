@@ -92,11 +92,13 @@ function estimateTokens(text: string): number {
 /**
  * KB 向量化进度形状（写入 KnowledgeBase.progressJson）
  * stage:
+ *   - 'queued':    后台任务已入队，等待 chunk/embedding 开始
  *   - 'embedding': 正常进度中
  *   - 'cooling':   碰到 circuit-open, 正等 cooldown 然后重试 batch
+ *   - 'stale':     后台任务长时间没有进度更新，可能因进程重启中断
  */
 export interface KbVectorizeProgress {
-  stage: "embedding" | "cooling" | "throttling";
+  stage: "queued" | "embedding" | "cooling" | "throttling" | "stale";
   processed: number; // 已成功向量化的 chunk 数
   total: number; // 本次需要向量化的 chunk 数
   startedAt: string; // ISO
@@ -548,25 +550,124 @@ export class EmbeddingProcessorService {
       return 0;
     }
 
-    const texts = chunksWithoutEmbeddings.map((chunk) => chunk.content);
     const model = await this.ragFacade!.embedding!.getModel();
+    const { minIntervalMs, rpmLimit, tpmLimit, provider } =
+      await this.resolveThrottle(userId);
+    this.logger.log(
+      `[embedding/document] throttle: ${rpmLimit} RPM / ${tpmLimit} TPM (provider=${provider}, minInterval=${minIntervalMs}ms)`,
+    );
+
+    type BatchEntry = (typeof chunksWithoutEmbeddings)[number];
+    const tokenAwareBatches: Array<{ chunks: BatchEntry[]; tokens: number }> =
+      [];
+    {
+      let cur: BatchEntry[] = [];
+      let curTokens = 0;
+      for (const c of chunksWithoutEmbeddings) {
+        const t = estimateTokens(c.content);
+        if (cur.length > 0 && curTokens + t > BATCH_TOKEN_CAP) {
+          tokenAwareBatches.push({ chunks: cur, tokens: curTokens });
+          cur = [];
+          curTokens = 0;
+        }
+        cur.push(c);
+        curTokens += t;
+        if (cur.length >= BATCH_SIZE) {
+          tokenAwareBatches.push({ chunks: cur, tokens: curTokens });
+          cur = [];
+          curTokens = 0;
+        }
+      }
+      if (cur.length > 0) {
+        tokenAwareBatches.push({ chunks: cur, tokens: curTokens });
+      }
+    }
 
     try {
-      const embeddingResult =
-        await this.ragFacade!.embedding!.generateEmbeddings(texts);
-
       let generatedCount = 0;
-      for (let i = 0; i < chunksWithoutEmbeddings.length; i++) {
-        const chunk = chunksWithoutEmbeddings[i];
-        const embedding = embeddingResult.embeddings[i];
+      let lastBatchAt = 0;
+      const tokenWindow: Array<{ ts: number; tokens: number }> = [];
 
-        if (embedding && embedding.length > 0) {
-          await this.ragFacade!.vector!.storeEmbedding(
-            chunk.id,
-            embedding,
-            model,
-          );
-          generatedCount++;
+      for (let bi = 0; bi < tokenAwareBatches.length; bi++) {
+        const { chunks: batch, tokens: batchTokens } = tokenAwareBatches[bi];
+        const texts = batch.map((chunk) => chunk.content);
+        const batchNum = bi + 1;
+
+        if (lastBatchAt > 0) {
+          const waitMs = minIntervalMs - (Date.now() - lastBatchAt);
+          if (waitMs > 0) {
+            this.logger.debug(
+              `[embedding/document] RPM throttle document ${documentId} batch ${batchNum}: wait ${waitMs}ms`,
+            );
+            await this.sleep(waitMs);
+          }
+        }
+
+        await this.waitForTpmBudget(tokenWindow, batchTokens, tpmLimit);
+
+        let retried = false;
+        while (true) {
+          lastBatchAt = Date.now();
+          tokenWindow.push({ ts: lastBatchAt, tokens: batchTokens });
+          try {
+            const embeddingResult =
+              await this.ragFacade!.embedding!.generateEmbeddings(texts, {
+                maxRetries: 1,
+              });
+
+            for (let i = 0; i < batch.length; i++) {
+              const chunk = batch[i];
+              const embedding = embeddingResult.embeddings[i];
+
+              if (embedding && embedding.length > 0) {
+                await this.ragFacade!.vector!.storeEmbedding(
+                  chunk.id,
+                  embedding,
+                  model,
+                );
+                generatedCount++;
+              }
+            }
+            break;
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            const cooldownIso = this.extractCircuitOpenCooldown(msg);
+            const is429 = /429|rate.?limit|too many requests/i.test(msg);
+            const retryAfterMatch = msg.match(/\[retry-after=(\d+)s\]/);
+            const retryAfterSec = retryAfterMatch
+              ? Number.parseInt(retryAfterMatch[1], 10)
+              : null;
+            const shouldRetry = Boolean(cooldownIso) || is429;
+
+            if (!retried && shouldRetry) {
+              retried = true;
+              let waitMs: number;
+              if (cooldownIso) {
+                const cd = Math.max(
+                  0,
+                  new Date(cooldownIso).getTime() - Date.now(),
+                );
+                waitMs = Math.min(
+                  cd + COOLDOWN_RETRY_BUFFER_MS,
+                  COOLDOWN_MAX_WAIT_MS,
+                );
+              } else if (retryAfterSec && retryAfterSec > 0) {
+                waitMs = Math.min(
+                  retryAfterSec * 1000 + COOLDOWN_RETRY_BUFFER_MS,
+                  COOLDOWN_MAX_WAIT_MS,
+                );
+              } else {
+                waitMs = Math.min(60_000, COOLDOWN_MAX_WAIT_MS);
+              }
+              this.logger.warn(
+                `[embedding/document] document ${documentId} batch ${batchNum} ${cooldownIso ? "circuit-open" : "429"}, waiting ${waitMs}ms`,
+              );
+              await this.sleep(waitMs);
+              continue;
+            }
+
+            throw error;
+          }
         }
       }
 
@@ -578,14 +679,12 @@ export class EmbeddingProcessorService {
 
       return generatedCount;
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Failed to generate embeddings for document ${documentId}: ${error}`,
+        `Failed to generate embeddings for document ${documentId}: ${msg}`,
       );
       // Fail AI Kernel process
-      this.failKernelProcess(
-        documentId,
-        error instanceof Error ? error.message : String(error),
-      );
+      this.failKernelProcess(documentId, msg);
       throw error;
     }
   }

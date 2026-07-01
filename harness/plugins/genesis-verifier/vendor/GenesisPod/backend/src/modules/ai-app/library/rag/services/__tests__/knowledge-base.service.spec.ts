@@ -48,6 +48,7 @@ const mockPrisma = {
   },
   childChunk: {
     deleteMany: jest.fn(),
+    count: jest.fn(),
   },
   $transaction: jest.fn(),
   $executeRaw: jest.fn(),
@@ -60,6 +61,7 @@ const mockDocumentProcessor = {
 
 const mockEmbeddingProcessor = {
   generateEmbeddingsForKnowledgeBase: jest.fn(),
+  generateEmbeddingsForDocument: jest.fn(),
 };
 
 describe("KnowledgeBaseService", () => {
@@ -501,6 +503,117 @@ describe("KnowledgeBaseService", () => {
         ][0];
       expect(lastUpdateCall.data.status).toBe(KnowledgeBaseStatus.ERROR);
       expect(lastUpdateCall.data.lastError).toBe("processing failed");
+    });
+
+    it("retries selected READY documents that still have missing embeddings", async () => {
+      mockPrisma.knowledgeBase.update.mockResolvedValue({ id: "kb-1" });
+      mockPrisma.knowledgeBaseDocument.findMany.mockResolvedValueOnce([
+        { id: "doc-ready-missing" },
+      ]);
+      mockDocumentProcessor.processAllPendingDocuments.mockResolvedValueOnce(0);
+      mockPrisma.childChunk.count.mockResolvedValueOnce(3);
+      mockEmbeddingProcessor.generateEmbeddingsForDocument.mockResolvedValueOnce(
+        3,
+      );
+      mockPrisma.knowledgeBaseDocument.count.mockResolvedValueOnce(0);
+
+      const result = await service.processAllDocuments("kb-1", "user-1", {
+        documentIds: ["doc-ready-missing"],
+      });
+
+      expect(mockPrisma.knowledgeBaseDocument.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: { in: ["doc-ready-missing"] },
+            OR: expect.arrayContaining([
+              { status: KnowledgeBaseStatus.PENDING },
+              expect.objectContaining({ parentChunks: expect.any(Object) }),
+            ]),
+          }),
+        }),
+      );
+      expect(
+        mockDocumentProcessor.processAllPendingDocuments,
+      ).toHaveBeenCalledWith("kb-1", { documentIds: ["doc-ready-missing"] });
+      expect(
+        mockEmbeddingProcessor.generateEmbeddingsForDocument,
+      ).toHaveBeenCalledWith("doc-ready-missing", "user-1");
+      expect(result.embeddingCount).toBe(3);
+    });
+
+    it("enqueues document processing after marking the KB as PROCESSING", async () => {
+      mockPrisma.knowledgeBase.update.mockResolvedValue({ id: "kb-1" });
+      const processSpy = jest
+        .spyOn(service, "processAllDocuments")
+        .mockResolvedValueOnce({
+          processedCount: 0,
+          embeddingCount: 0,
+          totalNeeded: 0,
+        });
+
+      const result = await service.enqueueProcessAllDocuments(
+        "kb-1",
+        "user-1",
+        {
+          limit: 3,
+        },
+      );
+
+      expect(mockPrisma.knowledgeBase.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "kb-1" },
+          data: expect.objectContaining({
+            status: KnowledgeBaseStatus.PROCESSING,
+            lastError: null,
+            progressJson: expect.objectContaining({
+              stage: "queued",
+              processed: 0,
+              total: 0,
+              startedAt: expect.any(String),
+            }),
+          }),
+        }),
+      );
+      expect(processSpy).toHaveBeenCalledWith("kb-1", "user-1", { limit: 3 });
+      expect(result).toEqual({
+        async: true,
+        status: KnowledgeBaseStatus.PROCESSING,
+      });
+      processSpy.mockRestore();
+    });
+  });
+
+  // ─── getProgress ───────────────────────────────────────────────────────────
+
+  describe("getProgress", () => {
+    it("marks stale PROCESSING jobs as ERROR when progress has not updated", async () => {
+      const staleUpdatedAt = new Date(Date.now() - 121 * 60 * 1000);
+      mockPrisma.knowledgeBase.findUnique.mockResolvedValueOnce({
+        status: KnowledgeBaseStatus.PROCESSING,
+        progressJson: {
+          stage: "queued",
+          processed: 0,
+          total: 0,
+          startedAt: staleUpdatedAt.toISOString(),
+        },
+        lastError: null,
+        updatedAt: staleUpdatedAt,
+      });
+      mockPrisma.knowledgeBase.update.mockResolvedValueOnce({ id: "kb-1" });
+
+      const result = await service.getProgress("kb-1");
+
+      expect(mockPrisma.knowledgeBase.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "kb-1" },
+          data: expect.objectContaining({
+            status: KnowledgeBaseStatus.ERROR,
+            progressJson: expect.objectContaining({ stage: "stale" }),
+          }),
+        }),
+      );
+      expect(result?.status).toBe(KnowledgeBaseStatus.ERROR);
+      expect(result?.progress).toMatchObject({ stage: "stale" });
     });
   });
 

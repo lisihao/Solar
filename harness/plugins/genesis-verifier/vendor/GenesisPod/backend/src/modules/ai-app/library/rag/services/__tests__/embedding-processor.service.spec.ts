@@ -239,6 +239,35 @@ describe("EmbeddingProcessorService", () => {
       );
     });
 
+    it("should split document embedding requests into token-aware batches", async () => {
+      const chunks = Array.from({ length: 51 }, (_, i) => ({
+        id: `chunk-${i + 1}`,
+        content: `Document chunk ${i + 1}`,
+      }));
+      (prisma.childChunk.findMany as jest.Mock).mockResolvedValue(chunks);
+      mockEmbeddingService.generateEmbeddings.mockImplementation(
+        (texts: string[]) => ({
+          embeddings: texts.map((_, i) => [i + 0.1, i + 0.2]),
+        }),
+      );
+
+      const result = await service.generateEmbeddingsForDocument("doc-1");
+
+      expect(result).toBe(51);
+      expect(mockEmbeddingService.generateEmbeddings).toHaveBeenCalledTimes(2);
+      expect(mockEmbeddingService.generateEmbeddings).toHaveBeenNthCalledWith(
+        1,
+        chunks.slice(0, 50).map((chunk) => chunk.content),
+        { maxRetries: 1 },
+      );
+      expect(mockEmbeddingService.generateEmbeddings).toHaveBeenNthCalledWith(
+        2,
+        [chunks[50].content],
+        { maxRetries: 1 },
+      );
+      expect(mockVectorService.storeEmbedding).toHaveBeenCalledTimes(51);
+    });
+
     it("should throw when embedding generation fails", async () => {
       const chunks = [{ id: "chunk-1", content: "Content" }];
       (prisma.childChunk.findMany as jest.Mock).mockResolvedValue(chunks);

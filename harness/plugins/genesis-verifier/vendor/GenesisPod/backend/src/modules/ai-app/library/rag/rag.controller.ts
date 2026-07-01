@@ -15,6 +15,7 @@ import {
   UseGuards,
   Req,
   Logger,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import {
   ApiTags,
@@ -31,6 +32,7 @@ import {
   CreateKnowledgeBaseDto,
   UpdateKnowledgeBaseDto,
   AddDocumentDto,
+  ProcessDocumentsDto,
   RAGQueryDto,
   SimpleQueryDto,
   AddResourcesDto,
@@ -70,8 +72,47 @@ export class RAGController {
   @Get("embedding-config")
   @ApiOperation({ summary: "Get current embedding model configuration" })
   @ApiResponse({ status: 200, description: "Embedding configuration" })
-  async getEmbeddingConfig() {
-    return this.ragFacade.embedding?.getConfigInfo();
+  async getEmbeddingConfig(@Req() req: RequestWithUser) {
+    try {
+      const config = await this.ragFacade.embedding?.getConfigInfo(req.user.id);
+      if (!config) {
+        return this.buildEmbeddingNotConfiguredResponse(
+          "Embedding service is not available.",
+        );
+      }
+      return { status: "ok", ...config };
+    } catch (err) {
+      if (err instanceof ServiceUnavailableException) {
+        return this.buildEmbeddingNotConfiguredResponse(
+          this.getExceptionMessage(err),
+        );
+      }
+      throw err;
+    }
+  }
+
+  private buildEmbeddingNotConfiguredResponse(message: string) {
+    return {
+      status: "not_configured",
+      modelId: null,
+      provider: null,
+      dimensions: null,
+      message,
+    };
+  }
+
+  private getExceptionMessage(err: ServiceUnavailableException): string {
+    const response = err.getResponse();
+    if (typeof response === "string") {
+      return response;
+    }
+    if (typeof response === "object" && response && "message" in response) {
+      const message = (response as { message?: string | string[] }).message;
+      return Array.isArray(message)
+        ? message.join("; ")
+        : message || err.message;
+    }
+    return err.message;
   }
 
   // ==================== Knowledge Base CRUD ====================
@@ -220,10 +261,18 @@ export class RAGController {
   @Post("knowledge-bases/:id/process")
   @ApiOperation({ summary: "Process all pending documents in knowledge base" })
   @ApiResponse({ status: 200, description: "Processing started" })
-  async processDocuments(@Req() req: RequestWithUser, @Param("id") id: string) {
+  async processDocuments(
+    @Req() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() dto: ProcessDocumentsDto = {},
+  ) {
     // Verify ownership
     await this.knowledgeBaseService.findById(id, req.user.id);
-    return this.knowledgeBaseService.processAllDocuments(id);
+    return this.knowledgeBaseService.enqueueProcessAllDocuments(
+      id,
+      req.user.id,
+      dto,
+    );
   }
 
   @Get("knowledge-bases/:id/progress")
