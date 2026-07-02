@@ -237,7 +237,7 @@ interface Resource {
   };
 }
 
-type PaperLibraryTab = 'recent' | 'insights' | 'hot';
+type PaperLibraryTab = 'recent' | 'github' | 'insights' | 'hot';
 const VALID_TABS: TabType[] = [
   'youtube',
   'papers',
@@ -1036,6 +1036,12 @@ function HomeContent() {
       }
 
       if (activeTab === 'papers') {
+        if (paperLibraryTab === 'github') {
+          setResources([]);
+          setLoading(false);
+          return;
+        }
+
         const params = new URLSearchParams({
           take: '300',
           skip: '0',
@@ -1202,6 +1208,11 @@ function HomeContent() {
         description: '最近同步数据里的 HuggingFace / arXiv 热点趋势',
       },
       {
+        id: 'github',
+        label: 'GitHub 趋势',
+        description: 'Solar GitHub 数据里的开源社区技术趋势',
+      },
+      {
         id: 'insights',
         label: 'HF 洞察报告',
         description: 'AI Influence 汇总的 HuggingFace 趋势论文分析',
@@ -1215,7 +1226,7 @@ function HomeContent() {
 
     return (
       <div className="mb-5 rounded-lg border border-gray-200 bg-white p-2">
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-4">
           {tabs.map((tab) => {
             const selected = paperLibraryTab === tab.id;
 
@@ -2911,7 +2922,7 @@ function HomeContent() {
                         {selectedResource.type === 'POLICY'
                           ? 'Policy'
                           : selectedResource.type === 'PAPER'
-                            ? 'Papers'
+                            ? 'Industry Trends'
                             : selectedResource.type}
                       </span>
                       <svg

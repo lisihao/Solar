@@ -10,6 +10,26 @@ interface HTMLViewerProps {
   className?: string;
 }
 
+const isDirectLocalHtmlUrl = (url: string) => {
+  if (url.startsWith('/local-data/')) {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return (
+      parsed.origin === window.location.origin &&
+      parsed.pathname.startsWith('/local-data/')
+    );
+  } catch {
+    return false;
+  }
+};
+
 /**
  * HTML查看器组件 - 使用Blob URL在客户端安全渲染HTML
  *
@@ -30,6 +50,7 @@ export default function HTMLViewer({
   const [retryCount, setRetryCount] = useState(0);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const blobUrlRef = useRef<string | null>(null);
+  const shouldLoadDirectly = isDirectLocalHtmlUrl(url);
 
   // 清理Blob URL - 仅在组件卸载时执行
   useEffect(() => {
@@ -52,6 +73,13 @@ export default function HTMLViewer({
         blobUrlRef.current = null;
       }
       setBlobUrl(null);
+
+      if (isDirectLocalHtmlUrl(url)) {
+        logger.debug(`Loading local HTML directly: ${url}`);
+        setLoading(false);
+        setError(null);
+        return;
+      }
 
       try {
         const proxyUrl = `${config.apiUrl}/proxy/html?url=${encodeURIComponent(url)}`;
@@ -102,6 +130,8 @@ export default function HTMLViewer({
   const handleOpenInNewTab = () => {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
+
+  const iframeUrl = shouldLoadDirectly ? url : blobUrl;
 
   return (
     <div className={`relative flex h-full flex-col ${className}`}>
@@ -236,9 +266,10 @@ export default function HTMLViewer({
             2. 使用Blob URL，内容已经过后端代理处理
             3. 移除sandbox可以让复杂的SPA应用（如GitHub）正常工作
             安全性由后端的allowedDomains列表保证 */}
-        {blobUrl && !loading && !error && (
+        {iframeUrl && !loading && !error && (
           <iframe
-            src={blobUrl}
+            key={`${iframeUrl}:${retryCount}`}
+            src={iframeUrl}
             title={title}
             className="h-full w-full border-0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; storage-access"
