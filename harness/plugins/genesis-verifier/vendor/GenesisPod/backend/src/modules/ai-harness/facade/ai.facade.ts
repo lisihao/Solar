@@ -1416,7 +1416,7 @@ export class AIFacade {
    * const config = await facade.getFullModelConfig("dall-e-3");
    * // Internal use only - contains apiKey and secretKey
    */
-  async getFullModelConfig(modelId: string): Promise<{
+  async getFullModelConfig(modelId: string, userId?: string): Promise<{
     id: string;
     modelId: string;
     displayName: string;
@@ -1441,7 +1441,7 @@ export class AIFacade {
     priceOutputPerMillion?: number | null;
     priority?: number | null;
   } | null> {
-    return this.modelSub.getFullModelConfig(modelId);
+    return this.modelSub.getFullModelConfig(modelId, userId);
   }
 
   /**

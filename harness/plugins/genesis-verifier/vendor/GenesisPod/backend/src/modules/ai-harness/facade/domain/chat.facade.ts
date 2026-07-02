@@ -1337,7 +1337,7 @@ export class ChatFacade {
     return this.modelSub.getModelById(idOrModelId);
   }
 
-  async getFullModelConfig(modelId: string): Promise<{
+  async getFullModelConfig(modelId: string, userId?: string): Promise<{
     id: string;
     modelId: string;
     displayName: string;
@@ -1362,7 +1362,7 @@ export class ChatFacade {
     priceOutputPerMillion?: number | null;
     priority?: number | null;
   } | null> {
-    return this.modelSub.getFullModelConfig(modelId);
+    return this.modelSub.getFullModelConfig(modelId, userId);
   }
 
   async getDefaultModelByType(modelType: AIModelType): Promise<{

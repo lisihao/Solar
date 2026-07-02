@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
+  AlertTriangle,
   CheckCircle2,
   Coins,
   Globe,
@@ -89,6 +90,11 @@ const STATUS_CONFIG: Record<
     label: '质量未达标',
     color: 'bg-amber-50 text-amber-700',
     icon: XCircle,
+  },
+  degraded: {
+    label: '部分完成',
+    color: 'bg-amber-50 text-amber-700',
+    icon: AlertTriangle,
   },
 };
 

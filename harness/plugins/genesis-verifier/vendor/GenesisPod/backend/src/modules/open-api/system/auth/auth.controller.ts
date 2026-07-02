@@ -138,14 +138,13 @@ export class AuthController {
    * POST /api/v1/auth/refresh
    * Rate limited: 10 requests per minute
    */
+  @Public()
   @Post("refresh")
   @HttpCode(200)
   @Throttle(REFRESH_RATE_LIMIT)
-  @UseGuards(AuthGuard("jwt"))
-  @ApiBearerAuth()
   @ApiOperation({
     summary: "刷新访问令牌",
-    description: "使用当前令牌刷新生成新的访问令牌",
+    description: "使用 refresh token 刷新生成新的访问令牌",
   })
   @ApiResponse({
     status: 200,
@@ -154,8 +153,18 @@ export class AuthController {
   })
   @ApiResponse({ status: 401, description: "未授权或令牌无效" })
   @ApiResponse({ status: 429, description: "请求过于频繁，请稍后再试" })
-  async refresh(@Request() req: { user: { id: string } }) {
-    return this.authService.refreshToken(req.user.id);
+  async refresh(
+    @Request() req: ExpressRequest,
+    @Body("refreshToken") refreshTokenFromBody?: string,
+  ) {
+    const authHeader = req.headers.authorization;
+    const refreshTokenFromHeader =
+      typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice("Bearer ".length)
+        : undefined;
+    return this.authService.refreshWithRefreshToken(
+      refreshTokenFromBody || refreshTokenFromHeader,
+    );
   }
 
   /**

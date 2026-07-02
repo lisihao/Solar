@@ -70,7 +70,7 @@ function SummaryStrip({
       <StatCard
         label="总成本"
         value={fmtUsd(costUsd)}
-        hint="估算（按 $3/1M tokens 折算）"
+        hint={costUsd > 0 ? 'backend 汇总成本' : 'backend 未返回成本，不做费率猜测'}
         icon={<Coins className="h-5 w-5" />}
         tone="amber"
       />
@@ -117,7 +117,8 @@ const UNKNOWN_MODEL_LABEL = '未识别模型 · backend modelId 缺失';
 
 function buildModelDistribution(
   agents: AgentLiveState[],
-  totalTokensFallback: number
+  totalTokensFallback: number,
+  totalCostFallback: number
 ): ModelRow[] {
   const map = new Map<
     string,
@@ -160,7 +161,10 @@ function buildModelDistribution(
         agentCount: v.agentSet.size,
         estTokens,
         pct: totalBase > 0 ? Math.round((estTokens / totalBase) * 100) : 0,
-        estCostUsd: (estTokens / 1_000_000) * 3,
+        estCostUsd:
+          totalCostFallback > 0 && totalBase > 0
+            ? (totalCostFallback * estTokens) / totalBase
+            : 0,
       };
     })
     .sort((a, b) => b.estTokens - a.estTokens);
@@ -252,8 +256,8 @@ function ModelDistributionTable({ rows }: { rows: ModelRow[] }) {
         </TBody>
       </Table>
       <p className="px-4 py-2 text-[10px] text-gray-400">
-        Tokens 估算来自 trace.tokensUsed 累加；当模型 id
-        未捕获时归入「(未捕获)」。
+        Tokens 来自 trace.tokensUsed 或 backend 汇总回填；成本仅按 backend
+        返回值分摊，不再按默认费率虚构。
       </p>
     </Card>
   );
@@ -904,7 +908,11 @@ export function ComputeUsagePanel({
   );
   const hasLatencyData = obsCount > 0;
   const avgLatency = hasLatencyData ? totalLatency / obsCount : 0;
-  const modelRows = buildModelDistribution(agents, cost.tokensUsed);
+  const modelRows = buildModelDistribution(
+    agents,
+    cost.tokensUsed,
+    cost.costUsd
+  );
   const toolRows = buildToolStats(agents);
 
   return (
@@ -929,8 +937,7 @@ export function ComputeUsagePanel({
         dimensionPipelines={dimensionPipelines}
       />
       <p className="text-[10px] text-gray-400">
-        所有数字来自前端事件流推导。Cost 估算按 ~$3 / 1M tokens（混合模型）；以
-        Credits 服务为准。
+        所有数字来自前端事件流与 backend usage 汇总。backend 未返回成本时，页面不再按默认费率推算金额。
       </p>
     </div>
   );

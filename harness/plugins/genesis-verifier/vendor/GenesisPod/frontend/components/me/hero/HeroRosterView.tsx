@@ -96,7 +96,7 @@ export function HeroRosterView({
   onDispatch,
 }: {
   /** 「下任务」回调（嵌在「我的团队」双 Tab 内时切到「专家任务」Tab）；不传则跳 /missions。 */
-  onDispatch?: () => void;
+  onDispatch?: (hero: Pick<Hero, 'id' | 'capabilityId'>) => void;
 } = {}) {
   const { heroes, loadHeroes } = useCompanyStore();
   const { catalog } = useMarketplaceCatalog();
@@ -137,7 +137,15 @@ export function HeroRosterView({
                 hero={hero}
                 workflows={catalog.workflow}
                 onConfig={() => setConfigId(hero.id)}
-                onDispatch={onDispatch}
+                onDispatch={
+                  onDispatch
+                    ? () =>
+                        onDispatch({
+                          id: hero.id,
+                          capabilityId: hero.capabilityId,
+                        })
+                    : undefined
+                }
               />
             ))}
           </div>

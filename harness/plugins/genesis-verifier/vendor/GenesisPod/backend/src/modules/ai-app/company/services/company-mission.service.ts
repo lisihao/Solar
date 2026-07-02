@@ -22,12 +22,15 @@ import {
   Logger,
   NotFoundException,
   Optional,
-  type OnModuleInit,
+  type OnApplicationBootstrap,
 } from "@nestjs/common";
 import { PrismaService } from "@/common/prisma/prisma.service";
 import { MissionFailedPreset } from "@/modules/platform/facade";
 import { MissionSedimentService } from "@/modules/ai-app/library/sediment/mission-sediment.service";
-import { CompanyMissionPersistenceAdapter } from "./company-mission-persistence.adapter";
+import {
+  CompanyMissionPersistenceAdapter,
+  RUNNING_STATUSES,
+} from "./company-mission-persistence.adapter";
 import { EventBus, ChatFacade, AgentRunner } from "@/modules/ai-harness/facade";
 import { SkillRegistry } from "@/modules/ai-engine/facade";
 import type { CompanyMission, Prisma } from "@prisma/client";
@@ -50,6 +53,7 @@ import {
   CapabilityRegistry,
   type ICapabilityRunner,
   type CapabilityRunEvent,
+  type CapabilityRunResult,
 } from "@/modules/ai-app/marketplace/capability";
 
 // ── local type alias so we don't need to import ChatRequest from facade types ─
@@ -149,7 +153,7 @@ function phaseToDimStatus(phase: string): "running" | "done" | "failed" {
 // ── service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
-export class CompanyMissionService implements OnModuleInit {
+export class CompanyMissionService implements OnApplicationBootstrap {
   private readonly log = new Logger(CompanyMissionService.name);
   /**
    * 运行中 mission 的 abort 句柄。用于取消：abort() 中止 capability run（researcher
@@ -234,7 +238,7 @@ export class CompanyMissionService implements OnModuleInit {
    *       persistence.loadCheckpoint 续跑，跳过已完成 stage）。
    *     - 不可恢复 → mark failed + emit，杀掉僵尸（用户看到失败可重跑，不再无声转圈）。
    */
-  onModuleInit(): void {
+  onApplicationBootstrap(): void {
     void this.recoverOrphanMissions();
   }
 
@@ -306,7 +310,9 @@ export class CompanyMissionService implements OnModuleInit {
           o.result && typeof o.result === "object" && !Array.isArray(o.result)
             ? (o.result as Record<string, unknown>)
             : {};
-        const cp = result.__checkpoint as { lastStepId?: string } | undefined;
+        const cp = result.__checkpoint as
+          | { lastStepId?: string; inFlightStepId?: string }
+          | undefined;
         const dispatch = result.__dispatch as
           | {
               capabilityId?: string;
@@ -315,9 +321,10 @@ export class CompanyMissionService implements OnModuleInit {
             }
           | undefined;
 
-        if (cp?.lastStepId && dispatch?.capabilityId) {
+        const checkpointLabel = cp?.lastStepId ?? cp?.inFlightStepId;
+        if (checkpointLabel && dispatch?.capabilityId) {
           this.log.warn(
-            `[orphan-recovery] resuming ${o.id} from checkpoint "${cp.lastStepId}"`,
+            `[orphan-recovery] resuming ${o.id} from checkpoint "${checkpointLabel}"`,
           );
           // fire-and-forget 续跑：runHeroMission → runViaCapability →
           //   persistence.loadCheckpoint(同 missionId) → 能力核从 lastStepId 续跑。
@@ -331,7 +338,7 @@ export class CompanyMissionService implements OnModuleInit {
           );
         } else {
           this.log.warn(
-            `[orphan-recovery] ${o.id} not resumable (cp=${cp?.lastStepId ?? "none"}, dispatch=${dispatch ? "y" : "n"}) → mark failed`,
+            `[orphan-recovery] ${o.id} not resumable (cp=${checkpointLabel ?? "none"}, dispatch=${dispatch ? "y" : "n"}) → mark failed`,
           );
           const message =
             "Mission 在执行中遇到后端重启（进程内存丢失且无可恢复 checkpoint）。" +
@@ -529,6 +536,7 @@ export class CompanyMissionService implements OnModuleInit {
     const checkpoint = result.__checkpoint as
       | {
           lastStepId?: string;
+          inFlightStepId?: string;
         }
       | undefined;
     const dispatch = result.__dispatch as
@@ -538,7 +546,10 @@ export class CompanyMissionService implements OnModuleInit {
           extra?: HeroMissionExtra;
         }
       | undefined;
-    if (!checkpoint?.lastStepId || !dispatch?.capabilityId) {
+    if (
+      !(checkpoint?.lastStepId || checkpoint?.inFlightStepId) ||
+      !dispatch?.capabilityId
+    ) {
       throw new BadRequestException(
         "该任务缺少可恢复 checkpoint 或派发参数，请使用复跑重新下发。",
       );
@@ -690,7 +701,9 @@ export class CompanyMissionService implements OnModuleInit {
       orderBy: { createdAt: "desc" },
     });
     this.recoverDetachedRunningMissions(userId, missions);
-    return missions;
+    return missions.map((mission) =>
+      this.sanitizeRunningMissionProjection(mission),
+    );
   }
 
   /** 删除一条 mission（按 userId 归属校验，防越权删他人任务）。 */
@@ -988,20 +1001,62 @@ export class CompanyMissionService implements OnModuleInit {
       .filter((n): n is string => typeof n === "string" && n.length > 0);
     const dimNames =
       Object.keys(pipelines).length > 0 ? Object.keys(pipelines) : planDimNames;
+    const resultModelId = this.displayModelIdForCapabilityResult(
+      runner.manifest.id,
+      preferredModelId,
+      result,
+    );
+    const completedResearchDims = new Set(
+      (
+        (result.stageOutputs?.researcherResults as
+          | Array<{ dimension?: string; findings?: unknown[]; summary?: string }>
+          | undefined) ?? []
+      )
+        .filter((r) => this.isSuccessfulResearcherResult(r))
+        .map((r) => r.dimension)
+        .filter((d): d is string => typeof d === "string" && d.length > 0),
+    );
+    const missionCompleted = result.status === "completed";
     const dimSteps = dimNames.map((d) => {
       const p = pipelines[d];
+      const modelId = this.displayModelIdForPipeline(p, resultModelId);
+      const rawCompleted =
+        p?.state === "completed" || completedResearchDims.has(d);
+      const status = rawCompleted
+        ? "done"
+        : missionCompleted
+          ? "degraded"
+          : "failed";
       return {
         label: d,
         role: "Researcher",
         dimension: d,
-        status: p?.state === "completed" ? "done" : "failed",
+        status,
+        ...(missionCompleted && p?.state && p.state !== "completed"
+          ? { sourceStatus: p.state }
+          : {}),
+        ...(missionCompleted && status === "degraded"
+          ? { statusLabel: "报告已交付，原始研究维度降级" }
+          : {}),
         ...(typeof p?.tokensUsed === "number" ? { tokens: p.tokensUsed } : {}),
         ...(typeof p?.costCents === "number" ? { costCents: p.costCents } : {}),
+        ...(modelId ? { modelId } : {}),
+        ...(Array.isArray(p?.modelTrail) ? { modelTrail: p.modelTrail } : {}),
       };
     });
 
-    // 协作动态：累积的 agent/stage 事件落库，详情重开可回放。
-    const collab = toJson(this.collabBuffers.get(missionId) ?? []);
+    // 协作动态：终态必须合并旧 result.collab 与当前内存 buffer。
+    // 断点续跑/后端重启会丢内存 buffer，若只写当前 buffer，会让已完成报告的
+    // 协作动态回放变成空态或只剩最后一条事件。
+    const existingResultBeforeFinalize =
+      await this.readMissionResultObject(missionId);
+    const collabEvents = this.buildTerminalCollabEvents(
+      existingResultBeforeFinalize.collab,
+      this.collabBuffers.get(missionId) ?? [],
+      dimSteps,
+      result.status,
+    );
+    const collab = toJson(collabEvents);
 
     if (result.status === "completed") {
       // ── 验收 gate：surface runner 内部 verdict，按 manifest.rubric 阈值判定 ──
@@ -1010,6 +1065,17 @@ export class CompanyMissionService implements OnModuleInit {
       const maxAttempts =
         rubric?.maxAttempts ?? DEFAULT_ACCEPTANCE_MAX_ATTEMPTS;
       const rv = result.reviewVerdict;
+      const completedStageOutputs = result.stageOutputs ?? {};
+      const completedReportArtifact =
+        this.chooseBestReportArtifact(
+          (result as { reportArtifact?: unknown }).reportArtifact,
+          (completedStageOutputs as { reportArtifact?: unknown }).reportArtifact,
+        ) ?? null;
+      const completedReportMarkdown =
+        result.report ??
+        ((completedReportArtifact as { content?: { fullMarkdown?: string } })
+          ?.content?.fullMarkdown ??
+          "");
       const score = typeof rv?.score === "number" ? rv.score : undefined;
       // 有分用分；无分但有三档 verdict → reject 判不通过；都没有 → 放行（不阻塞无评审能力）。
       const passed =
@@ -1049,7 +1115,8 @@ export class CompanyMissionService implements OnModuleInit {
         status: "done",
         progress: 100,
         result: {
-          summary: result.report ?? "",
+          summary: completedReportMarkdown,
+          reportArtifact: toJson(completedReportArtifact),
           references: toJson(result.references ?? []),
           dimensions: dimNames,
           steps: toJson(dimSteps),
@@ -1102,7 +1169,7 @@ export class CompanyMissionService implements OnModuleInit {
               missionId,
               userId,
               title: topic,
-              content: result.report ?? "",
+              content: completedReportMarkdown,
               source: "company",
               tags: ["company", ...dimNames],
             })
@@ -1123,7 +1190,19 @@ export class CompanyMissionService implements OnModuleInit {
     // failed —— 不伪装成功：真实 error 落库 + emit（前端失败空态据此显示真因）。
     // 仍带上已规划维度（标 failed），让"任务列表"展示尝试过的子任务而非空白。
     const message = result.error ?? "capability run failed";
-    const existingResult = await this.readMissionResultObject(missionId);
+    const existingResult = existingResultBeforeFinalize;
+    const failedStageOutputs = result.stageOutputs ?? {};
+    const failedReportArtifact =
+      this.chooseBestReportArtifact(
+        (failedStageOutputs as { reportArtifact?: unknown }).reportArtifact,
+        (this.asResultObject(existingResult.__terminal) as { reportArtifact?: unknown })
+          .reportArtifact,
+        existingResult.reportArtifact,
+      ) ??
+      null;
+    const failedLeaderSignOff =
+      (failedStageOutputs as { leaderSignOff?: unknown }).leaderSignOff ??
+      null;
     // ★ 终态走仲裁：条件写（未取消才写）。能力核 abort 后返回 failed，但用户取消已置
     //   cancelled——此处守护避免把 cancelled 盖成 failed。
     const won = await this.finalizeIfNotCancelled(missionId, {
@@ -1131,9 +1210,23 @@ export class CompanyMissionService implements OnModuleInit {
       result: toJson({
         ...existingResult,
         error: message,
+        summary:
+          result.report ??
+          existingResult.summary ??
+          ((failedReportArtifact as { content?: { fullMarkdown?: string } })
+            ?.content?.fullMarkdown ??
+            ""),
         dimensions: dimNames,
         steps: toJson(dimSteps),
         collab,
+        stageOutputs: toJson(failedStageOutputs),
+        reportArtifact: toJson(failedReportArtifact),
+        leaderSignOff: toJson(failedLeaderSignOff),
+        failureCode: null,
+        usage: {
+          totalTokens: result.usage?.totalTokens ?? 0,
+          totalCostCents: result.usage?.totalCostCents ?? 0,
+        },
         // ★ 复跑用：失败也保留派发参数，让用户一键重跑同档位任务。
         __dispatch: toJson({
           capabilityId: runner.manifest.id,
@@ -1332,6 +1425,15 @@ export class CompanyMissionService implements OnModuleInit {
             await this.persistLiveProgress(missionId);
           }
         }
+        if (domainEvent === "dimension:research:started") {
+          const dim =
+            typeof domainData.dimension === "string"
+              ? domainData.dimension
+              : undefined;
+          if (dim && this.markDimension(missionId, dim, "running")) {
+            await this.persistLiveProgress(missionId);
+          }
+        }
         // Fix 3：dimension:research:completed → "running"（采集完成，评分仍在途）；
         //   dimension:graded → "done"（评分落地，维度真正终态）。
         //   单调性守护由 markDimension 内部保证（done/failed 不被 running 降级）。
@@ -1351,7 +1453,8 @@ export class CompanyMissionService implements OnModuleInit {
             typeof domainData.dimension === "string"
               ? domainData.dimension
               : undefined;
-          if (dim && this.markDimension(missionId, dim, "done")) {
+          const gradedStatus = this.dimensionGradedStatus(domainData);
+          if (dim && this.markDimension(missionId, dim, gradedStatus)) {
             await this.persistLiveProgress(missionId);
           }
         }
@@ -1474,9 +1577,116 @@ export class CompanyMissionService implements OnModuleInit {
     return true;
   }
 
+  private dimensionGradedStatus(
+    payload: Record<string, unknown>,
+  ): "done" | "failed" {
+    const state = typeof payload.state === "string" ? payload.state : "";
+    const action = typeof payload.action === "string" ? payload.action : "";
+    const grade = typeof payload.grade === "string" ? payload.grade : "";
+    const overall = typeof payload.overall === "number" ? payload.overall : undefined;
+    if (
+      state === "failed" ||
+      action === "failed" ||
+      grade.toUpperCase() === "F" ||
+      overall === 0
+    ) {
+      return "failed";
+    }
+    return "done";
+  }
+
+  private isSuccessfulResearcherResult(result: {
+    findings?: unknown[];
+    summary?: string;
+  }): boolean {
+    if (!Array.isArray(result.findings) || result.findings.length === 0) {
+      return false;
+    }
+    const summary = result.summary ?? "";
+    if (/BrowserResearcher failed|采集失败|未产出/i.test(summary)) {
+      return false;
+    }
+    return result.findings.some((finding) => {
+      if (!finding || typeof finding !== "object") return false;
+      const item = finding as Record<string, unknown>;
+      return (
+        typeof item.claim === "string" &&
+        item.claim.trim().length > 0 &&
+        typeof item.evidence === "string" &&
+        item.evidence.trim().length > 0 &&
+        typeof item.source === "string" &&
+        item.source.trim().length > 0
+      );
+    });
+  }
+
+  private sanitizeRunningMissionProjection(
+    mission: CompanyMission,
+  ): CompanyMission {
+    if (mission.status !== "running") return mission;
+    const result = this.asResultObject(mission.result);
+    const checkpoint = result.__checkpoint as
+      | { lastStepId?: string; inFlightStepId?: string }
+      | undefined;
+    const inFlightStepId = checkpoint?.inFlightStepId;
+    const steps = Array.isArray(result.steps) ? result.steps : [];
+    if (!inFlightStepId || steps.length === 0) return mission;
+    if (!steps.every((step) => (step as { status?: unknown }).status === "done")) {
+      return mission;
+    }
+    if (typeof result.summary === "string" && result.summary.trim().length > 0) {
+      return mission;
+    }
+    const label = this.capabilityStepLabel(inFlightStepId);
+    const sanitized = {
+      ...result,
+      steps: [
+        ...steps,
+        {
+          label,
+          role: this.capabilityStepRole(inFlightStepId),
+          status: "running",
+          stepId: inFlightStepId,
+          projectionSource: "checkpoint",
+        },
+      ],
+    };
+    return {
+      ...mission,
+      result: sanitized as Prisma.JsonValue,
+    };
+  }
+
+  private capabilityStepLabel(stepId: string): string {
+    const labels: Record<string, string> = {
+      "s2-leader-plan": "意图理解 · 研究规划",
+      "s3-researcher-collect": "Research OS 资产采集",
+      "s4-leader-assess": "覆盖评估",
+      "s5-reconciler": "缺口修复",
+      "s6-analyst": "Solar 综合分析",
+      "s7-outline": "报告结构规划",
+      "s8-writer": "长文写作",
+      "s9-critic": "独立审稿",
+      "s9b-quality-gate": "质量门禁",
+      "s10-signoff": "最终签署",
+      "s11-persist": "报告持久化",
+    };
+    return labels[stepId] ?? stepId;
+  }
+
+  private capabilityStepRole(stepId: string): string {
+    if (stepId.includes("leader")) return "Leader";
+    if (stepId.includes("researcher")) return "Researcher";
+    if (stepId.includes("analyst")) return "Analyst";
+    if (stepId.includes("writer")) return "Writer";
+    if (stepId.includes("critic") || stepId.includes("gate")) return "Reviewer";
+    if (stepId.includes("persist")) return "System";
+    return "Mission";
+  }
+
   /**
    * 把当前渐进任务状态 + 协作动态落库到 result（运行中实时持久化）。
-   * status/progress 不变（保持 running）；终态时 runViaCapability 用最终结果覆盖。
+   * status 保持 running；progress 随实时步骤推进，终态由 runViaCapability 覆盖为 100/failed。
    */
   private async persistLiveProgress(missionId: string): Promise<void> {
     const s = this.liveTaskState.get(missionId);
@@ -1531,6 +1741,7 @@ export class CompanyMissionService implements OnModuleInit {
     const toJson = (v: unknown): Prisma.InputJsonValue =>
       JSON.parse(JSON.stringify(v ?? null)) as Prisma.InputJsonValue;
     await this.updateMission(missionId, {
+      progress: this.estimateLiveProgress(s),
       result: toJson({
         ...preserved,
         steps,
@@ -1539,6 +1750,34 @@ export class CompanyMissionService implements OnModuleInit {
         live: true,
       }),
     });
+  }
+
+  private estimateLiveProgress(s: {
+    planning?: "running" | "done";
+    review?: "running" | "done";
+    dimOrder: string[];
+    dimStatus: Map<string, "running" | "done" | "failed">;
+  }): number {
+    let progress = 0;
+    if (s.planning === "running") progress = Math.max(progress, 5);
+    if (s.planning === "done") progress = Math.max(progress, 20);
+
+    if (s.dimOrder.length > 0) {
+      const dimUnits = s.dimOrder.reduce((sum, dim) => {
+        const status = s.dimStatus.get(dim);
+        if (status === "done" || status === "failed") return sum + 1;
+        if (status === "running") return sum + 0.25;
+        return sum;
+      }, 0);
+      progress = Math.max(
+        progress,
+        20 + Math.round((dimUnits / s.dimOrder.length) * 55),
+      );
+    }
+
+    if (s.review === "running") progress = Math.max(progress, 85);
+    if (s.review === "done") progress = Math.max(progress, 95);
+    return Math.max(0, Math.min(99, progress));
   }
 
   // ── Stage implementations ──────────────────────────────────────────────────
@@ -1913,6 +2152,207 @@ export class CompanyMissionService implements OnModuleInit {
     return this.asResultObject(row?.result);
   }
 
+  private buildTerminalCollabEvents(
+    persisted: unknown,
+    buffered: Array<{ type: string; payload: unknown; timestamp: number }>,
+    steps: Array<Record<string, unknown>>,
+    status: "completed" | "failed",
+  ): Array<{ type: string; payload: unknown; timestamp: number }> {
+    const persistedEvents = Array.isArray(persisted)
+      ? persisted.filter(
+          (event): event is { type: string; payload: unknown; timestamp: number } =>
+            this.isCompanyCollabEvent(event),
+        )
+      : [];
+    const merged = this.dedupeCollabEvents([...persistedEvents, ...buffered]);
+    const hasReadableAgentEvent = merged.some(
+      (event) =>
+        event.type === "company.agent:lifecycle" ||
+        event.type === "company.agent:narrative" ||
+        event.type === "company.agent:trace",
+    );
+    if (hasReadableAgentEvent && merged.length >= 3) return merged;
+    return this.dedupeCollabEvents([
+      ...merged,
+      ...this.synthesizeTerminalCollabEvents(steps, status),
+    ]);
+  }
+
+  private isCompanyCollabEvent(
+    event: unknown,
+  ): event is { type: string; payload: unknown; timestamp: number } {
+    if (!event || typeof event !== "object" || Array.isArray(event)) return false;
+    const e = event as Record<string, unknown>;
+    return (
+      typeof e.type === "string" &&
+      e.type.startsWith("company.") &&
+      typeof e.timestamp === "number"
+    );
+  }
+
+  private dedupeCollabEvents(
+    events: Array<{ type: string; payload: unknown; timestamp: number }>,
+  ): Array<{ type: string; payload: unknown; timestamp: number }> {
+    const seen = new Set<string>();
+    const out: Array<{ type: string; payload: unknown; timestamp: number }> = [];
+    for (const event of events) {
+      const key = JSON.stringify({
+        type: event.type,
+        timestamp: event.timestamp,
+        payload: event.payload,
+      });
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(event);
+    }
+    return out.sort((left, right) => left.timestamp - right.timestamp).slice(-500);
+  }
+
+  private synthesizeTerminalCollabEvents(
+    steps: Array<Record<string, unknown>>,
+    status: "completed" | "failed",
+  ): Array<{ type: string; payload: unknown; timestamp: number }> {
+    const now = Date.now();
+    const terminalOk = status === "completed";
+    const events: Array<{ type: string; payload: unknown; timestamp: number }> = [
+      {
+        type: "company.agent:narrative",
+        payload: {
+          role: "Leader",
+          tag: terminalOk ? "success" : "warning",
+          text: terminalOk
+            ? "Mission 已完成，报告已生成并通过交付检查。"
+            : "Mission 已结束但存在失败或降级，需要查看错误详情。",
+        },
+        timestamp: now - (steps.length + 2) * 1000,
+      },
+    ];
+    steps.forEach((step, index) => {
+      const label =
+        typeof step.label === "string"
+          ? step.label
+          : typeof step.dimension === "string"
+            ? step.dimension
+            : `任务 ${index + 1}`;
+      const role = typeof step.role === "string" ? step.role : "Agent";
+      const stepStatus = typeof step.status === "string" ? step.status : "done";
+      const failed = stepStatus === "failed";
+      events.push({
+        type: "company.agent:lifecycle",
+        payload: {
+          role,
+          dimension: label,
+          phase: failed ? "failed" : "completed",
+          ...(typeof step.modelId === "string" ? { modelId: step.modelId } : {}),
+          ...(Array.isArray(step.modelTrail)
+            ? { modelTrail: step.modelTrail }
+            : {}),
+        },
+        timestamp: now - (steps.length - index + 1) * 1000,
+      });
+      events.push({
+        type: "company.agent:narrative",
+        payload: {
+          role,
+          dimension: label,
+          tag: failed ? "error" : "success",
+          text: failed ? `任务失败：${label}` : `任务完成：${label}`,
+        },
+        timestamp: now - (steps.length - index) * 1000,
+      });
+    });
+    return events;
+  }
+
+  private displayModelIdForCapabilityResult(
+    capabilityId: string,
+    preferredModelId: string | undefined,
+    result: CapabilityRunResult,
+  ): string | undefined {
+    const modelTrail = this.extractModelTrail(result);
+    if (modelTrail.length > 0) return modelTrail.join(" + ");
+    if (preferredModelId) return preferredModelId;
+    if (capabilityId === "deep-insight-solar") {
+      return "Solar Research OS / browser-agent";
+    }
+    if (capabilityId) return capabilityId;
+    return undefined;
+  }
+
+  private displayModelIdForPipeline(
+    pipeline: unknown,
+    fallback: string | undefined,
+  ): string | undefined {
+    if (pipeline && typeof pipeline === "object" && !Array.isArray(pipeline)) {
+      const p = pipeline as Record<string, unknown>;
+      const direct = p.modelId;
+      if (typeof direct === "string" && direct.length > 0) return direct;
+      const trail = this.normalizeModelTrail(p.modelTrail);
+      if (trail.length > 0) return trail.join(" + ");
+    }
+    return fallback;
+  }
+
+  private extractModelTrail(result: CapabilityRunResult): string[] {
+    const ids = new Set<string>();
+    const add = (value: unknown): void => {
+      for (const id of this.normalizeModelTrail(value)) ids.add(id);
+    };
+    add(
+      (result as unknown as { reportArtifact?: { metadata?: unknown } })
+        .reportArtifact?.metadata,
+    );
+    add(
+      (
+        result.stageOutputs as {
+          reportArtifact?: { metadata?: unknown };
+        }
+      )?.reportArtifact?.metadata,
+    );
+    add(result.stageOutputs);
+    return [...ids];
+  }
+
+  private normalizeModelTrail(value: unknown): string[] {
+    if (!value) return [];
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => {
+          if (typeof item === "string") return item;
+          if (item && typeof item === "object" && !Array.isArray(item)) {
+            const modelId = (item as Record<string, unknown>).modelId;
+            return typeof modelId === "string" ? modelId : undefined;
+          }
+          return undefined;
+        })
+        .filter((id): id is string => Boolean(id));
+    }
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      return this.normalizeModelTrail(record.modelTrail);
+    }
+    return [];
+  }
+
+  private chooseBestReportArtifact(
+    ...candidates: unknown[]
+  ): unknown | undefined {
+    return candidates
+      .filter((candidate) => candidate !== null && candidate !== undefined)
+      .sort(
+        (left, right) =>
+          this.reportArtifactMarkdownLength(right) -
+          this.reportArtifactMarkdownLength(left),
+      )[0];
+  }
+
+  private reportArtifactMarkdownLength(candidate: unknown): number {
+    const artifact = this.asResultObject(candidate);
+    const content = this.asResultObject(artifact.content);
+    const markdown = content.fullMarkdown;
+    return typeof markdown === "string" ? markdown.length : 0;
+  }
+
   private recoverDetachedRunningMissions(
     userId: string,
     missions: CompanyMission[],
@@ -1925,6 +2365,7 @@ export class CompanyMissionService implements OnModuleInit {
       const checkpoint = result.__checkpoint as
         | {
             lastStepId?: string;
+            inFlightStepId?: string;
           }
         | undefined;
       const dispatch = result.__dispatch as
@@ -1932,11 +2373,13 @@ export class CompanyMissionService implements OnModuleInit {
             capabilityId?: string;
           }
         | undefined;
-      if (!checkpoint?.lastStepId || !dispatch?.capabilityId) continue;
+      const checkpointLabel =
+        checkpoint?.lastStepId ?? checkpoint?.inFlightStepId;
+      if (!checkpointLabel || !dispatch?.capabilityId) continue;
 
       this.detachedRecoveryInFlight.add(mission.id);
       this.log.warn(
-        `[detached-recovery] ${mission.id} is running in DB but has no local worker; resume from checkpoint "${checkpoint.lastStepId}"`,
+        `[detached-recovery] ${mission.id} is running in DB but has no local worker; resume from checkpoint "${checkpointLabel}"`,
       );
       void this.resumeHeroMission(userId, mission.id)
         .catch((err: unknown) => {
@@ -1958,13 +2401,29 @@ export class CompanyMissionService implements OnModuleInit {
       }
     >,
   ): Promise<void> {
-    await this.prisma.companyMission
-      .update({ where: { id }, data })
-      .catch((err: unknown) => {
-        this.log.warn(
-          `updateMission ${id} db error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+    const isRunningWrite =
+      data.status === "running" ||
+      (data.status === undefined &&
+        (data.progress !== undefined || data.result !== undefined));
+    try {
+      if (isRunningWrite) {
+        const res = await this.prisma.companyMission.updateMany({
+          where: { id, status: { in: [...RUNNING_STATUSES] } },
+          data,
+        });
+        if (res.count < 1) {
+          this.log.warn(
+            `updateMission ${id} ignored stale running/progress write because mission is terminal or missing`,
+          );
+        }
+        return;
+      }
+      await this.prisma.companyMission.update({ where: { id }, data });
+    } catch (err: unknown) {
+      this.log.warn(
+        `updateMission ${id} db error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private async emit(

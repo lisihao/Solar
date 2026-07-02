@@ -302,7 +302,7 @@ export class ModelResolverService {
   /**
    * 获取完整模型配置（含敏感信息）
    */
-  async getFullModelConfig(modelId: string): Promise<{
+  async getFullModelConfig(modelId: string, userId?: string): Promise<{
     id: string;
     modelId: string;
     displayName: string;
@@ -327,11 +327,14 @@ export class ModelResolverService {
     priceOutputPerMillion?: number | null;
     priority?: number | null;
   } | null> {
-    const config = await this.modelConfigService.getModelById(modelId);
+    const config = await this.modelConfigService.getModelById(modelId, userId);
     if (!config) return null;
 
     // ★ v3.1: 通过 Secret Manager 解析 apiKey
-    const resolved = await this.modelConfigService.resolveApiKey(config);
+    const resolved = await this.modelConfigService.resolveApiKey(
+      config,
+      userId,
+    );
     return {
       id: config.id || config.modelId,
       modelId: config.modelId,

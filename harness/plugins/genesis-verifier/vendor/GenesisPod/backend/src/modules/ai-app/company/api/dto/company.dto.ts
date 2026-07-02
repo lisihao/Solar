@@ -168,6 +168,14 @@ export class CreateMissionDto {
   @IsOptional()
   @IsIn(["minimal", "default", "thorough", "thorough+"])
   auditLayers?: "minimal" | "default" | "thorough" | "thorough+";
+
+  @ApiPropertyOptional({
+    description:
+      "前端选择的 capability id；后端会校验它必须与 hero.capabilityId 一致，防止专家卡片串线。",
+  })
+  @IsOptional()
+  @IsString()
+  expectedCapabilityId?: string;
 }
 
 export class RenameMissionDto {

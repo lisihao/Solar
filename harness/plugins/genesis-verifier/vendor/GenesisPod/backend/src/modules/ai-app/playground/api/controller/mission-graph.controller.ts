@@ -20,6 +20,7 @@ import { MissionOwnershipRegistry } from "@/modules/ai-harness/facade";
 import { MissionStore } from "../../mission/lifecycle/mission-store.service";
 import { BaseMissionController } from "./base-mission.controller";
 import { MissionGraphService } from "../../mission/graph/mission-graph.service";
+import { CompanyMissionGraphService } from "@/modules/ai-app/company/services/company-mission-graph.service";
 import type {
   MissionGraphArtifact,
   NodeEnrichment,
@@ -32,8 +33,21 @@ export class MissionGraphController extends BaseMissionController {
     ownership: MissionOwnershipRegistry,
     store: MissionStore,
     private readonly graphService: MissionGraphService,
+    private readonly companyGraphService: CompanyMissionGraphService,
   ) {
     super(ownership, store);
+  }
+
+  private async hasPlaygroundReadAccess(
+    id: string,
+    userId: string | undefined,
+  ): Promise<boolean> {
+    try {
+      await this.assertReadAccess(id, userId);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -46,8 +60,10 @@ export class MissionGraphController extends BaseMissionController {
     @Param("id") id: string,
     @Request() req: RequestWithUser,
   ): Promise<MissionGraphArtifact> {
-    await this.assertReadAccess(id, req.user?.id);
-    return this.graphService.getArtifact(req.user.id, id);
+    if (await this.hasPlaygroundReadAccess(id, req.user?.id)) {
+      return this.graphService.getArtifact(req.user.id, id);
+    }
+    return this.companyGraphService.getArtifact(req.user.id, id);
   }
 
   /**
@@ -60,8 +76,10 @@ export class MissionGraphController extends BaseMissionController {
     @Param("id") id: string,
     @Request() req: RequestWithUser,
   ): Promise<MissionGraphArtifact> {
-    await this.assertReadAccess(id, req.user?.id);
-    return this.graphService.build(req.user.id, id);
+    if (await this.hasPlaygroundReadAccess(id, req.user?.id)) {
+      return this.graphService.build(req.user.id, id);
+    }
+    return this.companyGraphService.build(req.user.id, id);
   }
 
   /**
@@ -75,7 +93,9 @@ export class MissionGraphController extends BaseMissionController {
     @Param("nodeId") nodeId: string,
     @Request() req: RequestWithUser,
   ): Promise<NodeEnrichment> {
-    await this.assertReadAccess(id, req.user?.id);
-    return this.graphService.enrichNode(req.user.id, id, nodeId);
+    if (await this.hasPlaygroundReadAccess(id, req.user?.id)) {
+      return this.graphService.enrichNode(req.user.id, id, nodeId);
+    }
+    return this.companyGraphService.enrichNode(req.user.id, id, nodeId);
   }
 }

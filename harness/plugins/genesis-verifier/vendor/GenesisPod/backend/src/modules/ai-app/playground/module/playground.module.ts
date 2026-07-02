@@ -32,6 +32,7 @@ import { MissionDagService } from "../mission/dag-view/mission-dag.service";
 // ★ 2026-06-07: Mission knowledge-graph artifact
 import { MissionGraphController } from "../api/controller/mission-graph.controller";
 import { MissionGraphService } from "../mission/graph/mission-graph.service";
+import { CompanyModule } from "../../company/company.module";
 import { AgentPlaygroundGateway } from "../api/controller/playground.gateway";
 import { MissionRuntimeShellService } from "../mission/pipeline/mission-runtime-shell.service";
 import { MissionStageBindingsService } from "../mission/pipeline/mission-stage-bindings.service";
@@ -127,6 +128,7 @@ import {
 
 @Module({
   imports: [
+    CompanyModule,
     CreditsModule,
     NotificationDispatcherModule,
     ConfigModule.forFeature(playgroundRuntimeConfig),

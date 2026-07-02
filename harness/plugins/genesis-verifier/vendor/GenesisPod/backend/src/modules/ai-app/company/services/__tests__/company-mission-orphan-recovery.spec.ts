@@ -204,6 +204,45 @@ describe("company orphan 恢复（recoverOrphanMissions）", () => {
     ).toBeUndefined();
   });
 
+  it("可恢复（只有 inFlightStepId + dispatch）→ 同 missionId 重跑", async () => {
+    const orphan = {
+      id: "m-inflight-resume",
+      userId: "u1",
+      title: "Solar 长步骤",
+      progress: 5,
+      result: {
+        __checkpoint: {
+          lastStepId: "__mission_start__",
+          inFlightStepId: "s2-leader-plan",
+          topic: "T",
+          crossState: {},
+        },
+        __dispatch: {
+          capabilityId: "deep-insight-solar",
+          preferredModelId: "",
+          extra: { depth: "deep" },
+        },
+      },
+    };
+    const { service, runHeroSpy, emit } = makeService({
+      findMany: jest.fn().mockResolvedValue([orphan]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    });
+    await callRecover(service);
+    expect(runHeroSpy).toHaveBeenCalledTimes(1);
+    expect(runHeroSpy).toHaveBeenCalledWith(
+      "m-inflight-resume",
+      "u1",
+      "deep-insight-solar",
+      "Solar 长步骤",
+      "",
+      { depth: "deep" },
+    );
+    expect(
+      emit.mock.calls.find((c) => c[0] === "company.mission:failed"),
+    ).toBeUndefined();
+  });
+
   it("不可恢复（无 checkpoint）→ mark failed + emit（杀僵尸）", async () => {
     const orphan = {
       id: "m-fail",

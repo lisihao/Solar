@@ -8,14 +8,15 @@ type MissionPhase =
   | 'running'
   | 'completed-success'
   | 'completed-noindex'
-  | 'aborted';
+  | 'aborted'
+  | 'not-applicable';
 
 export function MemoryIndexPanel({
   memory,
   missionPhase = 'running',
 }: {
   memory: MemoryIndexState | null;
-  /** 控制空态文案语义：running / 完成-索引成功 / 完成-未发事件 / 取消失败 */
+  /** 控制空态文案语义：running / 完成-索引成功 / 完成-未发事件 / 取消失败 / 不适用 */
   missionPhase?: MissionPhase;
 }) {
   return (
@@ -28,11 +29,16 @@ export function MemoryIndexPanel({
         // ★ 2026-05-27 Screenshot_53 修复：根据 missionPhase 区分空态文案
         //   - aborted（取消/失败）→ 中性提示，不是 backend bug
         //   - completed-noindex（成功但没收到事件）→ amber 警告，可能 backend 待补
+        //   - not-applicable → 中性提示，当前任务链路未接自动索引
         //   - running → 中性"运行中…"
         missionPhase === 'aborted' ? (
           <p className="rounded-lg bg-gray-50 px-3 py-3 text-[12px] text-gray-500">
             Mission 已中止，未生成记忆索引（trajectory indexing 仅在 S8
             完成后运行）
+          </p>
+        ) : missionPhase === 'not-applicable' ? (
+          <p className="rounded-lg bg-gray-50 px-3 py-3 text-[12px] text-gray-500">
+            当前 Mission 类型未接入自动记忆索引；这不是本次报告生成失败，也不会标记为 backend 缺失。
           </p>
         ) : missionPhase === 'completed-noindex' ? (
           <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-3">

@@ -75,6 +75,11 @@ describe("AuthService", () => {
 
     const mockJwtService = {
       sign: jest.fn().mockReturnValue("mock-token"),
+      verify: jest.fn().mockReturnValue({
+        sub: mockUser.id,
+        email: mockUser.email,
+        username: mockUser.username,
+      }),
     };
 
     const mockCacheService = {
@@ -236,6 +241,62 @@ describe("AuthService", () => {
 
       await expect(service.refreshToken("nonexistent-id")).rejects.toThrow(
         UnauthorizedException,
+      );
+    });
+  });
+
+  describe("refreshWithRefreshToken", () => {
+    it("should verify refresh token and mint new tokens", async () => {
+      (prismaService.user.findUnique as jest.Mock).mockResolvedValue({
+        id: mockUser.id,
+        email: mockUser.email,
+        username: mockUser.username,
+      });
+
+      const result = await service.refreshWithRefreshToken("refresh-token");
+
+      expect(result.accessToken).toBe("mock-token");
+      expect(result.refreshToken).toBe("mock-token");
+      const jwtService = (service as unknown as { jwtService: JwtService })
+        .jwtService as jest.Mocked<JwtService>;
+      expect(jwtService.verify).toHaveBeenCalledWith(
+        "refresh-token",
+        expect.objectContaining({ secret: "test-refresh-secret-32-chars!!!!" }),
+      );
+    });
+
+    it("should reject missing refresh token", async () => {
+      await expect(service.refreshWithRefreshToken(undefined)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it("should try fallback secret for legacy refresh tokens", async () => {
+      const jwtService = (service as unknown as { jwtService: JwtService })
+        .jwtService as jest.Mocked<JwtService>;
+      jwtService.verify
+        .mockImplementationOnce(() => {
+          throw new Error("bad secret");
+        })
+        .mockReturnValueOnce({
+          sub: mockUser.id,
+          email: mockUser.email,
+          username: mockUser.username,
+        });
+      (prismaService.user.findUnique as jest.Mock).mockResolvedValue({
+        id: mockUser.id,
+        email: mockUser.email,
+        username: mockUser.username,
+      });
+
+      await service.refreshWithRefreshToken("legacy-refresh-token");
+
+      expect(jwtService.verify).toHaveBeenNthCalledWith(
+        2,
+        "legacy-refresh-token",
+        expect.objectContaining({
+          secret: "test-jwt-secret-minimum-32-chars!!-refresh",
+        }),
       );
     });
   });

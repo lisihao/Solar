@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Radar } from 'lucide-react';
 import {
+  runSolarInsightMission,
   runTeam,
   type AudienceProfile,
   type AuditLayers,
@@ -33,6 +34,11 @@ import { useBudgetTiers, pickTier } from '@/hooks/features/useBudgetTiers';
 interface PlaygroundMissionDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  /** 不传时保持 legacy playground；deep-insight-solar 走 Company/Hero capability。 */
+  capabilityId?: 'deep-insight-solar';
+  title?: string;
+  subtitle?: string;
+  submitLabel?: string;
   /** 创建成功后回调，参数是新 mission id */
   onCreated?: (missionId: string) => void;
 }
@@ -86,9 +92,14 @@ function persistPref(key: string, value: string | number) {
 export function PlaygroundMissionDialog({
   isOpen,
   onClose,
+  capabilityId,
+  title = '新建洞察 Mission',
+  subtitle = '启动多 Agent 协作的深度洞察任务',
+  submitLabel = '启动 Mission',
   onCreated,
 }: PlaygroundMissionDialogProps) {
   const router = useRouter();
+  const isSolarMission = capabilityId === 'deep-insight-solar';
 
   const [topic, setTopic] = useState('');
   const [description, setDescription] = useState('');
@@ -210,7 +221,7 @@ export function PlaygroundMissionDialog({
       return;
     }
     // 仅当用户开启「自定义预算」覆盖时才校验这三项；否则后端按 depth 档位解析。
-    if (budgetOverrideEnabled) {
+    if (!isSolarMission && budgetOverrideEnabled) {
       if (
         maxCredits < MAX_CREDITS_LIMIT.min ||
         maxCredits > MAX_CREDITS_LIMIT.max
@@ -243,7 +254,8 @@ export function PlaygroundMissionDialog({
     setSubmitting(true);
     try {
       const trimmedDescription = description.trim();
-      const { missionId } = await runTeam({
+      const starter = isSolarMission ? runSolarInsightMission : runTeam;
+      const { missionId } = await starter({
         topic: trimmed,
         description:
           trimmedDescription.length > 0 ? trimmedDescription : undefined,
@@ -257,7 +269,7 @@ export function PlaygroundMissionDialog({
         searchTimeRange,
         // ★ 2026-05-22 单一源：默认不传预算 → 后端按 depth 档位解析；
         //   仅「高级·自定义预算」开启时作为覆盖发送。
-        ...(budgetOverrideEnabled
+        ...(!isSolarMission && budgetOverrideEnabled
           ? {
               maxCredits,
               budgetMultiplierOverride,
@@ -286,9 +298,9 @@ export function PlaygroundMissionDialog({
     <MissionDialogShell
       isOpen={isOpen}
       onClose={onClose}
-      title="新建洞察 Mission"
-      subtitle="启动多 Agent 协作的深度洞察任务"
-      submitLabel={submitting ? '启动中…' : '启动 Mission'}
+      title={title}
+      subtitle={subtitle}
+      submitLabel={submitting ? '启动中…' : submitLabel}
       submitting={submitting}
       submitDisabled={!topic.trim()}
       onSubmit={() => {
@@ -401,50 +413,52 @@ export function PlaygroundMissionDialog({
       }
       advanced={
         <>
-          <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/60 px-4 py-3">
-            <label className="flex cursor-pointer items-start justify-between gap-3">
-              <span>
-                <span className="text-sm font-medium text-gray-700">
-                  自定义预算上限
+          {!isSolarMission && (
+            <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/60 px-4 py-3">
+              <label className="flex cursor-pointer items-start justify-between gap-3">
+                <span>
+                  <span className="text-sm font-medium text-gray-700">
+                    自定义预算上限
+                  </span>
+                  <span className="mt-0.5 block text-xs text-gray-400">
+                    {(() => {
+                      const t = pickTier(budgetTierData, depth);
+                      return t
+                        ? `默认按「${t.label}」档位自动匹配（约 $${t.capUsd} · ~${t.wallTimeMinutes} 分钟）。开启后可手动设定 Credits / 倍率 / 时长。`
+                        : '默认按当前调研规模档位自动匹配。开启后可手动设定 Credits / 倍率 / 时长。';
+                    })()}
+                  </span>
                 </span>
-                <span className="mt-0.5 block text-xs text-gray-400">
-                  {(() => {
-                    const t = pickTier(budgetTierData, depth);
-                    return t
-                      ? `默认按「${t.label}」档位自动匹配（约 $${t.capUsd} · ~${t.wallTimeMinutes} 分钟）。开启后可手动设定 Credits / 倍率 / 时长。`
-                      : '默认按当前调研规模档位自动匹配。开启后可手动设定 Credits / 倍率 / 时长。';
-                  })()}
-                </span>
-              </span>
-              <input
-                type="checkbox"
-                checked={budgetOverrideEnabled}
-                disabled={!budgetTierData}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  setBudgetOverrideEnabled(on);
-                  // ★ 开启时以当前 depth 档位值（来自后端单一源）为起点，杜绝旧持久化漂移。
-                  const tier = pickTier(budgetTierData, depth);
-                  if (on && tier) {
-                    setMaxCredits(tier.maxCredits);
-                    setBudgetMultiplierOverride(tier.budgetMultiplier);
-                    setWallTimeMinutes(tier.wallTimeMinutes);
-                  }
-                }}
-                className="mt-0.5 h-4 w-4 flex-shrink-0 accent-blue-600"
-              />
-            </label>
-            {budgetOverrideEnabled && (
-              <BudgetAndTimeLimitPanel
-                maxCredits={maxCredits}
-                setMaxCredits={setMaxCredits}
-                budgetMultiplierOverride={budgetMultiplierOverride}
-                setBudgetMultiplierOverride={setBudgetMultiplierOverride}
-                wallTimeMinutes={wallTimeMinutes}
-                setWallTimeMinutes={setWallTimeMinutes}
-              />
-            )}
-          </div>
+                <input
+                  type="checkbox"
+                  checked={budgetOverrideEnabled}
+                  disabled={!budgetTierData}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setBudgetOverrideEnabled(on);
+                    // ★ 开启时以当前 depth 档位值（来自后端单一源）为起点，杜绝旧持久化漂移。
+                    const tier = pickTier(budgetTierData, depth);
+                    if (on && tier) {
+                      setMaxCredits(tier.maxCredits);
+                      setBudgetMultiplierOverride(tier.budgetMultiplier);
+                      setWallTimeMinutes(tier.wallTimeMinutes);
+                    }
+                  }}
+                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-blue-600"
+                />
+              </label>
+              {budgetOverrideEnabled && (
+                <BudgetAndTimeLimitPanel
+                  maxCredits={maxCredits}
+                  setMaxCredits={setMaxCredits}
+                  budgetMultiplierOverride={budgetMultiplierOverride}
+                  setBudgetMultiplierOverride={setBudgetMultiplierOverride}
+                  wallTimeMinutes={wallTimeMinutes}
+                  setWallTimeMinutes={setWallTimeMinutes}
+                />
+              )}
+            </div>
+          )}
           <Field label="搜索时效">
             <div className="grid grid-cols-6 gap-1.5">
               {TIME_RANGE_OPTIONS.map((opt) => (

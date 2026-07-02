@@ -415,7 +415,10 @@ export class AiModelConfigService {
    * 获取模型配置（优先从数据库，缓存 5 分钟）
    * @param modelId 模型 ID（如 "gpt-4o", "gemini-2.0-flash", "claude-3-opus"）
    */
-  async getModelConfig(modelId: string): Promise<AIModelConfig | null> {
+  async getModelConfig(
+    modelId: string,
+    userIdOverride?: string,
+  ): Promise<AIModelConfig | null> {
     // 检查缓存是否过期，共享 Promise 防止并发 stampede
     if (Date.now() - this.modelConfigCacheTime > this.MODEL_CONFIG_CACHE_TTL) {
       if (!this.refreshPromise) {
@@ -460,8 +463,8 @@ export class AiModelConfigService {
     //    ★ 不限 modelType — getModelConfig 的职责是按 ID 查配置，类型过滤由调用方负责。
     const [enabledModel, userConfig, disabledConfig] = await Promise.all([
       this.queryEnabledAiModelByIdOrName(normalizedModelId),
-      this.findUserModelConfigByModelId(normalizedModelId),
-      this.findDisabledModelForUser(normalizedModelId),
+      this.findUserModelConfigByModelId(normalizedModelId, userIdOverride),
+      this.findDisabledModelForUser(normalizedModelId, undefined, userIdOverride),
     ]);
 
     // 3. enabled AIModel（最高优先级）
@@ -528,8 +531,9 @@ export class AiModelConfigService {
    */
   private async findUserModelConfigByModelId(
     modelId: string,
+    userIdOverride?: string,
   ): Promise<AIModelConfig | null> {
-    const userId = RequestContext.getUserId();
+    const userId = userIdOverride ?? RequestContext.getUserId();
     if (!userId || !this.userModelConfigs) return null;
     try {
       const cfg = await this.userModelConfigs.findByModelId(userId, modelId);
@@ -1504,11 +1508,14 @@ export class AiModelConfigService {
    * ★ 统一入口，支持多种 ID 格式
    * ★ 支持所有 modelType（包括 IMAGE_GENERATION、EMBEDDING 等）
    */
-  async getModelById(idOrModelId: string): Promise<AIModelConfig | null> {
+  async getModelById(
+    idOrModelId: string,
+    userIdOverride?: string,
+  ): Promise<AIModelConfig | null> {
     // ★ BYOK 解析缓存：命中即跳过整条串行 DB fallback 链（见字段注释）。
     //   key 含 userId —— BYOK 配置按用户隔离；无 userId 的后台调用归入 "system"。
     const t0 = Date.now();
-    const userId = RequestContext.getUserId();
+    const userId = userIdOverride ?? RequestContext.getUserId();
     const cacheKey = `${userId ?? "system"}::${idOrModelId}`;
     const cached = this.resolvedModelCache.get(cacheKey);
     if (cached && Date.now() - cached.time < this.RESOLVED_MODEL_CACHE_TTL) {
@@ -1521,7 +1528,7 @@ export class AiModelConfigService {
       );
       return cached.config;
     }
-    const resolved = await this.resolveModelByIdUncached(idOrModelId);
+    const resolved = await this.resolveModelByIdUncached(idOrModelId, userId);
     this.resolvedModelCache.set(cacheKey, {
       config: resolved,
       time: Date.now(),
@@ -1595,9 +1602,10 @@ export class AiModelConfigService {
 
   private async resolveModelByIdUncached(
     idOrModelId: string,
+    userId?: string,
   ): Promise<AIModelConfig | null> {
     // 1. 先尝试按 modelId/name 查找（使用缓存，仅 CHAT/CHAT_FAST）
-    const configByModelId = await this.getModelConfig(idOrModelId);
+    const configByModelId = await this.getModelConfig(idOrModelId, userId);
     if (configByModelId) {
       return configByModelId;
     }
@@ -1624,7 +1632,6 @@ export class AiModelConfigService {
       }
 
       // ★ BYOK v3 (2026-05-10)：UserModelConfig 也按 id 查（dropdown 传 CUID 走这条）
-      const userId = RequestContext.getUserId();
       if (userId && this.userModelConfigs) {
         try {
           const userCfg = await this.prisma.userModelConfig.findFirst({
@@ -1664,7 +1671,11 @@ export class AiModelConfigService {
     }
 
     // 4. ★ BYOK: 查找 disabled 模型（用户有对应 provider 的 Key 时可用）
-    const disabledConfig = await this.findDisabledModelForUser(idOrModelId);
+    const disabledConfig = await this.findDisabledModelForUser(
+      idOrModelId,
+      undefined,
+      userId,
+    );
     if (disabledConfig) return disabledConfig;
 
     return null;
@@ -1677,8 +1688,9 @@ export class AiModelConfigService {
   private async findDisabledModelForUser(
     idOrModelId: string,
     modelTypes?: string[],
+    userIdOverride?: string,
   ): Promise<AIModelConfig | null> {
-    const userId = RequestContext.getUserId();
+    const userId = userIdOverride ?? RequestContext.getUserId();
     if (!userId) return null;
 
     try {

@@ -18,6 +18,7 @@ import { EmptyState } from '@/components/ui/states/EmptyState';
 import { ErrorState } from '@/components/ui/states/ErrorState';
 import { LoadingState } from '@/components/ui/states/LoadingState';
 import { Button } from '@/components/ui/primitives/button';
+import { config } from '@/lib/utils/config';
 import {
   getMissionGraph,
   buildMissionGraph,
@@ -38,9 +39,18 @@ interface MissionGraphTabProps {
    * 与 missions 详情页调用的类型兼容（playground 回退 6f59 后该模块仍共用本组件）。
    */
   basePath?: string;
+  source?: 'playground' | 'company';
 }
 
-export function MissionGraphTab({ missionId }: MissionGraphTabProps) {
+export function MissionGraphTab({
+  missionId,
+  basePath,
+  source,
+}: MissionGraphTabProps) {
+  const effectiveBasePath =
+    source === 'company'
+      ? `${config.apiBaseUrl}/api/v1/company`
+      : basePath;
   const [artifact, setArtifact] = useState<MissionGraphArtifact | null>(null);
   const [loading, setLoading] = useState(true);
   const [building, setBuilding] = useState(false);
@@ -50,14 +60,14 @@ export function MissionGraphTab({ missionId }: MissionGraphTabProps) {
     setLoading(true);
     setError(null);
     try {
-      const result = await getMissionGraph(missionId);
+      const result = await getMissionGraph(missionId, effectiveBasePath);
       setArtifact(result);
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)));
     } finally {
       setLoading(false);
     }
-  }, [missionId]);
+  }, [missionId, effectiveBasePath]);
 
   useEffect(() => {
     void fetchGraph();
@@ -67,14 +77,14 @@ export function MissionGraphTab({ missionId }: MissionGraphTabProps) {
     setBuilding(true);
     setError(null);
     try {
-      const result = await buildMissionGraph(missionId);
+      const result = await buildMissionGraph(missionId, effectiveBasePath);
       setArtifact(result);
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)));
     } finally {
       setBuilding(false);
     }
-  }, [missionId]);
+  }, [missionId, effectiveBasePath]);
 
   if (loading) {
     return <LoadingState text="加载图谱数据..." />;
@@ -124,7 +134,14 @@ export function MissionGraphTab({ missionId }: MissionGraphTabProps) {
   const graph = artifact.graph as MissionGraph;
   const analyses = artifact.analyses as Analyses;
 
-  return <ReadyGraph graph={graph} analyses={analyses} missionId={missionId} />;
+  return (
+    <ReadyGraph
+      graph={graph}
+      analyses={analyses}
+      missionId={missionId}
+      basePath={effectiveBasePath}
+    />
+  );
 }
 
 // ─── READY 态：拆成独立组件，让 useMemo / useState（全屏）等 hooks 合法且稳定 ───
@@ -132,10 +149,12 @@ function ReadyGraph({
   graph,
   analyses,
   missionId,
+  basePath,
 }: {
   graph: MissionGraph;
   analyses: Analyses;
   missionId: string;
+  basePath?: string;
 }) {
   const [fullscreen, setFullscreen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<{
@@ -166,7 +185,7 @@ function ReadyGraph({
       setEnrich(null);
       setEnrichLoading(true);
       setEnrichError(false);
-      enrichGraphNode(missionId, node.id)
+      enrichGraphNode(missionId, node.id, basePath)
         .then((r) => {
           enrichCache.current.set(node.id, r);
           setEnrich(r);
@@ -174,7 +193,7 @@ function ReadyGraph({
         .catch(() => setEnrichError(true))
         .finally(() => setEnrichLoading(false));
     },
-    [missionId]
+    [missionId, basePath]
   );
   const graphCardRef = useRef<HTMLDivElement>(null);
 

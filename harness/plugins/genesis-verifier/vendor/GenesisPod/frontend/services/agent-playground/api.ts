@@ -11,6 +11,40 @@ import { getAuthHeader } from '@/lib/utils/auth';
 import type { MissionGraphArtifact, NodeEnrichment } from './graph-types';
 
 const API_BASE = `${config.apiBaseUrl}/api/v1/playground`;
+const COMPANY_API_BASE = `${config.apiBaseUrl}/api/v1/company`;
+const DEEP_INSIGHT_SOLAR_CAPABILITY_ID = 'deep-insight-solar';
+
+function uniqueGraphBasePaths(primary: string): string[] {
+  const normalize = (value: string) => value.replace(/\/+$/, '');
+  // Graph artifacts now exist for both CompanyMission and legacy PlaygroundMission.
+  // Some shared detail pages do not know the source type, so prefer company first:
+  // a CompanyMission ID returns 404 on playground, while a PlaygroundMission safely
+  // falls back after company 404.
+  const candidates = [primary, COMPANY_API_BASE, API_BASE]
+    .filter(Boolean)
+    .map(normalize);
+  if (normalize(primary) === normalize(API_BASE)) {
+    return [...new Set([COMPANY_API_BASE, API_BASE].map(normalize))];
+  }
+  return [...new Set(candidates)];
+}
+
+async function fetchWithGraphBaseFallback(
+  basePath: string,
+  makeUrl: (root: string) => string,
+  init: RequestInit,
+  errorPrefix: string
+): Promise<Response> {
+  let lastStatus = 0;
+  let lastText = '';
+  for (const candidate of uniqueGraphBasePaths(basePath)) {
+    const res = await fetch(makeUrl(candidate), init);
+    if (res.ok) return res;
+    lastStatus = res.status;
+    lastText = await res.text().catch(() => '');
+  }
+  throw new Error(`${errorPrefix}: ${lastStatus} ${lastText.slice(0, 200)}`);
+}
 
 export type BudgetProfile = 'low' | 'medium' | 'high' | 'unlimited';
 export type StyleProfile =
@@ -77,6 +111,41 @@ export interface RunMissionResponse {
   streamNamespace: string;
 }
 
+interface CompanyHeroSummary {
+  id: string;
+  capabilityId: string;
+}
+
+interface CompanyMissionCreated {
+  id: string;
+}
+
+interface CompanyMissionSummary {
+  id: string;
+  title?: string;
+  status?: string;
+  progress?: number;
+  heroId?: string | null;
+  result?: unknown;
+  createdAt?: string;
+  updatedAt?: string;
+  completedAt?: string | null;
+}
+
+interface CompanyMissionStepLike {
+  label?: string;
+  role?: string;
+  status?: string;
+  stepId?: string;
+  dimension?: string;
+  statusLabel?: string;
+}
+
+interface CompanyUsageLike {
+  totalTokens?: number;
+  totalCostCents?: number;
+}
+
 export interface ReplayEvent {
   type: string;
   payload: unknown;
@@ -102,6 +171,379 @@ function unwrapStandard<T>(raw: unknown): T {
     }
   }
   return raw as T;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function readNestedString(
+  value: unknown,
+  path: readonly string[]
+): string | undefined {
+  let current: unknown = value;
+  for (const key of path) {
+    const record = asRecord(current);
+    if (!(key in record)) return undefined;
+    current = record[key];
+  }
+  return asString(current);
+}
+
+function extractCompanyMissionReportMarkdown(
+  result: Record<string, unknown>
+): string | undefined {
+  const terminal = asRecord(result.__terminal);
+  return (
+    asString(result.summary) ??
+    asString(result.report) ??
+    readNestedString(result.reportArtifact, ['content', 'fullMarkdown']) ??
+    asString(terminal.summary) ??
+    asString(terminal.report) ??
+    readNestedString(terminal.reportArtifact, ['content', 'fullMarkdown'])
+  );
+}
+
+function hasFailedCompanyMissionStep(
+  result: Record<string, unknown>
+): boolean {
+  const steps = Array.isArray(result.steps) ? result.steps : [];
+  return steps.some((step) => {
+    const status = asString(asRecord(step).status);
+    return status === 'failed' || status === 'quality-failed';
+  });
+}
+
+function normalizeCompanyMissionStatus(status: string | undefined): string {
+  switch (status) {
+    case 'done':
+      return 'completed';
+    case 'queued':
+    case 'review':
+      return 'running';
+    case 'failed':
+    case 'cancelled':
+    case 'quality-failed':
+    case 'running':
+      return status;
+    default:
+      return status ?? 'running';
+  }
+}
+
+function isCompanyFallbackStatus(status: number): boolean {
+  return status === 403 || status === 404;
+}
+
+async function getCompanyMissionById(
+  id: string
+): Promise<CompanyMissionSummary | null> {
+  const rawMissions = await requestCompany<
+    CompanyMissionSummary[] | { items?: CompanyMissionSummary[] }
+  >('/missions', { method: 'GET' }, 'Failed to load company missions');
+  const missions = Array.isArray(rawMissions)
+    ? rawMissions
+    : (rawMissions.items ?? []);
+  return missions.find((m) => m.id === id) ?? null;
+}
+
+function normalizeCompanyStageStatus(status: string | undefined): ViewStageStatus {
+  switch (status) {
+    case 'done':
+    case 'completed':
+      return 'done';
+    case 'failed':
+    case 'quality-failed':
+      return 'failed';
+    case 'running':
+    case 'in_progress':
+      return 'running';
+    case 'skipped':
+      return 'skipped';
+    default:
+      return 'pending';
+  }
+}
+
+function normalizeCompanyTodoStatus(status: string | undefined): string {
+  switch (status) {
+    case 'done':
+    case 'completed':
+      return 'done';
+    case 'failed':
+    case 'quality-failed':
+      return 'failed';
+    case 'running':
+    case 'in_progress':
+      return 'in_progress';
+    case 'cancelled':
+      return 'cancelled';
+    default:
+      return 'pending';
+  }
+}
+
+function normalizeCompanyAgentRole(role: string | undefined): string {
+  const r = (role ?? '').toLowerCase();
+  if (r.includes('researcher')) return 'researcher';
+  if (r.includes('analyst') || r.includes('reconciler')) return 'analyst';
+  if (r.includes('writer')) return 'writer';
+  if (r.includes('critic') || r.includes('reviewer') || r.includes('gate')) {
+    return 'reviewer';
+  }
+  return 'leader';
+}
+
+function normalizeCompanyAgentPhase(status: string | undefined): ViewAgentPhase {
+  switch (status) {
+    case 'done':
+    case 'completed':
+      return 'completed';
+    case 'failed':
+    case 'quality-failed':
+      return 'failed';
+    case 'running':
+    case 'in_progress':
+      return 'running';
+    default:
+      return 'pending';
+  }
+}
+
+function normalizeCompanyStepId(
+  stepId: string | undefined,
+  role: string | undefined,
+  index: number
+): string {
+  if (stepId) {
+    if (stepId === 's7-outline') return 's7-writer-outline';
+    if (stepId === 's9b-quality-gate') return 's9b-objective-eval';
+    return stepId;
+  }
+  const normalizedRole = normalizeCompanyAgentRole(role);
+  if (normalizedRole === 'researcher') return 's3-researcher-collect';
+  if (normalizedRole === 'analyst') return 's6-analyst';
+  if (normalizedRole === 'writer') return 's8-writer';
+  if (normalizedRole === 'reviewer') return 's9-critic';
+  return index === 0 ? 's2-leader-plan' : 's10-leader-foreword-signoff';
+}
+
+function systemStageIdFromCompanyStepId(stepId: string): string {
+  if (stepId === 's9b-objective-eval') return 's9b-objective-evaluation';
+  if (stepId === 's8-writer') return 's8-writer-draft';
+  if (stepId === 's8b-section-quality-enhancement') {
+    return 's8b-quality-enhancement';
+  }
+  return stepId;
+}
+
+function getCompanySteps(result: Record<string, unknown>): CompanyMissionStepLike[] {
+  const rawSteps = Array.isArray(result.steps) ? result.steps : [];
+  return rawSteps
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
+    .map((s) => ({
+      label: asString(s.label),
+      role: asString(s.role),
+      status: asString(s.status),
+      stepId: asString(s.stepId),
+      dimension: asString(s.dimension),
+      statusLabel: asString(s.statusLabel),
+    }));
+}
+
+function getCompanyDimensions(
+  result: Record<string, unknown>,
+  steps: CompanyMissionStepLike[]
+): string[] {
+  const dimensions = Array.isArray(result.dimensions)
+    ? result.dimensions.filter((d): d is string => typeof d === 'string')
+    : [];
+  if (dimensions.length > 0) return dimensions;
+  return steps
+    .filter((s) => normalizeCompanyAgentRole(s.role) === 'researcher')
+    .map((s, i) => s.dimension ?? s.label ?? `维度 ${i + 1}`);
+}
+
+function getCompanyUsage(result: Record<string, unknown>): CompanyUsageLike {
+  const usage = asRecord(result.usage);
+  return {
+    totalTokens:
+      typeof usage.totalTokens === 'number' ? usage.totalTokens : undefined,
+    totalCostCents:
+      typeof usage.totalCostCents === 'number'
+        ? usage.totalCostCents
+        : undefined,
+  };
+}
+
+function normalizeCompanyEventsForReplay(events: unknown[]): ReplayEvent[] {
+  const out: ReplayEvent[] = [];
+  for (const raw of events) {
+    if (!raw || typeof raw !== 'object') continue;
+    const e = raw as {
+      type?: string;
+      payload?: unknown;
+      timestamp?: number;
+      agentId?: string;
+      traceId?: string;
+    };
+    const timestamp = typeof e.timestamp === 'number' ? e.timestamp : 0;
+    const payload = asRecord(e.payload);
+    if (e.type === 'company.agent:trace') {
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const it = item as Record<string, unknown>;
+        const kind = asString(it.kind) ?? 'thought';
+        const text = asString(it.text);
+        const toolId = asString(it.toolId);
+        const ts = typeof it.ts === 'number' ? it.ts : timestamp;
+        if (!text && !toolId) continue;
+        out.push({
+          type: 'company.agent:narrative',
+          timestamp: ts,
+          agentId: asString(payload.agentId) ?? e.agentId,
+          payload: {
+            role: asString(payload.role),
+            dimension: asString(payload.dimension),
+            tag: kind === 'action' ? 'action_executed' : 'thinking',
+            toolId,
+            text: text ?? (toolId ? `调用 ${toolId}` : ''),
+          },
+        });
+      }
+      continue;
+    }
+    if (typeof e.type !== 'string') continue;
+    out.push({
+      type: e.type,
+      payload: e.payload ?? {},
+      agentId: e.agentId,
+      traceId: e.traceId,
+      timestamp,
+    });
+  }
+  return out.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function companyMissionToDetailView(
+  mission: CompanyMissionSummary
+): MissionDetailView {
+  const result = asRecord(mission.result);
+  const steps = getCompanySteps(result);
+  const dimensions = getCompanyDimensions(result, steps);
+  const usage = getCompanyUsage(result);
+  const normalizedStatus =
+    normalizeCompanyMissionStatus(mission.status) as MissionViewStatus;
+  const terminal = asRecord(result.__terminal);
+  const reportArtifact =
+    result.reportArtifact ?? terminal.reportArtifact ?? undefined;
+  const reportMarkdown = extractCompanyMissionReportMarkdown(result);
+  const startedAt = mission.createdAt ?? mission.updatedAt;
+  const finishedAt =
+    mission.completedAt ??
+    asString(result.completedAt) ??
+    (normalizedStatus === 'failed' || normalizedStatus === 'cancelled'
+      ? mission.updatedAt
+      : undefined);
+  const stages = steps.map((step, index) => {
+    const id = normalizeCompanyStepId(step.stepId, step.role, index);
+    return {
+      id,
+      label: step.label ?? id,
+      status: normalizeCompanyStageStatus(step.status),
+      detail: step.statusLabel,
+    };
+  });
+  const agents = steps.map((step, index) => {
+    const role = normalizeCompanyAgentRole(step.role);
+    return {
+      id: `${role}-${index + 1}`,
+      role,
+      phase: normalizeCompanyAgentPhase(step.status),
+      dimension: step.dimension,
+    };
+  });
+  return {
+    mission: {
+      id: mission.id,
+      title: mission.title ?? '未命名 Mission',
+      topic: mission.title ?? '未命名 Mission',
+      depth: 'deep',
+      language: 'zh-CN',
+      dimensions: dimensions.map((name, index) => ({
+        id: `company-dim-${index + 1}`,
+        name,
+      })),
+      themeSummary: asString(result.themeSummary),
+      status: normalizedStatus,
+      startedAt,
+      finishedAt,
+      failureMessage: asString(result.error) ?? asString(result.latestError),
+      resumable: !!asRecord(result.__checkpoint).lastStepId,
+      canCancel: normalizedStatus === 'running',
+      rerunnableStages: [],
+    },
+    stages,
+    agents,
+    reportArtifact:
+      reportArtifact ??
+      (reportMarkdown
+        ? {
+            kind: 'report-artifact',
+            metadata: { topic: mission.title },
+            content: { fullMarkdown: reportMarkdown },
+            sections: [],
+            citations: [],
+          }
+        : { kind: 'empty-artifact', reason: 'not-yet-materialized' }),
+    todoBoard: {
+      kind: 'todo-board',
+      items: steps.map((step, index) => {
+        const stepId = normalizeCompanyStepId(step.stepId, step.role, index);
+        const role = normalizeCompanyAgentRole(step.role);
+        const createdAt = startedAt ? Date.parse(startedAt) || 0 : 0;
+        return {
+          id: `company-step-${index + 1}`,
+          origin: 'system-stage',
+          createdBy: 'system',
+          createdAt,
+          reasonText: step.statusLabel ?? '',
+          scope: 'system',
+          title: step.label ?? stepId,
+          assignee: {
+            role,
+            agentId: `${role}-${index + 1}`,
+            dimensionName: step.dimension,
+          },
+          status: normalizeCompanyTodoStatus(step.status),
+          artifacts: [],
+          narrativeLog: [],
+          dimensionRef: step.dimension,
+          systemStageId: systemStageIdFromCompanyStepId(stepId),
+        };
+      }),
+    },
+    cost: {
+      tokensUsed: usage.totalTokens != null ? String(usage.totalTokens) : null,
+      costUsd:
+        usage.totalCostCents != null ? usage.totalCostCents / 100 : null,
+      elapsedWallTimeMs: null,
+      trajectoryStored: null,
+      currency: 'USD',
+    },
+    memory: { kind: 'empty-memory' },
+    timelineVersion: 0,
+    snapshotVersion: 0,
+    references: Array.isArray(result.references) ? result.references : [],
+    reportVersions: [],
+  };
 }
 
 export async function runTeam(
@@ -132,6 +574,89 @@ export async function runTeam(
     throw new Error('Failed to start mission: missionId missing in response');
   }
   return data as RunMissionResponse;
+}
+
+async function requestCompany<T>(
+  path: string,
+  init: RequestInit,
+  errorPrefix: string
+): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body) headers.set('Content-Type', 'application/json');
+  for (const [key, value] of Object.entries(getAuthHeader())) {
+    headers.set(key, value);
+  }
+  const res = await fetch(`${COMPANY_API_BASE}${path}`, {
+    ...init,
+    headers,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const detail = text.length > 200 ? text.slice(0, 200) + '…' : text;
+    throw new Error(`${errorPrefix}: ${res.status} ${detail}`);
+  }
+  let raw: unknown;
+  try {
+    raw = await res.json();
+  } catch {
+    throw new Error(`${errorPrefix}: invalid JSON response`);
+  }
+  return unwrapStandard<T>(raw);
+}
+
+/**
+ * AI 洞察页的 Solar 强模型入口。
+ *
+ * deep-insight-solar 是 Company/Hero capability，不是 legacy playground pipeline。
+ * 这里显式确保 Solar hero 存在，并用 expectedCapabilityId 防串线。
+ */
+export async function runSolarInsightMission(
+  input: RunMissionInput
+): Promise<RunMissionResponse> {
+  const rawHeroes = await requestCompany<
+    CompanyHeroSummary[] | { items?: CompanyHeroSummary[] }
+  >('/heroes', { method: 'GET' }, 'Failed to load company heroes');
+  const heroes = Array.isArray(rawHeroes)
+    ? rawHeroes
+    : (rawHeroes.items ?? []);
+  let hero = heroes.find(
+    (h) => h.capabilityId === DEEP_INSIGHT_SOLAR_CAPABILITY_ID
+  );
+  if (!hero) {
+    hero = await requestCompany<CompanyHeroSummary>(
+      '/heroes',
+      {
+        method: 'POST',
+        body: JSON.stringify({ capabilityId: DEEP_INSIGHT_SOLAR_CAPABILITY_ID }),
+      },
+      'Failed to adopt deep-insight-solar hero'
+    );
+  }
+  const mission = await requestCompany<CompanyMissionCreated>(
+    `/heroes/${encodeURIComponent(hero.id)}/missions`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        title: input.topic,
+        description: input.description,
+        depth: input.depth,
+        language: input.language,
+        withFigures: input.withFigures,
+        knowledgeBaseIds: input.knowledgeBaseIds,
+        searchTimeRange: input.searchTimeRange,
+        styleProfile: input.styleProfile,
+        lengthProfile: input.lengthProfile,
+        audienceProfile: input.audienceProfile,
+        auditLayers: input.auditLayers,
+        expectedCapabilityId: DEEP_INSIGHT_SOLAR_CAPABILITY_ID,
+      }),
+    },
+    'Failed to start deep-insight-solar mission'
+  );
+  if (!mission.id) {
+    throw new Error('Failed to start deep-insight-solar mission: id missing');
+  }
+  return { missionId: mission.id, streamNamespace: 'company' };
 }
 
 export interface MissionListItem {
@@ -230,9 +755,92 @@ export async function listMissions(): Promise<MissionListItem[]> {
     headers: { ...getAuthHeader() },
   });
   if (!res.ok) throw new Error(`Failed to list missions: ${res.status}`);
-  const raw = await res.json();
+  const raw: unknown = await res.json();
   const data = unwrapStandard<{ items?: MissionListItem[] }>(raw);
-  return data.items ?? [];
+  const playgroundMissions = data.items ?? [];
+  const companyMissions = await listCompanyInsightMissions().catch(() => []);
+  const byId = new Map<string, MissionListItem>();
+  for (const mission of [...playgroundMissions, ...companyMissions]) {
+    byId.set(mission.id, mission);
+  }
+  return [...byId.values()].sort((a, b) => {
+    const at = Date.parse(a.startedAt || '') || 0;
+    const bt = Date.parse(b.startedAt || '') || 0;
+    return bt - at;
+  });
+}
+
+async function listCompanyInsightMissions(): Promise<MissionListItem[]> {
+  const rawHeroes = await requestCompany<
+    CompanyHeroSummary[] | { items?: CompanyHeroSummary[] }
+  >('/heroes', { method: 'GET' }, 'Failed to load company heroes');
+  const heroes = Array.isArray(rawHeroes)
+    ? rawHeroes
+    : (rawHeroes.items ?? []);
+  const insightHeroIds = new Set(
+    heroes
+      .filter((hero) =>
+        ['deep-insight', DEEP_INSIGHT_SOLAR_CAPABILITY_ID].includes(
+          hero.capabilityId
+        )
+      )
+      .map((hero) => hero.id)
+  );
+  if (insightHeroIds.size === 0) return [];
+
+  const rawMissions = await requestCompany<
+    CompanyMissionSummary[] | { items?: CompanyMissionSummary[] }
+  >('/missions', { method: 'GET' }, 'Failed to load company missions');
+  const missions = Array.isArray(rawMissions)
+    ? rawMissions
+    : (rawMissions.items ?? []);
+
+  return missions
+    .filter((mission) => mission.heroId && insightHeroIds.has(mission.heroId))
+    .map(companyMissionToListItem);
+}
+
+function companyMissionToListItem(mission: CompanyMissionSummary): MissionListItem {
+  const result = asRecord(mission.result);
+  const dispatch = asRecord(result.__dispatch);
+  const extra = asRecord(dispatch.extra);
+  const normalizedStatus = normalizeCompanyMissionStatus(mission.status);
+  const reportMarkdown = extractCompanyMissionReportMarkdown(result);
+  const missingReportMessage =
+    normalizedStatus === 'completed' && !reportMarkdown
+      ? '报告缺失：任务被标记完成，但未持久化报告正文。'
+      : null;
+  const displayStatus =
+    missingReportMessage != null
+      ? 'failed'
+      : normalizedStatus === 'completed' && hasFailedCompanyMissionStep(result)
+        ? 'degraded'
+        : normalizedStatus;
+  return {
+    id: mission.id,
+    topic: mission.title ?? '未命名 Mission',
+    depth: asString(extra.depth) ?? 'standard',
+    language: asString(extra.language) ?? 'zh-CN',
+    status: displayStatus,
+    startedAt: mission.createdAt ?? mission.updatedAt ?? new Date(0).toISOString(),
+    completedAt: mission.completedAt ?? null,
+    elapsedWallTimeMs: null,
+    finalScore: null,
+    tokensUsed: null,
+    costUsd: null,
+    reportTitle: asString(result.reportTitle) ?? null,
+    reportSummary:
+      reportMarkdown ??
+      asString(result.themeSummary) ??
+      (normalizedStatus === 'running' ? 'Solar 强模型 Mission 进行中…' : null),
+    errorMessage:
+      missingReportMessage ??
+      asString(result.errorMessage) ??
+      asString(result.error) ??
+      asString(result.latestError) ??
+      null,
+    visibility: 'PRIVATE',
+  };
 }
 
 // ★ 2026-05-22 ③J/K 契约单一源：调研规模档位 + 预算字段上下限的唯一真源在后端
@@ -302,7 +910,7 @@ export async function getMissionDetail(id: string): Promise<MissionDetail> {
     headers: { ...getAuthHeader() },
   });
   if (!res.ok) throw new Error(`Failed to fetch mission: ${res.status}`);
-  const raw = await res.json();
+  const raw: unknown = await res.json();
   const data = unwrapStandard<{ mission?: MissionDetail }>(raw);
   if (!data.mission) throw new Error('Mission not found');
   return data.mission;
@@ -485,9 +1093,13 @@ export async function getMissionDetailView(
     }
   );
   if (!res.ok) {
+    if (isCompanyFallbackStatus(res.status)) {
+      const companyMission = await getCompanyMissionById(id);
+      if (companyMission) return companyMissionToDetailView(companyMission);
+    }
     throw new Error(`Failed to fetch mission view: ${res.status}`);
   }
-  const raw = await res.json();
+  const raw: unknown = await res.json();
   const data = unwrapStandard<{ view?: MissionDetailView }>(raw);
   if (!data.view) throw new Error('Mission view not found');
   return data.view;
@@ -642,6 +1254,30 @@ export async function rerunMission(
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Rerun failed: ${res.status} ${text.slice(0, 200)}`);
+  }
+  const raw: unknown = await res.json();
+  return unwrapStandard<{ missionId: string; streamNamespace: string }>(raw);
+}
+
+/**
+ * 继续 mission：同一个 missionId 从 checkpoint 续跑。
+ *
+ * 后端 playground 的实现复用 incremental 原地续跑逻辑；这里保留独立函数，
+ * 让 UI 的"继续上次"不再通过 rerunMission 命名路径触发。
+ */
+export async function resumeMission(
+  missionId: string
+): Promise<{ missionId: string; streamNamespace: string }> {
+  const res = await fetch(
+    `${API_BASE}/missions/${encodeURIComponent(missionId)}/resume`,
+    {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Resume failed: ${res.status} ${text.slice(0, 200)}`);
   }
   const raw: unknown = await res.json();
   return unwrapStandard<{ missionId: string; streamNamespace: string }>(raw);
@@ -805,6 +1441,16 @@ export async function replayMission(
     { headers: { ...getAuthHeader() } }
   );
   if (!res.ok) {
+    if (isCompanyFallbackStatus(res.status)) {
+      const companyMission = await getCompanyMissionById(missionId);
+      if (companyMission) {
+        const result = asRecord(companyMission.result);
+        const events = normalizeCompanyEventsForReplay(
+          Array.isArray(result.collab) ? result.collab : []
+        ).filter((ev) => sinceTs == null || ev.timestamp > sinceTs);
+        return { events, serverNow: Date.now() };
+      }
+    }
     throw new Error(`Failed to replay mission: ${res.status}`);
   }
   let raw: unknown;
@@ -970,18 +1616,17 @@ export async function fetchMissionDagCascade(
  * 若从未生成，返回 { status: 'NONE', graph: null, analyses: null, generatedAt: null }。
  */
 export async function getMissionGraph(
-  id: string
+  id: string,
+  basePath = API_BASE
 ): Promise<MissionGraphArtifact> {
-  const res = await fetch(
-    `${API_BASE}/missions/${encodeURIComponent(id)}/graph`,
-    { headers: { ...getAuthHeader() } }
+  const makeUrl = (root: string) =>
+    `${root}/missions/${encodeURIComponent(id)}/graph`;
+  const res = await fetchWithGraphBaseFallback(
+    basePath,
+    makeUrl,
+    { headers: { ...getAuthHeader() } },
+    'Failed to fetch mission graph'
   );
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(
-      `Failed to fetch mission graph: ${res.status} ${text.slice(0, 200)}`
-    );
-  }
   const raw: unknown = await res.json();
   return unwrapStandard<MissionGraphArtifact>(raw);
 }
@@ -990,41 +1635,39 @@ export async function getMissionGraph(
  * POST /missions/:id/graph — 触发图谱分析构建（同步，完成后返回 READY 结果）。
  */
 export async function buildMissionGraph(
-  id: string
+  id: string,
+  basePath = API_BASE
 ): Promise<MissionGraphArtifact> {
-  const res = await fetch(
-    `${API_BASE}/missions/${encodeURIComponent(id)}/graph`,
+  const makeUrl = (root: string) =>
+    `${root}/missions/${encodeURIComponent(id)}/graph`;
+  const res = await fetchWithGraphBaseFallback(
+    basePath,
+    makeUrl,
     {
       method: 'POST',
       headers: { ...getAuthHeader() },
-    }
+    },
+    'Failed to build mission graph'
   );
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(
-      `Failed to build mission graph: ${res.status} ${text.slice(0, 200)}`
-    );
-  }
   const raw: unknown = await res.json();
   return unwrapStandard<MissionGraphArtifact>(raw);
 }
 
 export async function enrichGraphNode(
   missionId: string,
-  nodeId: string
+  nodeId: string,
+  basePath = API_BASE
 ): Promise<NodeEnrichment> {
-  const res = await fetch(
-    `${API_BASE}/missions/${encodeURIComponent(
+  const makeUrl = (root: string) =>
+    `${root}/missions/${encodeURIComponent(
       missionId
-    )}/graph/node/${encodeURIComponent(nodeId)}/enrich`,
-    { headers: { ...getAuthHeader() } }
+    )}/graph/node/${encodeURIComponent(nodeId)}/enrich`;
+  const res = await fetchWithGraphBaseFallback(
+    basePath,
+    makeUrl,
+    { headers: { ...getAuthHeader() } },
+    'Failed to enrich graph node'
   );
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(
-      `Failed to enrich graph node: ${res.status} ${text.slice(0, 200)}`
-    );
-  }
   const raw: unknown = await res.json();
   return unwrapStandard<NodeEnrichment>(raw);
 }

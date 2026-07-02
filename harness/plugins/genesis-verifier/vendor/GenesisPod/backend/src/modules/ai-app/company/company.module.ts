@@ -18,6 +18,7 @@ import { CompanyMissionGraphService } from "./services/company-mission-graph.ser
 import { CompanyHeroService } from "./services/company-hero.service";
 import { COMPANY_MISSION_EVENTS } from "./events/company.events";
 import { SedimentModule } from "../library/sediment/sediment.module";
+import { MarketplaceModule } from "../marketplace/marketplace.module";
 
 /**
  * CompanyModule —— 一人公司 OS（详见 docs/features/one-person-company-os/design.md §10）。
@@ -32,6 +33,10 @@ import { SedimentModule } from "../library/sediment/sediment.module";
     AiEngineModule,
     ConfigModule,
     PrismaModule,
+    // Company mission execution resolves deep-insight capability runners from
+    // MarketplaceModule. Import it explicitly instead of relying on AppModule
+    // ordering, because PlaygroundModule also imports CompanyModule.
+    MarketplaceModule,
     // ★ post-run 沉淀：mission 完成把报告落 library notes（MissionSedimentService）。
     SedimentModule,
     // JwtService for JwtAuthGuard（WS / 后续 gateway 复用）
@@ -71,7 +76,7 @@ import { SedimentModule } from "../library/sediment/sediment.module";
     CompanyHeroService,
     CompanyMissionGateway,
   ],
-  exports: [],
+  exports: [CompanyMissionGraphService],
 })
 export class CompanyModule implements OnModuleInit {
   constructor(private readonly eventRegistry: EventRegistry) {}

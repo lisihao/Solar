@@ -49,6 +49,28 @@ function makeAdapter(
   return new CompanyMissionPersistenceAdapter(prisma as never, helper);
 }
 
+// ── checkpoint resume ─────────────────────────────────────────────────────────
+
+describe("CompanyMissionPersistenceAdapter.loadCheckpoint", () => {
+  it("兼容旧 checkpoint：缺 topic/crossState 时仍可从 lastStepId 续跑", async () => {
+    const prisma = makePrisma();
+    prisma.companyMission.findUnique = jest.fn().mockResolvedValue({
+      result: {
+        __checkpoint: {
+          lastStepId: "s5-reconciler",
+        },
+      },
+    });
+    const adapter = makeAdapter(prisma, makeHelper(prisma));
+
+    await expect(adapter.loadCheckpoint("mission-1")).resolves.toEqual({
+      lastStepId: "s5-reconciler",
+      topic: "mission-1",
+      crossState: {},
+    });
+  });
+});
+
 // ── recordPlanDimensions ───────────────────────────────────────────────────────
 
 describe("CompanyMissionPersistenceAdapter.recordPlanDimensions", () => {

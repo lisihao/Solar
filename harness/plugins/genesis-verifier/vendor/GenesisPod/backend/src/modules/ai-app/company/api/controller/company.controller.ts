@@ -345,6 +345,7 @@ export class CompanyController {
         lengthProfile: dto.lengthProfile,
         audienceProfile: dto.audienceProfile,
         auditLayers: dto.auditLayers,
+        expectedCapabilityId: dto.expectedCapabilityId,
       },
     );
   }

@@ -255,6 +255,20 @@ function adaptMission(m: BackendMission): CompanyMission {
   };
 }
 
+function formatApiFailure(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const e = err as { message?: unknown; status?: unknown; code?: unknown };
+    const parts = [
+      typeof e.status === 'number' ? `HTTP ${e.status}` : null,
+      typeof e.code === 'string' ? e.code : null,
+      typeof e.message === 'string' ? e.message : null,
+    ].filter(Boolean);
+    if (parts.length > 0) return parts.join(' · ');
+  }
+  return String(err);
+}
+
 interface CompanyState {
   loading: boolean;
   ceoId: string | null;
@@ -347,6 +361,7 @@ interface CompanyState {
         | 'mega';
       audienceProfile?: 'executive' | 'domain-expert' | 'general-public';
       auditLayers?: 'minimal' | 'default' | 'thorough' | 'thorough+';
+      expectedCapabilityId?: string;
     }
   ) => Promise<string | null>;
 }
@@ -958,13 +973,16 @@ export const useCompanyStore = create<CompanyState>((set, get) => ({
           lengthProfile: opts?.lengthProfile,
           audienceProfile: opts?.audienceProfile,
           auditLayers: opts?.auditLayers,
+          expectedCapabilityId: opts?.expectedCapabilityId,
         }
       );
       const mission = adaptMission(raw);
       set((s) => ({ missions: [mission, ...s.missions] }));
       return mission.id;
-    } catch {
-      toast.error('下达任务失败，请稍后重试');
+    } catch (err) {
+      const detail = formatApiFailure(err);
+      console.error('[company.createHeroMission] failed', err);
+      toast.error('下达任务失败', detail);
       return null;
     }
   },

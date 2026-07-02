@@ -168,6 +168,7 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
     missionId: string,
     snapshot: {
       lastStepId: string;
+      inFlightStepId?: string | null;
       topic: string;
       crossState: Readonly<Record<string, unknown>>;
     },
@@ -180,6 +181,9 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
       if (!row || !this.isRunning(row.status)) return false;
       await this.patchCheckpoint(missionId, {
         lastStepId: snapshot.lastStepId,
+        ...(snapshot.inFlightStepId !== undefined
+          ? { inFlightStepId: snapshot.inFlightStepId }
+          : {}),
         topic: snapshot.topic,
         crossState: snapshot.crossState,
       });
@@ -195,6 +199,7 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
   /** 读 checkpoint：从 result.__checkpoint 还原（company 当前不强求 resume，留接口完整）。 */
   async loadCheckpoint(missionId: string): Promise<{
     lastStepId: string;
+    inFlightStepId?: string | null;
     topic: string;
     crossState: Readonly<Record<string, unknown>>;
   } | null> {
@@ -217,18 +222,30 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
           : null;
       if (
         !cp ||
-        typeof cp.lastStepId !== "string" ||
-        typeof cp.topic !== "string"
+        typeof cp.lastStepId !== "string"
       ) {
         return null;
       }
+      const topic =
+        typeof cp.topic === "string" && cp.topic.trim().length > 0
+          ? cp.topic
+          : missionId;
       const crossState =
         cp.crossState &&
         typeof cp.crossState === "object" &&
         !Array.isArray(cp.crossState)
           ? (cp.crossState as Record<string, unknown>)
           : {};
-      return { lastStepId: cp.lastStepId, topic: cp.topic, crossState };
+      return {
+        lastStepId: cp.lastStepId,
+        topic,
+        crossState,
+        ...(typeof cp.inFlightStepId === "string"
+          ? { inFlightStepId: cp.inFlightStepId }
+          : cp.inFlightStepId === null
+            ? { inFlightStepId: null }
+            : {}),
+      };
     } catch (err: unknown) {
       this.log.warn(
         `loadCheckpoint ${missionId} failed (best-effort): ${err instanceof Error ? err.message : String(err)}`,
@@ -308,8 +325,46 @@ export class CompanyMissionPersistenceAdapter implements MissionPersistencePort 
         ...(typeof details.elapsedWallTimeMs === "number"
           ? { elapsedWallTimeMs: details.elapsedWallTimeMs }
           : {}),
+        ...(details.reportArtifact !== undefined
+          ? { reportArtifact: details.reportArtifact }
+          : {}),
+        ...(details.leaderSignOff !== undefined
+          ? { leaderSignOff: details.leaderSignOff }
+          : {}),
+        ...(details.dimensions !== undefined
+          ? { dimensions: details.dimensions }
+          : {}),
+        ...(details.report !== undefined ? { report: details.report } : {}),
         appliedAt: new Date().toISOString(),
       };
+      if (outcome === "completed") {
+        const artifact = details.reportArtifact as
+          | { content?: { fullMarkdown?: unknown } }
+          | undefined;
+        const fullMarkdown =
+          typeof artifact?.content?.fullMarkdown === "string"
+            ? artifact.content.fullMarkdown
+            : undefined;
+        if (details.reportArtifact !== undefined && result.reportArtifact === undefined) {
+          result.reportArtifact = details.reportArtifact;
+        }
+        if (details.leaderSignOff !== undefined && result.leaderSignOff === undefined) {
+          result.leaderSignOff = details.leaderSignOff;
+        }
+        if (details.dimensions !== undefined && result.dimensions === undefined) {
+          result.dimensions = details.dimensions;
+        }
+        if (typeof details.report === "string" && result.report === undefined) {
+          result.report = details.report;
+        }
+        if (result.summary === undefined) {
+          result.summary =
+            typeof details.report === "string"
+              ? details.report
+              : fullMarkdown ?? "";
+        }
+        result.live = false;
+      }
 
       // 首写赢：updateMany WHERE status ∈ running 集合；count===0 表示已被抢/已终态。
       const res = await this.prisma.companyMission.updateMany({

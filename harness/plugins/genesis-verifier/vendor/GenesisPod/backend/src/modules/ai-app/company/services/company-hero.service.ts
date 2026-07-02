@@ -12,7 +12,7 @@
  *   - createHeroMission(...)        派发 mission——委托 CompanyMissionService 跑能力路径。
  */
 
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "@/common/prisma/prisma.service";
 import type { CompanyHero, CompanyMission } from "@prisma/client";
 import { CompanyMissionService } from "./company-mission.service";
@@ -129,12 +129,21 @@ export class CompanyHeroService {
         | "mega";
       audienceProfile?: "executive" | "domain-expert" | "general-public";
       auditLayers?: "minimal" | "default" | "thorough" | "thorough+";
+      expectedCapabilityId?: string;
     },
   ): Promise<CompanyMission> {
     const hero = await this.prisma.companyHero.findFirst({
       where: { id: heroId, userId },
     });
     if (!hero) throw new NotFoundException("Hero not found");
+    if (
+      extra?.expectedCapabilityId &&
+      extra.expectedCapabilityId !== hero.capabilityId
+    ) {
+      throw new BadRequestException(
+        `Hero capability mismatch: expected ${extra.expectedCapabilityId}, got ${hero.capabilityId}`,
+      );
+    }
 
     const preferredModelId = hero.models[0] ?? "";
     return this.missionService.createHeroMission(

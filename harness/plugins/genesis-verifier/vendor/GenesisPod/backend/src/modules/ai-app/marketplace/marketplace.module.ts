@@ -17,6 +17,8 @@ import { MissionPipelineOrchestrator } from "@/modules/ai-harness/facade";
 import { AiEngineModule } from "../../ai-engine/ai-engine.module";
 import { CapabilityRegistry } from "./capability/capability-registry";
 import { DeepInsightDefaultRunner } from "./capabilities/deep-insight/deep-insight.runner";
+import { DeepInsightSolarRunner } from "./capabilities/deep-insight-solar/deep-insight-solar.runner";
+import { SubprocessSolarHarnessOperatorPort } from "./capabilities/deep-insight-solar/ports/solar-harness-operator.port";
 import { MissionGraphBuilderService } from "./graph/mission-graph-builder.service";
 import { MarketplaceCatalogService } from "./catalog/marketplace-catalog.service";
 import { MarketplaceController } from "./catalog/marketplace.controller";
@@ -47,6 +49,9 @@ import { MarketplaceController } from "./catalog/marketplace.controller";
     MissionPipelineOrchestrator,
     // 上架能力的默认执行实现（onModuleInit 自注册进 CapabilityRegistry）。
     DeepInsightDefaultRunner,
+    // Solar 强模型实验线：原 deep-insight 不动，注册独立 deep-insight-solar capability。
+    SubprocessSolarHarnessOperatorPort,
+    DeepInsightSolarRunner,
     // 市场目录投影服务（registry → 货架）。
     MarketplaceCatalogService,
     // 平台共享图谱构建器（报告正文 → 图谱）；playground / company 复用。

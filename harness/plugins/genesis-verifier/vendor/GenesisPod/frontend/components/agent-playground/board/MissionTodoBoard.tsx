@@ -263,6 +263,7 @@ function resolveModel(
   todo: MissionTodo,
   agents: AgentLiveState[]
 ): string | undefined {
+  if (todo.modelId) return todo.modelId;
   const ref = todo.agentRefId;
   if (ref) {
     const a =
@@ -278,7 +279,7 @@ function resolveModel(
     if (a?.modelId) return a.modelId;
   }
   const byRole = agents.find((x) => x.role === todo.assignee.role);
-  return byRole?.modelId;
+  return byRole?.modelId ?? ROLE_INSPECTOR_PROFILE[todo.assignee.role].modelHint;
 }
 
 /** todo.status 映射到 StatusPill 的 status key */
@@ -890,7 +891,14 @@ export function MissionTodoBoard({
       </div>
       <div className="flex items-center gap-3 text-xs">
         {(
-          ['done', 'in_progress', 'pending', 'failed', 'cancelled'] as const
+          [
+            'done',
+            'in_progress',
+            'pending',
+            'blocked',
+            'failed',
+            'cancelled',
+          ] as const
         ).map((k) =>
           counts[k] ? (
             <span key={k} className="flex items-center gap-1 text-gray-500">
@@ -899,6 +907,7 @@ export function MissionTodoBoard({
                   'h-1.5 w-1.5 rounded-full',
                   k === 'done' && 'bg-emerald-500',
                   k === 'in_progress' && 'animate-pulse bg-blue-500',
+                  k === 'blocked' && 'bg-amber-500',
                   k === 'failed' && 'bg-red-500',
                   k === 'cancelled' && 'bg-gray-400',
                   k === 'pending' && 'bg-gray-300'

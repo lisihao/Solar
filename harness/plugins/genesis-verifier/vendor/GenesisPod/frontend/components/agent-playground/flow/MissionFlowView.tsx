@@ -354,9 +354,12 @@ export function MissionFlowView({
     return filterRole ? all.filter((f) => f.role === filterRole) : all;
   }, [events, filterRole]);
 
+  const mission = view?.mission;
+  const agents = Array.isArray(view?.agents) ? view.agents : [];
+
   // canonical view 暴露 ISO string；timeline math 需要 number。
-  const startedAtMs = view.mission.startedAt
-    ? new Date(view.mission.startedAt).getTime()
+  const startedAtMs = mission?.startedAt
+    ? new Date(mission.startedAt).getTime()
     : undefined;
   // ★ 2026-05-27 Hydration 修复 (React #418)：mission 还没 startedAt 也没事件时
   //   anchor 不能 fallback Date.now() —— 服务端 T1 / 客户端 T2 不同 → fmtRelative
@@ -365,16 +368,16 @@ export function MissionFlowView({
   const anchor = startedAtMs ?? events[0]?.timestamp ?? 0;
 
   // canonical status enum 已 §6.4.1.a 完成 rejected → quality-failed 投影。
-  const status = view.mission.status;
+  const status = mission?.status ?? 'running';
   const isCompleted = status === 'completed' || status === 'quality-failed';
   const isFailed = status === 'failed' || status === 'cancelled';
 
   // Active agents (running) + done count
-  const runningAgents = view.agents.filter((a) => a.phase === 'running');
-  const completedAgents = view.agents.filter(
+  const runningAgents = agents.filter((a) => a.phase === 'running');
+  const completedAgents = agents.filter(
     (a) => a.phase === 'completed'
   ).length;
-  const failedAgents = view.agents.filter((a) => a.phase === 'failed').length;
+  const failedAgents = agents.filter((a) => a.phase === 'failed').length;
 
   // Stage status from todoLedger system todos
   const systemTodoMap = new Map<SystemStageId, MissionTodo>();
@@ -436,9 +439,9 @@ export function MissionFlowView({
                     : 'Mission 等待启动'}
             </p>
             <p className="mt-0.5 text-xs text-gray-500">
-              {view.agents.length > 0 && (
+              {agents.length > 0 && (
                 <>
-                  共 {view.agents.length} 个 Agent · 完成 {completedAgents}
+                  共 {agents.length} 个 Agent · 完成 {completedAgents}
                   {failedAgents > 0 && ` · 失败 ${failedAgents}`}
                 </>
               )}
