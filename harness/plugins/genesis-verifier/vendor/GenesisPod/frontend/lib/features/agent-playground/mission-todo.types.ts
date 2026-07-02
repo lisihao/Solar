@@ -116,6 +116,7 @@ export interface MissionTodo {
   narrativeLog: MissionTodoNarrativeItem[];
   agentRefId?: string;
   dimensionRef?: string;
+  modelId?: string;
   systemStageId?: SystemStageId;
   pipelineKey?: string;
   retryStrategy?: 'fresh-collect' | 'reuse-recompute';

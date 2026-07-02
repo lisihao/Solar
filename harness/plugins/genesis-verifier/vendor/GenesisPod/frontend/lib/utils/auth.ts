@@ -274,8 +274,9 @@ export async function refreshAccessToken(): Promise<AuthTokens | null> {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokens.accessToken}`,
+          Authorization: `Bearer ${tokens.refreshToken}`,
         },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
       });
 
       if (!response.ok) {

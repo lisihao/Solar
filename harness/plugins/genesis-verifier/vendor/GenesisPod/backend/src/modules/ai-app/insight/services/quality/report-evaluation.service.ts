@@ -160,10 +160,11 @@ export class ReportEvaluationService {
     topicType: string;
     chapters: ChapterInput[];
     language?: string; // zh/en，评审语言自适应
+    preferredModelId?: string;
   }): Promise<EvaluationResult> {
     // 1. 获取评审模型
     const { modelId: evaluatorModelId, isEvaluator } =
-      await this.resolveEvaluatorModel();
+      await this.resolveEvaluatorModel(input.preferredModelId);
     this.logger.log(
       `[evaluateReport] Evaluating ${input.chapters.length} chapters with model: ${evaluatorModelId || "default"} (type: ${isEvaluator ? "EVALUATOR" : "CHAT"})`,
     );
@@ -423,10 +424,12 @@ ${dimensionsList}
    * 解析评审模型：优先 EVALUATOR 类型，fallback 到 CHAT
    * 返回 { modelId, isEvaluator } 以便调用时正确设置 modelType
    */
-  private async resolveEvaluatorModel(): Promise<{
+  private async resolveEvaluatorModel(preferredModelId?: string): Promise<{
     modelId: string;
     isEvaluator: boolean;
   }> {
+    const explicit = preferredModelId?.trim();
+    if (explicit) return { modelId: explicit, isEvaluator: false };
     try {
       const model = await this.chatFacade.getDefaultModelByType(
         AIModelType.EVALUATOR,

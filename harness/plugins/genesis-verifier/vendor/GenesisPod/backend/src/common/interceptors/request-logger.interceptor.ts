@@ -10,7 +10,7 @@ import { Observable } from "rxjs";
 import { tap } from "rxjs/operators";
 import { Request, Response } from "express";
 import { StructuredLogger, logRequest } from "../utils/structured-logger";
-import { MetricsService } from "@/modules/platform/monitoring/metrics/metrics.service";
+import { MetricsService } from "../../modules/platform/monitoring/metrics/metrics.service";
 
 /** Slow request threshold in ms — requests exceeding this are always logged with WARN */
 const SLOW_REQUEST_THRESHOLD_MS = 500;
