@@ -26,6 +26,7 @@ const DIST = path.join(ROOT, "dist");
 const PATTERNS = [
   /\/duties\/[^/]+\.md$/, // duty markdown
   /\/[^/]+\.skill\.md$/, // skill md
+  /\/skills\/[^/]+\.md$/, // skill support markdown
   /\/SKILL\.md$/, // top-level SKILL.md
   /\/strategies\/[^/]+\.md$/, // strategy md
   /\/presets\/[^/]+\.json$/, // preset json
@@ -46,12 +47,27 @@ function walk(dir, cb) {
   }
 }
 
+function ensureSkillDirectories(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === "__tests__") continue;
+    const full = path.join(dir, entry.name);
+    if (!entry.isDirectory()) continue;
+    if (entry.name === "skills") {
+      const rel = path.relative(SRC, full);
+      fs.mkdirSync(path.join(DIST, rel), { recursive: true });
+    }
+    ensureSkillDirectories(full);
+  }
+}
+
 if (!fs.existsSync(DIST)) {
   console.error(
     `[copy-build-assets] dist not found at ${DIST}; nest build might have failed.`,
   );
   process.exit(1);
 }
+
+ensureSkillDirectories(SRC);
 
 walk(SRC, (file) => {
   const rel = path.relative(SRC, file).replace(/\\/g, "/");
