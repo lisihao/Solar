@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent 工程化进入上下文治理与 Eval Runtime 阶段</title>
+  <meta name="generator" content="html-anything solar adapter">
+  <meta name="x-solar-renderer" content="html-anything">
+  <meta name="x-html-anything-profile" content="design">
+  <style>
+
+:root {
+  --ha-bg: #0f1115;
+  --ha-surface: #171a21;
+  --ha-ink: #f4f6f8;
+  --ha-muted: #a5adb8;
+  --ha-accent: #8cc6ff;
+  --ha-rule: #293241;
+  --ha-badge: #1f2835;
+  --ha-serif: 'Source Serif 4', Georgia, serif;
+  --ha-sans: 'Inter Tight', system-ui, sans-serif;
+  --ha-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --ha-max: 1120px;
+  --ha-toc: 280px;
+  --ha-hero: clamp(46px, 6vw, 88px);
+  --ha-card-min: 190px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--ha-bg); color: var(--ha-ink); }
+body {
+  font-family: var(--ha-sans);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.ha-wrap { max-width: var(--ha-max); margin: 0 auto; padding: 40px 32px 72px; }
+.ha-topline, .ha-footline {
+  display:flex; justify-content:space-between; gap:16px; align-items:center;
+  border-bottom:1px solid var(--ha-rule); padding: 0 0 12px;
+  font-family: var(--ha-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted);
+}
+.ha-footline { border-bottom:none; border-top:1px solid var(--ha-rule); margin-top: 48px; padding-top: 16px; }
+.ha-hero { padding: 36px 0 28px; }
+.ha-kicker {
+  display:inline-flex; gap:10px; align-items:center; background: var(--ha-badge); color: var(--ha-accent);
+  padding: 5px 12px; border-radius: 999px; font-family: var(--ha-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+}
+.ha-title {
+  margin: 18px 0 0; font-family: var(--ha-serif); font-size: var(--ha-hero); line-height: 1.03; letter-spacing: -.03em; font-weight: 500;
+}
+.ha-title em { color: var(--ha-accent); font-style: italic; }
+.ha-lede { max-width: 52rem; margin: 18px 0 0; color: #3a382f; font-size: 19px; }
+.ha-badges { display:flex; flex-wrap:wrap; gap:8px; margin-top: 18px; }
+.ha-badge {
+  display:inline-flex; align-items:center; gap:6px; border: 1px solid var(--ha-rule);
+  padding: 6px 10px; border-radius: 999px; font-family: var(--ha-mono); font-size: 11px; color: var(--ha-muted);
+}
+.ha-layout { display:grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+@media (min-width: 1100px) {
+  .ha-layout { grid-template-columns: var(--ha-toc) minmax(0, 1fr); gap: 28px; }
+}
+.ha-toc {
+  position: sticky; top: 18px; align-self: start; border: 1px solid var(--ha-rule); background: var(--ha-surface);
+  padding: 18px 18px 14px; border-radius: 18px;
+}
+.ha-toc h2 { margin: 0 0 10px; font-size: 13px; font-family: var(--ha-mono); text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted); }
+.ha-toc ol { margin: 0; padding-left: 18px; }
+.ha-toc li { margin: 8px 0; }
+.ha-toc a { color: var(--ha-ink); text-decoration: none; }
+.ha-main section {
+  border-top: 1px solid var(--ha-rule); padding-top: 26px; margin-top: 26px;
+}
+.ha-main h2 {
+  margin: 0 0 16px; font-family: var(--ha-serif); font-size: clamp(28px, 3vw, 42px); line-height: 1.06; letter-spacing: -.02em; font-weight: 500;
+}
+.ha-main h3, .ha-main h4 { font-family: var(--ha-serif); letter-spacing: -.01em; }
+.ha-grid-2 { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.ha-card {
+  border: 1px solid var(--ha-rule); background: var(--ha-surface); padding: 20px 20px 18px; min-height: var(--ha-card-min);
+}
+.ha-card h3 { margin: 0 0 10px; font-size: 24px; }
+.ha-main p { margin: 0 0 14px; }
+.ha-main ul, .ha-main ol { margin: 0 0 16px 20px; }
+.ha-main li { margin: 6px 0; }
+.ha-main pre {
+  overflow:auto; background:#f0ede4; color:#2b2923; padding:16px 18px; border-radius: 14px; border:1px solid var(--ha-rule);
+  font-family: var(--ha-mono); font-size: 12px; line-height: 1.55;
+}
+.ha-main code {
+  font-family: var(--ha-mono); background:#ece7db; padding: 2px 6px; border-radius: 6px; font-size: .92em;
+}
+.ha-main table { width:100%; border-collapse: collapse; background: var(--ha-surface); border:1px solid var(--ha-rule); }
+.ha-main th, .ha-main td { border-bottom:1px solid var(--ha-rule); padding: 12px 14px; vertical-align: top; text-align:left; font-size: 14px; }
+.ha-main th { font-family: var(--ha-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted); background: #f2efe6; }
+.ha-diagram {
+  white-space: pre-wrap; background: #171614; color: #f7f4eb; border-radius: 18px; padding: 18px 20px; font-family: var(--ha-mono); font-size: 12px; line-height: 1.7;
+}
+.ha-muted { color: var(--ha-muted); }
+.ha-generator {
+  margin-top: 18px; font-family: var(--ha-mono); font-size: 11px; color: var(--ha-muted);
+}
+
+
+:root {
+  --ha-max: 1520px;
+  --ha-toc: 320px;
+}
+.ha-wrap {
+  padding: 28px 36px 84px;
+}
+.ha-topline, .ha-footline {
+  gap: 24px;
+}
+.ha-title {
+  max-width: 18ch;
+}
+.ha-lede {
+  max-width: 78rem;
+  font-size: 20px;
+  line-height: 1.75;
+}
+.ha-layout {
+  gap: 30px;
+}
+@media (min-width: 1180px) {
+  .ha-layout {
+    grid-template-columns: var(--ha-toc) minmax(0, 1fr);
+  }
+}
+.ha-main {
+  min-width: 0;
+}
+.ha-main section {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.ha-main .ai-report-sources,
+.ha-main .ai-report-material-map,
+.ha-main .ai-report-section {
+  border: 1px solid var(--ha-rule);
+  background: var(--ha-surface);
+  border-radius: 22px;
+  padding: 26px 28px 24px;
+}
+.ha-main .ai-report-section + .ai-report-section {
+  margin-top: 24px;
+}
+.ha-main .ai-report-sources + .ai-report-material-map,
+.ha-main .ai-report-material-map + .ai-report-section {
+  margin-top: 24px;
+}
+.ai-material-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  color: var(--ha-bg);
+  background: var(--ha-text);
+}
+.ai-material-chip {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ha-rule);
+}
+.ai-material-chip:last-child {
+  border-bottom: none;
+}
+.ai-material-chip span {
+  grid-row: 1 / span 2;
+  align-self: start;
+  justify-self: start;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ha-bg);
+  background: var(--ha-accent);
+}
+.ai-material-chip b {
+  font-weight: 750;
+}
+.ai-material-chip em {
+  font-style: normal;
+  color: var(--ha-muted);
+  font-size: 13px;
+}
+.ai-report-source-table {
+  overflow-x: auto;
+  border: 1px solid var(--ha-rule);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ha-surface) 92%, white 8%);
+}
+.ai-report-source-table table {
+  min-width: 1180px;
+  table-layout: fixed;
+  border: none;
+  margin: 0;
+}
+.ai-report-source-table th,
+.ai-report-source-table td {
+  border-bottom: 1px solid var(--ha-rule);
+  padding: 14px 16px;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto;
+}
+.ai-report-source-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.ai-report-source-table th:nth-child(1),
+.ai-report-source-table td:nth-child(1) {
+  width: 10%;
+}
+.ai-report-source-table th:nth-child(2),
+.ai-report-source-table td:nth-child(2) {
+  width: 18%;
+}
+.ai-report-source-table th:nth-child(3),
+.ai-report-source-table td:nth-child(3) {
+  width: 34%;
+}
+.ai-report-source-table td:nth-child(3) a,
+.ai-material-chip a {
+  color: var(--ha-accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ha-accent) 45%, transparent 55%);
+}
+.ai-report-source-table td:nth-child(3) a:hover,
+.ai-material-chip a:hover {
+  text-decoration: underline;
+}
+.ai-report-source-table th:nth-child(4),
+.ai-report-source-table td:nth-child(4) {
+  width: 16%;
+  white-space: normal;
+}
+.ai-report-source-table th:nth-child(5),
+.ai-report-source-table td:nth-child(5) {
+  width: 22%;
+}
+.ai-material-map-table table {
+  min-width: 1100px;
+  table-layout: fixed;
+}
+.ai-material-map-table th:nth-child(1),
+.ai-material-map-table td:nth-child(1) {
+  width: 42%;
+}
+.ai-material-map-table th:nth-child(2),
+.ai-material-map-table td:nth-child(2) {
+  width: 58%;
+}
+.ai-material-chip {
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: start;
+}
+.ai-material-chip span {
+  white-space: nowrap;
+}
+.ai-material-chip b,
+.ai-material-chip em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+@media (max-width: 900px) {
+  .ai-report-source-table table,
+  .ai-material-map-table table {
+    min-width: 920px;
+  }
+}
+.ai-arch-svg-card {
+  margin: 4px 0 28px;
+  padding: 0;
+  border: 1px solid var(--ha-rule);
+  border-radius: 28px;
+  overflow: hidden;
+  background: #f8fafc;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .10);
+}
+.ai-arch-svg-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ai-notebooklm-figures {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 22px;
+}
+.ai-notebooklm-figure {
+  margin: 0;
+  border: 1px solid var(--ha-rule);
+  border-radius: 22px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(248,250,252,.98), rgba(255,248,240,.96));
+  box-shadow: 0 14px 38px rgba(15, 23, 42, .08);
+}
+.ai-notebooklm-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #f8fafc;
+}
+.ai-notebooklm-figure figcaption {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px 18px;
+}
+.ai-notebooklm-figure figcaption strong {
+  font-size: 17px;
+  color: #0f172a;
+}
+.ai-notebooklm-figure figcaption span,
+.ai-notebooklm-figure figcaption em {
+  color: var(--ha-muted);
+  font-size: 14px;
+  font-style: normal;
+  line-height: 1.65;
+}
+.ai-report-section h2 {
+  margin: 0 0 18px;
+  font-size: clamp(30px, 3vw, 44px);
+}
+.ai-report-prose h4 {
+  margin-top: 24px;
+  margin-bottom: 12px;
+  font-size: 24px;
+}
+.ai-report-prose p {
+  margin: 0 0 16px;
+  font-size: 17px;
+  line-height: 1.9;
+  max-width: none;
+}
+.ai-section-material-intro {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.ai-report-prose ul,
+.ai-report-prose ol {
+  margin-left: 22px;
+}
+.ha-toc {
+  top: 24px;
+  border-radius: 20px;
+  padding: 20px 20px 16px;
+}
+.ha-toc li {
+  margin: 10px 0;
+  line-height: 1.55;
+}
+
+  </style>
+</head>
+<body>
+  <div class="ha-wrap">
+    <header class="ha-topline">
+      <span>AI Influence</span>
+      <span>3 条公开视频素材 / 发布于 2026-06-08</span>
+      <span></span>
+    </header>
+
+    <section class="ha-hero">
+      <div class="ha-kicker">AI Influence Briefing</div>
+      <h1 class="ha-title">Agent 工程化进入上下文治理与 Eval Runtime 阶段</h1>
+      <p class="ha-lede">本报告围绕 Agent 工程化进入上下文治理与 Eval Runtime 阶段 主题整理，正文判断只基于本期选入的 3 条公开视频素材；首页先给你看素材来源，正文再展开趋势判断。</p>
+
+
+    </section>
+
+    <div class="ha-layout">
+      <aside class="ha-toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#section-1-item">摘要</a></li><li><a href="#section-2-item">关键视频证据</a></li><li><a href="#section-3-item">访谈原意摘要与观点归纳</a></li><li><a href="#section-4-item">趋势分析：上下文不是越多越好</a></li><li><a href="#section-5-eval-runtime">Eval 进入 runtime</a></li><li><a href="#section-6-solar-harness">对 Solar-Harness 的工程落点</a></li><li><a href="#section-7-item">影响与落点</a></li><li><a href="#section-8-open-questions">Open Questions</a></li>
+  </ol>
+</aside>
+      <main class="ha-main">
+        <section class="ai-report-sources">
+  <h2>本期素材</h2>
+  <div class="ai-report-source-table">
+  <table>
+    <thead>
+      <tr>
+        <th>素材</th>
+        <th>频道</th>
+        <th>视频标题</th>
+        <th>发布时间 / 时长</th>
+        <th>摘要</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+  <td><span class="ai-material-ref" data-video-ref="V006">素材 1</span></td>
+  <td>AI Engineer</td>
+  <td><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI</a></td>
+  <td>2026-06-08 13:00 EDT<br><span class="ha-muted">N/A</span></td>
+  <td>Everyone, my name is Max. I am VP of research and development at Together AI. And today, I&#x27;m going to tell you about our research project, which is called Road to 5 million se…</td>
+</tr><tr>
+  <td><span class="ai-material-ref" data-video-ref="V009">素材 2</span></td>
+  <td>AI Engineer</td>
+  <td><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></td>
+  <td>2026-06-08 11:00 EDT<br><span class="ha-muted">N/A</span></td>
+  <td>I&#x27;m Nupur. I work with Kodo. Uh at Kodo we do agentic reviews. Uh I have a background in dev sec ops. So I&#x27;m coming from an industry where everything was deterministic. The pi…</td>
+</tr><tr>
+  <td><span class="ai-material-ref" data-video-ref="V011">素材 3</span></td>
+  <td>AI Engineer</td>
+  <td><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare</a></td>
+  <td>2026-06-08 09:00 EDT<br><span class="ha-muted">N/A</span></td>
+  <td>AI Engineer / Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare：作为本报告的视频材料，用于支撑对应章节的趋势判断和素材反查。</td>
+</tr>
+    </tbody>
+  </table>
+</div>
+</section>
+<section class="ai-report-material-map">
+  <h2>章节与视频素材对应表</h2>
+  <p class="ha-muted">每个判断都对应到本期公开视频素材，方便反查来源；表内编号与“本期素材”一致。</p>
+  <div class="ai-report-source-table ai-material-map-table">
+    <table>
+      <thead>
+        <tr>
+          <th>报告章节</th>
+          <th>对应视频素材</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+  <td><strong>演讲原意摘要与观点归纳：三条材料分别在解决什么问题</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI</a></b><em>AI Engineer / 2026-06-08 13:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V009">素材 2</span><b><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></b><em>AI Engineer / 2026-06-08 11:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V011">素材 3</span><b><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare</a></b><em>AI Engineer / 2026-06-08 09:00 EDT</em></div></td>
+</tr><tr>
+  <td><strong>上下文不是越多越好：长上下文能力与上下文治理的张力</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI</a></b><em>AI Engineer / 2026-06-08 13:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V009">素材 2</span><b><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></b><em>AI Engineer / 2026-06-08 11:00 EDT</em></div></td>
+</tr><tr>
+  <td><strong>Eval 进入 runtime：从离线 benchmark 到执行链路中的计算节点</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V011">素材 3</span><b><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare</a></b><em>AI Engineer / 2026-06-08 09:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V009">素材 2</span><b><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></b><em>AI Engineer / 2026-06-08 11:00 EDT</em></div></td>
+</tr><tr>
+  <td><strong>对 AI Influence / Solar-Harness 的落点：context compiler、eval loop 与 runtime governance</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI</a></b><em>AI Engineer / 2026-06-08 13:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V009">素材 2</span><b><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></b><em>AI Engineer / 2026-06-08 11:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V011">素材 3</span><b><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare</a></b><em>AI Engineer / 2026-06-08 09:00 EDT</em></div></td>
+</tr><tr>
+  <td><strong>演讲原意摘要与观点归纳</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI</a></b><em>AI Engineer / 2026-06-08 13:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V009">素材 2</span><b><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></b><em>AI Engineer / 2026-06-08 11:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V011">素材 3</span><b><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare</a></b><em>AI Engineer / 2026-06-08 09:00 EDT</em></div></td>
+</tr><tr>
+  <td><strong>上下文不是越多越好</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI</a></b><em>AI Engineer / 2026-06-08 13:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V009">素材 2</span><b><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></b><em>AI Engineer / 2026-06-08 11:00 EDT</em></div></td>
+</tr><tr>
+  <td><strong>Eval 进入 runtime</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V011">素材 3</span><b><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare</a></b><em>AI Engineer / 2026-06-08 09:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V009">素材 2</span><b><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></b><em>AI Engineer / 2026-06-08 11:00 EDT</em></div></td>
+</tr><tr>
+  <td><strong>对 Solar-Harness 的工程落点</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V006">素材 1</span><b><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI</a></b><em>AI Engineer / 2026-06-08 13:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V009">素材 2</span><b><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo</a></b><em>AI Engineer / 2026-06-08 11:00 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V011">素材 3</span><b><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare</a></b><em>AI Engineer / 2026-06-08 09:00 EDT</em></div></td>
+</tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+<section class="ai-report-section" id="section-1-item">
+  <h2>摘要</h2>
+  <div class="ai-report-prose">
+    <p>本报告基于本期公开视频材料整理判断，先给出关键视频证据，再按章节展开分析、证据边界与后续观察。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-2-item">
+  <h2>关键视频证据</h2>
+  <div class="ai-report-prose">
+    <ul>
+<li><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Long Context Tra…</a>，发布于 2026-06-08。</li>
+
+<li><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What to Do About I…</a>，发布于 2026-06-08。</li>
+
+<li><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Ma…</a>，发布于 2026-06-08。</li>
+</ul>
+  </div>
+</section>
+<section class="ai-report-section" id="section-3-item">
+  <h2>访谈原意摘要与观点归纳</h2>
+  <div class="ai-report-prose">
+    <p>本章可形成的核心判断是：这组三条材料共同指向 agent 工程化从“扩大上下文窗口”转向“上下文治理、训练侧能力建设、运行时评测机制”的变化。但这个判断需要分层处理。AI Engineer 频道《Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI》（<a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a>，2026-06-08）提供的是训练与系统基础设施层面的依据；AI Engineer 频道《Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo》（<a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a>，2026-06-08）提供的是 agent 应用与上下文选择层面的依据；AI Engineer 频道《Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare》（<a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a>，2026-06-08）从标题与基础材料看，指向评测作为运行时计算原语的方向，但由于当前材料没有可用演讲片段，暂不作为强结论展开。</p>
+<p>三条演讲分别对应的工程层次</p>
+<p><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a> 讨论的是长上下文模型训练的系统瓶颈。Max Ryabinin 的论证顺序很清楚：先说明 Together AI 覆盖模型创建、模型定制、微调、强化学习和推理服务等环节，然后把本次演讲限定在模型训练、定制和微调。随后，他解释为什么社区在过去一段时间越来越关注长上下文训练：一是 agent 应用希望把更多 token 放入上下文，并期待模型有效利用这些上下文；二是视频生成等应用需要处理大量帧信息，并保持时间一致性。由此，他把问题落到训练时能力：如果希望模型在使用时正确处理长上下文，就必须在训练阶段让模型具备处理这些上下文的能力。</p>
+<p>这不是“应用层 prompt 优化”的问题，而是训练系统能否承载更长序列的问题。该视频明确指出，标准 Transformer 扩展上下文时会遇到两个瓶颈：注意力带来的二次计算，以及随序列长度增长而线性增加的内存压力。讲者随后以 Llama 3B 架构、300 万训练 token、8 张 H100 GPU 节点为例，说明即便只是放置模型参数，也会遇到 GPU 内存不足，需要进一步引入全分片数据并行等技术路径。这里的原意是：长上下文不是单纯把窗口做大，而是训练时计算、内存和并行策略共同决定的系统工程。</p>
+<p><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 解决的是另一个层面：即便模型或系统允许更大上下文，agent 也未必更聪明。Nupur Sharma 从 DevSecOps 的确定性工程经验切入，强调自己进入 agent 场景后面对的是非确定性系统。她先回顾 agent 的演进：早期是静态 prompt 和 4K 上下文窗口，开发者必须判断哪些信息重要；随后进入 agentic workflow，通过工具搜索文档、执行命令，但容易形成“不断搜索、不断要更多输入”的循环；再往后进入 multi-agent 架构，安全 agent、review agent、coding agent 等并行工作，但更多 agent 和工具也带来理解冲突，导致结果不稳定。</p>
+<p>她的关键观点不是“上下文不够”，而是“上下文并不自动等于有效信息”。她观察到，当前模型在长上下文中更容易关注开头和结尾，中间材料容易被忽略，形成类似 U 型注意力分布。她还说明，这一判断来自团队在 agentic review 和多 agent 架构中的 benchmark 实践：例如代码审查任务中，即使提供完整代码库、Jira、MCP 等材料，模型仍可能聚焦初始目标和末尾输入，中间上下文被弱化或清理掉。她由此主张，不应把所有材料直接塞给模型并期待模型自行判断重点，而应建设 context optimization 或 context engine，通过搜索模式、排序逻辑等方式，让模型获得更适合任务的上下文。</p>
+<p><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a> 的题目指向第三层：eval 不只是离线验证，而可能成为 agent runtime 中的计算原语。材料显示，AI Engineer 频道《Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare》由 Cloudflare 相关讲者讨论 Eval++。但当前证据包没有提供可用演讲片段，因此不能还原其论证顺序、案例和保留意见。可以谨慎写入的只有：它在本章节组合中承担“评测运行时化”这一候选位置；至于讲者是否明确提出 eval 进入运行时、如何定义 Eval++、是否涉及 Cloudflare agents 的具体机制，证据不足，暂不作为强结论。</p>
+<p>讲者原意与报告作者判断的边界</p>
+<p>讲者原意可以明确落在三点。</p>
+<p>第一，该视频的原意是长上下文能力必须回到训练时系统能力建设，尤其是计算复杂度、显存增长和并行训练策略。agent 是推动长上下文需求的重要应用之一，但该视频并没有直接讨论 agent 应用里的上下文治理，也没有提供 agent runtime 设计方案。</p>
+<p>第二，该视频的原意是更多上下文并不自动提升 agent 质量，agent 需要上下文选择、排序和优化机制。她从静态 prompt、工具循环、多 agent 冲突一路讲到“不要 dump everything”，重点是应用层和 runtime 层的上下文治理，而不是训练长上下文模型本身。</p>
+<p>第三，该视频目前只能确认标题层面与 Eval++、compute primitive 相关。由于缺少片段，本章不能把它写成完整证据链，也不能替讲者补充具体定义、架构或案例。</p>
+<p>报告作者可以在这些材料基础上形成一个谨慎判断：agent 工程化正在分化为三类工程问题——训练侧把模型做成长上下文可用，应用侧把上下文变成可治理输入，运行时侧可能把 eval 变成持续判断与控制机制。但这只是基于该视频、该视频以及该视频标题位置得到的结构化归纳，不等同于三位讲者共同给出的统一结论。尤其是“Eval Runtime 阶段”这一说法，在本章材料中还缺少该视频的可用内容支撑，需要后续补充 转写 后再判断。</p>
+<h4>为什么重要</h4>
+<p>这组三条材料的价值在于，它们把“agent 做不好”的责任从模型能力单点问题，拆成了更可执行的工程栈问题。该视频提醒我们，长上下文不是免费能力，训练阶段就要面对二次计算和内存压力；<a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 提醒我们，长上下文也不是自动有效能力，应用层必须判断什么上下文应该进入模型、以什么顺序进入、如何避免工具和多 agent 之间互相干扰；<a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a> 如果后续材料得到确认，则可能补上第三块：agent 每一步是否可靠，不能只靠最终答案评测，而要把评测机制嵌入执行过程。</p>
+<p>这对 AI Influence 的报告主线很关键：agent 工程化不是“窗口更大、工具更多、agent 更多”这么简单，而是在训练、上下文编排、评测控制之间建立新的系统纪律。换句话说，下一阶段的竞争点不只是模型参数或上下文长度，而是能否把上下文变成可选择、可验证、可回归的工程对象。</p>
+<h4>不确定性与后续观察</h4>
+<p>本章证据存在明显限制。<a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a> 和 <a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 有可用片段，但 <a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a> 片段只覆盖演讲前半部分，后续优化路径和实验结果没有完整呈现；该视频) 片段也被截断，只能覆盖其问题定义、失败观察和 context optimization 方向，不能确认她后续是否给出完整方法论或量化结果。<a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a> 虽然是本章指定材料之一，但没有可用演讲片段，因此只能作为待验证材料，不能承担核心论据。</p>
+<p>后续需要重点补三件事：第一，补全该视频) 的技术细节，确认其长上下文训练方案具体用了哪些并行、分片或内存优化手段，以及是否真的达到 500 万 token 级别；第二，补全该视频) 的 context engine 方案，看它是否只是经验性排序，还是形成可评测、可复现的上下文治理框架；第三，补全该视频) 的演讲内容，确认 Eval++ 是否被定义为 agent runtime 的基础计算单元，以及它如何进入执行路径、资源调度或可靠性闭环。当前阶段可以把“上下文治理与 Eval Runtime”作为强观察方向，但不宜把三条材料写成已经完成闭环的行业共识。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-4-item">
+  <h2>趋势分析：上下文不是越多越好</h2>
+  <div class="ai-report-prose">
+    <p>基本判断</p>
+<p>长上下文正在成为 agent 系统的必要底座，但它不是充分条件。<a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a>，AI Engineer《Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI》给出的主线是：agent 应用和视频生成等场景确实在推动模型训练向更长序列扩展，因为这些任务需要模型处理更多历史、更多材料、更多连续状态。没有长上下文能力，agent 很难在复杂任务里保留足够的操作历史和任务背景。</p>
+<p>但 <a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a>，AI Engineer《Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo》提供了另一面：上下文窗口变大，并不意味着 agent 会自动理解全部上下文，也不意味着它会自动挑出关键材料。演讲者在代码评审、多 agent 协作和工具调用场景中观察到，模型往往更关注输入开头和结尾，中间材料容易被弱化或丢失；当把完整代码库、Jira、MCP 等材料都塞给模型时，结果并不必然变好。</p>
+<p>因此，本章的核心结论是：长上下文解决的是“能不能放进去”的基础设施问题；上下文治理解决的是“该放什么、放在哪里、如何排序、如何让 agent 使用”的控制面问题。前者是容量，后者是调度。只扩容量，不做治理，agent 很可能从“信息不足”转向“信息过载”。</p>
+<p>材料依据</p>
+<p><a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a> 的材料说明，长上下文训练之所以被重视，首先来自 agent 的需求。演讲中明确提到，随着 agent 应用流行，开发者希望把尽可能多的 token 放进上下文，并希望模型能够有效利用这些上下文。另一个需求来自视频生成：模型需要追踪多个帧，甚至每秒多个帧，并保持时间一致性，理解几秒前甚至几分钟前发生了什么。这个论证把长上下文定位为模型训练、定制和微调阶段的系统性问题，而不是单纯的提示词技巧。</p>
+<p>但该视频同时也说明，长上下文不是免费能力。标准 Transformer 扩展上下文会遇到两个瓶颈：一是计算随序列长度带来二次复杂度压力，因为序列元素之间存在两两交互；二是显存随上下文继续线性增长，虽然没有二次计算那么激烈，但在训练中仍然很难处理。演讲中还用 Llama 3B 架构、300 万训练 token、8 张 H100 的设定说明，即使只是放置模型参数，也可能先遇到显存约束，随后才需要进一步使用参数切分等技术。</p>
+<p><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 则把问题从训练侧拉回 agent 运行侧。演讲者回顾了 agent 从 4K 静态 prompt，到工具调用循环，再到多 agent 协作的演进：上下文越来越大，工具越来越多，参与任务的 agent 也越来越多，但失败模式没有消失，反而变得更复杂。搜索工具可能不知道何时停止，多 agent 之间可能理解冲突，模型可能在大量输入中只抓住开头和结尾，而忽略中间信息。</p>
+<p>这里形成了一个清晰张力：该视频证明长上下文训练有现实必要性，该视频则提示长上下文使用需要工程纪律。一个负责扩大模型可处理的上下文边界，一个提醒 agent 系统不能把“边界扩大”误解成“治理完成”。</p>
+<p>上下文选择正在变成 agent 控制面</p>
+<p>在传统软件系统里，控制面决定资源如何分配、任务如何路由、失败如何恢复。到了 agent 系统，上下文选择正在承担类似角色。因为 agent 的行为不是只由模型参数决定，还由它当前看到的任务目标、工具结果、代码片段、历史轨迹、外部文档和约束条件共同决定。换句话说，输入上下文就是 agent 的运行态配置。</p>
+<p>该视频中“context engine”这个说法值得重视。演讲者没有把它描述成简单的检索器，而是把它比作在高速系统前工作的筛选机制：面对大型、混乱的代码库，它需要建立搜索模式和排序逻辑，决定哪些材料更重要。这个表述说明，上下文治理不只是减少 token，而是把上下文从“材料堆”转成“任务相关证据集”。</p>
+<p>这也解释了为什么“上下文不是越多越好”。对 agent 来说，错误上下文、冗余上下文、排序不当的上下文都会改变执行路径。开头材料会强化初始目标，结尾材料会影响最终输出，中间材料如果没有被有效引用，实际就变成了计算负担。尤其在代码评审场景中，若模型看到了大量代码却没有抓住真正相关的变更、依赖、issue 或安全约束，长上下文不仅无法提升质量，还可能制造一种“系统已经看全了”的错觉。</p>
+<h4>为什么重要</h4>
+<p>这件事重要，是因为 agent 工程化的瓶颈正在从“模型有没有足够窗口”转向“系统有没有能力管理窗口”。长上下文模型会降低很多应用的入口门槛，但生产级 agent 仍然需要上下文选择、排序、压缩、分层、验证和回溯机制。否则，团队会把失败归因于模型不够强，实际问题可能是上下文控制面没有设计好。</p>
+<p>对 AI coding agent、代码评审 agent、DevSecOps agent 来说，这一点尤其关键。代码库、issue、工具输出、测试日志、历史提交和安全策略都可能进入上下文，但它们的价值不是等价的。系统必须知道哪些材料是任务目标，哪些是约束，哪些是证据，哪些只是背景。没有这种结构化治理，multi-agent 只会把上下文混乱放大：更多 agent、更多工具、更多 token，并不自然产生更好的协作结果。</p>
+<p>从产业角度看，<a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a> 指向底层模型与训练基础设施的竞争：谁能让模型训练到更长序列，谁就掌握更大的任务承载空间。<a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 指向应用运行时与工程框架的竞争：谁能更好地选择、组织、裁剪和验证上下文，谁就更接近可复用、可评估、可上线的 agent 系统。两者不是替代关系，而是上下游关系。</p>
+<h4>不确定性与后续观察</h4>
+<p>本章材料只覆盖两场 AI Engineer 演讲，且 <a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 可用片段主要集中在演讲前半部分。因此，“模型普遍忽略中间上下文”这一点可以作为来自实践和 benchmark 工作的观察点，但证据不足，暂不作为跨模型、跨任务的强结论。后续需要继续观察不同模型、不同上下文长度、不同任务类型下是否存在稳定的中间信息弱化现象。</p>
+<p>接下来重点看三件事。第一，长上下文训练是否能真正改善 agent 对远距离材料的使用，而不仅是扩大可输入长度。第二，context engine 是否会从检索增强组件升级为 agent runtime 的核心模块，承担排序、预算、压缩和证据选择。第三，agent 评测是否会把“上下文使用质量”作为独立指标，例如模型是否引用了关键中间材料、是否忽略了无关材料、是否能解释自己使用了哪些上下文。</p>
+<p>当前可以谨慎下一个判断：agent 工程化不会停留在“把更多东西塞进窗口”。真正有价值的方向，是把上下文变成可管理、可观测、可评测的运行时资产。长上下文是地基，但上下文治理才是系统能力。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-5-eval-runtime">
+  <h2>Eval 进入 runtime</h2>
+  <div class="ai-report-prose">
+    <p>本章判断</p>
+<p>Eval++ 是否已经成为“运行时计算原语”，这份材料只能支持一个克制判断：Eval 正在从离线验收环节，向 agent 执行过程中的控制机制移动；但仅凭当前材料，不能把它写成已经形成行业共识或成熟架构范式。</p>
+<p>这里的关键变化，不是“多做一些评测”，而是评测对象从最终答案扩展到执行过程：agent 是否拿到了正确上下文，是否在工具循环中失控，是否让多个 agent 的目标发生冲突，是否在长上下文中忽略了中间关键信息。这些问题如果只在任务结束后打分，已经太晚；它们需要在运行时参与调度、验证和反馈。</p>
+<p>材料依据</p>
+<p><a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a>，AI Engineer《Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo》（2026-06-08）提供了更扎实的工程侧材料。演讲者从 DevSecOps 的确定性流水线经验切入，强调 agent 系统进入了“非确定性”环境：过去 pipeline 崩溃后修复即可，但 agent 的失败位置和失败方式更难预判。她回顾了 agent 从静态 prompt、长上下文、工具调用循环到多 agent 协作的演进，并指出几个具体失败模式：上下文给错会导致结果偏离；工具调用可能不断回到搜索和补充信息，形成不知道何时停止的循环；多 agent 同时工作时，安全 agent、review agent、coding agent 之间可能出现理解冲突，导致结果无法收敛。</p>
+<p>这段材料对“Eval 进入 runtime”的支持在于：它把评测从结果质量问题，前移成了运行过程中的状态判断问题。演讲者提到，他们在创建 agent 时会 benchmark：给定上下文后，观察 agent 是否真正使用了这些上下文并反映到结果中。她还指出长上下文并不自动带来更聪明的结果，模型倾向于关注开头和结尾，中间内容可能被弱化或丢失；在代码评审场景中，即使给出整个代码库、Jira、MCP 等材料，agent 也可能压缩或清除中间上下文，只保留它自己认为能形成结果的部分。</p>
+<p>这也说明 Eval 的位置不应只在“最终输出是否正确”，还应进入上下文装载、工具调用、任务分解、agent 协作、结果合成等运行时节点。换句话说，Eval 要回答的不只是“答案好不好”，而是“当前这一步是否还在正确轨道上”。</p>
+<p><a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a>，AI Engineer《Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare》（2026-06-08）提供了章节主题的直接材料来源：Cloudflare 的两位讲者将 Eval++ 称为“next great compute primitive”。这个标题本身说明，至少在这场 AI Engineer 材料中，Eval++ 被放到了比传统测试、离线 benchmark 更基础的位置，接近调度、计算、验证这一层的基础构件。但当前证据包没有提供该视频可用的正文片段，也没有可核验的要点摘要，因此不能进一步展开 Cloudflare 具体如何定义 Eval++、如何实现、是否涉及边缘网络、worker runtime、流量调度或生产平台设计。</p>
+<p>Eval 如何参与调度、验证和反馈</p>
+<p>基于 <a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 的材料，Eval 进入 runtime 至少可以拆成三类更具体的依据。</p>
+<p>第一，Eval 参与上下文调度。演讲者反复指出，“把所有东西都塞进上下文”不是可靠策略，context engine 的价值在于筛选、排序、决定哪些材料更重要。这里的 Eval 不是离线分数，而是上下文路由器的一部分：系统需要评估当前任务需要哪些文件、哪些 issue、哪些工具输出，以及中间上下文是否被模型实际吸收。若没有这一层，长上下文只会扩大输入规模，不保证提升结果质量。</p>
+<p>第二，Eval 参与执行验证。工具调用循环和多 agent 冲突都不是最终答案阶段才出现的问题，而是在运行中逐步积累。系统需要判断搜索是否该继续、某个 agent 的结论是否与另一个 agent 冲突、任务是否已经偏离初始目标。这里 Eval 承担的是“关卡判断”角色，类似运行时断言、状态检查和停止条件。</p>
+<p>第三，Eval 参与反馈闭环。该补充视频中提到的 benchmarking，本质是在观察“给了什么上下文、agent 是否使用、结果是否体现”。这类观察如果沉淀下来，就能反过来改进上下文选择、agent 拆分、工具使用和多 agent 协作策略。Eval 因而不只是验收工具，而是运行系统的反馈通道。</p>
+<h4>为什么重要</h4>
+<p>Agent 工程化的核心难点正在从“能否调用模型”转向“能否稳定控制一段非确定性执行过程”。在传统软件里，控制流、异常、日志、测试和回归相对清晰；但在 agent 系统里，输入上下文、工具返回、模型注意力、多 agent 交互都会改变执行轨迹。该补充视频的材料显示，失败并不总是来自模型能力不足，也可能来自上下文组织方式、工具停止条件和 agent 间语义冲突。</p>
+<p>因此，Eval 进入 runtime 的意义在于重新定义 agent 平台的底座能力：平台不只负责 prompt 拼接和模型调用，还要持续判断“此刻是否可信、是否该继续、是否该重试、是否该切换上下文、是否该让另一个 agent 介入”。这比离线 benchmark 更接近生产系统的控制面。</p>
+<p>证据边界与后续观察</p>
+<p>本章必须保留一个重要限制：关于 <a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a> 的 Cloudflare 材料，当前只有标题、频道、发布时间和基本元信息，没有可用正文片段。因此，“Eval++ 是下一代计算原语”只能作为 Cloudflare 这场演讲的公开命题来引用，暂不作为强结论。我们不能据此推断 Cloudflare 已经提出完整 runtime 架构，也不能补写其产品实现、API 设计或生产案例。</p>
+<p>后续需要重点观察三件事：Cloudflare 是否把 Eval++ 具体落实为运行时 API 或平台能力；Eval 是否真正参与调度、停止、重试、回滚和上下文选择，而不只是日志后处理；以及不同团队是否开始用类似语言描述 agent runtime，即把评测从“质量部门”迁移到“执行引擎”。目前材料可以说明方向正在出现，但证据不足以证明范式已经完成迁移。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-6-solar-harness">
+  <h2>对 Solar-Harness 的工程落点</h2>
+  <div class="ai-report-prose">
+    <p>这一组材料给 Solar-Harness 的直接启发，不是简单把上下文窗口做大，也不是把 eval 当成离线 benchmark，而是把 agent 运行过程拆成三层工程能力：上下文编译、运行中评估、可追踪治理。三者对应的是同一个问题：当 agent 从单轮 prompt 走向长上下文、多工具、多 agent 协作时，失败不再只来自模型能力不足，而来自输入分布失控、工具循环失控、上下文利用失控，以及缺少可回放的运行证据。</p>
+<p>可以较稳妥落地的第一个模块，是 context compiler。AI Engineer《Why More Context Makes Your Agent Dumber and What to Do About It — Nupur Sharma, Qodo》（<a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a>，2026-06-08）给出的核心材料很明确：上下文增大并不自动带来更好结果。她从 agentic review 的经验出发，描述了从静态 prompt、工具循环到 multi-agent 的演进，并指出工具越多、agent 越多，理解冲突和任务偏移越明显。更关键的是，她提到当前模型在长上下文中会更关注开头和结尾，中间材料容易被忽略；在代码审查场景中，即使把完整代码库、Jira、MCP 等材料放进去，模型也可能把中间部分“清掉”或压缩成自己能处理的形式。这直接支撑 Solar-Harness 不能采用“把全部材料塞进窗口”的策略，而应建立上下文选择、排序、压缩、分层摘要、位置布局和任务相关性校验机制。</p>
+<p>因此，Solar-Harness 的 context compiler 至少应包含四个职责：第一，基于任务目标生成 context plan，而不是机械拼接文件、issue、trace、文档；第二，对候选上下文做 ranking 和去噪，把“看似相关但会污染决策”的材料挡在外面；第三，显式控制上下文位置，把关键约束、验收条件、失败案例、工具结果放在模型更容易利用的位置；第四，在执行后反查模型是否真正使用了关键上下文。这里的重点不是“上下文引擎”这个名词，而是把上下文从静态输入变成可编译、可测试、可回归的工程对象。</p>
+<p>第二个可以直接落地的模块，是长上下文成本与能力边界建模。AI Engineer《Road to 5 Million Tokens: Breaking Barriers in Long Context Training — Max Ryabinin, Together AI》（<a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a>，2026-06-08）讨论的是长上下文训练与 context parallelism，其材料指出，agent 和视频生成等应用推动了长上下文需求；但标准 transformer 扩展上下文会遇到两类瓶颈：注意力计算的二次复杂度，以及随序列长度增长的线性内存压力。演讲还特别强调，即使没有进入百万级 token，也需要理解内存去向，因为节省下来的资源可能重新投入训练加速或其他优化。</p>
+<p>对 Solar-Harness 来说，这不直接意味着要自己训练 5M token 模型，但它支持一个更务实的工程判断：上下文治理不能只看“模型窗口上限”，还要看成本、时延、内存、并发和有效利用率。Solar-Harness 应把上下文长度当成 runtime budget 的一部分，在任务编排时记录每类上下文的 token 占用、调用成本、延迟影响和结果贡献。换句话说，context compiler 不只是语义模块，也应接入成本模型。能少放但做对，比全放进去赌模型聪明，更适合生产系统。</p>
+<p>第三个模块，是 eval loop，但这里要分清直接证据和待验证建议。AI Engineer《Why Eval++ Is the Next Great Compute Primitive — Sunil Pai &amp; Matt Carrie, Cloudflare》（<a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a>，2026-06-08）的标题本身把 Eval++ 定位为新的 compute primitive；不过当前材料包没有提供可用 转写 segment，也没有具体论证细节。因此，本章不能把 Cloudflare 的具体方案、指标体系或实现路径写成强结论。可以谨慎使用的依据只有：该场演讲被纳入同一组材料，主题与 eval runtime 直接相关，且题目显示业界正在把 evaluation 从附属流程提升到运行时计算原语。基于现有证据，Solar-Harness 可以把“eval loop runtime 化”列为方向，但具体模块边界、调度方式、指标定义和成本模型应写成待验证事项。</p>
+<p>即便如此，结合 <a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 的材料，运行中评估仍有足够的工程必要性。因为 Qodo 的材料并不是只说“上下文会变差”，还说他们通过 benchmarking 去观察 agent 是否采纳了给定上下文。这给 Solar-Harness 一个直接落点：每次 agent run 不应只存最终答案，而要记录任务目标、输入上下文、关键证据、工具调用、模型输出、失败原因和修复路径，并在运行中检查“模型是否使用了应使用的信息”。这类 eval loop 不是传统 leaderboard，而是面向单次执行轨迹的验收机制。</p>
+<p>因此，Solar-Harness 的 eval loop 可以先从三类检查做起：任务完成检查，确认 agent 是否完成用户给定目标；上下文采纳检查，确认关键材料是否进入推理和输出；工具行为检查，确认搜索、读取、执行、重试是否出现无界循环或互相冲突。这三类建议由该补充视频直接支撑；而“Eval++ 是否应成为独立 compute primitive、是否需要单独调度层、是否与推理同等计费”则因为 <a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a> 缺少可读内容，暂不作为强结论。</p>
+<p>第四个模块，是 trace 与 runtime governance。该补充视频描述的失败形态包括工具反复搜索、不知道何时停止、多 agent 之间理解冲突，以及非确定性 agent 相比传统 DevSecOps pipeline 更难定位失败。这些都要求 Solar-Harness 在 runtime 层做治理，而不是在任务结束后靠人工复盘。治理对象至少包括工具调用边界、循环停止条件、agent 间职责划分、上下文变更记录、失败回滚和结果验收。这里的 trace 不是日志堆积，而是为了回答几个工程问题：这次运行为什么选择这些上下文？为什么调用这些工具？哪一步开始偏离目标？哪个 agent 与哪个约束发生冲突？下一次如何避免同类失败？</p>
+<p>综合来看，Solar-Harness 可以把本章材料落成一个四层结构：底层是 trace store，记录上下文、工具、决策和输出；中层是 context compiler，把原始材料编译成任务相关上下文；再上一层是 eval loop，在运行中和运行后验证任务、上下文和工具行为；最上层是 runtime governance，基于 trace 和 eval 结果控制重试、停止、降级、回滚与人工介入。这个结构的核心价值，是把 agent 工程从“ prompt + tool + hope ”推进到“编译、执行、评估、治理”的闭环。</p>
+<p>需要明确边界的是，当前材料包是参考线索包：<a href="https://www.youtube.com/watch?v=TUnPNY4E2fw" target="_blank" rel="noreferrer noopener">AI Engineer / Road to 5 Million Tokens: Breaking Barriers in Lo…</a> 可用内容集中在长上下文训练和资源瓶颈，<a href="https://www.youtube.com/watch?v=EcqMYoIV57A" target="_blank" rel="noreferrer noopener">AI Engineer / Why More Context Makes Your Agent Dumber and What…</a> 可用内容集中在上下文失败和 context optimization，<a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a> 只有元信息和题目，缺少可引用的具体论证。因此，本章可以强结论支持 context compiler、上下文成本治理、上下文采纳评估、工具循环治理；但不能强结论支持某个 Eval++ 架构、Cloudflare 的具体实现、或 Solar-Harness 必须采用某种 eval compute 调度模型。后续最值得补的材料，是 <a href="https://www.youtube.com/watch?v=SKDJo2CopRs" target="_blank" rel="noreferrer noopener">AI Engineer / Why Eval++ Is the Next Great Compute Primitive —…</a> 的完整转写，以及更多生产系统中 eval runtime 如何计费、如何调度、如何与 trace 和工具执行绑定的案例。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-7-item">
+  <h2>影响与落点</h2>
+  <div class="ai-report-prose">
+    <p>本期材料的直接价值在于把可验证的公开视频内容转化为后续观察方向。对产品和工程团队来说，优先关注已经有可用转写支撑的具体问题，不要把只有标题或元数据支撑的材料拔高为确定结论。</p>
+<p>更稳妥的使用方式是：把报告中的判断拆成后续跟踪项，继续观察同一频道、同一议题和相关项目是否出现连续材料。如果后续材料补齐，相关判断可以升级；如果只停留在单次表达或弱材料层面，则应保留为观察项。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-8-open-questions">
+  <h2>Open Questions</h2>
+  <div class="ai-report-prose">
+    <ul>
+<li>当前判断中哪些部分只由单个视频或单次表达支撑，需要等待后续材料复核？</li>
+
+<li>哪些主题已经有较完整转写，哪些主题仍需要补充更清晰的原始材料？</li>
+
+<li>后续一到两周是否出现来自同一频道、相关技术社区或产品团队的连续讨论？</li>
+
+<li>本期共有 3 条材料只能作为弱观察依据，后续应优先补齐原始表达或降级为背景材料。</li>
+</ul>
+  </div>
+</section>
+      </main>
+    </div>
+
+    <footer class="ha-footline">
+      <span>AI Influence Report</span>
+      <span>发布于 2026-06-08</span>
+      <span>2026-06-10</span>
+    </footer>
+  </div>
+</body>
+</html>

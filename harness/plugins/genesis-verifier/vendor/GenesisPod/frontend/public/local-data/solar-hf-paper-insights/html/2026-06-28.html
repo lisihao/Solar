@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HF 2026-W26：Agent 记忆与世界模型前置，多模态生成转向效率约束</title>
+  <style>
+    :root {
+      --bg: #f6f1e8;
+      --paper: #fffdf8;
+      --ink: #1d1a16;
+      --muted: #6a6258;
+      --line: #dccfbe;
+      --accent: #8a4b22;
+      --accent-soft: #f0e0cf;
+      --shadow: 0 18px 48px rgba(45, 32, 20, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at top left, rgba(196,147,96,.18), transparent 28%), linear-gradient(180deg, #f9f4ec 0%, #f3ede3 100%); color: var(--ink); font: 16px/1.65 "Iowan Old Style", Georgia, serif; }
+    .hf-shell { max-width: 1240px; margin: 0 auto; padding: 40px 20px 64px; }
+    .hf-hero, .hf-card, .hf-panel, .hf-metric { background: var(--paper); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); }
+    .hf-hero { padding: 32px 34px; }
+    .hf-kicker { display: inline-flex; padding: 6px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 600 12px/1.2 "Avenir Next", sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+    .hf-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px; margin-top: 22px; }
+    .hf-metric { padding: 16px 18px; }
+    .hf-metric span, .hf-grid span { display: block; color: var(--muted); font: 600 12px/1.2 "Avenir Next", sans-serif; text-transform: uppercase; }
+    .hf-metric strong { display: block; margin-top: 8px; font-size: 22px; }
+    .hf-card { padding: 24px; margin-top: 18px; }
+    .hf-card-head { display: grid; grid-template-columns: 64px minmax(0,1fr); gap: 16px; }
+    .hf-rank { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 18px; background: linear-gradient(135deg, #8a4b22, #c98950); color: white; font: 700 22px/1 "Avenir Next", sans-serif; }
+    .hf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 14px; margin: 18px 0; padding: 16px; background: #fbf6ef; border-radius: 18px; border: 1px solid var(--line); }
+    .hf-panel { padding: 22px; margin-top: 24px; }
+    .hf-heat h2 { font-size: 28px; }
+    .hf-heat-daily { margin-top: 18px; overflow-x: auto; }
+    .hf-heat-baseline { margin-top: 18px; overflow-x: auto; }
+    .hf-heat-secondary { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 18px; }
+    .hf-heat-block { width: 100%; min-width: 0; }
+    .hf-heat-daily table { width: 100%; min-width: 0; table-layout: fixed; }
+    .hf-daily-table .hf-date-col { width: 124px; }
+    .hf-daily-table .hf-count-col { width: 88px; }
+    .hf-daily-table .hf-top5-col { width: auto; }
+    .hf-daily-table .hf-tags-col { width: 240px; }
+    .hf-daily-table th:nth-child(3), .hf-daily-table td:nth-child(3), .hf-daily-table th:nth-child(4), .hf-daily-table td:nth-child(4) { padding-left: 18px; }
+    .hf-heat-baseline table, .hf-heat-secondary table { table-layout: fixed; }
+    h1, h2, h3 { margin: 0 0 12px; line-height: 1.15; }
+    h1 { font-size: clamp(34px, 4vw, 56px); max-width: 100%; margin-top: 18px; }
+    table { width: 100%; border-collapse: collapse; font: 14px/1.45 "Avenir Next", sans-serif; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+    th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    a { color: var(--accent); text-decoration: none; }
+    .hf-top-list { margin: 0; padding-left: 18px; }
+    .hf-top-list li + li { margin-top: 6px; }
+    .hf-tag-list { margin: 0; padding-left: 18px; }
+    .hf-tag-list li + li { margin-top: 8px; }
+    .hf-tag { display: inline-block; margin: 0 6px 5px 0; padding: 3px 8px; border-radius: 999px; background: #f0e3d3; color: #6f3e1f; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    ul { padding-left: 20px; }
+    @media (max-width: 980px) {
+      .hf-heat-daily table { min-width: 860px; }
+      .hf-daily-table .hf-tags-col { width: 220px; }
+    }
+    @media (max-width: 720px) {
+      .hf-hero { padding: 24px 22px; }
+      .hf-heat-daily table { min-width: 760px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="hf-shell">
+<section class="hf-panel hf-tagpulse-svg" style="overflow-x:auto;margin-bottom:24px"><svg xmlns="http://www.w3.org/2000/svg" width="960" height="850" viewBox="0 0 960 850" role="img" aria-label="HF Paper 数据趋势仪表盘">
+  <rect width="960" height="850" rx="28" fill="#fffdf8"/>
+  <rect x="1" y="1" width="958" height="848" rx="28" fill="none" stroke="#dccfbe"/>
+  <text x="34" y="48" font-size="28" font-weight="900" fill="#1d1a16">HF Paper 数据趋势仪表盘</text>
+  <text x="34" y="76" font-size="14" fill="#6a6258">最新数据：2026-06-28 ｜ 统计窗口：2026-03-31 至 2026-06-28</text>
+
+  <rect x="34" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="50" y="132" font-size="13" font-weight="750" fill="#6a6258">今日样本</text>
+  <text x="50" y="162" font-size="25" font-weight="900" fill="#1d1a16">25</text>
+  <text x="50" y="181" font-size="11" fill="#8a4b22">2026-06-28</text>
+  <rect x="212" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="228" y="132" font-size="13" font-weight="750" fill="#6a6258">季度样本</text>
+  <text x="228" y="162" font-size="25" font-weight="900" fill="#1d1a16">2,543</text>
+  <text x="228" y="181" font-size="11" fill="#8a4b22">近 90 天</text>
+  <rect x="390" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="406" y="132" font-size="13" font-weight="750" fill="#6a6258">领先热度分</text>
+  <text x="406" y="162" font-size="25" font-weight="900" fill="#1d1a16">117,621</text>
+  <text x="406" y="181" font-size="11" fill="#8a4b22">排名加权</text>
+  <rect x="568" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="584" y="132" font-size="13" font-weight="750" fill="#6a6258">全量采集行数</text>
+  <text x="584" y="162" font-size="25" font-weight="900" fill="#1d1a16">10,196</text>
+  <text x="584" y="181" font-size="11" fill="#8a4b22">HF 历史覆盖</text>
+  <rect x="746" y="104" width="160" height="86" rx="16" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="762" y="132" font-size="13" font-weight="750" fill="#6a6258">独立 arXiv</text>
+  <text x="762" y="162" font-size="25" font-weight="900" fill="#1d1a16">32,969</text>
+  <text x="762" y="181" font-size="11" fill="#8a4b22">历史覆盖</text>
+  <text x="34" y="232" font-size="21" font-weight="900" fill="#1d1a16">TagPulse 标签热点引擎</text>
+  <text x="34" y="254" font-size="13" fill="#6a6258">按最近一季论文进入热榜的次数和排名加权汇总；红条看持续热度，右侧蓝线看近 8 周走势。</text>
+
+  <text x="50" y="288" font-size="15" font-weight="800" fill="#1d1a16">多模态</text>
+  <rect x="246" y="274" width="230" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="246" y="274" width="230.0" height="16" rx="8" fill="#ef4444"/>
+  <text x="506" y="288" font-size="12" font-weight="750" fill="#6a6258">117,621 / 1171次</text>
+  <line x1="660" y1="300" x2="828" y2="300" stroke="#e8edf9" stroke-width="2"/>
+  <polyline points="660.0,298.0 684.0,298.0 708.0,295.6 732.0,273.6 756.0,272.0 780.0,273.3 804.0,273.3 828.0,277.4" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="828.0" cy="277.4" r="2.7" fill="#2563eb"/>
+  <text x="50" y="330" font-size="15" font-weight="800" fill="#1d1a16">代码智能体</text>
+  <rect x="246" y="316" width="230" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="246" y="316" width="222.8" height="16" rx="8" fill="#ef4444"/>
+  <text x="506" y="330" font-size="12" font-weight="750" fill="#6a6258">113,924 / 1140次</text>
+  <line x1="660" y1="342" x2="828" y2="342" stroke="#e8edf9" stroke-width="2"/>
+  <polyline points="660.0,340.0 684.0,340.0 708.0,338.5 732.0,315.1 756.0,314.0 780.0,315.1 804.0,315.0 828.0,317.0" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="828.0" cy="317.0" r="2.7" fill="#2563eb"/>
+  <text x="50" y="372" font-size="15" font-weight="800" fill="#1d1a16">Agent</text>
+  <rect x="246" y="358" width="230" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="246" y="358" width="172.5" height="16" rx="8" fill="#ef4444"/>
+  <text x="506" y="372" font-size="12" font-weight="750" fill="#6a6258">88,219 / 861次</text>
+  <line x1="660" y1="384" x2="828" y2="384" stroke="#e8edf9" stroke-width="2"/>
+  <polyline points="660.0,382.0 684.0,382.0 708.0,380.8 732.0,362.7 756.0,359.9 780.0,356.0 804.0,358.1 828.0,360.1" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="828.0" cy="360.1" r="2.7" fill="#2563eb"/>
+  <text x="50" y="414" font-size="15" font-weight="800" fill="#1d1a16">推理计算</text>
+  <rect x="246" y="400" width="230" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="246" y="400" width="142.4" height="16" rx="8" fill="#ef4444"/>
+  <text x="506" y="414" font-size="12" font-weight="750" fill="#6a6258">72,813 / 732次</text>
+  <line x1="660" y1="426" x2="828" y2="426" stroke="#e8edf9" stroke-width="2"/>
+  <polyline points="660.0,424.0 684.0,424.0 708.0,422.2 732.0,402.6 756.0,402.0 780.0,398.0 804.0,399.2 828.0,406.5" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="828.0" cy="406.5" r="2.7" fill="#2563eb"/>
+  <text x="50" y="456" font-size="15" font-weight="800" fill="#1d1a16">长期记忆</text>
+  <rect x="246" y="442" width="230" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="246" y="442" width="139.2" height="16" rx="8" fill="#ef4444"/>
+  <text x="506" y="456" font-size="12" font-weight="750" fill="#6a6258">71,168 / 704次</text>
+  <line x1="660" y1="468" x2="828" y2="468" stroke="#e8edf9" stroke-width="2"/>
+  <polyline points="660.0,466.0 684.0,466.0 708.0,464.8 732.0,446.1 756.0,443.3 780.0,440.0 804.0,440.0 828.0,444.0" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="828.0" cy="444.0" r="2.7" fill="#2563eb"/>
+  <text x="50" y="498" font-size="15" font-weight="800" fill="#1d1a16">科研自动化</text>
+  <rect x="246" y="484" width="230" height="16" rx="8" fill="#f0e3d3"/>
+  <rect x="246" y="484" width="59.5" height="16" rx="8" fill="#ef4444"/>
+  <text x="506" y="498" font-size="12" font-weight="750" fill="#6a6258">30,439 / 299次</text>
+  <line x1="660" y1="510" x2="828" y2="510" stroke="#e8edf9" stroke-width="2"/>
+  <polyline points="660.0,508.0 684.0,508.0 708.0,506.3 732.0,487.2 756.0,483.8 780.0,482.0 804.0,486.1 828.0,482.2" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="828.0" cy="482.2" r="2.7" fill="#2563eb"/>
+  <line x1="34" y1="535" x2="926" y2="535" stroke="#eadfcd"/>
+  <text x="34" y="568" font-size="19" font-weight="900" fill="#1d1a16">新兴热点</text>
+  <text x="510" y="568" font-size="19" font-weight="900" fill="#1d1a16">标签共现热点</text>
+
+  <text x="50" y="602" font-size="14" font-weight="800" fill="#1d1a16">Market Signal</text>
+  <rect x="210" y="589" width="168" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="210" y="589" width="168.0" height="15" rx="8" fill="#16a34a"/>
+  <text x="394" y="602" font-size="12" font-weight="750" fill="#6a6258">x0.51 / 1,123</text>
+  <text x="50" y="641" font-size="14" font-weight="800" fill="#1d1a16">具身智能</text>
+  <rect x="210" y="628" width="168" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="210" y="628" width="131.8" height="15" rx="8" fill="#16a34a"/>
+  <text x="394" y="641" font-size="12" font-weight="750" fill="#6a6258">x0.40 / 7,628</text>
+  <text x="50" y="680" font-size="14" font-weight="800" fill="#1d1a16">论文研究</text>
+  <rect x="210" y="667" width="168" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="210" y="667" width="118.6" height="15" rx="8" fill="#16a34a"/>
+  <text x="394" y="680" font-size="12" font-weight="750" fill="#6a6258">x0.36 / 4,505</text>
+  <text x="50" y="719" font-size="14" font-weight="800" fill="#1d1a16">长期记忆</text>
+  <rect x="210" y="706" width="168" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="210" y="706" width="112.0" height="15" rx="8" fill="#16a34a"/>
+  <text x="394" y="719" font-size="12" font-weight="750" fill="#6a6258">x0.34 / 17,949</text>
+  <text x="50" y="758" font-size="14" font-weight="800" fill="#1d1a16">Agent</text>
+  <rect x="210" y="745" width="168" height="15" rx="8" fill="#e8f1e8"/>
+  <rect x="210" y="745" width="108.7" height="15" rx="8" fill="#16a34a"/>
+  <text x="394" y="758" font-size="12" font-weight="750" fill="#6a6258">x0.33 / 22,003</text>
+
+  <text x="510" y="602" font-size="14" font-weight="800" fill="#1d1a16">代码智能体 × 多模态</text>
+  <rect x="704" y="589" width="150" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="704" y="589" width="150.0" height="15" rx="8" fill="#7c3aed"/>
+  <text x="874" y="602" font-size="12" font-weight="750" fill="#6a6258">51,865</text>
+  <text x="510" y="641" font-size="14" font-weight="800" fill="#1d1a16">Agent × 代码智能体</text>
+  <rect x="704" y="628" width="150" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="704" y="628" width="114.1" height="15" rx="8" fill="#7c3aed"/>
+  <text x="874" y="641" font-size="12" font-weight="750" fill="#6a6258">39,459</text>
+  <text x="510" y="680" font-size="14" font-weight="800" fill="#1d1a16">Agent × 长期记忆</text>
+  <rect x="704" y="667" width="150" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="704" y="667" width="99.6" height="15" rx="8" fill="#7c3aed"/>
+  <text x="874" y="680" font-size="12" font-weight="750" fill="#6a6258">34,441</text>
+  <text x="510" y="719" font-size="14" font-weight="800" fill="#1d1a16">Agent × 多模态</text>
+  <rect x="704" y="706" width="150" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="704" y="706" width="99.3" height="15" rx="8" fill="#7c3aed"/>
+  <text x="874" y="719" font-size="12" font-weight="750" fill="#6a6258">34,333</text>
+  <text x="510" y="758" font-size="14" font-weight="800" fill="#1d1a16">代码智能体 × 推理计算</text>
+  <rect x="704" y="745" width="150" height="15" rx="8" fill="#eef2ff"/>
+  <rect x="704" y="745" width="98.8" height="15" rx="8" fill="#7c3aed"/>
+  <text x="874" y="758" font-size="12" font-weight="750" fill="#6a6258">34,170</text>
+  <rect x="34" y="802" width="892" height="30" rx="15" fill="#fbf6ef" stroke="#eadfcd"/>
+  <text x="52" y="822" font-size="12" fill="#6a6258">标签来自本地 HF 日榜主题标签；热度分按 121-rank 加权，越靠前权重越高；样本数和热度分不是同一单位。</text>
+</svg></section>
+
+    <section class="hf-hero">
+      <span class="hf-kicker">正式洞察周报</span>
+      <h1>HF 2026-W26：Agent 记忆与世界模型前置，多模态生成转向效率约束</h1>
+      <p>本期热点主线不是单一模型能力刷新，而是 Agent 长程运行所需的记忆、环境模拟、验证与执行效率被集中推到前台。日榜上，MemSlides、PerceptionDLM、Qwen-AgentWorld、Agent-Native Memory 相关论文相继冲到榜首；周内持续热度则由 6 月 26 日后连续三天出现的 OPID、ViQ、JetSpec 等承接。月榜延续仍以既有 Agent、记忆和服务系统论文为底色，本批论文更像是在这些长期基线之上补上具体机制与评测切口。</p>
+	      <p>报告周期：2026-W26</p>
+      <div class="hf-metrics"><div class="hf-metric"><span>报告类型</span><strong>正式洞察周报</strong></div>
+<div class="hf-metric"><span>论文数量</span><strong>12</strong></div>
+<div class="hf-metric"><span>分组章节</span><strong>4</strong></div>
+<div class="hf-metric"><span>报告周期</span><strong>2026-W26</strong></div></div>
+    </section>
+
+    <section class="hf-panel hf-heat">
+      <h2>日 / 周 / 月热度总览</h2>
+      <ul><li>本周日榜基线覆盖 7 天、累计 255 条日榜记录。</li><li>周内持续热度最高的是《DanceOPD: On-Policy Generative Field Distillation》，出现 3 天，最佳日榜第 1。</li><li>新晋爆发候选 12 篇，均在 1-2 天内冲入日榜 Top 5。</li><li>本月持续热点以《TradingAgents: Multi-Agents LLM Financial Trading Framework》为代表，月榜观测 25 天。</li><li>近 90 天基线热点以《Moebius: 0.2B Lightweight Image Inpainting Framework with 10B-Level Performance》为代表，日榜出现 4 天。</li></ul>
+      <div class="hf-heat-daily">
+        <div class="hf-heat-block">
+          <h3>每日热度基线</h3>
+          <table class="hf-daily-table">
+            <colgroup>
+              <col class="hf-date-col">
+              <col class="hf-count-col">
+              <col class="hf-top5-col">
+              <col class="hf-tags-col">
+            </colgroup>
+            <thead><tr><th>日期</th><th>论文数</th><th>当日 Top 5</th><th>标签</th></tr></thead>
+            <tbody><tr><td>2026-06-22</td><td>48</td><td><ol class="hf-top-list"><li><a href="https://huggingface.co/papers/2606.17162" target="_blank" rel="noreferrer noopener">MemSlides: A Hierarchical Memory Driven Agent Framework for Per…</a></li><li><a href="https://huggingface.co/papers/2606.19195" target="_blank" rel="noreferrer noopener">Moebius: 0.2B Lightweight Image Inpainting Framework with 10B-L…</a></li><li><a href="https://huggingface.co/papers/2606.15133" target="_blank" rel="noreferrer noopener">DragMesh-2: Physically Plausible Dexterous Hand-Object Interact…</a></li><li><a href="https://huggingface.co/papers/2606.19534" target="_blank" rel="noreferrer noopener">PerceptionDLM: Parallel Region Perception with Multimodal Diffu…</a></li><li><a href="https://huggingface.co/papers/2606.18508" target="_blank" rel="noreferrer noopener">MCompassRAG: Topic Metadata as a Semantic Compass for Paragraph…</a></li></ol></td><td><ol class="hf-tag-list"><li><span class="hf-tag">agent</span><span class="hf-tag">multimodal</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">coding_agent</span><span class="hf-tag">inference_compute</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">robotics_physical_ai</span><span class="hf-tag">research_automation</span></li><li><span class="hf-tag">coding_agent</span><span class="hf-tag">inference_compute</span><span class="hf-tag">multimodal</span></li><li><span class="hf-tag">coding_agent</span><span class="hf-tag">inference_compute</span><span class="hf-tag">document_ai</span><span class="hf-tag">research_automation</span></li></ol></td></tr><tr><td>2026-06-23</td><td>70</td><td><ol class="hf-top-list"><li><a href="https://huggingface.co/papers/2606.19534" target="_blank" rel="noreferrer noopener">PerceptionDLM: Parallel Region Perception with Multimodal Diffu…</a></li><li><a href="https://huggingface.co/papers/2606.22388" target="_blank" rel="noreferrer noopener">PlanBench-XL: Evaluating Long-Horizon Planning of LLM Tool-Use…</a></li><li><a href="https://huggingface.co/papers/2606.23654" target="_blank" rel="noreferrer noopener">EnterpriseClawBench: Benchmarking Agents from Real Workplace Se…</a></li><li><a href="https://huggingface.co/papers/2606.17162" target="_blank" rel="noreferrer noopener">MemSlides: A Hierarchical Memory Driven Agent Framework for Per…</a></li><li><a href="https://huggingface.co/papers/2606.18829" target="_blank" rel="noreferrer noopener">GateMem: Benchmarking Memory Governance in Multi-Principal Shar…</a></li></ol></td><td><ol class="hf-tag-list"><li><span class="hf-tag">coding_agent</span><span class="hf-tag">inference_compute</span><span class="hf-tag">multimodal</span></li><li><span class="hf-tag">agent</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">multimodal</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">memory_context</span></li></ol></td></tr><tr><td>2026-06-24</td><td>29</td><td><ol class="hf-top-list"><li><a href="https://huggingface.co/papers/2606.24597" target="_blank" rel="noreferrer noopener">Qwen-AgentWorld: Language World Models for General Agents</a></li><li><a href="https://huggingface.co/papers/2606.24530" target="_blank" rel="noreferrer noopener">NatureBench: Can Coding Agents Match the Published SOTA of Natu…</a></li><li><a href="https://huggingface.co/papers/2606.24428" target="_blank" rel="noreferrer noopener">Escaping the Self-Confirmation Trap: An Execute-Distill-Verify…</a></li><li><a href="https://huggingface.co/papers/2606.24855" target="_blank" rel="noreferrer noopener">OpenThoughts-Agent: Data Recipes for Agentic Models</a></li><li><a href="https://huggingface.co/papers/2606.19926" target="_blank" rel="noreferrer noopener">MemGUI-Agent: An End-to-End Long-Horizon Mobile GUI Agent with…</a></li></ol></td><td><ol class="hf-tag-list"><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">inference_compute</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">research_automation</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">research_automation</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">inference_compute</span><span class="hf-tag">memory_context</span></li></ol></td></tr><tr><td>2026-06-25</td><td>33</td><td><ol class="hf-top-list"><li><a href="https://huggingface.co/papers/2606.24775" target="_blank" rel="noreferrer noopener">Are We Ready For An Agent-Native Memory System?</a></li><li><a href="https://huggingface.co/papers/2606.25041" target="_blank" rel="noreferrer noopener">Wan-Streamer v0.1: End-to-end Real-time Interactive Foundation…</a></li><li><a href="https://huggingface.co/papers/2606.26058" target="_blank" rel="noreferrer noopener">DomainShuttle: Freeform Open Domain Subject-driven Text-to-vide…</a></li><li><a href="https://huggingface.co/papers/2606.25763" target="_blank" rel="noreferrer noopener">ShutterMuse: Capture-Time Photography Guidance with MLLMs</a></li><li><a href="https://huggingface.co/papers/2606.25331" target="_blank" rel="noreferrer noopener">Improved Large Language Diffusion Models</a></li></ol></td><td><ol class="hf-tag-list"><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">coding_agent</span><span class="hf-tag">multimodal</span></li><li><span class="hf-tag">multimodal</span></li><li><span class="hf-tag">inference_compute</span><span class="hf-tag">multimodal</span></li><li><span class="hf-tag">coding_agent</span></li></ol></td></tr><tr><td>2026-06-26</td><td>25</td><td><ol class="hf-top-list"><li><a href="https://huggingface.co/papers/2606.27377" target="_blank" rel="noreferrer noopener">DanceOPD: On-Policy Generative Field Distillation</a></li><li><a href="https://huggingface.co/papers/2606.26025" target="_blank" rel="noreferrer noopener">In-Context World Modeling for Robotic Control</a></li><li><a href="https://huggingface.co/papers/2606.26790" target="_blank" rel="noreferrer noopener">OPID: On-Policy Skill Distillation for Agentic Reinforcement Le…</a></li><li><a href="https://huggingface.co/papers/2606.26907" target="_blank" rel="noreferrer noopener">Qwen-Image-Agent: Bridging the Context Gap in Real-World Image…</a></li><li><a href="https://huggingface.co/papers/2606.26300" target="_blank" rel="noreferrer noopener">The Verification Horizon: No Silver Bullet for Coding Agent Rew…</a></li></ol></td><td><ol class="hf-tag-list"><li><span class="hf-tag">inference_compute</span></li><li><span class="hf-tag">multimodal</span><span class="hf-tag">robotics_physical_ai</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">multimodal</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span></li></ol></td></tr><tr><td>2026-06-27</td><td>25</td><td><ol class="hf-top-list"><li><a href="https://huggingface.co/papers/2606.27377" target="_blank" rel="noreferrer noopener">DanceOPD: On-Policy Generative Field Distillation</a></li><li><a href="https://huggingface.co/papers/2606.26025" target="_blank" rel="noreferrer noopener">In-Context World Modeling for Robotic Control</a></li><li><a href="https://huggingface.co/papers/2606.26790" target="_blank" rel="noreferrer noopener">OPID: On-Policy Skill Distillation for Agentic Reinforcement Le…</a></li><li><a href="https://huggingface.co/papers/2606.26907" target="_blank" rel="noreferrer noopener">Qwen-Image-Agent: Bridging the Context Gap in Real-World Image…</a></li><li><a href="https://huggingface.co/papers/2606.26300" target="_blank" rel="noreferrer noopener">The Verification Horizon: No Silver Bullet for Coding Agent Rew…</a></li></ol></td><td><ol class="hf-tag-list"><li><span class="hf-tag">inference_compute</span></li><li><span class="hf-tag">multimodal</span><span class="hf-tag">robotics_physical_ai</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">multimodal</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span></li></ol></td></tr><tr><td>2026-06-28</td><td>25</td><td><ol class="hf-top-list"><li><a href="https://huggingface.co/papers/2606.27377" target="_blank" rel="noreferrer noopener">DanceOPD: On-Policy Generative Field Distillation</a></li><li><a href="https://huggingface.co/papers/2606.26025" target="_blank" rel="noreferrer noopener">In-Context World Modeling for Robotic Control</a></li><li><a href="https://huggingface.co/papers/2606.26790" target="_blank" rel="noreferrer noopener">OPID: On-Policy Skill Distillation for Agentic Reinforcement Le…</a></li><li><a href="https://huggingface.co/papers/2606.26907" target="_blank" rel="noreferrer noopener">Qwen-Image-Agent: Bridging the Context Gap in Real-World Image…</a></li><li><a href="https://huggingface.co/papers/2606.26300" target="_blank" rel="noreferrer noopener">The Verification Horizon: No Silver Bullet for Coding Agent Rew…</a></li></ol></td><td><ol class="hf-tag-list"><li><span class="hf-tag">inference_compute</span></li><li><span class="hf-tag">multimodal</span><span class="hf-tag">robotics_physical_ai</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span><span class="hf-tag">multimodal</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">memory_context</span></li><li><span class="hf-tag">agent</span><span class="hf-tag">coding_agent</span></li></ol></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="hf-heat-baseline">
+        <div class="hf-heat-block">
+          <h3>近 90 天基线热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody><tr><td><a href="https://huggingface.co/papers/2606.19195" target="_blank" rel="noreferrer noopener">Moebius: 0.2B Lightweight Image Inpainting Framework with 10B-L…</a></td><td>4</td><td>1</td><td>1.000</td><td>2026-06-22</td></tr><tr><td><a href="https://huggingface.co/papers/2606.15133" target="_blank" rel="noreferrer noopener">DragMesh-2: Physically Plausible Dexterous Hand-Object Interact…</a></td><td>4</td><td>2</td><td>2.000</td><td>2026-06-22</td></tr><tr><td><a href="https://huggingface.co/papers/2606.20517" target="_blank" rel="noreferrer noopener">Multi-LCB: Extending LiveCodeBench to Multiple Programming Lang…</a></td><td>4</td><td>3</td><td>3.000</td><td>2026-06-22</td></tr><tr><td><a href="https://huggingface.co/papers/2606.19419" target="_blank" rel="noreferrer noopener">Playful Agentic Robot Learning</a></td><td>4</td><td>4</td><td>4.000</td><td>2026-06-22</td></tr><tr><td><a href="https://huggingface.co/papers/2606.20515" target="_blank" rel="noreferrer noopener">S-Agent: Spatial Tool-Use Elicits Reasoning for Spatial Intelli…</a></td><td>4</td><td>5</td><td>5.000</td><td>2026-06-22</td></tr><tr><td><a href="https://huggingface.co/papers/2606.19704" target="_blank" rel="noreferrer noopener">Beyond Static Leaderboards: Predictive Validity for the Evaluat…</a></td><td>4</td><td>6</td><td>6.500</td><td>2026-06-22</td></tr><tr><td><a href="https://huggingface.co/papers/2604.13416" target="_blank" rel="noreferrer noopener">DF3DV-1K: A Large-Scale Dataset and Benchmark for Distractor-Fr…</a></td><td>4</td><td>6</td><td>6.500</td><td>2026-06-22</td></tr><tr><td><a href="https://huggingface.co/papers/2606.20506" target="_blank" rel="noreferrer noopener">FreeStyle: Free Control of Style-Content Dual-Reference Generat…</a></td><td>4</td><td>8</td><td>8.000</td><td>2026-06-22</td></tr></tbody></table>
+        </div>
+      </div>
+      <div class="hf-heat-secondary">
+        <div class="hf-heat-block">
+          <h3>本周持续热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody><tr><td><a href="https://huggingface.co/papers/2606.27377" target="_blank" rel="noreferrer noopener">DanceOPD: On-Policy Generative Field Distillation</a></td><td>3</td><td>1</td><td>1.000</td><td>2026-06-28</td></tr><tr><td><a href="https://huggingface.co/papers/2606.26025" target="_blank" rel="noreferrer noopener">In-Context World Modeling for Robotic Control</a></td><td>3</td><td>2</td><td>2.000</td><td>2026-06-28</td></tr><tr><td><a href="https://huggingface.co/papers/2606.26790" target="_blank" rel="noreferrer noopener">OPID: On-Policy Skill Distillation for Agentic Reinforcement Le…</a></td><td>3</td><td>3</td><td>3.000</td><td>2026-06-28</td></tr><tr><td><a href="https://huggingface.co/papers/2606.26907" target="_blank" rel="noreferrer noopener">Qwen-Image-Agent: Bridging the Context Gap in Real-World Image…</a></td><td>3</td><td>4</td><td>4.000</td><td>2026-06-28</td></tr><tr><td><a href="https://huggingface.co/papers/2606.26300" target="_blank" rel="noreferrer noopener">The Verification Horizon: No Silver Bullet for Coding Agent Rew…</a></td><td>3</td><td>5</td><td>5.000</td><td>2026-06-28</td></tr><tr><td><a href="https://huggingface.co/papers/2606.27313" target="_blank" rel="noreferrer noopener">ViQ: Text-Aligned Visual Quantized Representations at Any Resol…</a></td><td>3</td><td>6</td><td>6.000</td><td>2026-06-28</td></tr><tr><td><a href="https://huggingface.co/papers/2606.18394" target="_blank" rel="noreferrer noopener">JetSpec: Breaking the Scaling Ceiling of Speculative Decoding w…</a></td><td>3</td><td>7</td><td>7.000</td><td>2026-06-28</td></tr><tr><td><a href="https://huggingface.co/papers/2606.24551" target="_blank" rel="noreferrer noopener">GUI vs. CLI: Execution Bottlenecks in Screen-Only and Skill-Med…</a></td><td>3</td><td>8</td><td>8.000</td><td>2026-06-28</td></tr></tbody></table>
+        </div>
+        <div class="hf-heat-block">
+          <h3>本月持续热点</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>均值</th><th>最近</th></tr></thead><tbody><tr><td>TradingAgents: Multi-Agents LLM Financial Trading Framework</td><td>25</td><td>1</td><td>2.100</td><td>2026-06-28</td></tr><tr><td>SkillOpt: Executive Strategy for Self-Evolving Agent Skills</td><td>25</td><td>1</td><td>3.530</td><td>2026-06-28</td></tr><tr><td>MinerU2.5: A Decoupled Vision-Language Model for Efficient
+  Hi…</td><td>25</td><td>2</td><td>6.860</td><td>2026-06-28</td></tr><tr><td>OpenDevin: An Open Platform for AI Software Developers as Gener…</td><td>25</td><td>2</td><td>10.500</td><td>2026-06-28</td></tr><tr><td>Kronos: A Foundation Model for the Language of Financial Markets</td><td>25</td><td>3</td><td>7.160</td><td>2026-06-28</td></tr><tr><td>Efficient Memory Management for Large Language Model Serving wi…</td><td>25</td><td>4</td><td>10.580</td><td>2026-06-28</td></tr><tr><td>EverMemOS: A Self-Organizing Memory Operating System for Struct…</td><td>25</td><td>4</td><td>12.100</td><td>2026-06-28</td></tr><tr><td>Mem0: Building Production-Ready AI Agents with Scalable Long-Te…</td><td>25</td><td>6</td><td>13.430</td><td>2026-06-28</td></tr></tbody></table>
+        </div>
+        <div class="hf-heat-block">
+          <h3>新晋爆发候选</h3>
+          <table><thead><tr><th>论文</th><th>天数</th><th>最佳</th><th>首次</th><th>最近</th></tr></thead><tbody><tr><td><a href="https://huggingface.co/papers/2606.24775" target="_blank" rel="noreferrer noopener">Are We Ready For An Agent-Native Memory System?</a></td><td>1</td><td>1</td><td>2026-06-25</td><td>2026-06-25</td></tr><tr><td><a href="https://huggingface.co/papers/2606.24597" target="_blank" rel="noreferrer noopener">Qwen-AgentWorld: Language World Models for General Agents</a></td><td>1</td><td>1</td><td>2026-06-24</td><td>2026-06-24</td></tr><tr><td><a href="https://huggingface.co/papers/2606.17162" target="_blank" rel="noreferrer noopener">MemSlides: A Hierarchical Memory Driven Agent Framework for Per…</a></td><td>2</td><td>1</td><td>2026-06-22</td><td>2026-06-23</td></tr><tr><td><a href="https://huggingface.co/papers/2606.19534" target="_blank" rel="noreferrer noopener">PerceptionDLM: Parallel Region Perception with Multimodal Diffu…</a></td><td>2</td><td>1</td><td>2026-06-22</td><td>2026-06-23</td></tr><tr><td><a href="https://huggingface.co/papers/2606.22388" target="_blank" rel="noreferrer noopener">PlanBench-XL: Evaluating Long-Horizon Planning of LLM Tool-Use…</a></td><td>1</td><td>1</td><td>2026-06-23</td><td>2026-06-23</td></tr><tr><td><a href="https://huggingface.co/papers/2606.19195" target="_blank" rel="noreferrer noopener">Moebius: 0.2B Lightweight Image Inpainting Framework with 10B-L…</a></td><td>1</td><td>1</td><td>2026-06-22</td><td>2026-06-22</td></tr><tr><td><a href="https://huggingface.co/papers/2606.25041" target="_blank" rel="noreferrer noopener">Wan-Streamer v0.1: End-to-end Real-time Interactive Foundation…</a></td><td>1</td><td>2</td><td>2026-06-25</td><td>2026-06-25</td></tr><tr><td><a href="https://huggingface.co/papers/2606.24530" target="_blank" rel="noreferrer noopener">NatureBench: Can Coding Agents Match the Published SOTA of Natu…</a></td><td>1</td><td>2</td><td>2026-06-24</td><td>2026-06-24</td></tr></tbody></table>
+        </div>
+      </div>
+    </section>
+
+
+            <article class="hf-card">
+              <div class="hf-card-head">
+                <span class="hf-rank">01</span>
+                <div>
+                  <h2>Agent 记忆从上下文管理走向治理问题</h2>
+                  <p>本周三篇 Agent 记忆论文共同指向一个变化：记忆正从简单扩展上下文，转向面向偏好保留、多轮修订、跨应用长程执行和多主体访问边界的系统模块。MemSlides 关注个性化与局部修订，MemGUI-Agent 处理移动 GUI 长程任务中的主动上下文管理，GateMem 则把共享记忆推向治理与评测问题。热度明确，但工程有效性仍需跟踪。</p>
+                </div>
+              </div>
+              <div class="hf-grid">
+                <div><span>趋势判断</span><strong>观察池</strong></div>
+                <div><span>章节定位</span><strong>Agent 记忆从上下文管理走向治理问题</strong></div>
+              </div>
+              <section><h3>趋势描述</h3><p>这一组论文共同说明，Agent 记忆的讨论正在从“如何放入更多历史信息”转向“如何组织、更新、隔离和评测记忆”。MemSlides 将演示文稿生成中的用户偏好、任务内新增约束和工具使用信息拆成长期记忆与工作记忆，并进一步区分用户画像记忆和工具记忆，说明个性化生成场景已经需要显式的记忆分层。MemGUI-Agent 针对移动 GUI 长程任务提出主动上下文管理，问题不再是保留完整轨迹，而是避免 ReAct 式逐步记录带来的提示膨胀和关键跨应用事实稀释。GateMem 把记忆问题推进到多主体共享场景，在医院、工作场所、校园、家庭等设定下，多个主体写入同一记忆池并按角色、范围和关系查询，记忆质量因此同时包含可用性、更新能力和访问治理。</p></section>
+              <section><h3>洞察分析</h3><p>当前更适合判断为 watchlist，而不是已经完全兑现的 real_trend。理由是三篇论文都已有代码、数据集、Space 或 demo 等可复现资产线索，足以进入工程观察池；但评分显示 MemSlides 与 GateMem 的单篇综合强度并不高，且材料没有提供足够的长期线上效果、规模化部署表现或跨任务泛化结果，因此不能把它写成已经成熟的工程范式。更有价值的变化在于问题定义的收敛：MemSlides 代表任务内外偏好的结构化管理，MemGUI-Agent 代表长程执行中的上下文压缩与事实保留，GateMem 代表共享记忆下的权限、角色和关系边界。三者合在一起，使 Agent 记忆从模型提示技巧上升为可拆分、可评测、可接入工具链的系统组件。</p></section>
+              <section><h3>规划建议</h3><ul><li>将该方向纳入 Agent 工程观察池，但采用分层跟踪：MemSlides 重点观察个性化偏好与局部修订是否能稳定复用，MemGUI-Agent 重点观察长程移动 GUI 任务中的上下文管理收益，GateMem 重点观察共享记忆治理评测是否被后续 Agent 框架采用。</li><li>后续验证不应只看榜单热度或是否开源，而应补充三类指标：长期偏好保持率、多轮或跨应用任务成功率、共享记忆场景下的合法访问可用性与越权风险控制。当前材料只支持把这些论文列为机制跟踪对象，尚不足以判断其工程闭环已经成熟。</li></ul></section>
+              <section><h3>该部分论文分工</h3><ul><li><b>MemSlides: A Hierarchical Memory Driven Agent Framework for Personalized Slide Generation with Multi-turn Local Revision</b><br><span>角色：作为个性化生成与多轮局部修订场景的代表，说明 Agent 记忆需要区分长期用户偏好、任务内工作记忆和工具记忆，而不是只把历史对话塞进上下文。</span><br><span>解读：最值得看的是它把演示文稿生成中的稳定偏好、新增约束和局部编辑可靠性放在同一个分层记忆框架下，适合观察记忆结构是否能提升实际内容生产工作流。</span></li><li><b>MemGUI-Agent: An End-to-End Long-Horizon Mobile GUI Agent with Proactive Context Management</b><br><span>角色：作为长程移动 GUI 执行场景的代表，强调 Agent 记忆的瓶颈来自跨步骤、跨应用事实保留，而不是单步感知或短任务完成。</span><br><span>解读：最值得看的是它把 ReAct 式被动记录的问题定义为提示膨胀和关键信息稀释，并用主动上下文管理来服务长程任务，且已有模型、数据集和代码资产线索。</span></li><li><b>GateMem: Benchmarking Memory Governance in Multi-Principal Shared-Memory Agents</b><br><span>角色：作为共享记忆治理评测的代表，把 Agent 记忆从单用户召回质量推进到多主体写入、角色化查询和访问边界控制。</span><br><span>解读：最值得看的是它把共享助手中的记忆质量同时定义为长期请求可用性、状态更新和治理约束问题，适合跟踪是否形成后续多主体 Agent 记忆评测基线。</span></li></ul></section>
+            </article>
+
+            <article class="hf-card">
+              <div class="hf-card-head">
+                <span class="hf-rank">02</span>
+                <div>
+                  <h2>世界模型与强化学习开始承担 Agent 执行闭环</h2>
+                  <p>本组论文显示，Agent 研究正在从单步工具调用转向可模拟、可反馈、可蒸馏的执行闭环。Qwen-AgentWorld把语言世界模型推向多领域环境模拟与规划验证，资产和实验线索更充分；OPID则从在策略技能蒸馏切入，试图缓解轨迹级稀疏奖励对中间决策监督不足的问题，但当前更适合作为Agentic RL持续观察对象。</p>
+                </div>
+              </div>
+              <div class="hf-grid">
+                <div><span>趋势判断</span><strong>观察池</strong></div>
+                <div><span>章节定位</span><strong>世界模型与强化学习开始承担 Agent 执行闭环</strong></div>
+              </div>
+              <section><h3>趋势描述</h3><p>这一组论文共同指向一个明确变化：Agent 执行能力的研究重心不再只放在工具调用接口或单步推理成功率，而是开始补齐“环境可模拟—轨迹可反馈—技能可压实”的闭环能力。 Qwen-AgentWorld承担该部分主位，因为它直接把世界模型定义为根据当前观察和动作预测环境动态的机制，并进一步构建面向 agentic environment simulation 的语言世界模型，材料中还给出35B-A3B、397B-A17B两个模型规模、AgentWorldBench等数据资产、多个衍生模型与Spaces，总资产数达到11，说明它不只是概念论文，而已经具备复现实验和benchmark验证入口。 OPID补充的是执行闭环中的策略优化侧：材料指出 outcome-based RL 对语言Agent提供稳定优化骨架，但轨迹级稀疏奖励难以告诉模型哪些中间决策应被强化或抑制；OPID用on-policy self-distillation提供更稠密的token级监督，并避免依赖外部skill memory或检索到的privileged context，从而把优化压力转回当前策略诱导的状态分布。 但从证据强度看，本部分仍应定位为watchlist而非已验证趋势：Qwen-AgentWorld的新晋爆发与资产密度较强，OPID虽在周内连续出现并有模型资产，但实验、开源项目、industry coupling等评分相对温和，不能写成Agentic RL的结论性突破。</p></section>
+              <section><h3>洞察分析</h3><p>这部分最值得关注的不是单篇方法是否已经成熟，而是两条路线正在把Agent执行问题拆成互补模块：Qwen-AgentWorld负责“执行前的环境假设与可模拟反馈”，OPID负责“执行后的策略内化与中间决策监督”。 前者意味着Agent评估和训练可能从静态问答或离散任务成功率，转向对环境动态、动作后果和规划轨迹的语言化模拟；这对推理栈的价值高于单一模型能力展示，因为材料中Qwen-AgentWorld被归入rl/inference，并且experiment、reproducibility、open_project、deep_research_seed评分均相对突出。 后者说明Agentic RL的瓶颈不只是奖励函数是否存在，而是稀疏轨迹奖励如何传导到中间token与动作选择；OPID的角色在于观察“在策略自蒸馏”能否减少外部技能记忆和检索式特权上下文带来的维护成本与分布错配。 对规划侧而言，应把这组论文视为Agent闭环工程化的早期候选栈：世界模型提供可控模拟环境，on-policy skill distillation提供策略压实路径，两者合起来构成比单轮调用更接近长程执行优化的研究方向；但当前材料仍不足以证明二者已经形成可直接落地的统一训练范式。</p></section>
+              <section><h3>规划建议</h3><ul><li>优先把Qwen-AgentWorld列为工程验证主项：围绕AgentWorldBench、已链接模型和Spaces建立复现实验，重点验证语言世界模型在多领域环境模拟、动作后果预测和规划轨迹评估中的稳定性；评估结果应直接对照现有Agent推理栈，而不是只记录榜单热度。</li><li>将OPID放入Agentic RL观察池，而不是立即作为主线押注：跟踪其repo活跃度、1.7B模型资产后续扩展、不同环境下的在策略蒸馏效果，并重点检查它是否真正缓解稀疏轨迹奖励对中间决策监督不足的问题。</li></ul></section>
+              <section><h3>该部分论文分工</h3><ul><li><b>Qwen-AgentWorld: Language World Models for General Agents</b><br><span>角色：本部分的主位论文，代表“语言世界模型用于Agent环境模拟”的路线，承担从单步工具调用转向可模拟执行环境的核心证据。</span><br><span>解读：最值得看的是它把world model明确放到agentic environment simulation中，并提供35B-A3B、397B-A17B模型、AgentWorldBench、多个衍生模型与Spaces等资产；结合较高的experiment、reproducibility和open_project评分，它更适合作为可复现实验对象，而不是只作为概念趋势引用。</span></li><li><b>OPID: On-Policy Skill Distillation for Agentic Reinforcement Learning</b><br><span>角色：本部分的补充观察论文，代表“在策略技能蒸馏用于Agentic RL”的路线，补上世界模型之外的策略压实和中间决策监督问题。</span><br><span>解读：最值得看的是它对outcome-based RL稀疏轨迹奖励的切入：轨迹级奖励稳定但不够细，on-policy self-distillation试图提供token级稠密监督，并减少外部skill memory或检索式privileged context带来的维护成本与状态分布错配；不过当前资产只有一个链接模型，评分也相对温和，应持续观察而非过早定性为突破。</span></li></ul></section>
+            </article>
+
+            <article class="hf-card">
+              <div class="hf-card-head">
+                <span class="hf-rank">03</span>
+                <div>
+                  <h2>多模态生成从效果展示转向并行感知与轻量部署</h2>
+                  <p>本周多模态生成与感知方向的共同变化，不是继续堆叠展示型效果，而是把计算代价、并行处理、端侧部署和交互式任务前移到方法设计中。PerceptionDLM 与 Moebius 提供较强方法依据，ShutterMuse 体现应用闭环，DomainShuttle 和 ViQ 则更适合作为待验证分支。</p>
+                </div>
+              </div>
+              <div class="hf-grid">
+                <div><span>趋势判断</span><strong>明确趋势</strong></div>
+                <div><span>章节定位</span><strong>多模态生成从效果展示转向并行感知与轻量部署</strong></div>
+              </div>
+              <section><h3>趋势描述</h3><p>这一组论文共同指向一个较明确的变化：多模态生成正在从单纯追求视觉质量或大模型能力展示，转向围绕效率、并行性、可部署性和任务闭环重新设计模型结构与评测对象。PerceptionDLM 将多区域视觉理解从自回归串行生成改写为扩散语言模型下的并行区域感知，核心价值在于把感知任务中的多目标描述延迟问题显式化，依据为 与。Moebius 从另一端切入，用 0.2B 轻量图像修复框架对抗 10B 级工业基础模型的部署成本，说明生成类任务开始出现面向专用小模型的结构重构路线，依据为 与。DomainShuttle 仍聚焦视频生成效果边界，但它把开放域主体驱动视频生成拆分为域内保持和跨域变化两类场景，使视频生成问题从“像不像”转向“哪些主体属性必须保持、哪些属性可以由文本自由改写”，依据为 与。ShutterMuse 不直接追求更大的生成模型，而是把 MLLM 放入拍摄时构图与姿态指导流程，说明多模态能力正在进入实时交互与用户决策辅助场景，依据为 与。ViQ 尝试用任意分辨率、文本对齐的视觉量化表示降低多模态建模复杂度，但其开放资产和实验评分偏弱，更适合作为表示学习方向的待验证线索，依据为 与。</p></section>
+              <section><h3>洞察分析</h3><p>本部分最重要的判断是：效率问题已经不再只是推理工程优化，而是在模型范式、任务定义和表示层同时前移。PerceptionDLM 的价值不在于又提出一个多模态模型，而在于它把区域级感知任务中的串行解码瓶颈变成并行生成问题；这对需要同时描述多个区域、目标或局部关系的视觉理解任务更有方法迁移意义，依据为 与。Moebius 的意义在于验证专用生成模型仍有空间通过结构压缩和扩散骨干重构接近大模型任务效果，其 0.2B 与 10B 级性能对照使它成为本组里最直接的轻量部署样本，依据为 与。ShutterMuse 的实验和开源评分在本组中更突出，且包含模型、数据集和演示资产，因此它更像是可被工程团队短周期复现的应用型基准，而不是纯方法概念，依据为 与。DomainShuttle 和 ViQ 的价值需要分开看：前者提出开放域主体驱动视频生成中的跨域可控性问题，但当前资产为 0，适合作为视频生成场景设计参考；后者提出文本对齐视觉量化表示，方向与高效多模态建模相关，但实验、开源和复现评分偏低，不宜过早纳入工程路线，依据为 ， 与。综合来看，本组趋势不是单一模型突破，而是多模态系统开始围绕“并行感知、小模型专用化、交互式推理、离散表示”四条路径压缩成本并扩大可用场景。</p></section>
+              <section><h3>规划建议</h3><ul><li>优先把 PerceptionDLM 和 Moebius 放入工程验证池：前者验证多区域感知任务中的并行生成收益，重点比较多区域 caption、区域问答或目标级描述场景下的端到端延迟；后者验证小模型图像修复在部署成本、显存占用和质量退化之间的实际边界。</li><li>将 ShutterMuse 作为应用型 benchmark 候选，评估其 CaptureGuide-Bench、模型和演示资产是否可复用到交互式多模态助手；DomainShuttle 与 ViQ 暂不作为主线投入，分别保留为视频主体一致性和视觉离散表示的观察项，等待更多实验、资产或复现依据后再升级。</li></ul></section>
+              <section><h3>该部分论文分工</h3><ul><li><b>PerceptionDLM: Parallel Region Perception with Multimodal Diffusion Language Models</b><br><span>角色：本部分的并行感知方法核心，用来说明多模态理解任务正在从自回归串行生成转向可并行的扩散式语言生成范式。</span><br><span>解读：最值得看的是它如何把多区域 caption 或区域级视觉理解中的串行延迟问题重新建模为并行区域感知问题，并且已有 GitHub、模型和数据集资产线索，适合做工程验证。</span></li><li><b>Moebius: 0.2B Lightweight Image Inpainting Framework with 10B-Level Performance</b><br><span>角色：本部分的轻量部署代表，用来说明图像生成任务中专用小模型路线正在挑战依赖大规模基础模型的默认路径。</span><br><span>解读：最值得看的是 0.2B 规模图像修复框架如何通过扩散骨干重构缓解表示瓶颈，并以较多模型与 Space 资产提供复现和部署观察入口。</span></li><li><b>DomainShuttle: Freeform Open Domain Subject-driven Text-to-video Generation</b><br><span>角色：本部分的视频生成边界扩展项，用来补足开放域主体驱动视频生成中主体保持与跨域变化之间的控制问题。</span><br><span>解读：最值得看的是它把开放域 S2V 拆成域内主体保真和跨域属性变化两类场景，但当前无 linked models、datasets 或 spaces，适合先作为概念和任务定义观察项。</span></li><li><b>ShutterMuse: Capture-Time Photography Guidance with MLLMs</b><br><span>角色：本部分的交互式应用与评测闭环代表，用来说明 MLLM 能力开始被放入拍摄时构图、姿态和场景决策流程，而不是只做事后理解或编辑。</span><br><span>解读：最值得看的是 CaptureGuide-Bench 同时覆盖摄影师侧构图决策和主体侧姿态建议，并且已有模型、数据集与视频演示资产，复现优先级高于纯论文项。</span></li><li><b>ViQ: Text-Aligned Visual Quantized Representations at Any Resolution</b><br><span>角色：本部分的表示学习待验证项，用来观察视觉离散表示是否能在细节保真、语义对齐和训练效率之间形成新的折中。</span><br><span>解读：最值得看的是它将图像表示为与文本对齐的视觉量化信号，并尝试支持任意分辨率；但实验、开源和复现评分偏低，当前不宜作为工程主线。</span></li></ul></section>
+            </article>
+
+            <article class="hf-card">
+              <div class="hf-card-head">
+                <span class="hf-rank">04</span>
+                <div>
+                  <h2>推理与文档处理的瓶颈被重新拆解</h2>
+                  <p>本组论文共同指向一个推理侧约束：长输出、树状候选和文档级生成会把瓶颈从单步算力转向接受率、draft 开销与 KV cache 累积。JetSpec 关注 speculative decoding 的扩展上限，Unlimited OCR Works 则暴露 OCR 长序列生成中的显存与速度退化。</p>
+                </div>
+              </div>
+              <div class="hf-grid">
+                <div><span>趋势判断</span><strong>观察池</strong></div>
+                <div><span>章节定位</span><strong>推理与文档处理的瓶颈被重新拆解</strong></div>
+              </div>
+              <section><h3>趋势描述</h3><p>这一部分不是在说明推理加速已经找到通用解法，而是在拆开同一类瓶颈：当模型需要生成更长序列，或在 speculative decoding 中同时展开更多候选分支时，吞吐提升不再只取决于并行验证能力。JetSpec 的核心问题是，增加 draft budget 只有在接受率保持较高且 draft 开销足够低时才会继续带来加速；其 parallel tree drafting 试图绕开既有 head-based 方法在因果条件与效率之间的冲突，因此更像是对 speculative decoding 扩展天花板的系统性修补，依据为 与。Unlimited OCR Works 则把同一压力放到端到端 OCR：LLM decoder 可以利用语言先验改善生成式识别，但输出序列变长后，KV cache 累积会推高内存占用并拖慢生成，这使文档处理从模型能力问题转化为长序列 serving 问题，依据为 与。两篇论文共同说明，本周值得跟踪的不是单点模型效果，而是推理路径中被长输出和候选扩展放大的状态管理成本。</p></section>
+              <section><h3>洞察分析</h3><p>本组论文的共同价值在于把推理加速从粗粒度吞吐叙事拉回到三个具体变量：候选 token 的接受率、draft 阶段本身的额外成本，以及 KV cache 随序列长度增长带来的持续状态压力。JetSpec 代表生成路径内的分支扩展问题：如果 draft 候选不能以足够低的边际成本产生，或验证阶段实际接受 token 比例下降，扩大树或增加候选只会把并行度变成浪费，依据为 与。Unlimited OCR Works 代表应用路径内的长文档问题：OCR 场景的输出长度天然较长，LLM decoder 的语言先验收益会和 KV cache 增长形成直接张力，因此文档解析系统不能只按识别准确率规划，还要评估生成长度、缓存驻留和解码速度之间的耦合，依据为 与。当前应将该趋势归为 watchlist：JetSpec 在材料中有连续 3 天出现且最佳日榜第 7，显示 speculative decoding 扩展问题有周内持续关注；Unlimited OCR Works 虽被记录为周榜和月榜第 1，并具备 demo、模型、Space 与 GitHub 资产线索，但日榜材料只显示 6 月 23 日第 8，因此热度强度需要保留待验证边界，依据为 ， 与。</p></section>
+              <section><h3>规划建议</h3><ul><li>将 speculative decoding 的跟踪指标从是否加速改为接受率、draft 边际开销、树宽或候选数扩大后的净吞吐变化，优先观察 JetSpec 这类试图突破扩展上限的方法是否能在不同任务长度下保持稳定收益。</li><li>将 OCR 与文档解析类项目纳入长序列 serving 评估，不只看 demo 效果或榜单热度，还要记录输出 token 长度、KV cache 占用、生成延迟和开源资产活跃度，尤其关注 Unlimited OCR Works 的工程复现与实际文档长度边界。</li></ul></section>
+              <section><h3>该部分论文分工</h3><ul><li><b>JetSpec: Breaking the Scaling Ceiling of Speculative Decoding with Parallel Tree Drafting</b><br><span>角色：该论文在本部分中承担 speculative decoding 扩展上限的代表角色，用来说明候选分支增加后，真正决定加速收益的是接受率、draft 成本与并行验证之间的组合，而不是单纯扩大 draft budget。</span><br><span>解读：最值得看的是 parallel tree drafting 如何处理 head-based speculative decoding 中的因果条件与效率冲突，以及它能否在更大 draft budget 下维持较高净收益。</span></li><li><b>Unlimited OCR Works</b><br><span>角色：该论文在本部分中承担长文档生成与 OCR serving 压力的代表角色，用来说明 LLM decoder 引入语言先验后，长输出会把 KV cache 累积、显存占用和生成速度退化变成核心瓶颈。</span><br><span>解读：最值得看的是它把 OCR 从单纯识别效果问题推进到长序列生成系统问题，并且材料显示其已有 demo、模型、Space 与 GitHub 资产线索，具备继续工程验证的基础。</span></li></ul></section>
+            </article>
+
+    <section class="hf-panel">
+      <h3>后续观察点</h3>
+      <ul><li>后续需要观察 6 月 26 日后连续三天出现的 OPID、ViQ、JetSpec 是否能延续到下一周；若只停留在三日热度，应避免将其写成稳定趋势。</li><li>月榜延续热点主要仍由既有 Agent、记忆、文档解析和 LLM serving 论文支撑；本批 12 篇论文更适合作为这些长期基线之上的机制更新，而不是替代月度主线。</li><li>Moebius 同时具备日榜爆发和近 90 天基线记录，值得在多模态效率部分保留较高权重；但它与 ViQ、PerceptionDLM 的技术问题不同，写作时不宜合并成泛化的视觉模型热度。</li><li>Agent 记忆方向需要重点区分个体偏好记忆、跨应用工作记忆和多主体共享记忆治理；这三类问题的评测指标和工程风险不同，不能只用长上下文能力概括。</li></ul>
+    </section>
+  </main>
+</body>
+</html>
