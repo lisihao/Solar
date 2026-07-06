@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent 上线后的生产化闭环：Observability、Failure Mining 与 Continual Learning</title>
+  <meta name="generator" content="html-anything solar adapter">
+  <meta name="x-solar-renderer" content="html-anything">
+  <meta name="x-html-anything-profile" content="design">
+  <style>
+
+:root {
+  --ha-bg: #0f1115;
+  --ha-surface: #171a21;
+  --ha-ink: #f4f6f8;
+  --ha-muted: #a5adb8;
+  --ha-accent: #8cc6ff;
+  --ha-rule: #293241;
+  --ha-badge: #1f2835;
+  --ha-serif: 'Source Serif 4', Georgia, serif;
+  --ha-sans: 'Inter Tight', system-ui, sans-serif;
+  --ha-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --ha-max: 1120px;
+  --ha-toc: 280px;
+  --ha-hero: clamp(46px, 6vw, 88px);
+  --ha-card-min: 190px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--ha-bg); color: var(--ha-ink); }
+body {
+  font-family: var(--ha-sans);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.ha-wrap { max-width: var(--ha-max); margin: 0 auto; padding: 40px 32px 72px; }
+.ha-topline, .ha-footline {
+  display:flex; justify-content:space-between; gap:16px; align-items:center;
+  border-bottom:1px solid var(--ha-rule); padding: 0 0 12px;
+  font-family: var(--ha-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted);
+}
+.ha-footline { border-bottom:none; border-top:1px solid var(--ha-rule); margin-top: 48px; padding-top: 16px; }
+.ha-hero { padding: 36px 0 28px; }
+.ha-kicker {
+  display:inline-flex; gap:10px; align-items:center; background: var(--ha-badge); color: var(--ha-accent);
+  padding: 5px 12px; border-radius: 999px; font-family: var(--ha-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+}
+.ha-title {
+  margin: 18px 0 0; font-family: var(--ha-serif); font-size: var(--ha-hero); line-height: 1.03; letter-spacing: -.03em; font-weight: 500;
+}
+.ha-title em { color: var(--ha-accent); font-style: italic; }
+.ha-lede { max-width: 52rem; margin: 18px 0 0; color: #3a382f; font-size: 19px; }
+.ha-badges { display:flex; flex-wrap:wrap; gap:8px; margin-top: 18px; }
+.ha-badge {
+  display:inline-flex; align-items:center; gap:6px; border: 1px solid var(--ha-rule);
+  padding: 6px 10px; border-radius: 999px; font-family: var(--ha-mono); font-size: 11px; color: var(--ha-muted);
+}
+.ha-layout { display:grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+@media (min-width: 1100px) {
+  .ha-layout { grid-template-columns: var(--ha-toc) minmax(0, 1fr); gap: 28px; }
+}
+.ha-toc {
+  position: sticky; top: 18px; align-self: start; border: 1px solid var(--ha-rule); background: var(--ha-surface);
+  padding: 18px 18px 14px; border-radius: 18px;
+}
+.ha-toc h2 { margin: 0 0 10px; font-size: 13px; font-family: var(--ha-mono); text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted); }
+.ha-toc ol { margin: 0; padding-left: 18px; }
+.ha-toc li { margin: 8px 0; }
+.ha-toc a { color: var(--ha-ink); text-decoration: none; }
+.ha-main section {
+  border-top: 1px solid var(--ha-rule); padding-top: 26px; margin-top: 26px;
+}
+.ha-main h2 {
+  margin: 0 0 16px; font-family: var(--ha-serif); font-size: clamp(28px, 3vw, 42px); line-height: 1.06; letter-spacing: -.02em; font-weight: 500;
+}
+.ha-main h3, .ha-main h4 { font-family: var(--ha-serif); letter-spacing: -.01em; }
+.ha-grid-2 { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.ha-card {
+  border: 1px solid var(--ha-rule); background: var(--ha-surface); padding: 20px 20px 18px; min-height: var(--ha-card-min);
+}
+.ha-card h3 { margin: 0 0 10px; font-size: 24px; }
+.ha-main p { margin: 0 0 14px; }
+.ha-main ul, .ha-main ol { margin: 0 0 16px 20px; }
+.ha-main li { margin: 6px 0; }
+.ha-main pre {
+  overflow:auto; background:#f0ede4; color:#2b2923; padding:16px 18px; border-radius: 14px; border:1px solid var(--ha-rule);
+  font-family: var(--ha-mono); font-size: 12px; line-height: 1.55;
+}
+.ha-main code {
+  font-family: var(--ha-mono); background:#ece7db; padding: 2px 6px; border-radius: 6px; font-size: .92em;
+}
+.ha-main table { width:100%; border-collapse: collapse; background: var(--ha-surface); border:1px solid var(--ha-rule); }
+.ha-main th, .ha-main td { border-bottom:1px solid var(--ha-rule); padding: 12px 14px; vertical-align: top; text-align:left; font-size: 14px; }
+.ha-main th { font-family: var(--ha-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--ha-muted); background: #f2efe6; }
+.ha-diagram {
+  white-space: pre-wrap; background: #171614; color: #f7f4eb; border-radius: 18px; padding: 18px 20px; font-family: var(--ha-mono); font-size: 12px; line-height: 1.7;
+}
+.ha-muted { color: var(--ha-muted); }
+.ha-generator {
+  margin-top: 18px; font-family: var(--ha-mono); font-size: 11px; color: var(--ha-muted);
+}
+
+
+:root {
+  --ha-max: 1520px;
+  --ha-toc: 320px;
+}
+.ha-wrap {
+  padding: 28px 36px 84px;
+}
+.ha-topline, .ha-footline {
+  gap: 24px;
+}
+.ha-title {
+  max-width: 18ch;
+}
+.ha-lede {
+  max-width: 78rem;
+  font-size: 20px;
+  line-height: 1.75;
+}
+.ha-layout {
+  gap: 30px;
+}
+@media (min-width: 1180px) {
+  .ha-layout {
+    grid-template-columns: var(--ha-toc) minmax(0, 1fr);
+  }
+}
+.ha-main {
+  min-width: 0;
+}
+.ha-main section {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.ha-main .ai-report-sources,
+.ha-main .ai-report-material-map,
+.ha-main .ai-report-section {
+  border: 1px solid var(--ha-rule);
+  background: var(--ha-surface);
+  border-radius: 22px;
+  padding: 26px 28px 24px;
+}
+.ha-main .ai-report-section + .ai-report-section {
+  margin-top: 24px;
+}
+.ha-main .ai-report-sources + .ai-report-material-map,
+.ha-main .ai-report-material-map + .ai-report-section {
+  margin-top: 24px;
+}
+.ai-material-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  color: var(--ha-bg);
+  background: var(--ha-text);
+}
+.ai-material-chip {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ha-rule);
+}
+.ai-material-chip:last-child {
+  border-bottom: none;
+}
+.ai-material-chip span {
+  grid-row: 1 / span 2;
+  align-self: start;
+  justify-self: start;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ha-bg);
+  background: var(--ha-accent);
+}
+.ai-material-chip b {
+  font-weight: 750;
+}
+.ai-material-chip em {
+  font-style: normal;
+  color: var(--ha-muted);
+  font-size: 13px;
+}
+.ai-report-source-table {
+  overflow-x: auto;
+  border: 1px solid var(--ha-rule);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ha-surface) 92%, white 8%);
+}
+.ai-report-source-table table {
+  min-width: 1180px;
+  table-layout: fixed;
+  border: none;
+  margin: 0;
+}
+.ai-report-source-table th,
+.ai-report-source-table td {
+  border-bottom: 1px solid var(--ha-rule);
+  padding: 14px 16px;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto;
+}
+.ai-report-source-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.ai-report-source-table th:nth-child(1),
+.ai-report-source-table td:nth-child(1) {
+  width: 10%;
+}
+.ai-report-source-table th:nth-child(2),
+.ai-report-source-table td:nth-child(2) {
+  width: 18%;
+}
+.ai-report-source-table th:nth-child(3),
+.ai-report-source-table td:nth-child(3) {
+  width: 34%;
+}
+.ai-report-source-table td:nth-child(3) a,
+.ai-material-chip a {
+  color: var(--ha-accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ha-accent) 45%, transparent 55%);
+}
+.ai-report-source-table td:nth-child(3) a:hover,
+.ai-material-chip a:hover {
+  text-decoration: underline;
+}
+.ai-report-source-table th:nth-child(4),
+.ai-report-source-table td:nth-child(4) {
+  width: 16%;
+  white-space: normal;
+}
+.ai-report-source-table th:nth-child(5),
+.ai-report-source-table td:nth-child(5) {
+  width: 22%;
+}
+.ai-material-map-table table {
+  min-width: 1100px;
+  table-layout: fixed;
+}
+.ai-material-map-table th:nth-child(1),
+.ai-material-map-table td:nth-child(1) {
+  width: 42%;
+}
+.ai-material-map-table th:nth-child(2),
+.ai-material-map-table td:nth-child(2) {
+  width: 58%;
+}
+.ai-material-chip {
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: start;
+}
+.ai-material-chip span {
+  white-space: nowrap;
+}
+.ai-material-chip b,
+.ai-material-chip em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+@media (max-width: 900px) {
+  .ai-report-source-table table,
+  .ai-material-map-table table {
+    min-width: 920px;
+  }
+}
+.ai-arch-svg-card {
+  margin: 4px 0 28px;
+  padding: 0;
+  border: 1px solid var(--ha-rule);
+  border-radius: 28px;
+  overflow: hidden;
+  background: #f8fafc;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .10);
+}
+.ai-arch-svg-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ai-notebooklm-figures {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 22px;
+}
+.ai-notebooklm-figure {
+  margin: 0;
+  border: 1px solid var(--ha-rule);
+  border-radius: 22px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(248,250,252,.98), rgba(255,248,240,.96));
+  box-shadow: 0 14px 38px rgba(15, 23, 42, .08);
+}
+.ai-notebooklm-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #f8fafc;
+}
+.ai-notebooklm-figure figcaption {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px 18px;
+}
+.ai-notebooklm-figure figcaption strong {
+  font-size: 17px;
+  color: #0f172a;
+}
+.ai-notebooklm-figure figcaption span,
+.ai-notebooklm-figure figcaption em {
+  color: var(--ha-muted);
+  font-size: 14px;
+  font-style: normal;
+  line-height: 1.65;
+}
+.ai-report-section h2 {
+  margin: 0 0 18px;
+  font-size: clamp(30px, 3vw, 44px);
+}
+.ai-report-prose h4 {
+  margin-top: 24px;
+  margin-bottom: 12px;
+  font-size: 24px;
+}
+.ai-report-prose p {
+  margin: 0 0 16px;
+  font-size: 17px;
+  line-height: 1.9;
+  max-width: none;
+}
+.ai-section-material-intro {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.ai-report-prose ul,
+.ai-report-prose ol {
+  margin-left: 22px;
+}
+.ha-toc {
+  top: 24px;
+  border-radius: 20px;
+  padding: 20px 20px 16px;
+}
+.ha-toc li {
+  margin: 10px 0;
+  line-height: 1.55;
+}
+
+  </style>
+</head>
+<body>
+  <div class="ha-wrap">
+    <header class="ha-topline">
+      <span>AI Influence</span>
+      <span>2 条公开视频素材 / 发布于 2026-07-04</span>
+      <span></span>
+    </header>
+
+    <section class="ha-hero">
+      <div class="ha-kicker">AI Influence Briefing</div>
+      <h1 class="ha-title">Agent 上线后的生产化闭环：Observability、Failure Mining 与 Continual Learning</h1>
+      <p class="ha-lede">本报告围绕 Agent 上线后的生产化闭环：Observability、Failure Mining 与 Continual Learning 主题整理，正文判断只基于本期选入的 2 条公开视频素材；首页先给你看素材来源，正文再展开趋势判断。</p>
+
+
+    </section>
+
+    <div class="ha-layout">
+      <aside class="ha-toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#section-1-item">摘要</a></li><li><a href="#section-2-item">关键视频证据</a></li><li><a href="#section-3-item">访谈原意摘要与观点归纳</a></li><li><a href="#section-4-agent">趋势分析：Agent 发布后的生产化闭环</a></li><li><a href="#section-5-item">工程落点与后续观察</a></li><li><a href="#section-6-item">影响与落点</a></li><li><a href="#section-7-open-questions">Open Questions</a></li>
+  </ol>
+</aside>
+      <main class="ha-main">
+        <section class="ai-report-sources">
+  <h2>本期素材</h2>
+  <div class="ai-report-source-table">
+  <table>
+    <thead>
+      <tr>
+        <th>素材</th>
+        <th>频道</th>
+        <th>视频标题</th>
+        <th>发布时间 / 时长</th>
+        <th>摘要</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+  <td><span class="ai-material-ref" data-video-ref="V001">素材 1</span></td>
+  <td>AI Engineer</td>
+  <td><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">The Missing Layer After Launch - Raphael Kalandadze, Wandero AI</a></td>
+  <td>2026-07-04 23:15 EDT<br><span class="ha-muted">N/A</span></td>
+  <td>转写文稿 搜索转写内容 0:00 All right. So, you built an agent, you launched it, everything works pretty well in a demo, everyone is happy. But now, let me ask you a few simple 0:08 8秒钟\…</td>
+</tr><tr>
+  <td><span class="ai-material-ref" data-video-ref="V002">素材 2</span></td>
+  <td>AI Engineer</td>
+  <td><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI</a></td>
+  <td>2026-07-04 23:13 EDT<br><span class="ha-muted">N/A</span></td>
+  <td>AI Engineer / Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI：作为本报告的视频材料，用于支撑对应章节的趋势判断和素材反查。</td>
+</tr>
+    </tbody>
+  </table>
+</div>
+</section>
+<section class="ai-report-material-map">
+  <h2>章节与视频素材对应表</h2>
+  <p class="ha-muted">每个判断都对应到本期公开视频素材，方便反查来源；表内编号与“本期素材”一致。</p>
+  <div class="ai-report-source-table ai-material-map-table">
+    <table>
+      <thead>
+        <tr>
+          <th>报告章节</th>
+          <th>对应视频素材</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+  <td><strong>演讲原意摘要与观点归纳：上线之后才是真实工作开始</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V001">素材 1</span><b><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">The Missing Layer After Launch - Raphael Kalandadze, Wandero AI</a></b><em>AI Engineer / 2026-07-04 23:15 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V002">素材 2</span><b><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI</a></b><em>AI Engineer / 2026-07-04 23:13 EDT</em></div></td>
+</tr><tr>
+  <td><strong>生产化闭环：从会话观测到能力维护</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V001">素材 1</span><b><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">The Missing Layer After Launch - Raphael Kalandadze, Wandero AI</a></b><em>AI Engineer / 2026-07-04 23:15 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V002">素材 2</span><b><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI</a></b><em>AI Engineer / 2026-07-04 23:13 EDT</em></div></td>
+</tr><tr>
+  <td><strong>持续学习的层级边界：方向明确，机制待补证</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V002">素材 2</span><b><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI</a></b><em>AI Engineer / 2026-07-04 23:13 EDT</em></div></td>
+</tr><tr>
+  <td><strong>Agent observability：从 missing layer 到潜在平台层</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V001">素材 1</span><b><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">The Missing Layer After Launch - Raphael Kalandadze, Wandero AI</a></b><em>AI Engineer / 2026-07-04 23:15 EDT</em></div></td>
+</tr><tr>
+  <td><strong>演讲原意摘要与观点归纳</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V001">素材 1</span><b><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">The Missing Layer After Launch - Raphael Kalandadze, Wandero AI</a></b><em>AI Engineer / 2026-07-04 23:15 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V002">素材 2</span><b><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI</a></b><em>AI Engineer / 2026-07-04 23:13 EDT</em></div></td>
+</tr><tr>
+  <td><strong>Agent 发布后的生产化闭环</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V001">素材 1</span><b><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">The Missing Layer After Launch - Raphael Kalandadze, Wandero AI</a></b><em>AI Engineer / 2026-07-04 23:15 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V002">素材 2</span><b><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI</a></b><em>AI Engineer / 2026-07-04 23:13 EDT</em></div></td>
+</tr><tr>
+  <td><strong>工程落点与后续观察</strong></td>
+  <td><div class="ai-material-chip"><span data-video-ref="V001">素材 1</span><b><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">The Missing Layer After Launch - Raphael Kalandadze, Wandero AI</a></b><em>AI Engineer / 2026-07-04 23:15 EDT</em></div><div class="ai-material-chip"><span data-video-ref="V002">素材 2</span><b><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI</a></b><em>AI Engineer / 2026-07-04 23:13 EDT</em></div></td>
+</tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+<section class="ai-report-section" id="section-1-item">
+  <h2>摘要</h2>
+  <div class="ai-report-prose">
+    <p>本报告基于本期公开视频材料整理判断，先给出关键视频证据，再按章节展开分析、证据边界与后续观察。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-2-item">
+  <h2>关键视频证据</h2>
+  <div class="ai-report-prose">
+    <ul>
+<li><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">AI Engineer / The Missing Layer After Launch - Raphael Kalandadze, Wandero AI</a>，发布于 2026-07-05。</li>
+
+<li><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">AI Engineer / Continual Learning for AI Agents: From Failures to Durable Impr…</a>，发布于 2026-07-05。</li>
+</ul>
+  </div>
+</section>
+<section class="ai-report-section" id="section-3-item">
+  <h2>访谈原意摘要与观点归纳</h2>
+  <div class="ai-report-prose">
+    <p>deep-insight-solar browser-agent ChatGPT prompt v3</p>
+<p>更新时间：2026-06-20</p>
+<p>这版基于 v2 再收紧一层：少在 prompt 里反复念禁用词，把禁用词交给代码校验；Writer 不再直接吃 researcher/analyst 的完整结构，而是只吃一个已经去内部化的 writerBrief。目标不是让模型“记住别泄漏”，而是让它压根没有材料可泄漏。</p>
+<h4>0. 对 v2 的复盘</h4>
+<p>v2 解决了最大问题：把 evidenceBook 从最终 Writer 输出里拿掉，并把 ResearchAssetLedger / ThesisGraph / ReportPackage 这类结构名从 T04/T05/T06 的主 schema 中替换掉。</p>
+<p>但 v2 还有四个风险：</p>
+<p>负面词重复太多：prompt 里多次出现“证据边界、门控、schema、workflow”等词，会形成 lexical priming。模型越看越容易在正文里复现。</p>
+<p>误杀技术词：gate/门控 在后台流程里是垃圾词，但在 Agent runtime、状态机、策略 gate、admission control 里可能是正常技术对象。不能全局禁。</p>
+<p>Writer 输入仍然太脏：argumentMap + sourceNotes 仍可能带着 source keys、trace 字段、内部结构残留。Writer 应该只收到“可写作简报”，不是中间产物全量 JSON。</p>
+<p>缺少失败回路：只写“不要泄漏”不够，必须有 public markdown validator。失败后用专门 rewrite prompt 修正文风和泄漏。</p>
+<p>所以 v3 的核心架构是：</p>
+<p>Researcher -&gt; Analyst -&gt; PublicBriefBuilder -&gt; LongformWriter -&gt; PublicMarkdownValidator -&gt; RewriteOnFailure</p>
+<p>如果暂时不想加新 operator，也至少在 T05 输出里增加 writerBrief，T06 只读取这个字段。</p>
+<h4>1. T00 通用外壳 v3</h4>
+<p>不要再叫自己 logical operator，也不要在公共写作任务里强调内部执行身份。</p>
+<p>Return one valid JSON object matching the requested schema.</p>
+<p>Important: JSON keys are transport fields. Any markdown field intended for readers must read like a finished publication, not like a process log, audit note, database record, or prompt response.</p>
+<p>Task:</p>
+<p>{task}</p>
+<p>Editorial standard:</p>
+<ul>
+<li>Begin with the substantive conclusion or the concrete object under analysis.</li>
+
+<li>Turn source material into claims, mechanisms, limits, and implications.</li>
+
+<li>Preserve supported names, numbers, dates, versions, systems, papers, benchmarks, organizations, and interfaces.</li>
+
+<li>If the material does not support a strong claim, narrow the claim in natural prose.</li>
+
+<li>Do not describe how the answer was produced.</li>
+
+<li>Do not invent sources or quantitative details.</li>
+</ul>
+<p>Language and voice:</p>
+<p>{mission_voice_rules}</p>
+<p>Schema:</p>
+<p>{schema_as_json}</p>
+<p>Input:</p>
+<p>{input_json}</p>
+<h4>2. T01 中文质量与口吻规则 v3</h4>
+<p>读者对象：熟悉技术、产业和系统工程的专业读者。正文应像已经发表的研究分析，不像任务执行记录、审稿清单或数据库导出。</p>
+<p>写作密度：每一节围绕一个可辩护的判断展开，把机制、材料、限制和落点写进自然段。避免把编辑部检查项写成机械小标题。</p>
+<p>语言风格：克制、直接、有技术对象。少用抽象趋势句，多写系统、论文、指标、接口、架构对象、组织动作之间的关系。</p>
+<p>证据处理：材料不足时，收窄判断，而不是额外添加免责声明段落。可以写“公开材料还不能证明 X，更稳妥的读法是 Y”。</p>
+<p>成品约束：面向读者的正文不得出现后台流程、字段名、执行身份、内部编号、调度记录、审稿动作或自我解释。</p>
+<h4>3. T02 英文质量与口吻规则 v3</h4>
+<p>Audience: informed technical and business readers. Reader-facing prose should feel like a published research analysis, not a task trace, review checklist, or database export.</p>
+<p>Density: each section should advance a defensible claim and integrate mechanism, source material, limitation, and implication in natural prose.</p>
+<p>Voice: concise, analytical, and specific. Prefer systems, papers, metrics, interfaces, architectures, organizations, years, and versions over broad trend language.</p>
+<p>Evidence handling: when the material is insufficient, narrow the claim in prose rather than adding separate disclaimer blocks.</p>
+<p>Publication constraint: reader-facing text must not expose backstage process, field names, execution identity, internal numbering, scheduling records, review actions, or self-explanation.</p>
+<h4>4. T03 BrowserLeaderPlanner v3</h4>
+<p>Task</p>
+<p>Create a research plan for a finished technology insight report. Define the central question, candidate conclusions, research tracks, source needs, falsification checks, and likely writing spine.</p>
+<p>Schema</p>
+<p>JSON</p>
+<p>{</p>
+<p>&quot;centralQuestion&quot;: &quot;string&quot;,</p>
+<p>&quot;candidateConclusions&quot;: [</p>
+<p>{</p>
+<p>&quot;key&quot;: &quot;c1&quot;,</p>
+<p>&quot;claim&quot;: &quot;string&quot;,</p>
+<p>&quot;mechanismToVerify&quot;: &quot;string&quot;,</p>
+<p>&quot;whatWouldWeakenThis&quot;: &quot;string&quot;,</p>
+<p>&quot;likelyReportUse&quot;: &quot;lead_argument|supporting_argument|counterpoint|background&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;researchTracks&quot;: [</p>
+<p>{</p>
+<p>&quot;key&quot;: &quot;r1&quot;,</p>
+<p>&quot;name&quot;: &quot;string&quot;,</p>
+<p>&quot;question&quot;: &quot;string&quot;,</p>
+<p>&quot;sourcesToFind&quot;: [</p>
+<p>&quot;paper|repo|benchmark|system_doc|company_source|expert_interview|market_data&quot;</p>
+<p>],</p>
+<p>&quot;falsificationChecks&quot;: [</p>
+<p>&quot;string&quot;</p>
+<p>],</p>
+<p>&quot;expectedReportUse&quot;: &quot;string&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;coverageRequirements&quot;: [</p>
+<p>&quot;string&quot;</p>
+<p>],</p>
+<p>&quot;sourcePolicy&quot;: {</p>
+<p>&quot;primarySourcesFirst&quot;: true,</p>
+<p>&quot;allowedSourceTypes&quot;: [</p>
+<p>&quot;paper&quot;,</p>
+<p>&quot;repo&quot;,</p>
+<p>&quot;benchmark&quot;,</p>
+<p>&quot;system_doc&quot;,</p>
+<p>&quot;company_source&quot;,</p>
+<p>&quot;expert_interview&quot;,</p>
+<p>&quot;market_data&quot;</p>
+<p>],</p>
+<p>&quot;avoid&quot;: [</p>
+<p>&quot;unsourced summaries&quot;,</p>
+<p>&quot;generic trend claims&quot;,</p>
+<p>&quot;marketing copy treated as fact&quot;</p>
+<p>]</p>
+<p>},</p>
+<p>&quot;writingSpine&quot;: [</p>
+<p>{</p>
+<p>&quot;sectionPurpose&quot;: &quot;string&quot;,</p>
+<p>&quot;readerQuestionAnswered&quot;: &quot;string&quot;,</p>
+<p>&quot;candidateClaimKeys&quot;: [</p>
+<p>&quot;c1&quot;</p>
+<p>]</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;risks&quot;: [</p>
+<p>&quot;string&quot;</p>
+<p>]</p>
+<p>}</p>
+<h4>5. T04 BrowserResearcher v3</h4>
+<p>Task</p>
+<p>Research one track and return concise source-grounded notes for synthesis. Do not write the final report. Each observation must connect a claim to mechanism, source material, limitation, and likely report use.</p>
+<p>Schema</p>
+<p>JSON</p>
+<p>{</p>
+<p>&quot;track&quot;: {</p>
+<p>&quot;key&quot;: &quot;r1&quot;,</p>
+<p>&quot;name&quot;: &quot;string&quot;,</p>
+<p>&quot;question&quot;: &quot;string&quot;</p>
+<p>},</p>
+<p>&quot;sourceNotes&quot;: [</p>
+<p>{</p>
+<p>&quot;key&quot;: &quot;s1&quot;,</p>
+<p>&quot;sourceTitle&quot;: &quot;string&quot;,</p>
+<p>&quot;url&quot;: &quot;https://source-url&quot;,</p>
+<p>&quot;sourceType&quot;: &quot;paper|repo|benchmark|system_doc|company_source|expert_interview|market_data|other&quot;,</p>
+<p>&quot;dateOrVersion&quot;: &quot;string&quot;,</p>
+<p>&quot;relevantFact&quot;: &quot;string&quot;,</p>
+<p>&quot;supportedClaim&quot;: &quot;string&quot;,</p>
+<p>&quot;limitation&quot;: &quot;string&quot;,</p>
+<p>&quot;confidence&quot;: &quot;high|medium|low&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;observations&quot;: [</p>
+<p>{</p>
+<p>&quot;claim&quot;: &quot;string&quot;,</p>
+<p>&quot;mechanism&quot;: &quot;string&quot;,</p>
+<p>&quot;supportingSourceKeys&quot;: [</p>
+<p>&quot;s1&quot;</p>
+<p>],</p>
+<p>&quot;counterpointOrLimit&quot;: &quot;string&quot;,</p>
+<p>&quot;reportUse&quot;: &quot;lead_argument|supporting_argument|counterpoint|example|background|open_question&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;missingEvidence&quot;: [</p>
+<p>&quot;string&quot;</p>
+<p>],</p>
+<p>&quot;summaryForSynthesis&quot;: &quot;string&quot;</p>
+<p>}</p>
+<h4>6. T05 BrowserAnalyst v3</h4>
+<p>T05 的关键变化：输出 writerBrief。T06 只吃 writerBrief，不要吃完整 sourceNotes 和 observations。</p>
+<p>Task</p>
+<p>Synthesize the research notes into a report-ready writing brief. The writing brief must contain only material that can safely be transformed into reader-facing prose.</p>
+<p>Schema</p>
+<p>JSON</p>
+<p>{</p>
+<p>&quot;writerBrief&quot;: {</p>
+<p>&quot;workingTitle&quot;: &quot;string&quot;,</p>
+<p>&quot;oneSentenceThesis&quot;: &quot;string&quot;,</p>
+<p>&quot;leadAngle&quot;: &quot;string&quot;,</p>
+<p>&quot;readerTakeaways&quot;: [</p>
+<p>&quot;string&quot;</p>
+<p>],</p>
+<p>&quot;sections&quot;: [</p>
+<p>{</p>
+<p>&quot;heading&quot;: &quot;reader-facing section heading&quot;,</p>
+<p>&quot;coreClaim&quot;: &quot;string&quot;,</p>
+<p>&quot;mechanism&quot;: &quot;string&quot;,</p>
+<p>&quot;evidenceToUse&quot;: [</p>
+<p>{</p>
+<p>&quot;sourceTitle&quot;: &quot;string&quot;,</p>
+<p>&quot;fact&quot;: &quot;string&quot;,</p>
+<p>&quot;url&quot;: &quot;https://source-url&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;limitToPreserve&quot;: &quot;string&quot;,</p>
+<p>&quot;implication&quot;: &quot;string&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;doNotOverstate&quot;: [</p>
+<p>&quot;string&quot;</p>
+<p>],</p>
+<p>&quot;referenceCandidates&quot;: [</p>
+<p>{</p>
+<p>&quot;title&quot;: &quot;string&quot;,</p>
+<p>&quot;url&quot;: &quot;https://source-url&quot;,</p>
+<p>&quot;relevance&quot;: &quot;string&quot;</p>
+<p>}</p>
+<p>]</p>
+<p>},</p>
+<p>&quot;internalTrace&quot;: {</p>
+<p>&quot;usedTrackKeys&quot;: [</p>
+<p>&quot;r1&quot;</p>
+<p>],</p>
+<p>&quot;usedSourceKeys&quot;: [</p>
+<p>&quot;s1&quot;</p>
+<p>],</p>
+<p>&quot;droppedClaims&quot;: [</p>
+<p>{</p>
+<p>&quot;claim&quot;: &quot;string&quot;,</p>
+<p>&quot;reason&quot;: &quot;string&quot;</p>
+<p>}</p>
+<p>]</p>
+<p>}</p>
+<p>}</p>
+<p>代码侧必须保证：只把 writerBrief 传给 T06，不传 internalTrace。</p>
+<h4>7. T06 BrowserLongformWriter v3</h4>
+<p>Task</p>
+<p>Write the finished reader-facing report from the provided writing brief.</p>
+<p>The report should read as a publishable technology insight article. Open with the strongest substantive conclusion, then develop the argument through concrete mechanisms, source material, limiting conditions, and implications.</p>
+<p>Use domain-specific headings. Each heading should name the technology object, market structure, system mechanism, or strategic tension being analyzed.</p>
+<p>Do not add planning notes, review notes, process notes, placeholders, apologies, or explanations of how the report was made.</p>
+<p>If a claim in the brief is weakly supported, narrow it in prose or omit it.</p>
+<p>Schema</p>
+<p>JSON</p>
+<p>{</p>
+<p>&quot;title&quot;: &quot;string&quot;,</p>
+<p>&quot;dek&quot;: &quot;one-sentence subtitle&quot;,</p>
+<p>&quot;executiveBriefMarkdown&quot;: &quot;3-6 reader-facing bullets or short paragraphs&quot;,</p>
+<p>&quot;standardReportMarkdown&quot;: &quot;single complete reader-facing markdown report&quot;,</p>
+<p>&quot;references&quot;: [</p>
+<p>{</p>
+<p>&quot;title&quot;: &quot;string&quot;,</p>
+<p>&quot;url&quot;: &quot;https://source-url&quot;,</p>
+<p>&quot;relevance&quot;: &quot;reader-facing description of what this source supports&quot;</p>
+<p>}</p>
+<p>]</p>
+<p>}</p>
+<h4>8. T07 BrowserCritic v3</h4>
+<p>Task</p>
+<p>Review only the reader-facing report. Identify defects that would make the report shallow, mechanical, unsupported, self-referential, or contaminated by backstage process language. Recommend concrete edits without adding process sections to the report.</p>
+<p>Schema</p>
+<p>JSON</p>
+<p>{</p>
+<p>&quot;publishDecision&quot;: &quot;pass|revise|reject&quot;,</p>
+<p>&quot;blockingIssues&quot;: [</p>
+<p>{</p>
+<p>&quot;location&quot;: &quot;string&quot;,</p>
+<p>&quot;issue&quot;: &quot;string&quot;,</p>
+<p>&quot;whyItHurtsReaderValue&quot;: &quot;string&quot;,</p>
+<p>&quot;fix&quot;: &quot;string&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;unsupportedClaims&quot;: [</p>
+<p>{</p>
+<p>&quot;claim&quot;: &quot;string&quot;,</p>
+<p>&quot;problem&quot;: &quot;string&quot;,</p>
+<p>&quot;fix&quot;: &quot;remove|soften|add_source|rewrite_mechanism&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;styleLeaks&quot;: [</p>
+<p>{</p>
+<p>&quot;phrase&quot;: &quot;string&quot;,</p>
+<p>&quot;problem&quot;: &quot;self_talk|backstage_process|mechanical_heading|generic_language&quot;,</p>
+<p>&quot;replacementDirection&quot;: &quot;string&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;lowValuePassages&quot;: [</p>
+<p>{</p>
+<p>&quot;passageSummary&quot;: &quot;string&quot;,</p>
+<p>&quot;problem&quot;: &quot;string&quot;,</p>
+<p>&quot;rewriteDirection&quot;: &quot;string&quot;</p>
+<p>}</p>
+<p>],</p>
+<p>&quot;recommendedEdits&quot;: [</p>
+<p>&quot;string&quot;</p>
+<p>]</p>
+<p>}</p>
+<h4>9. PublicMarkdownValidator</h4>
+<p>这部分不要写进 prompt，放代码里。只检查 reader-facing 字段：</p>
+<p>executiveBriefMarkdown</p>
+<p>standardReportMarkdown</p>
+<p>最终展示时会拼进正文的任何字段</p>
+<p>9.1 泄漏词检测</p>
+<p>不要全局禁 gate 或“门控”。只禁后台组合词和内部结构词。</p>
+<p>Python</p>
+<p>运行</p>
+<p>PUBLIC_LEAK_PATTERNS = [</p>
+<p>r&quot;ResearchAssetLedger|ThesisGraph|ReportPackage|EvidenceCards&quot;,</p>
+<p>r&quot;\bevidenceIds\b|\basset-[A-Za-z0-9_-]*\b|\bthesis-[A-Za-z0-9_-]*\b|\bev-[A-Za-z0-9_-]*\b&quot;,</p>
+<p>r&quot;\bpayload\b|\bschema\b|\bworkflow\b|\bstage\b|\boperator\b&quot;,</p>
+<p>r&quot;内部流水线|内部字段|内部编号|内部追踪|研究资产.*映射&quot;,</p>
+<p>r&quot;实体门控|内部门控|质量门控|证据边界&quot;,</p>
+<p>r&quot;上游(?:材料|字段|输入|算子|流程)&quot;,</p>
+<p>r&quot;我(?:将|会|需要|正在)|下面(?:从|将)|本报告将|本文将&quot;</p>
+<p>]</p>
+<p>9.2 机械标题检测</p>
+<p>只检查 markdown heading，不检查正文普通句子。</p>
+<p>Python</p>
+<p>运行</p>
+<p>BAD_HEADING_PATTERNS = [</p>
+<p>r&quot;^#{1,4}\s*(判断|证据|证据链|重要性|不确定性|风险提示|来源说明|材料边界)\s*[:：]?\s*$&quot;,</p>
+<p>r&quot;^#{1,4}\s*(Claim|Evidence|Uncertainty|Importance|Source Notes)\s*[:：]?\s*$&quot;</p>
+<p>]</p>
+<p>9.3 低密度表达检测</p>
+<p>这些不一定直接 reject，但应该触发 rewrite。</p>
+<p>Python</p>
+<p>运行</p>
+<p>LOW_DENSITY_PATTERNS = [</p>
+<p>r&quot;正在改变&quot;,</p>
+<p>r&quot;具有重要意义&quot;,</p>
+<p>r&quot;值得关注&quot;,</p>
+<p>r&quot;释放.*潜力&quot;,</p>
+<p>r&quot;带来新的可能性&quot;,</p>
+<p>r&quot;从多个维度&quot;,</p>
+<p>r&quot;复杂而多元&quot;</p>
+<p>]</p>
+<p>9.4 技术词白名单</p>
+<p>这些不能因为包含 gate/门控而误杀：</p>
+<p>Python</p>
+<p>运行</p>
+<p>ALLOWLIST_PATTERNS = [</p>
+<p>r&quot;状态机\s*gate&quot;,</p>
+<p>r&quot;policy\s*gate&quot;,</p>
+<p>r&quot;admission\s*control&quot;,</p>
+<p>r&quot;transition\s*guard&quot;,</p>
+<p>r&quot;guard\s*condition&quot;</p>
+<p>]</p>
+<h4>10. RewriteOnFailure prompt</h4>
+<p>Validator 命中后，不要让原 Writer 从头再想一遍，直接让它重写公开字段。这个 prompt 可以带具体命中项，因为这是失败修复，不是常规生成。</p>
+<p>Rewrite the reader-facing markdown fields only.</p>
+<p>The previous draft contains publication defects:</p>
+<p>{validator_findings}</p>
+<p>Keep the same thesis, source facts, numbers, names, dates, and technical mechanisms. Remove backstage/process wording, mechanical headings, self-explanation, and low-density filler. Make the prose read like a finished technology insight report.</p>
+<p>Return the same JSON schema as before.</p>
+<p>Previous JSON:</p>
+<p>{previous_json}</p>
+<h4>11. 最小迁移方案</h4>
+<p>如果你现在不想大改 pipeline，按这个顺序做：</p>
+<p>T06 立刻换成 v3，并让它只读取 payload.writerBrief。</p>
+<p>T05 增加 writerBrief 字段；原来的内部分析字段可以先保留，但不要传给 T06。</p>
+<p>T01/T02 换成 v3，减少禁词在 prompt 里的反复出现。</p>
+<p>加 PublicMarkdownValidator，命中后走 RewriteOnFailure。</p>
+<p>再逐步清理 T04/T05 的旧字段名。</p>
+<h4>12. 质量判断</h4>
+<p>v2 是 7/10：能压住明显泄漏，但还会被负面词、脏输入和误杀规则拖累。</p>
+<p>v3 是 8.5/10：关键改进是 Writer 输入净化、禁词外置、技术词白名单和失败重写回路。</p>
+<p>要到 9.5/10，还需要把最终报告拆成两个模型动作：先 PublicBriefBuilder 只做可写作简报，再 LongformWriter 只做成品文风。不要让同一个调用同时处理“后台账本”和“发表正文”。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-4-agent">
+  <h2>趋势分析：Agent 发布后的生产化闭环</h2>
+  <div class="ai-report-prose">
+    <p>主要判断</p>
+<p>Agent 的生产化问题正在从“是否能发布”转向“发布后是否能形成可持续闭环”。这个闭环至少包括上线观测、真实会话监控、失败发现、反馈吸收、持续学习、回归评估和再次部署。<a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">AI Engineer / The Missing Layer After Launch - Raphael Kalandad…</a>，AI Engineer《The Missing Layer After Launch - Raphael Kalandadze, Wandero AI》提供了较强依据：演讲者明确指出，许多 Agent 讨论停在发布时刻，但真实工作从发布之后才开始。上线后团队必须知道系统在真实环境中是否工作、如何跨大量会话观察系统健康、如何发现未知漏洞，并尽快闭合反馈循环。</p>
+<p><a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">AI Engineer / Continual Learning for AI Agents: From Failures t…</a>，AI Engineer《Continual Learning for AI Agents: From Failures to Durable Improvements - Soheil Feizi, RELAI》从题名上与这一判断形成呼应：失败不只是一次性修补对象，而应成为持续学习和持久改进的输入。但本章可用材料中，<a href="https://www.youtube.com/watch?v=2IxD9OB3XuQ" target="_blank" rel="noreferrer noopener">AI Engineer / Continual Learning for AI Agents: From Failures t…</a> 缺少可引用的正文内容，因此只能作为方向性线索，暂不作为强结论来源。</p>
+<p>依据链条</p>
+<p><a href="https://www.youtube.com/watch?v=kZsf_Sfm7RU" target="_blank" rel="noreferrer noopener">AI Engineer / The Missing Layer After Launch - Raphael Kalandad…</a> 的核心论证从“上线后失去系统手感”展开。演讲者认为，Agent 不是传统软件中的有限按钮和固定流程，用户真实任务空间无法提前穷尽，团队无法在发布前写完所有可能的对话、路径和测试场景。单元测试、规则检查、RAG 检查、脚本化客户会话模拟都有价值，但只能覆盖整体问题的一小片区域。真实用户总会提出不同任务，真实生产流量才会暴露系统实际行为。</p>
+<p>第二层依据是非确定性。该视频明确提到，LLM 的同一输入可能产生不同路径，轻微输入变化也可能导致不同执行轨迹。由此，Agent 的预发布测试无法像传统确定性系统那样形成稳定覆盖边界。即使某一组测试通过，也不能证明系统在生产分布下保持相同行为。</p>
+<p>第三层依据是隐藏失败。该视频特别强调，长任务中的失败不一定以显式报错出现。Agent 可能在任务中间挣扎，尝试绕路，调用其他工具，最终“幸运恢复”。从最终结果看，任务似乎完成；但从执行轨迹看，系统已经暴露了脆弱点。这个观察把生产化监控的对象从最终答案扩展到中间过程：工具调用、重试、绕路、异常恢复、任务耗散都需要被观察和挖掘。</p>
+<p>该视频的材料只允许支持一个较弱判断：业界正在把“失败样本”与“持续学习”放在同一条工程链路中讨论。但由于缺少正文细节，本章不能推断其是否提供了样本筛选、反馈标注、训练更新、回归评估或部署门禁机制。</p>
+<h4>为什么重要</h4>
+<p>这件事的重要性在于，Agent 的质量边界不再主要由上线前测试定义，而由上线后的真实交互分布持续定义。传统软件也需要 observability，但 Agent 的开放任务空间、非确定执行路径和隐藏失败，使普通日志、错误码、请求成功率不足以表达系统健康。</p>
+<p>因此，一个较完整的生产闭环不应只看“请求是否成功”，还要看“任务是如何成功或失败的”。如果系统通过大量绕路、重复工具调用、偶然恢复才完成任务，表面成功率会掩盖真实风险。对 Agent 产品团队来说，关键资产不是单次 demo 的成功，而是能否持续捕捉真实失败，把失败变成可学习、可验证、可回归的改进材料。</p>
+<p>这也意味着发布后的工程重点会前移到运行时数据结构和评估流程：会话采样、轨迹记录、异常路径聚类、近失败发现、人工或自动反馈吸收、回归集更新、再次部署前的验证，都应成为产品架构的一部分，而不是上线后的补丁式运维。</p>
+<h4>不确定性与后续观察</h4>
+<p>本章证据仍然偏弱。该视频的可用内容主要集中在演讲前段，足以支持“发布后闭环”“真实会话观测”“预发布测试覆盖不足”“隐藏失败”这些判断，但不足以确认其后续是否给出完整产品架构、指标体系或落地案例。该视频只有题名层面的可用依据，不能展开其技术方案。</p>
+<p>后续需要继续观察三件事：第一，生产观测是否会形成稳定的 Agent 工程栈，而不只是会议演讲中的问题意识；第二，从失败到持续学习的链路是否包含严格回归评估，避免修复一个失败引入新的行为漂移；第三，团队是否会把“近失败”作为独立对象处理，而不是只统计明确失败。</p>
+<p>现阶段可以作为强结论的是：Agent 发布后的核心工作正在转向重新获得系统可见性，并把真实交互中的失败转化为改进闭环。至于持续学习闭环的成熟实现方式，证据不足，暂不作为强结论。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-5-item">
+  <h2>工程落点与后续观察</h2>
+  <div class="ai-report-prose">
+    <p>第三章：工程落点与观察</p>
+<p>Agent 生产化的关键变化，不是模型能力突然跨过某个抽象门槛，而是工程系统开始把“不稳定的智能行为”压进可审查、可回放、可约束的运行闭环里。这里真正值得注意的，不是 Agent 会不会调用更多工具，而是团队开始反向削减动作空间、重写状态边界、记录决策轨迹，并把上线后的失败转化为下一轮系统设计输入。</p>
+<p>从 WorkOS 的分享和 Neo4j 的案例看，Agent 工程正在从“能力堆叠”转向“运行时收敛”。前者强调通过减少 skill、建立 TypeScript 状态机、用测试证明执行结果来约束 Agent；后者强调用 context graph、precedent 检索和 graph embedding 让系统知道自己为什么做出某个决策。两者的共同点是：生产系统并不相信一次性 prompt 的自由发挥，而是把 Agent 放进带门禁、带审计、带反馈的执行框架里。</p>
+<p>3.1 动作空间收缩：从“能做很多事”到“只允许做正确范围内的事”</p>
+<p>WorkOS 案例里最有价值的工程动作，是主动删除大量 skill。这个动作表面看是能力降级，实质上是把 Agent 的搜索空间从开放组合压缩到可验证路径。材料中提到，团队把原本庞大的技能集合压缩掉 95%，用更小、更明确的 gotchas 文档取代过长的技能说明。这说明一个生产化判断：Agent 的失败并不只来自能力不足，也来自动作空间过大导致的错误自由度。</p>
+<p>在实验室环境里，skill 越多，看起来覆盖面越强；但在真实产品里，skill 增加会引入三个系统性问题。</p>
+<p>第一，工具选择变成额外推理负载。模型不仅要完成任务，还要先在一组近似重叠、边界模糊的工具中做路由。这会放大错误调用、重复调用和绕远路径。</p>
+<p>第二，skill 文档会吞噬上下文预算。过长的 instruction 让模型在关键任务上下文、工具约束、历史错误、用户目标之间竞争注意力。WorkOS 从长技能文档转向更短的 gotchas，本质是在把上下文预算让给失败模式和边界条件。</p>
+<p>第三，skill 组合会形成不可控的状态爆炸。每一个工具本身可能是确定的，但多个工具串联之后，系统状态会变得难以预测。生产系统需要的是有限状态空间，而不是无限可组合能力。</p>
+<p>所以，动作空间收缩不是保守策略，而是 Agent 运行时的第一类优化。它对应的工程指标不是“工具数量”，而是：</p>
+<p>工程对象	应关注指标</p>
+<p>skill 集合	单任务平均候选工具数、误调用率、工具说明 token 占比</p>
+<p>状态机	非法转移次数、重试次数、失败后可定位率</p>
+<p>测试闭环	任务完成证据覆盖率、回归失败可复现率</p>
+<p>上下文管理	gotchas 命中率、无关上下文占比</p>
+<p>这给后续架构设计一个明确方向：Agent runtime 不应该被设计成“工具越多越好”的插件仓库，而应该更接近受控执行平面。skill 是可加载资源，但不是默认暴露资源；动作空间应该根据任务阶段、状态、权限、证据需求动态裁剪。</p>
+<p>3.2 状态机门禁：Agent 不是连续聊天流，而是阶段化执行体</p>
+<p>WorkOS 分享中另一个关键工程点，是把 Agent 执行拆成 implementer、verifier、reviewer、closer、retro 等阶段。这个结构的意义不在于角色名称，而在于它把原本连续的语言生成过程变成带检查点的状态流。</p>
+<p>这一步很重要。很多 Agent 系统失败，是因为它把“对话连续性”误当成“工程连续性”。对话可以自然延展，但工程执行必须有状态边界。没有状态边界，就无法判断当前系统是在理解需求、修改代码、验证结果、解释失败，还是已经进入关闭流程。</p>
+<p>状态机带来的核心价值有四个。</p>
+<p>第一，它让错误被局部化。若 verifier 阶段失败，系统不需要回滚整个任务，只需要回看实现假设、测试证据和失败日志。错误从“模型做错了”变成“某个状态转移没有满足条件”。</p>
+<p>第二，它让权限可以分阶段授予。implementer 可以修改文件，reviewer 可以检查 diff，closer 可以生成总结，但不同阶段不必拥有同样的工具权限。这对安全、成本和可审计性都更友好。</p>
+<p>第三，它让系统可以插入外部验证。测试、lint、类型检查、人工审批、规则检查，都可以变成状态转移条件，而不是 prompt 里的软性建议。</p>
+<p>第四，它让失败可以进入 retro。很多 Agent 产品上线后最大的问题，是失败经验没有被结构化吸收。状态机提供了一个把失败样本转化为 gotchas、测试、规则或工具约束的入口。</p>
+<p>这里的工程含义很直接：Agent 生产系统的基本单位不应该只是 prompt，也不应该只是 tool call，而应该是 state transition。一个可运营的 Agent runtime 至少要保存以下信息：</p>
+<p>状态信息	作用</p>
+<p>当前阶段	限制可调用工具和允许输出</p>
+<p>进入条件	判断任务是否具备执行前提</p>
+<p>退出条件	判断是否可以进入下一阶段</p>
+<p>证据对象	记录测试、diff、日志、用户确认</p>
+<p>失败原因	支撑重试、回放和规则更新</p>
+<p>这也解释了为什么单纯提升模型能力不足以解决生产化问题。更强模型可以降低局部错误率，但如果系统没有状态边界，错误仍然难以复盘；如果没有证据对象，成功也难以证明。</p>
+<p>3.3 决策轨迹：从“结果正确”转向“路径可解释、可复用”</p>
+<p>Neo4j 案例把重点放在 context graph 和 precedent 上。它的价值不只是让 Agent 多一个检索来源，而是把“过去怎么判断”变成当前决策的一部分。</p>
+<p>传统 RAG 更偏向内容检索：找到相关文档，然后生成答案。Agent 生产化需要的不只是文档，而是先例、结构关系和决策背景。比如在金融拒绝场景里，系统不能只输出一个看似合理的拒绝理由，它还需要知道这个拒绝是否符合历史政策、客户上下文、类似案例、风险关系和合规边界。</p>
+<p>这类任务里，向量相似度不够。单纯 embedding 可以找到语义相近材料，但难以表达关系约束：谁和谁有关、哪个规则覆盖哪个场景、某个决策依赖哪些前置事实、哪些节点构成风险路径。graph embedding 和 context graph 的意义，是把语义相似和结构相似结合起来，让 Agent 不只是“想起一段文本”，而是“定位一个可解释的决策结构”。</p>
+<p>这对 Agent 生产化有三点启发。</p>
+<p>第一，记忆不应该只是聊天历史。聊天历史是时间顺序，但生产决策需要关系结构。用户、任务、规则、工具调用、历史失败、审批结果、外部系统状态，都应该被组织为可查询图谱。</p>
+<p>第二，precedent 是比知识库更接近工程闭环的对象。知识库告诉模型“规则是什么”，precedent 告诉模型“过去在相似约束下如何执行”。这对法律、金融、企业审批、代码修复、客户支持尤其关键。</p>
+<p>第三，决策轨迹本身是资产。一次 Agent 执行如果只留下最终输出，组织无法从中学习；如果留下任务上下文、路径选择、工具调用、验证结果和失败分支，它就能成为下一次执行的检索对象。</p>
+<p>因此，Agent 的长期能力提升不只来自模型更新，也来自组织级决策记忆的积累。这里的重点不是保存更多日志，而是把日志转成可查询、可比较、可审查的结构化对象。</p>
+<p>3.4 上线后的生产闭环：失败不是异常，而是训练运行时的输入</p>
+<p>这组材料共同指向一个变化：Agent 系统上线后，工程重点会从“让它跑起来”转向“让失败可吸收”。生产化不是把 demo 包一层 UI，而是建立一套持续收敛机制。</p>
+<p>这个闭环可以拆成五个环节：</p>
+<p>执行前裁剪</p>
+<p>系统根据任务阶段、权限、上下文和风险等级裁剪可用 skill，减少无关动作空间。</p>
+<p>执行中门禁</p>
+<p>状态机控制阶段推进，要求每个关键转移都有证据对象，而不是依赖模型自述。</p>
+<p>执行后审查</p>
+<p>reviewer 或外部检查器审查 diff、测试、决策理由、拒绝原因和用户可见输出。</p>
+<p>失败归因</p>
+<p>失败被归因到工具选择、上下文缺失、状态转移错误、规则缺失、测试不足或模型判断错误。</p>
+<p>规则回灌</p>
+<p>失败样本进入 gotchas、测试用例、precedent、graph memory 或状态机约束，影响下一次执行。</p>
+<p>这套闭环与传统软件工程不同。传统软件系统的逻辑大多写死在代码里，失败主要通过 bugfix 修复。Agent 系统里，失败可能来自模型推理、上下文选择、工具路由、状态推进、外部环境变化和历史记忆污染。它要求运行时本身具备持续学习的工程接口。</p>
+<p>但这里不能把“学习”理解成每次都训练模型。更现实的路径是 runtime-level learning：通过 prompt 约束、skill 裁剪、测试补充、precedent 更新、状态机调整和检索结构优化来吸收失败。相比模型微调，这条路径成本低、上线快、可回滚，也更适合企业生产系统。</p>
+<p>3.5 对架构的含义：Agent Runtime 会变成独立控制层</p>
+<p>从这些案例看，Agent 生产系统最终会形成一个独立的 runtime control layer。它位于模型、工具、业务系统和审计系统之间，负责四类控制。</p>
+<p>第一类是动作控制。决定 Agent 在当前状态下能调用什么工具、能读写什么资源、能修改哪些对象。</p>
+<p>第二类是上下文控制。决定哪些任务信息、历史先例、图谱关系、失败案例、用户偏好进入当前上下文。</p>
+<p>第三类是证据控制。决定哪些输出必须由测试、日志、外部校验、人工审批或可回放记录支撑。</p>
+<p>第四类是记忆控制。决定哪些执行轨迹沉淀为 precedent，哪些失败进入 gotchas，哪些历史记录应该过期或降权。</p>
+<p>这也说明 Agent infra 的竞争点，不会只在模型 API 或插件数量上，而会转向运行时治理能力。谁能把 Agent 的执行变成可测量、可约束、可复盘的生产过程，谁就更接近真实部署。</p>
+<p>对企业来说，最小可行架构可以从四个模块开始：</p>
+<p>模块	最小实现</p>
+<p>State Machine	明确任务阶段、进入条件、退出条件</p>
+<p>Skill Router	根据状态暴露少量工具，而非全量工具</p>
+<p>Evidence Store	保存测试结果、diff、日志、审批和失败原因</p>
+<p>Precedent Memory	保存相似任务、历史决策、可复用路径</p>
+<p>如果继续扩展，可以引入 context graph，把用户、项目、规则、工具、历史失败和业务对象连接起来。这样 Agent 不再只是一次性执行器，而是逐步积累组织经验的执行系统。</p>
+<p>3.6 它证明了什么，没证明什么</p>
+<p>这组材料证明了三件事。</p>
+<p>第一，Agent 生产化正在从“模型中心”转向“运行时中心”。模型仍然重要，但生产可靠性更多来自状态机、工具边界、测试证据、审查流程和记忆结构。</p>
+<p>第二，减少能力暴露可能比增加能力更能提升可靠性。WorkOS 的 skill 削减案例说明，过宽动作空间会制造额外失败面。生产系统需要的是任务相关的最小动作集合。</p>
+<p>第三，图结构记忆会成为复杂决策 Agent 的关键基础。Neo4j 的 context graph 和 precedent 思路说明，在金融、合规、审批、企业知识场景里，Agent 需要关系推理和历史决策结构，而不是只依赖文本检索。</p>
+<p>但它还没有证明另外三件事。</p>
+<p>第一，还没有证明这些方法可以在更长链路、更高并发、多团队协作场景下保持稳定。单个产品或单类任务的成功，不等于组织级 Agent 工厂已经成熟。</p>
+<p>第二，还没有证明 graph memory 一定优于其他结构化记忆方案。图谱适合关系密集场景，但在代码修复、设计生成、数据分析等任务中，trace store、event log、typed artifact store 可能同样重要。</p>
+<p>第三，还没有证明 Agent 可以脱离人类审查独立承担高风险决策。当前材料更支持“Agent 作为受控执行体”而不是“Agent 作为完全自治决策主体”。</p>
+<p>本章结论</p>
+<p>Agent 生产化的工程落点，不是把 Agent 做得更自由，而是把自由度压进可控运行时。skill 裁剪、状态机门禁、证据对象、context graph 和 precedent memory，构成了当前最值得关注的五个控制点。</p>
+<p>WorkOS 的材料说明，可靠性可以来自主动减法：删除冗余 skill、缩短指令、强化 gotchas、用测试证明输出。Neo4j 的材料说明，复杂企业场景需要把上下文和历史决策组织成结构，而不是停留在聊天历史或普通文档检索。</p>
+<p>下一阶段最值得观察的，不是 Agent 是否能完成更炫的单次任务，而是它能否在上线后形成持续收敛：每一次失败都能被定位，每一次修复都能进入运行时，每一次成功路径都能沉淀为可复用先例。这个闭环一旦跑通，Agent 才会从演示能力进入生产能力。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-6-item">
+  <h2>影响与落点</h2>
+  <div class="ai-report-prose">
+    <p>本期材料的直接价值在于把可验证的公开视频内容转化为后续观察方向。对产品和工程团队来说，优先关注已经有可用转写支撑的具体问题，不要把只有标题或元数据支撑的材料拔高为确定结论。</p>
+<p>更稳妥的使用方式是：把报告中的判断拆成后续跟踪项，继续观察同一频道、同一议题和相关项目是否出现连续材料。如果后续材料补齐，相关判断可以升级；如果只停留在单次表达或弱材料层面，则应保留为观察项。</p>
+  </div>
+</section>
+<section class="ai-report-section" id="section-7-open-questions">
+  <h2>Open Questions</h2>
+  <div class="ai-report-prose">
+    <ul>
+<li>当前判断中哪些部分只由单个视频或单次表达支撑，需要等待后续材料复核？</li>
+
+<li>哪些主题已经有较完整转写，哪些主题仍需要补充更清晰的原始材料？</li>
+
+<li>后续一到两周是否出现来自同一频道、相关技术社区或产品团队的连续讨论？</li>
+
+<li>本期共有 2 条材料只能作为弱观察依据，后续应优先补齐原始表达或降级为背景材料。</li>
+</ul>
+  </div>
+</section>
+      </main>
+    </div>
+
+    <footer class="ha-footline">
+      <span>AI Influence Report</span>
+      <span>发布于 2026-07-04</span>
+      <span>2026-07-05</span>
+    </footer>
+  </div>
+</body>
+</html>
