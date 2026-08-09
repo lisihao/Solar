@@ -121,6 +121,8 @@ BUILDER_QUEUE_FINDINGS = {"ready_for_builder", "active_without_handoff", "pane_i
 EPIC_ACTIVE_CHILD_LIMIT = int(os.environ.get("SOLAR_EPIC_ACTIVE_CHILD_LIMIT", "12"))
 EPIC_ACTIVE_CHILD_STATUSES = {"active", "approved", "reviewing", "ready_for_review"}
 EPIC_ACTIVE_CHILD_PHASES = {"prd_ready", "planning_complete", "graph_dispatch_active", "handoff_ready", "builder_in_progress"}
+_GRAPH_STATUS_CACHE_SCAN_DONE = False
+_GRAPH_STATUS_CACHE_SCAN_ROOT = ""
 
 import sys
 sys.path.insert(0, str(HARNESS / "lib"))
@@ -310,8 +312,12 @@ def load_state() -> dict:
     return state
 
 
-def _ensure_graph_status_caches() -> list[str]:
+def _ensure_graph_status_caches(*, force: bool = False) -> list[str]:
+    global _GRAPH_STATUS_CACHE_SCAN_DONE, _GRAPH_STATUS_CACHE_SCAN_ROOT
     if load_graph is None or sync_status_cache_from_graph is None:
+        return []
+    scan_root = str(SPRINTS)
+    if not force and _GRAPH_STATUS_CACHE_SCAN_DONE and _GRAPH_STATUS_CACHE_SCAN_ROOT == scan_root:
         return []
     created: list[str] = []
     for graph_path in sorted(SPRINTS.glob("sprint-*.task_graph.json")):
@@ -341,7 +347,15 @@ def _ensure_graph_status_caches() -> list[str]:
         if sync.get("created") and status_path.exists():
             created.append(sid)
         _refresh_requirement_coverage_if_stale(sid, graph_path)
+    _GRAPH_STATUS_CACHE_SCAN_DONE = True
+    _GRAPH_STATUS_CACHE_SCAN_ROOT = scan_root
     return created
+
+
+def _reset_graph_status_cache_scan() -> None:
+    global _GRAPH_STATUS_CACHE_SCAN_DONE, _GRAPH_STATUS_CACHE_SCAN_ROOT
+    _GRAPH_STATUS_CACHE_SCAN_DONE = False
+    _GRAPH_STATUS_CACHE_SCAN_ROOT = ""
 
 
 def _refresh_requirement_coverage_if_stale(sid: str, graph_path: Path) -> bool:
@@ -3963,6 +3977,7 @@ def main() -> int:
     try:
         while True:
             payload = scan_once(args, state)
+            _reset_graph_status_cache_scan()
             if args.json:
                 print(json.dumps(payload, ensure_ascii=False, indent=2), flush=True)
             else:

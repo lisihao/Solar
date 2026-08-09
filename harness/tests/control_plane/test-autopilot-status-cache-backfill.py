@@ -75,6 +75,32 @@ def test_graph_cache_scan_skips_unchanged_terminal_status(tmp_path, monkeypatch)
     assert graph_loads == []
 
 
+def test_graph_cache_scan_runs_once_per_monitor_cycle(tmp_path, monkeypatch) -> None:
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    sid = "sprint-active-cache"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    graph_path.write_text(json.dumps({"sprint_id": sid, "nodes": []}) + "\n")
+    (sprints / f"{sid}.status.json").write_text(
+        json.dumps({"sprint_id": sid, "status": "active", "history": []}, indent=2) + "\n"
+    )
+    monkeypatch.setattr(mod, "SPRINTS", sprints)
+    monkeypatch.setattr(mod, "_refresh_requirement_coverage_if_stale", lambda *args: False)
+    graph_loads: list[Path] = []
+    monkeypatch.setattr(
+        mod,
+        "load_graph",
+        lambda path: graph_loads.append(path) or {"sprint_id": sid, "nodes": []},
+    )
+    monkeypatch.setattr(mod, "sync_status_cache_from_graph", lambda *args, **kwargs: {"created": False})
+    mod._reset_graph_status_cache_scan()
+
+    mod._ensure_graph_status_caches()
+    mod._ensure_graph_status_caches()
+
+    assert graph_loads == [graph_path]
+
+
 def test_load_state_refreshes_existing_status_projection_when_graph_changes(tmp_path, monkeypatch) -> None:
     sprints = tmp_path / "sprints"
     sprints.mkdir(parents=True)
