@@ -477,7 +477,7 @@ project: github-trends-digest
 def write_digest(config: dict[str, Any], analysis: dict[str, Any], date_str: str) -> dict[str, Any]:
     return {
         "status": "disabled",
-        "reason": "raw GitHub Trends Digest report generation was retired; use tech_hotspot_radar.py github-trend-report for AI Influence insight reports",
+        "reason": "raw GitHub Trends Digest report generation was retired; use scripts/run_github_trend_report_daily.sh --date YYYY-MM-DD so AI Influence report generation and mail-result stay unified",
         "date": date_str,
     }
 

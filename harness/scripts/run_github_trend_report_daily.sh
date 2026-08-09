@@ -29,7 +29,6 @@ solar_wait_for_lockdir "$DB_WRITER_LOCK_DIR" "github-trend-report-db-writer" "$D
 rc=$?
 if [[ "$rc" != "0" ]]; then
   solar_release_lockdir "$LOCK_DIR"
-  [[ "$rc" == "75" ]] && exit 0
   exit "$rc"
 fi
 trap 'solar_release_lockdir "$DB_WRITER_LOCK_DIR"; solar_release_lockdir "$LOCK_DIR"' EXIT INT TERM
@@ -63,7 +62,30 @@ export GITHUB_TREND_REPORT_SEND_MAIL="${GITHUB_TREND_REPORT_SEND_MAIL:-true}"
 export SOLAR_KNOWLEDGE_DIR="${SOLAR_KNOWLEDGE_DIR:-/Users/lisihao/Knowledge}"
 export SOLAR_REPO HARNESS_DIR SOLAR_HOME SOLAR_KNOWLEDGE_DIR
 
-REPORT_DATE="${GITHUB_TREND_REPORT_DATE:-$("$PYTHON" - <<'PY'
+WRAPPER_ARGS=()
+CLI_REPORT_DATE=""
+while (($# > 0)); do
+  case "$1" in
+    --date)
+      if (($# < 2)); then
+        echo "[github-trend-report-daily] missing value for --date" >&2
+        exit 2
+      fi
+      CLI_REPORT_DATE="$2"
+      shift 2
+      ;;
+    --date=*)
+      CLI_REPORT_DATE="${1#--date=}"
+      shift
+      ;;
+    *)
+      WRAPPER_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+DEFAULT_REPORT_DATE="$("$PYTHON" - <<'PY'
 import datetime as dt
 import os
 from zoneinfo import ZoneInfo
@@ -71,7 +93,15 @@ from zoneinfo import ZoneInfo
 today = dt.datetime.now(ZoneInfo(os.environ.get("LOCAL_TZ", "America/Toronto"))).date()
 print((today - dt.timedelta(days=1)).isoformat())
 PY
-)}"
+)"
+REPORT_DATE="${GITHUB_TREND_REPORT_DATE:-${CLI_REPORT_DATE:-$DEFAULT_REPORT_DATE}}"
+if [[ -n "$CLI_REPORT_DATE" && -n "${GITHUB_TREND_REPORT_DATE:-}" && "$CLI_REPORT_DATE" != "$GITHUB_TREND_REPORT_DATE" ]]; then
+  echo "[github-trend-report-daily] conflicting dates: --date=${CLI_REPORT_DATE} GITHUB_TREND_REPORT_DATE=${GITHUB_TREND_REPORT_DATE}" >&2
+  exit 2
+fi
+REPORT_DIR="${SOLAR_KNOWLEDGE_DIR}/_raw/tech-hotspot-radar/github-trend-report/${REPORT_DATE}"
+REPORT_HTML="${REPORT_DIR}/github-trend-report.html"
+MAIL_RESULT="${REPORT_DIR}/mail-result.json"
 
 cooldown_wait_seconds() {
   if [[ ! -s "$COOLDOWN_FILE" ]]; then
@@ -87,7 +117,7 @@ path = pathlib.Path(sys.argv[1])
 try:
     text = path.read_text(encoding="utf-8").strip()
     until = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
-    now = dt.datetime.now(dt.UTC)
+    now = dt.datetime.now(dt.timezone.utc)
     print(max(0, int((until - now).total_seconds())))
 except Exception:
     print(0)
@@ -102,7 +132,7 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 path.parent.mkdir(parents=True, exist_ok=True)
-until = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=10)
+until = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)
 path.write_text(until.isoformat().replace("+00:00", "Z") + "\n", encoding="utf-8")
 print(until.isoformat().replace("+00:00", "Z"))
 PY
@@ -120,10 +150,16 @@ trap 'solar_release_lockdir "$DB_WRITER_LOCK_DIR"; solar_release_lockdir "$LOCK_
 
 run_report_once() {
   : > "$TMP_ERR"
-  "${RADAR[@]}" github-trend-report \
-    --date "$REPORT_DATE" \
-    --limit "${GITHUB_TREND_REPORT_LIMIT:-12}" \
-    --model "${GITHUB_TREND_REPORT_MODEL:-chatgpt-5.5}" "$@" 2>"$TMP_ERR"
+  local cmd=(
+    "${RADAR[@]}" github-trend-report
+    --date "$REPORT_DATE"
+    --limit "${GITHUB_TREND_REPORT_LIMIT:-12}"
+    --model "${GITHUB_TREND_REPORT_MODEL:-chatgpt-5.5}"
+  )
+  if ((${#WRAPPER_ARGS[@]} > 0)); then
+    cmd+=("${WRAPPER_ARGS[@]}")
+  fi
+  "${cmd[@]}" 2>"$TMP_ERR"
 }
 
 send_report_mail() {
@@ -131,7 +167,7 @@ send_report_mail() {
     echo "[github-trend-report-daily] mail skipped GITHUB_TREND_REPORT_SEND_MAIL=${GITHUB_TREND_REPORT_SEND_MAIL}"
     return 0
   fi
-  "$PYTHON" - "$HARNESS_DIR" "$REPORT_DATE" <<'PY'
+  "$PYTHON" - "$HARNESS_DIR" "$REPORT_DATE" "$SOLAR_KNOWLEDGE_DIR" <<'PY'
 import importlib.util
 import json
 import pathlib
@@ -139,7 +175,8 @@ import sys
 
 harness = pathlib.Path(sys.argv[1])
 date_str = sys.argv[2]
-report_dir = pathlib.Path("/Users/lisihao/Knowledge/_raw/tech-hotspot-radar/github-trend-report") / date_str
+knowledge_dir = pathlib.Path(sys.argv[3])
+report_dir = knowledge_dir / "_raw" / "tech-hotspot-radar" / "github-trend-report" / date_str
 html_path = report_dir / "github-trend-report.html"
 result_path = report_dir / "mail-result.json"
 if not html_path.exists():
@@ -154,6 +191,23 @@ result = mod.send_html_email(
 )
 result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+if str(result.get("status") or "").lower() != "sent":
+    raise SystemExit(f"mail_not_sent:{json.dumps(result, ensure_ascii=False, sort_keys=True)}")
+PY
+}
+
+mail_result_sent() {
+  "$PYTHON" - "$MAIL_RESULT" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if str(payload.get("status") or "").lower() == "sent" else 1)
 PY
 }
 
@@ -173,7 +227,7 @@ try:
     payload = json.loads(match.group(1))
     expires = payload.get("expires_at") or ""
     until = dt.datetime.fromisoformat(expires.replace("Z", "+00:00"))
-    wait = int((until - dt.datetime.now(dt.UTC)).total_seconds()) + 5
+    wait = int((until - dt.datetime.now(dt.timezone.utc)).total_seconds()) + 5
     print(max(0, wait))
 except Exception:
     print(0)
@@ -186,9 +240,24 @@ ATTEMPT=1
 RC=1
 
 echo "[github-trend-report-daily] start $(date) date=${REPORT_DATE}"
+if [[ "${GITHUB_TREND_REPORT_FORCE_REGENERATE:-false}" != "true" && -f "$REPORT_HTML" ]]; then
+  if mail_result_sent; then
+    echo "[github-trend-report-daily] already complete html+mail sent date=${REPORT_DATE}"
+    exit 0
+  fi
+  echo "[github-trend-report-daily] existing html without sent mail; sending only date=${REPORT_DATE}"
+  send_report_mail || RC=$?
+  if [[ "$RC" != "0" ]]; then
+    echo "[github-trend-report-daily] mail failed rc=${RC} date=${REPORT_DATE}" >&2
+    exit "$RC"
+  fi
+  echo "[github-trend-report-daily] ok existing-html mail sent $(date) date=${REPORT_DATE}"
+  exit 0
+fi
+
 while (( ATTEMPT <= MAX_ATTEMPTS )); do
   echo "[github-trend-report-daily] attempt=${ATTEMPT}/${MAX_ATTEMPTS}"
-  run_report_once "$@"
+  run_report_once
   RC=$?
   cat "$TMP_ERR" >&2
   if [[ "$RC" == "0" ]]; then
