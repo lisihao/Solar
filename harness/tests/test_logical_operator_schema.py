@@ -48,6 +48,7 @@ OPERATOR_TYPES = [
     "DeepResearchGemini",
     "DeepResearchChatGPT",
     "GPTRequirementWriter",
+    "ChatGPTProjectKnowledgeExtractor",
     "WebwrightPlaywright",
     "BrowserUseMcp",
     "YoutubeTranscriptExtractor",
@@ -83,11 +84,11 @@ class TestLogicalOperatorSchemaEnum:
         missing = set(OPERATOR_TYPES) - set(enum_vals)
         assert not missing, f"logical_operator_type enum missing: {missing}"
 
-    def test_enum_has_exactly_25_entries(self):
+    def test_enum_has_exactly_26_entries(self):
         schema = _load_lo_schema()
         enum_vals = schema["$defs"]["logical_operator_type"].get("enum", [])
-        assert len(enum_vals) == 25, (
-            f"Expected 25 logical operator types, got {len(enum_vals)}: {enum_vals}"
+        assert len(enum_vals) == 26, (
+            f"Expected 26 logical operator types, got {len(enum_vals)}: {enum_vals}"
         )
 
     @pytest.mark.parametrize("op_type", OPERATOR_TYPES)
@@ -129,6 +130,55 @@ class TestLogicalOperatorSchemaDefinitions:
         schema = _load_lo_schema()
         required = schema["$defs"]["logical_operator_def"].get("required", [])
         assert "description" in required
+
+    def test_cost_hint_accepts_legacy_string(self):
+        parent = _load_lo_schema()
+        schema = {"$schema": "https://json-schema.org/draft/2020-12/schema"}
+        schema["$defs"] = parent["$defs"]
+        schema.update(parent["$defs"]["logical_operator_def"])
+        valid = {
+            "operator_type": "PatchWorker",
+            "description": "legacy cost hint",
+            "primary_role": "builder",
+            "cost_hint": "low",
+        }
+        jsonschema.validate(instance=valid, schema=schema)
+
+    def test_cost_hint_accepts_target_taxonomy_object_and_effort_hint(self):
+        parent = _load_lo_schema()
+        schema = {"$schema": "https://json-schema.org/draft/2020-12/schema"}
+        schema["$defs"] = parent["$defs"]
+        schema.update(parent["$defs"]["logical_operator_def"])
+        valid = {
+            "operator_type": "DeepArchitect",
+            "description": "structured target taxonomy hints",
+            "primary_role": "planner",
+            "required_capabilities": {
+                "architecture_reasoning": 5,
+                "long_context": 4,
+            },
+            "risk_constraints": {
+                "allowed_write_scope": "patch_only",
+                "allowed_shell_scope": "repo_local",
+                "allowed_network": "docs_only",
+                "allowed_secrets": "none",
+                "git_push": "denied",
+                "requires_human_for": ["payment_or_external_action"],
+            },
+            "cost_hint": {
+                "cost_tier": "premium",
+                "budget_class": "expensive",
+                "reserve_ratio": 0.25,
+                "prefer_for": ["ARCH_DESIGN"],
+                "avoid_for": ["GREP_SCAN"],
+                "compat_mode": "native",
+            },
+            "effort_hint": "max",
+            "compatibility_notes": [
+                "test fixture exercises structured cost hints alongside legacy operator schema"
+            ],
+        }
+        jsonschema.validate(instance=valid, schema=schema)
 
     def test_binding_entry_requires_operator_type_and_candidates(self):
         schema = _load_lo_schema()

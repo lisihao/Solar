@@ -41,17 +41,25 @@ DEFAULT_OUT_ROOT = (
     / "chatgpt-project-knowledge"
     / dt.datetime.now().strftime("%Y-%m-%d")
 )
+CHATGPT_PROJECT_SIDEBAR_CONVERSATIONS_PER_GIZMO = 20
+CHATGPT_PROJECT_SIDEBAR_LIMIT = 50
 
 
 CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS = r"""
 () => {
   const out = [];
   const seen = new Set();
-  for (const a of Array.from(document.querySelectorAll('a[href]'))) {
+  const isGlobalNav = (el) => Boolean(el.closest('aside, nav, [data-testid*="sidebar"], [class*="sidebar"]'));
+  const projectMatch = location.pathname.match(/^\/g\/([^/]+)\/project\b/);
+  const projectSlug = projectMatch ? projectMatch[1] : '';
+  const searchRoots = [document];
+  for (const root of searchRoots) for (const a of Array.from(root.querySelectorAll('a[href]'))) {
     const href = String(a.href || '');
+    if (projectSlug && !href.includes('/g/' + projectSlug + '/c/')) continue;
+    if (!projectSlug && isGlobalNav(a)) continue;
     const match = href.match(/https:\/\/chatgpt\.com\/(?:g\/[^/]+\/)?c\/([a-zA-Z0-9-]+)/);
     if (!match) continue;
-    const url = 'https://chatgpt.com/c/' + match[1];
+    const url = projectSlug ? 'https://chatgpt.com/g/' + projectSlug + '/c/' + match[1] : 'https://chatgpt.com/c/' + match[1];
     if (seen.has(url)) continue;
     seen.add(url);
     out.push({
@@ -63,6 +71,8 @@ CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS = r"""
   return {
     url: location.href,
     title: document.title || '',
+    project_slug: projectSlug,
+    project_scoped_only: Boolean(projectSlug),
     project_label: (
       document.querySelector('[data-testid="project-name"]')?.textContent ||
       document.querySelector('h1')?.textContent ||
@@ -70,6 +80,65 @@ CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS = r"""
     ).trim(),
     conversations: out,
   };
+}
+"""
+
+
+CHATGPT_EXPAND_PROJECT_CONVERSATIONS_JS = r"""
+() => {
+  const cleanText = (value) => String(value || '').replace(/\u00a0/g, ' ').trim();
+  const visible = (el) => {
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  const expandPattern = /(show\s+more|load\s+more|view\s+more|see\s+more|see\s+all|more|older|previous|展开|更多|显示更多|加载更多|查看全部|查看更多|展开更多|历史记录|较早)/i;
+  const isGlobalNav = (el) => Boolean(el.closest('aside, nav, [data-testid*="sidebar"], [class*="sidebar"]'));
+  const roots = Array.from(document.querySelectorAll('main, [role="main"]'));
+  const searchRoots = roots.length ? roots : [document];
+  let clicked = 0;
+  for (const root of searchRoots) for (const details of Array.from(root.querySelectorAll('details:not([open])'))) {
+    if (isGlobalNav(details)) continue;
+    if (visible(details)) {
+      details.open = true;
+      clicked += 1;
+    }
+  }
+  const candidates = searchRoots.flatMap((root) => Array.from(root.querySelectorAll('button,[role="button"],summary,a[href]')));
+  for (const el of candidates) {
+    if (isGlobalNav(el)) continue;
+    if (!visible(el)) continue;
+    const text = cleanText([
+      el.getAttribute('aria-label'),
+      el.getAttribute('title'),
+      el.textContent,
+    ].filter(Boolean).join(' '));
+    const ariaExpanded = String(el.getAttribute('aria-expanded') || '').toLowerCase();
+    const shouldClick = expandPattern.test(text);
+    if (!shouldClick) continue;
+    try {
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      el.click();
+      clicked += 1;
+    } catch {}
+  }
+  const scrollers = [
+    document.scrollingElement,
+    document.documentElement,
+    document.body,
+    ...searchRoots,
+    ...searchRoots.flatMap((root) => Array.from(root.querySelectorAll('[data-radix-scroll-area-viewport], div')))
+      .filter((el) => !isGlobalNav(el))
+      .filter((el) => el.scrollHeight > el.clientHeight + 80)
+      .sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))
+      .slice(0, 8)
+  ].filter(Boolean);
+  for (const el of scrollers) {
+    try {
+      el.scrollTop = Math.min(el.scrollTop + Math.max(el.clientHeight || 800, 1200), el.scrollHeight);
+    } catch {}
+  }
+  return { clicked, scroller_count: scrollers.length };
 }
 """
 
@@ -303,10 +372,87 @@ def normalize_conversation_url(value: str) -> str:
     parsed = urllib.parse.urlparse(raw)
     if not parsed.scheme:
         parsed = urllib.parse.urlparse("https://chatgpt.com" + (raw if raw.startswith("/") else "/" + raw))
+    project_match = re.search(r"/g/([^/]+)/c/([a-zA-Z0-9-]+)", parsed.path)
+    if project_match:
+        return f"https://chatgpt.com/g/{project_match.group(1)}/c/{project_match.group(2)}"
     match = re.search(r"/c/([a-zA-Z0-9-]+)", parsed.path)
     if not match:
         return raw
     return f"https://chatgpt.com/c/{match.group(1)}"
+
+
+def project_slug_from_url(value: str) -> str:
+    parsed = urllib.parse.urlparse(str(value or ""))
+    match = re.search(r"/g/([^/]+)/(?:project|c/)", parsed.path)
+    return match.group(1) if match else ""
+
+
+def project_id_from_slug(value: str) -> str:
+    match = re.match(r"^(g-p-[^-]+)", str(value or ""))
+    return match.group(1) if match else ""
+
+
+def project_conversation_url(project_slug: str, conversation_id: str) -> str:
+    if project_slug:
+        return f"https://chatgpt.com/g/{project_slug}/c/{conversation_id}"
+    return f"https://chatgpt.com/c/{conversation_id}"
+
+
+def collect_sidebar_project_conversations(data: Any, *, project_id: str, project_slug: str, limit: int) -> list[dict[str, Any]]:
+    conversations: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(item: dict[str, Any]) -> None:
+        conversation_id = str(item.get("id") or item.get("conversation_id") or item.get("conversationId") or "").strip()
+        if not conversation_id or conversation_id.startswith("g-p-") or conversation_id in seen:
+            return
+        seen.add(conversation_id)
+        conversations.append(
+            {
+                "conversation_id": conversation_id,
+                "url": project_conversation_url(project_slug, conversation_id),
+                "title": str(item.get("title") or item.get("name") or "").strip(),
+                "create_time": item.get("create_time") or "",
+                "update_time": item.get("update_time") or "",
+                "source": "snorlax_sidebar_api",
+            }
+        )
+
+    def looks_like_conversation(item: dict[str, Any], current_project_id: str) -> bool:
+        conversation_id = str(item.get("id") or item.get("conversation_id") or item.get("conversationId") or "").strip()
+        if not conversation_id or conversation_id.startswith("g-p-"):
+            return False
+        if item.get("gizmo_id") == project_id:
+            return True
+        return current_project_id == project_id and any(key in item for key in ("title", "create_time", "update_time"))
+
+    def walk(value: Any, current_project_id: str = "") -> None:
+        if len(conversations) >= limit:
+            return
+        if isinstance(value, list):
+            for child in value:
+                walk(child, current_project_id)
+            return
+        if not isinstance(value, dict):
+            return
+
+        next_project_id = current_project_id
+        gizmo = value.get("gizmo")
+        if isinstance(gizmo, dict):
+            if isinstance(gizmo.get("gizmo"), dict):
+                next_project_id = str(gizmo["gizmo"].get("id") or next_project_id)
+            elif gizmo.get("id"):
+                next_project_id = str(gizmo.get("id") or next_project_id)
+        elif str(value.get("id") or "").startswith("g-p-"):
+            next_project_id = str(value.get("id"))
+
+        if looks_like_conversation(value, next_project_id):
+            add(value)
+        for child in value.values():
+            walk(child, next_project_id)
+
+    walk(data)
+    return conversations[:limit]
 
 
 def normalize_message(raw: dict[str, Any], index: int) -> dict[str, Any]:
@@ -571,11 +717,15 @@ async def _discover_project_conversations(page: Any, *, project_url: str, limit:
     await goto_page(page, project_url)
     seen: dict[str, dict[str, Any]] = {}
     discovery: dict[str, Any] = {}
-    for _ in range(8):
+    stable_rounds = 0
+    expand_events: list[dict[str, Any]] = []
+    max_rounds = 30
+    for _ in range(max_rounds):
         discovery = ensure_json_object(
             await page.evaluate(CHATGPT_DISCOVER_PROJECT_CONVERSATIONS_JS),
             context="discover_project_conversations",
         )
+        before_count = len(seen)
         for item in discovery.get("conversations") or []:
             url = normalize_conversation_url(str(item.get("url") or ""))
             if url:
@@ -583,11 +733,119 @@ async def _discover_project_conversations(page: Any, *, project_url: str, limit:
                 seen[url] = item
         if len(seen) >= limit:
             break
-        await page.evaluate("() => window.scrollBy(0, Math.max(document.body.scrollHeight, 1600))")
+        expand_result = ensure_json_object(
+            await page.evaluate(CHATGPT_EXPAND_PROJECT_CONVERSATIONS_JS),
+            context="expand_project_conversations",
+        )
+        expand_events.append(expand_result)
         await wait_page(page, 1200)
+        if len(seen) == before_count and not int(expand_result.get("clicked") or 0):
+            stable_rounds += 1
+        else:
+            stable_rounds = 0
+        if stable_rounds >= 4:
+            break
     conversations = list(seen.values())[:limit]
     discovery["conversations"] = conversations
+    discovery["discovery_rounds"] = len(expand_events) + 1
+    discovery["expand_events"] = expand_events
     return discovery
+
+
+async def _discover_project_conversations_via_sidebar_api(
+    *,
+    cdp_url: str,
+    project_url: str,
+    limit: int,
+) -> dict[str, Any]:
+    project_slug = project_slug_from_url(project_url)
+    project_id = project_id_from_slug(project_slug)
+    if not cdp_url or not project_slug or not project_id:
+        return {}
+
+    from playwright.async_api import async_playwright
+
+    captured: list[dict[str, Any]] = []
+    routed_count = 0
+    pw = await async_playwright().start()
+    try:
+        browser = await pw.chromium.connect_over_cdp(cdp_url)
+        context = browser.contexts[0] if browser.contexts else await browser.new_context()
+        page = await context.new_page()
+
+        async def route_sidebar_request(route: Any, request: Any) -> None:
+            nonlocal routed_count
+            routed_count += 1
+            parsed = urllib.parse.urlparse(request.url)
+            query = urllib.parse.parse_qs(parsed.query)
+            query["conversations_per_gizmo"] = [str(CHATGPT_PROJECT_SIDEBAR_CONVERSATIONS_PER_GIZMO)]
+            query["limit"] = [str(CHATGPT_PROJECT_SIDEBAR_LIMIT)]
+            new_url = urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query, doseq=True)))
+            await route.continue_(url=new_url)
+
+        async def capture_sidebar_response(response: Any) -> None:
+            if "/backend-api/gizmos/snorlax/sidebar" not in str(response.url):
+                return
+            try:
+                text = await response.text()
+            except Exception as exc:
+                captured.append({"status": int(response.status), "url": str(response.url), "error": repr(exc)})
+                return
+            captured.append({"status": int(response.status), "url": str(response.url), "text": text})
+
+        await context.route("**/backend-api/gizmos/snorlax/sidebar**", route_sidebar_request)
+        page.on("response", lambda response: asyncio.create_task(capture_sidebar_response(response)))
+        await page.goto(project_url, wait_until="domcontentloaded", timeout=90_000)
+        await page.wait_for_timeout(6000)
+        conversations: list[dict[str, Any]] = []
+        statuses: list[int] = []
+        for response in captured:
+            statuses.append(int(response.get("status") or 0))
+            if response.get("status") != 200 or not response.get("text"):
+                continue
+            try:
+                data = json.loads(str(response["text"]))
+            except Exception:
+                continue
+            conversations.extend(
+                collect_sidebar_project_conversations(
+                    data,
+                    project_id=project_id,
+                    project_slug=project_slug,
+                    limit=limit,
+                )
+            )
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in conversations:
+            url = normalize_conversation_url(str(item.get("url") or ""))
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            item["url"] = url
+            deduped.append(item)
+            if len(deduped) >= limit:
+                break
+        try:
+            await page.close()
+        except Exception:
+            pass
+        return {
+            "source": "snorlax_sidebar_api",
+            "url": project_url,
+            "project_slug": project_slug,
+            "project_id": project_id,
+            "project_scoped_only": True,
+            "request_count": routed_count,
+            "response_statuses": statuses,
+            "api_limits": {
+                "conversations_per_gizmo": CHATGPT_PROJECT_SIDEBAR_CONVERSATIONS_PER_GIZMO,
+                "limit": CHATGPT_PROJECT_SIDEBAR_LIMIT,
+            },
+            "conversations": deduped,
+        }
+    finally:
+        await pw.stop()
 
 
 async def goto_page(page: Any, url: str) -> None:
@@ -684,9 +942,24 @@ async def run_browser_extraction(args: argparse.Namespace) -> tuple[list[dict[st
         if args.conversation_list:
             conversation_urls.extend(normalize_conversation_url(item) for item in read_conversation_list(Path(args.conversation_list).expanduser()))
         if args.project_url:
-            discovery = await _discover_project_conversations(page, project_url=args.project_url, limit=args.limit)
+            discovery = {}
+            try:
+                discovery = await _discover_project_conversations_via_sidebar_api(
+                    cdp_url=str(getattr(session, "cdp_url", "") or ""),
+                    project_url=args.project_url,
+                    limit=args.limit,
+                )
+            except Exception as exc:
+                source["project_discovery_api_error"] = repr(exc)
+            if not discovery.get("conversations"):
+                discovery = await _discover_project_conversations(page, project_url=args.project_url, limit=args.limit)
             source["project_discovery"] = discovery
             conversation_urls.extend(str(item.get("url") or "") for item in discovery.get("conversations") or [])
+        metadata_by_url = {
+            normalize_conversation_url(str(item.get("url") or "")): item
+            for item in (source.get("project_discovery") or {}).get("conversations", [])
+            if isinstance(item, dict)
+        }
         deduped: list[str] = []
         seen: set[str] = set()
         for url in conversation_urls:
@@ -697,13 +970,21 @@ async def run_browser_extraction(args: argparse.Namespace) -> tuple[list[dict[st
         if not deduped:
             raise RuntimeError("no_conversation_urls_found: provide --project-url, --conversation-url, or --conversation-list")
         for url in deduped[: args.limit]:
-            await goto_page(page, url)
-            await wait_page(page, args.settle_ms)
-            raw = ensure_json_object(
-                await page.evaluate(CHATGPT_EXTRACT_CONVERSATION_JS),
-                context="extract_conversation",
-            )
-            conv = normalize_conversation(raw, source_url=url)
+            conv: dict[str, Any] = {}
+            for attempt in range(2):
+                await goto_page(page, url)
+                await wait_page(page, args.settle_ms * (attempt + 1))
+                raw = ensure_json_object(
+                    await page.evaluate(CHATGPT_EXTRACT_CONVERSATION_JS),
+                    context="extract_conversation",
+                )
+                conv = normalize_conversation(raw, source_url=url)
+                if conv.get("messages"):
+                    break
+            metadata = metadata_by_url.get(url) or {}
+            metadata_title = str(metadata.get("title") or "").strip()
+            if metadata_title and (not conv.get("title") or conv.get("title") == "ChatGPT"):
+                conv["title"] = metadata_title
             conversations.append(conv)
         source["conversation_urls"] = deduped[: args.limit]
     finally:

@@ -54,6 +54,7 @@
         "DeepResearchGemini",
         "DeepResearchChatGPT",
         "GPTRequirementWriter",
+        "ChatGPTProjectKnowledgeExtractor",
         "WebwrightPlaywright",
         "BrowserUseMcp",
         "YoutubeTranscriptExtractor",
@@ -72,6 +73,44 @@
           "type": "string",
           "enum": ["planner", "builder", "evaluator", "knowledge-extractor", "router", "auditor"]
         },
+        "placement_class": {
+          "type": "string",
+          "enum": ["FINAL_AUTHORITY", "FAN_OUT_ELIGIBLE", "NEUTRAL"],
+          "description": "Authority class used by Antigravity placement policy enforcement."
+        },
+        "placement_policy": {
+          "type": "string",
+          "enum": [
+            "antigravity_forbidden",
+            "antigravity_preferred",
+            "antigravity_fallback_only"
+          ],
+          "description": "Stable placement policy label for provider-family suitability."
+        },
+        "provider_suitability": {
+          "type": "object",
+          "required": ["antigravity"],
+          "additionalProperties": false,
+          "properties": {
+            "claude": {
+              "type": "string",
+              "enum": ["preferred", "allowed", "fallback_only", "forbidden"]
+            },
+            "codex": {
+              "type": "string",
+              "enum": ["preferred", "allowed", "fallback_only", "forbidden"]
+            },
+            "antigravity": {
+              "type": "string",
+              "enum": ["preferred", "allowed", "fallback_only", "forbidden"]
+            },
+            "local": {
+              "type": "string",
+              "enum": ["preferred", "allowed", "fallback_only", "forbidden"]
+            }
+          },
+          "description": "Provider-family suitability matrix for logical operator placement."
+        },
         "required_capabilities": {
           "type": "object",
           "description": "Minimum capability_profile scores required for actor assignment.",
@@ -87,12 +126,97 @@
         "risk_constraints": {
           "type": "object",
           "description": "Risk profile constraints that assigned actors must satisfy.",
-          "additionalProperties": true
+          "additionalProperties": true,
+          "properties": {
+            "allowed_write_scope": {
+              "type": "string",
+              "enum": ["harness", "harness_readonly", "project", "artifact_dir_only", "patch_only", "denied"]
+            },
+            "allowed_shell_scope": {
+              "type": "string",
+              "enum": ["allowed", "read_only", "repo_local", "denied"]
+            },
+            "allowed_network": {
+              "type": "string",
+              "enum": ["allowed", "internal_only", "docs_only", "denied"]
+            },
+            "allowed_secrets": {
+              "type": "string",
+              "enum": ["none", "denied", "secret_ref_only", "allowed"]
+            },
+            "destructive_actions": {
+              "type": "string",
+              "enum": ["allowed", "denied"]
+            },
+            "git_commit": {
+              "type": "string",
+              "enum": ["allowed", "denied"]
+            },
+            "git_push": {
+              "type": "string",
+              "enum": ["allowed", "denied"]
+            },
+            "payment_or_external_action": {
+              "type": "string",
+              "enum": ["allowed", "denied"]
+            },
+            "requires_human_for": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
         },
         "cost_hint": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["low", "medium", "high"],
+              "description": "Legacy expected cost tier for tasks assigned to this operator."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cost_tier"],
+              "properties": {
+                "cost_tier": {
+                  "type": "string",
+                  "enum": ["low", "medium", "high", "premium"]
+                },
+                "budget_class": {
+                  "type": "string",
+                  "enum": ["small", "medium", "large", "xlarge", "expensive", "light", "heavy", "xhigh", "max"]
+                },
+                "reserve_ratio": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 1.0
+                },
+                "prefer_for": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "avoid_for": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "compat_mode": {
+                  "type": "string",
+                  "enum": ["legacy", "native"]
+                }
+              }
+            }
+          ],
+          "description": "Expected cost tier for tasks assigned to this operator. Accepts legacy string and structured cost profile hints."
+        },
+        "effort_hint": {
           "type": "string",
-          "enum": ["low", "medium", "high"],
-          "description": "Expected cost tier for tasks assigned to this operator."
+          "enum": ["light", "low", "medium", "heavy", "high", "xhigh", "max"],
+          "description": "Expected reasoning or implementation effort. light/heavy are legacy aliases retained for compatibility."
+        },
+        "compatibility_notes": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Explicit compatibility notes for legacy or transitional operator profile values retained without data loss."
         },
         "concurrency": {
           "type": "object",
