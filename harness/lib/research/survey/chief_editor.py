@@ -12,6 +12,8 @@ from typing import Any
 
 from research.report_metrics import append_model_usage_event, build_model_usage_event, parse_model_cli_output
 
+from .browser_agent_model import BrowserAgentModelError, browser_agent_task_dir, run_chatgpt_browser_agent
+
 
 INTRO_HEADINGS = {"核心结论", "证据基础"}
 FOOTNOTE_HEADING = "证据脚注"
@@ -154,6 +156,26 @@ def _run_claude(prompt: str, *, model: str, timeout: int, max_budget_usd: float)
     if not output:
         raise RuntimeError("claude_cli_empty_stdout")
     return output, usage
+
+
+def _run_browser_agent(prompt: str, *, model: str, timeout: int, task_dir: Path, purpose: str) -> tuple[str, dict[str, int]]:
+    try:
+        result = run_chatgpt_browser_agent(
+            prompt,
+            task_dir=task_dir,
+            purpose=purpose,
+            expected_output="markdown_chief_editor_section",
+            model=model or "chatgpt-5.5",
+            reasoning_effort="high",
+            timeout_seconds=timeout or 1800,
+            require_deep_research=False,
+        )
+    except BrowserAgentModelError as exc:
+        raise RuntimeError(exc.reason) from exc
+    output = str(result.get("text") or "").strip()
+    if not output:
+        raise RuntimeError("browser_agent_empty_output")
+    return output, {}
 
 
 def _model_candidates(model: str, fallback_models: str) -> list[str]:
@@ -365,6 +387,20 @@ def run_chief_editor(
             chapter_usage: dict[str, int] = {}
         elif normalized_backend in {"local-command", "command"}:
             chapter_text, chapter_usage = _normalize_model_result(_run_command(command, prompt, timeout))
+        elif normalized_backend in {"browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent"}:
+            active_model = model or "chatgpt-5.5"
+            purpose_prefix = "ai-influence-report-deepdive-chief-editor" if use_insight_prompt else "survey-chief-editor"
+            task_dir = browser_agent_task_dir(chapter_dir, stage="chief-editor", key=f"{idx:02d}-{heading}")
+            chapter_text, chapter_usage = _normalize_model_result(
+                _run_browser_agent(
+                    prompt,
+                    model=active_model,
+                    timeout=timeout,
+                    task_dir=task_dir,
+                    purpose=f"{purpose_prefix}-{idx:02d}",
+                )
+            )
+            model_attempts.append({"chapter": heading, "model": active_model, "ok": True, "backend": normalized_backend})
         elif normalized_backend in {"claude-cli", "opus", "claude"}:
             last_error = ""
             chapter_text = ""
@@ -407,7 +443,11 @@ def run_chief_editor(
                 usage_path,
                 build_model_usage_event(
                     backend=normalized_backend,
-                    model=active_model if normalized_backend in {"claude-cli", "opus", "claude"} else command,
+                    model=(
+                        active_model
+                        if normalized_backend in {"claude-cli", "opus", "claude", "browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent"}
+                        else command
+                    ),
                     prompt=prompt,
                     output=chapter_text,
                     usage=chapter_usage,
@@ -438,7 +478,11 @@ def run_chief_editor(
     payload: dict[str, Any] = {
         "ok": bool(quality["ok"]),
         "backend": normalized_backend,
-        "model": active_model if normalized_backend in {"claude-cli", "opus", "claude"} else model,
+        "model": (
+            active_model
+            if normalized_backend in {"claude-cli", "opus", "claude", "browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent"}
+            else model
+        ),
         "requested_model": requested_model,
         "fallback_models": model_candidates[1:],
         "model_attempts": model_attempts,

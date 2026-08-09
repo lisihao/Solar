@@ -53,6 +53,18 @@ def test_planner_uses_conference_insight_mode_for_conference_briefs():
     assert "会议和论文信号" in first_question["text"]
 
 
+def test_planner_can_promote_insight_hint_to_conference_submode_from_query():
+    plan = create_survey_plan(
+        "从 MLSys 2026 和 CAIS 2026 的议题看面向 Agent system 的计算架构演进趋势",
+        target_chars=50000,
+        planner_mode_hint="insight",
+    )
+
+    assert plan["planner_mode"] == "conference_insight"
+    assert plan["report_ast"]["title"].startswith("深度报告：MLSys 2026 / CAIS 2026")
+    assert plan["report_ast"]["chapters"][0]["title"] == "会议信号与中心论点"
+
+
 def test_planner_uses_generic_insight_shape_for_deepdive_hint():
     plan = create_survey_plan(
         "## 扩展研究 brief\n\n为什么 Agent runtime 会成为基础设施？",

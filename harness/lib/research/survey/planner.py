@@ -104,8 +104,14 @@ def _normalize_brief(brief: str) -> str:
 def _is_conference_insight_brief(brief: str) -> bool:
     text = _normalize_brief(brief).lower()
     conference_signals = ("会议", "学术会议", "conference", "accepted papers", "workshops", "paper index", "program/")
-    intent_signals = ("洞察", "发表问题", "讨论问题", "重大技术挑战", "如何发展")
-    return any(token in text for token in conference_signals) and any(token in text for token in intent_signals)
+    acronym_year_signal = bool(re.search(r"\b[A-Z][A-Za-z]{1,12}\s*20\d{2}\b", _normalize_brief(brief)))
+    intent_signals = ("洞察", "发表问题", "讨论问题", "重大技术挑战", "如何发展", "议题", "趋势", "演进", "分析")
+    return (any(token in text for token in conference_signals) or acronym_year_signal) and any(token in text for token in intent_signals)
+
+
+def _is_conference_insight_hint(planner_mode_hint: str | None) -> bool:
+    hint = str(planner_mode_hint or "").strip().lower()
+    return hint == "conference_insight" or hint == "conference-insight"
 
 
 def _is_insight_brief(brief: str, planner_mode_hint: str | None = None) -> bool:
@@ -118,9 +124,10 @@ def _is_insight_brief(brief: str, planner_mode_hint: str | None = None) -> bool:
 
 def _conference_subject(brief: str) -> str:
     text = _normalize_brief(brief)
-    match = re.search(r"\b([A-Z]{2,}\s*20\d{2})\b", text)
-    if match:
-        return re.sub(r"\s+", " ", match.group(1).strip()).upper()
+    matches = re.findall(r"\b([A-Z][A-Za-z]{1,12}\s*20\d{2})\b", text)
+    if matches:
+        normalized = [re.sub(r"\s+", " ", item.strip()) for item in matches]
+        return " / ".join(normalized[:2])
     zh_match = re.search(r"([A-Za-z]{2,}\s*20\d{2}|20\d{2}\s*[A-Za-z]{2,})", text)
     if zh_match:
         return re.sub(r"\s+", " ", zh_match.group(1).strip()).upper()
@@ -226,7 +233,7 @@ def create_survey_plan(
     planner_mode_hint: str | None = None,
 ) -> dict:
     run_id = run_id or _stable_id("survey", brief + str(target_chars))
-    conference_mode = _is_conference_insight_brief(brief)
+    conference_mode = _is_conference_insight_hint(planner_mode_hint) or (_is_insight_brief(brief, planner_mode_hint) and _is_conference_insight_brief(brief))
     insight_mode = conference_mode or _is_insight_brief(brief, planner_mode_hint)
     chapter_titles = CONFERENCE_CHAPTER_TITLES if conference_mode else INSIGHT_CHAPTER_TITLES if insight_mode else DEFAULT_CHAPTER_TITLES
     section_titles = CONFERENCE_SECTION_TITLES if conference_mode else INSIGHT_SECTION_TITLES if insight_mode else DEFAULT_SECTION_TITLES

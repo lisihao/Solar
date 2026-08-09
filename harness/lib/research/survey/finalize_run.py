@@ -29,6 +29,16 @@ def _read_json(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _narrative_backend_enabled(value: str) -> bool:
+    return str(value or "").strip().lower() not in {"", "off", "none", "skip"}
+
+
+def _fallback_models_arg(value: list[str] | str | None) -> str:
+    if isinstance(value, list):
+        return " ".join(str(item).strip() for item in value if str(item).strip())
+    return str(value or "").strip()
+
+
 def _prepare_deepdive_entry_contract(
     root: Path,
     brief: str,
@@ -80,6 +90,7 @@ def finalize_survey_run(
     audience: str = "technical",
     domain: str = "ai",
     run_id: str = "",
+    planner_mode_hint: str = "",
     section_limit: int = 3,
     repair_limit: int = 0,
     max_revisions: int = 3,
@@ -135,6 +146,7 @@ def finalize_survey_run(
             audience=audience,
             domain=domain,
             run_id=run_id or None,
+            planner_mode_hint=planner_mode_hint,
         )
         files = write_survey_plan(plan, root)
         ast = plan["report_ast"]
@@ -217,8 +229,80 @@ def finalize_survey_run(
         premium_timeout_seconds=premium_figure_timeout,
     )
     steps.append({"step": "compile", **compiled})
+
+    chief_editor: dict[str, Any] = {"ok": True, "skipped": True, "reason": "narrative_backend_off"}
+    if _narrative_backend_enabled(narrative_backend):
+        try:
+            from .chief_editor import run_chief_editor
+
+            chief_editor = run_chief_editor(
+                root,
+                backend=narrative_backend,
+                model=narrative_model or "opus",
+                command=narrative_command,
+                timeout=narrative_timeout or 240,
+                max_budget_usd=narrative_max_budget_usd or 3.0,
+                fallback_models=_fallback_models_arg(narrative_fallback_models),
+                min_chars=narrative_min_chars or min_chars,
+                require_hitl=narrative_require_hitl,
+            )
+        except Exception as exc:
+            chief_editor = {
+                "ok": False,
+                "reason": str(exc),
+                "backend": narrative_backend,
+                "chief_editor_final": str(root / "chief_editor_final.md"),
+            }
+            _write_json(root / "survey_chief_editor_backend.json", chief_editor)
+    steps.append({
+        "step": "chief_editor",
+        "ok": chief_editor.get("ok"),
+        "skipped": chief_editor.get("skipped", False),
+        "reason": chief_editor.get("reason", ""),
+        "backend": chief_editor.get("backend", narrative_backend),
+    })
+
     final_eval = evaluate_survey(root, strict=True, min_finalized=min_finalized, require_complete=require_complete)
     steps.append({"step": "final_eval", "ok": final_eval.get("ok"), "issues": (final_eval.get("scorecard") or {}).get("issues", [])})
+
+    insight_quality = final_eval.get("insight_quality") if isinstance(final_eval.get("insight_quality"), dict) else {}
+    chief_editor_failed = _narrative_backend_enabled(narrative_backend) and not chief_editor.get("ok")
+    if chief_editor_failed and (require_complete or insight_quality.get("active")):
+        scorecard = final_eval.setdefault("scorecard", {})
+        issues = scorecard.setdefault("issues", [])
+        issue = f"chief_editor_failed:{chief_editor.get('reason') or 'unknown'}"
+        if issue not in issues:
+            issues.append(issue)
+        final_eval["ok"] = False
+        _write_json(root / "survey_eval.json", final_eval)
+
+    writer_name = str(writer_backend or "").strip().lower()
+    insight_writer_gate = {
+        "schema_version": "solar.survey.insight_writer_gate.v1",
+        "ok": True,
+        "active": bool(insight_quality.get("active")),
+        "writer_backend": writer_name or "unknown",
+        "chief_editor_final": str(root / "chief_editor_final.md"),
+    }
+    if insight_quality.get("active") and writer_name == "deterministic" and not (root / "chief_editor_final.md").exists():
+        insight_writer_gate.update({
+            "ok": False,
+            "reason": "insight_model_writer_required",
+            "message": "DeepDive insight/conference reports cannot be finalized from deterministic section text alone.",
+        })
+        scorecard = final_eval.setdefault("scorecard", {})
+        issues = scorecard.setdefault("issues", [])
+        if "insight_model_writer_required" not in issues:
+            issues.append("insight_model_writer_required")
+        final_eval["ok"] = False
+        _write_json(root / "survey_eval.json", final_eval)
+    _write_json(root / "survey_insight_writer_gate.json", insight_writer_gate)
+    steps.append({
+        "step": "insight_writer_gate",
+        "ok": insight_writer_gate.get("ok"),
+        "active": insight_writer_gate.get("active"),
+        "reason": insight_writer_gate.get("reason", ""),
+    })
 
     final_ok = bool(final_eval.get("ok"))
     payload = {
@@ -229,6 +313,7 @@ def finalize_survey_run(
         "initial_eval": initial_eval,
         "repair": repair,
         "compile": compiled,
+        "chief_editor": chief_editor,
         "final_eval": final_eval,
         "final_md": compiled.get("final_md", str(root / "final.md")),
         "run_path": str(root / "survey_finalize_run.json"),

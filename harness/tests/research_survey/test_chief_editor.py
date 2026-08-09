@@ -151,6 +151,39 @@ def test_chief_editor_local_command_records_real_usage_json(tmp_path):
     assert usage_rows[0]["total_tokens"] == 255
 
 
+def test_chief_editor_browser_agent_backend_records_usage(tmp_path, monkeypatch):
+    _write_human_final(tmp_path)
+    calls = []
+
+    def fake_run_browser_agent(prompt, *, model, timeout, task_dir, purpose):
+        calls.append({"model": model, "timeout": timeout, "task_dir": str(task_dir), "purpose": purpose})
+        heading = "架构范式" if "架构范式" in prompt else "评估体系"
+        return f"## {heading}\n\nBrowser agent chief editor output.\n", {}
+
+    monkeypatch.setattr(chief_editor, "_run_browser_agent", fake_run_browser_agent)
+
+    payload = chief_editor.run_chief_editor(
+        tmp_path,
+        backend="browser-agent-chatgpt",
+        model="chatgpt-5.5",
+        timeout=1800,
+        min_chars=40,
+    )
+
+    assert payload["ok"] is True
+    assert payload["backend"] == "browser-agent-chatgpt"
+    assert payload["model"] == "chatgpt-5.5"
+    assert len(calls) == 2
+    assert all(call["purpose"].startswith("survey-chief-editor") for call in calls)
+    usage_rows = [
+        json.loads(line)
+        for line in (tmp_path / "model_usage.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(usage_rows) == 2
+    assert usage_rows[0]["backend"] == "browser-agent-chatgpt"
+
+
 def test_chief_editor_publishes_status_projection(tmp_path, monkeypatch):
     _write_human_final(tmp_path)
     reports_root = tmp_path / "harness-home" / "reports"

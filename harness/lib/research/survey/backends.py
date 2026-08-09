@@ -12,6 +12,8 @@ from typing import Protocol
 
 from research.report_metrics import append_model_usage_event, build_model_usage_event, parse_model_cli_output
 
+from .browser_agent_model import BrowserAgentModelError, browser_agent_task_dir, run_chatgpt_browser_agent
+
 
 class SurveyWriterBackend(Protocol):
     """Minimal interface for section writer implementations."""
@@ -35,6 +37,14 @@ class LocalCommandWriterError(RuntimeError):
 
     def __init__(self, reason: str) -> None:
         super().__init__(f"local_command_writer_failed:{reason}")
+        self.reason = reason
+
+
+class BrowserAgentWriterError(LocalCommandWriterError):
+    """Raised when the browser-agent writer fails closed."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"browser_agent_writer_failed:{reason}")
         self.reason = reason
 
 
@@ -122,6 +132,81 @@ class LocalCommandSurveyWriterBackend:
                         "stage": "survey_section_writer",
                         "section_id": prompt_packet.get("section_id"),
                         "round_index": prompt_packet.get("round_index"),
+                    },
+                ),
+            )
+        return output + "\n"
+
+
+@dataclass
+class BrowserAgentChatGPTSurveyWriterBackend:
+    """Section writer backed by the shared ChatGPT browser-agent logical operator."""
+
+    timeout_seconds: int = 1800
+    model: str = "chatgpt-5.5"
+    name: str = "browser-agent-chatgpt"
+
+    def write(self, prompt_packet: dict, fallback_text: str) -> str:
+        paths = prompt_packet.get("artifact_paths") or {}
+        prompt_md = str(paths.get("prompt_packet_md") or "").strip()
+        if prompt_md and Path(prompt_md).expanduser().exists():
+            packet_text = Path(prompt_md).expanduser().read_text(encoding="utf-8")
+        else:
+            packet_text = json.dumps(prompt_packet, ensure_ascii=False, indent=2)
+        section_id = str(prompt_packet.get("section_id") or "section")
+        insight_mode = bool(prompt_packet.get("insight_mode"))
+        purpose = (
+            f"ai-influence-report-deepdive-section-{section_id}"
+            if insight_mode
+            else f"survey-deepdive-section-{section_id}"
+        )
+        base_path = Path(str(paths.get("final") or paths.get("draft") or ".")).expanduser().parent
+        task_dir = browser_agent_task_dir(base_path, stage="section-writer", key=section_id)
+        prompt = "\n".join([
+            "你是 Solar DeepDive 的强模型章节作者，必须基于证据包写出可发布的洞察正文。",
+            "",
+            "硬规则：",
+            "- 只输出最终 Markdown 章节正文，不输出解释、过程或调试信息。",
+            "- 必须使用 prompt packet 中的证据、claim_id、evidence_id；不得编造来源、URL、论文、指标或发布日期。",
+            "- 如果证据不足，要写清楚不确定性、反证和后续验证条件，不要用模板填充。",
+            "- 对 insight section，必须保留本节判断、证据链、影响与行动、反证和观察、Figure Spec、SectionRender JSON。",
+            "",
+            "Prompt Packet:",
+            "",
+            packet_text,
+        ])
+        try:
+            result = run_chatgpt_browser_agent(
+                prompt,
+                task_dir=task_dir,
+                purpose=purpose,
+                expected_output="markdown_section",
+                model=self.model,
+                reasoning_effort="high",
+                timeout_seconds=self.timeout_seconds,
+                require_deep_research=False,
+            )
+        except BrowserAgentModelError as exc:
+            raise BrowserAgentWriterError(exc.reason) from exc
+        output = str(result.get("text") or "").strip()
+        if not output:
+            raise BrowserAgentWriterError("empty_output")
+        usage_path = str(paths.get("model_usage") or "")
+        if usage_path:
+            append_model_usage_event(
+                usage_path,
+                build_model_usage_event(
+                    backend=self.name,
+                    model=self.model,
+                    prompt=prompt,
+                    output=output,
+                    usage={},
+                    metadata={
+                        "stage": "survey_section_writer",
+                        "section_id": section_id,
+                        "round_index": prompt_packet.get("round_index"),
+                        "browser_agent_task_dir": str(task_dir),
+                        "browser_agent_result": str(result.get("result_path") or ""),
                     },
                 ),
             )
@@ -246,6 +331,8 @@ def get_writer_backend(
         return HumanPacketSurveyWriterBackend(name="human-packet-fallback", allow_fallback=True)
     if normalized in {"local-command", "local-llm-command", "command"}:
         return LocalCommandSurveyWriterBackend(command=local_command, timeout_seconds=timeout_seconds)
+    if normalized in {"browser-agent-chatgpt", "chatgpt-browser-agent", "browser-agent"}:
+        return BrowserAgentChatGPTSurveyWriterBackend(timeout_seconds=timeout_seconds)
     if normalized == "pane-packet":
         return PanePacketSurveyWriterBackend(pane_target=pane_target, send=pane_send, timeout_seconds=timeout_seconds)
     if normalized in {"pane-packet-fallback", "pane-fallback"}:

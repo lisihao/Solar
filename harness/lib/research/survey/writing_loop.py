@@ -117,6 +117,37 @@ def _load_ledgers(root: Path) -> dict[str, dict[str, dict]]:
     return {"sources": sources, "evidence": evidence, "claims": claims}
 
 
+def _claim_detail(row: dict, claim_id: str) -> dict[str, Any]:
+    return {
+        "claim_id": claim_id,
+        "claim_text": _inline_text(_claim_text(row), limit=700),
+        "claim_type": str(row.get("claim_type") or ""),
+        "stance": str(row.get("stance") or ""),
+        "confidence": row.get("confidence"),
+    }
+
+
+def _evidence_detail(row: dict, evidence_id: str) -> dict[str, Any]:
+    return {
+        "evidence_id": evidence_id,
+        "source_id": str(row.get("source_id") or ""),
+        "evidence_type": str(row.get("evidence_type") or ""),
+        "confidence": row.get("confidence"),
+        "content": _inline_text(_evidence_text(row), limit=1400),
+    }
+
+
+def _source_detail(row: dict, source_id: str) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "title": _inline_text(row.get("title") or "", limit=240),
+        "url": str(row.get("url") or ""),
+        "source_type": str(row.get("source_type") or ""),
+        "publisher": str(row.get("publisher") or ""),
+        "published_at": str(row.get("published_at") or ""),
+    }
+
+
 def _is_insight_run(root: Path) -> bool:
     plan = _read_json(root / "survey_plan.json")
     ast = _read_json(root / "survey_report_ast.json")
@@ -192,6 +223,26 @@ def _dedupe_sentences(text: str) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def _normalize_insight_markdown_headings(text: str) -> str:
+    """Normalize required DeepDive section labels when a model emits bare headings."""
+    required = {
+        "本节判断",
+        "证据链",
+        "影响与行动",
+        "反证和观察",
+        "Figure Spec",
+        "SectionRender JSON",
+    }
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped in required:
+            lines.append(f"## {stripped}")
+        else:
+            lines.append(line)
+    return "\n".join(lines).strip() + "\n"
+
+
 def _chapter_context(root: Path, section_id: str, spec: dict) -> dict[str, Any]:
     ast = _read_json(root / "survey_report_ast.json")
     chapter_id = str(spec.get("chapter_id") or section_id.split("/", 1)[0])
@@ -234,6 +285,7 @@ def build_section_prompt_packet(root: Path, section_id: str, round_index: int = 
     section_dir = root / "sections" / section_id
     spec = _read_json(section_dir / "section.spec.json")
     pack = _read_json(section_dir / "evidence_pack.json")
+    ledgers = _load_ledgers(root)
     source_types = [str(item) for item in pack.get("source_types", []) if str(item)] if isinstance(pack.get("source_types"), list) else []
     chapter_context = _chapter_context(root, section_id, spec)
     insight_mode = _is_insight_run(root)
@@ -259,7 +311,7 @@ def build_section_prompt_packet(root: Path, section_id: str, round_index: int = 
         output_contract=(
             [
                 "Markdown section draft that is directly convertible to SectionRender cards.",
-                "Include headings: 本节判断, 证据链, 影响与行动, 反证和观察, Figure Spec, SectionRender JSON.",
+                "Include exact Markdown second-level headings: ## 本节判断, ## 证据链, ## 影响与行动, ## 反证和观察, ## Figure Spec, ## SectionRender JSON.",
                 "SectionRender JSON must include thesis, evidence_callouts, takeaways, figure_spec, claim_ids, evidence_ids, solar_absorption, and prediction_packet_refs.",
                 f"figure_spec.type should be `{suggested_figure_type}` unless the evidence strongly requires another supported figure type.",
                 "All core claims must reference claim_id and evidence_id tags.",
@@ -319,6 +371,18 @@ def build_section_prompt_packet(root: Path, section_id: str, round_index: int = 
     )
     payload["required_claim_ids"] = list(pack.get("claim_ids", [])[:6])
     payload["required_evidence_ids"] = list(pack.get("evidence_ids", [])[:8])
+    payload["claim_details"] = [
+        _claim_detail(ledgers["claims"].get(str(cid), {}), str(cid))
+        for cid in payload["required_claim_ids"]
+    ]
+    payload["evidence_details"] = [
+        _evidence_detail(ledgers["evidence"].get(str(eid), {}), str(eid))
+        for eid in payload["required_evidence_ids"]
+    ]
+    payload["source_details"] = [
+        _source_detail(ledgers["sources"].get(str(sid), {}), str(sid))
+        for sid in list(pack.get("source_ids", [])[:8])
+    ]
     return payload
 
 
@@ -411,9 +475,40 @@ def _write_prompt_packet(section_dir: Path, packet: dict) -> None:
         supported = figure_guidance.get("supported_types") if isinstance(figure_guidance.get("supported_types"), dict) else {}
         md.extend(f"- {key}: {value}" for key, value in sorted(supported.items()))
     md.extend(["", "## Required Claims", ""])
-    md.extend(f"- {item}" for item in packet.get("required_claim_ids", []))
+    claim_details = packet.get("claim_details") if isinstance(packet.get("claim_details"), list) else []
+    if claim_details:
+        for item in claim_details:
+            if not isinstance(item, dict):
+                continue
+            md.append(
+                f"- {item.get('claim_id')}: {item.get('claim_text') or 'N/A'} "
+                f"(type={item.get('claim_type') or 'N/A'}, confidence={item.get('confidence') if item.get('confidence') is not None else 'N/A'})"
+            )
+    else:
+        md.extend(f"- {item}" for item in packet.get("required_claim_ids", []))
     md.extend(["", "## Required Evidence", ""])
-    md.extend(f"- {item}" for item in packet.get("required_evidence_ids", []))
+    evidence_details = packet.get("evidence_details") if isinstance(packet.get("evidence_details"), list) else []
+    if evidence_details:
+        for item in evidence_details:
+            if not isinstance(item, dict):
+                continue
+            md.append(
+                f"- {item.get('evidence_id')}: source={item.get('source_id') or 'N/A'}; "
+                f"type={item.get('evidence_type') or 'N/A'}; content={item.get('content') or 'N/A'}"
+            )
+    else:
+        md.extend(f"- {item}" for item in packet.get("required_evidence_ids", []))
+    source_details = packet.get("source_details") if isinstance(packet.get("source_details"), list) else []
+    if source_details:
+        md.extend(["", "## Source Details", ""])
+        for item in source_details:
+            if not isinstance(item, dict):
+                continue
+            md.append(
+                f"- {item.get('source_id')}: {item.get('title') or 'N/A'}; "
+                f"type={item.get('source_type') or 'N/A'}; url={item.get('url') or 'N/A'}; "
+                f"published={item.get('published_at') or 'N/A'}"
+            )
     md.extend([
         "",
         "## Human Response Path",
@@ -942,6 +1037,8 @@ def run_section_revision_loop(
                 "pane_submitted": exc.submitted,
                 "review": to_dict(review),
             }
+        if _is_insight_run(root):
+            text = _normalize_insight_markdown_headings(text)
         review = review_section_text(root, section_id, text, min_chars=min_chars)
         traces.append(to_dict(SectionRevisionTrace(
             section_id=section_id,

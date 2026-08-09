@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -25,9 +26,17 @@ HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR") or "/Users/lisihao/Solar/harness")
 SOLAR_HOME = Path(os.environ.get("SOLAR_HOME") or HOME / ".solar")
 KNOWLEDGE_DIR = Path(os.environ.get("SOLAR_KNOWLEDGE_DIR") or HOME / "Knowledge")
+TECH_HOTSPOT_DB = Path(
+    os.environ.get("TECH_HOTSPOT_RADAR_DB")
+    or os.environ.get("DB")
+    or SOLAR_HOME / "harness" / "state" / "tech-hotspot-radar" / "tech-hotspot-radar.sqlite"
+)
 STATE_DIR = SOLAR_HOME / "harness" / "state" / "insight-report-catchup"
 STATE_PATH = STATE_DIR / "state.json"
 QUEUE_DIR = Path(os.environ.get("BROWSER_AGENT_QUEUE_DIR") or SOLAR_HOME / "harness" / "state" / "browser-agent-queue")
+YOUTUBE_BACKFILL_STATE_PATH = (
+    SOLAR_HOME / "harness" / "state" / "tech-hotspot-radar" / "youtube-weekly-db-backfill-state.json"
+)
 DEFAULT_COOLDOWN_SECONDS = 12 * 60 * 60
 DEFAULT_FAILED_RETRY_SECONDS = 30 * 60
 
@@ -45,6 +54,21 @@ class Task:
 
 
 TASKS: tuple[Task, ...] = (
+    Task(
+        key="youtube_collect",
+        label="YouTube 采集/转录补偿",
+        due_time=(6, 35),
+        script=HARNESS_DIR / "scripts" / "run_youtube_daily_previous_day_collect.sh",
+        date_env="YOUTUBE_DAILY_COLLECT_TARGET_DATE",
+        target_offset_days=1,
+    ),
+    Task(
+        key="youtube_transcript_backfill",
+        label="YouTube transcript 周补偿",
+        due_time=(6, 50),
+        script=HARNESS_DIR / "scripts" / "run_youtube_transcript_weekly_backfill.sh",
+        date_env="YOUTUBE_TRANSCRIPT_BACKFILL_TARGET_DATE",
+    ),
     Task(
         key="youtube_planned",
         label="YouTube 大咖/大展洞察",
@@ -124,10 +148,13 @@ def validation_ok(path: Path) -> bool:
     return str(payload.get("status") or "").lower() == "ok"
 
 
-def youtube_digest_mail_sent(path: Path, reference_path: Path) -> bool:
+def youtube_digest_mail_settled(path: Path, reference_path: Path) -> bool:
     payload = load_json(path)
     mail = payload.get("mail") if isinstance(payload.get("mail"), dict) else payload
-    if str(mail.get("status") or "").lower() != "sent":
+    status = str(mail.get("status") or "").lower()
+    if status not in {"sent", "skipped"}:
+        return False
+    if status == "skipped" and str(mail.get("reason") or "") != "YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL=false":
         return False
     try:
         if path.stat().st_mtime + 1 < reference_path.stat().st_mtime:
@@ -137,7 +164,75 @@ def youtube_digest_mail_sent(path: Path, reference_path: Path) -> bool:
     return True
 
 
+def youtube_collect_complete(date_str: str) -> tuple[bool, str]:
+    """The upstream gate is DB-backed: videos plus usable long-video transcripts.
+
+    Report catch-up must not skip straight to planning after a reboot. It first
+    needs evidence that the target business date has collected videos and that
+    at least one long-video transcript is available for downstream planning.
+    """
+    if not TECH_HOTSPOT_DB.is_file():
+        return False, f"missing tech hotspot db {TECH_HOTSPOT_DB}"
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(f"file:{TECH_HOTSPOT_DB}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS videos,
+              SUM(CASE
+                    WHEN (COALESCE(v.duration_seconds, 0) >= 600
+                          OR (v.duration_seconds IS NULL AND COALESCE(t.char_count, 0) >= 12000))
+                     AND t.transcript_status IN ('fetched','auto_generated')
+                     AND COALESCE(t.char_count, 0) > 0
+                     AND LENGTH(COALESCE(t.transcript_clean, '')) > 0
+                    THEN 1 ELSE 0
+                  END) AS usable_long_transcripts,
+              SUM(CASE
+                    WHEN COALESCE(v.duration_seconds, 0) >= 600
+                    THEN 1 ELSE 0
+                  END) AS long_videos
+            FROM youtube_videos v
+            LEFT JOIN youtube_transcripts t ON t.video_id = v.video_id
+            WHERE DATE(substr(v.published_at, 1, 10)) = DATE(?)
+            """,
+            (date_str,),
+        ).fetchone()
+    except sqlite3.Error as exc:
+        return False, f"youtube collect db check failed: {type(exc).__name__}: {exc}"
+    finally:
+        if conn is not None:
+            conn.close()
+    videos = int((rows or {})["videos"] or 0)
+    usable = int((rows or {})["usable_long_transcripts"] or 0)
+    long_videos = int((rows or {})["long_videos"] or 0)
+    if videos <= 0:
+        return False, f"no youtube videos collected for {date_str}"
+    if long_videos > 0 and usable <= 0:
+        return False, f"videos={videos} long_videos={long_videos} usable_long_transcripts=0"
+    return True, f"videos={videos} long_videos={long_videos} usable_long_transcripts={usable}"
+
+
+def youtube_transcript_backfill_complete() -> tuple[bool, str]:
+    payload = load_json(YOUTUBE_BACKFILL_STATE_PATH)
+    status = str(payload.get("status") or "").lower()
+    if not payload:
+        return False, f"missing backfill state {YOUTUBE_BACKFILL_STATE_PATH}"
+    if payload.get("last_error"):
+        return False, f"backfill state has last_error status={status or 'unknown'}"
+    if status in {"complete", "week_drained", "pending_next_run"}:
+        return True, f"backfill state status={status}"
+    return False, f"backfill state not settled status={status or 'unknown'}"
+
+
 def report_complete(task_key: str, date_str: str) -> tuple[bool, str]:
+    if task_key == "youtube_collect":
+        return youtube_collect_complete(date_str)
+
+    if task_key == "youtube_transcript_backfill":
+        return youtube_transcript_backfill_complete()
+
     if task_key == "github":
         root = KNOWLEDGE_DIR / "_raw" / "tech-hotspot-radar" / "github-trend-report" / date_str
         report_html = root / "github-trend-report.html"
@@ -174,12 +269,16 @@ def report_complete(task_key: str, date_str: str) -> tuple[bool, str]:
         if not digests:
             return False, "missing youtube-influence-digest.md"
         digest_path = digests[0]
-        if not youtube_digest_mail_sent(digest_path.parent / "mail-result.json", digest_path):
-            return False, "missing fresh sent mail-result.json"
-        return True, "digest+mail sent"
+        if not youtube_digest_mail_settled(digest_path.parent / "mail-result.json", digest_path):
+            return False, "missing fresh settled mail-result.json"
+        return True, "digest generated; intermediate mail skipped"
 
     if task_key == "youtube_planned":
         reports_root = KNOWLEDGE_DIR / "_raw" / "tech-hotspot-radar" / "ai-influence-planned" / date_str / "reports"
+        no_input = reports_root.parent / "no-input-result.json"
+        no_input_payload = load_json(no_input)
+        if str(no_input_payload.get("status") or "").lower() == "no_input":
+            return True, "no reportable long-video transcripts"
         if not reports_root.is_dir():
             return False, "missing planned reports dir"
         report_dirs = [p for p in sorted(reports_root.iterdir()) if p.is_dir()]
@@ -263,6 +362,8 @@ def queue_job_state(job_id: str) -> tuple[str, str]:
 def active_queue_task(task: Task, date_str: str) -> tuple[bool, str]:
     script_name = task.script.name
     task_tokens = {
+        "youtube_collect": ("youtube-daily-previous-day", script_name),
+        "youtube_transcript_backfill": ("youtube-transcript-weekly-backfill", script_name),
         "youtube_planned": ("youtube-daily-ai-influence-report", script_name),
         "ai_digest": ("ai-influence-daily-digest", script_name),
         "github": ("github-trend-report", script_name),
@@ -386,7 +487,7 @@ def base_env() -> dict[str, str]:
             "GITHUB_TREND_REPORT_SEND_MAIL": env.get("GITHUB_TREND_REPORT_SEND_MAIL") or "true",
             "HF_WEEKLY_REPORT_SEND_MAIL": env.get("HF_WEEKLY_REPORT_SEND_MAIL") or "true",
             "YOUTUBE_DAILY_REPORT_SEND_MAIL": env.get("YOUTUBE_DAILY_REPORT_SEND_MAIL") or "true",
-            "YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL": env.get("YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL") or "true",
+            "YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL": env.get("YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL") or "false",
         }
     )
     return env
@@ -473,6 +574,14 @@ def main() -> int:
                 item["status"] = "pending"
                 results.append(item)
                 continue
+            if task.key == "youtube_planned":
+                upstream_complete, upstream_reason = report_complete("youtube_transcript_backfill", date_str)
+                item["upstream_ready"] = upstream_complete
+                item["upstream_reason"] = upstream_reason
+                if not upstream_complete:
+                    item["status"] = "blocked_upstream"
+                    results.append(item)
+                    continue
             active, active_reason = active_queue_task(task, date_str)
             item["active_queue_reason"] = active_reason
             if active and not args.force:

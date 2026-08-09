@@ -55,7 +55,19 @@ def test_finalize_run_builds_pipeline_and_compiles(tmp_path):
     )
     assert payload["ok"] is True
     assert payload["reason"] == "passed"
-    assert [step["step"] for step in payload["steps"]] == ["deepdive_entry", "plan", "source_gap", "pack", "write", "eval", "auto_repair", "compile", "final_eval"]
+    assert [step["step"] for step in payload["steps"]] == [
+        "deepdive_entry",
+        "plan",
+        "source_gap",
+        "pack",
+        "write",
+        "eval",
+        "auto_repair",
+        "compile",
+        "chief_editor",
+        "final_eval",
+        "insight_writer_gate",
+    ]
     assert payload["steps"][0]["ok"] is True
     assert payload["compile"]["finalized_sections"] >= 1
     assert (tmp_path / "final.md").exists()
@@ -115,3 +127,48 @@ def test_finalize_run_cli(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["reason"] == "passed"
+
+
+def test_finalize_run_calls_chief_editor_when_narrative_backend_enabled(tmp_path):
+    _ledgers(tmp_path)
+    payload = finalize_survey_run(
+        tmp_path,
+        brief="latent reasoning",
+        section_limit=1,
+        repair_limit=1,
+        min_finalized=1,
+        min_chars=100,
+        repair_passes=1,
+        narrative_backend="deterministic",
+        narrative_min_chars=100,
+    )
+
+    assert payload["ok"] is True
+    assert payload["chief_editor"].get("skipped") is not True
+    assert (tmp_path / "chief_editor_final.md").exists()
+    assert any(step["step"] == "chief_editor" and step["skipped"] is False for step in payload["steps"])
+
+
+def test_finalize_run_conference_hint_blocks_deterministic_insight_writer(tmp_path):
+    _ledgers(tmp_path, n=96)
+    payload = finalize_survey_run(
+        tmp_path,
+        brief="从 MLSys 2026 和 CAIS 2026 的议题看面向 Agent system 的计算架构演进趋势",
+        planner_mode_hint="conference_insight",
+        section_limit=0,
+        min_chars=100,
+        require_complete=True,
+        allow_source_gap=True,
+    )
+
+    plan = json.loads((tmp_path / "survey_plan.json").read_text(encoding="utf-8"))
+    assert plan["planner_mode"] == "conference_insight"
+    assert payload["ok"] is False
+    assert payload["reason"] == "final_eval_failed"
+    assert any(step["step"] == "insight_writer_gate" and step["ok"] is False for step in payload["steps"])
+
+    gate = json.loads((tmp_path / "survey_insight_writer_gate.json").read_text(encoding="utf-8"))
+    assert gate["ok"] is False
+    assert gate["reason"] == "insight_model_writer_required"
+    eval_payload = json.loads((tmp_path / "survey_eval.json").read_text(encoding="utf-8"))
+    assert "insight_model_writer_required" in eval_payload["scorecard"]["issues"]
