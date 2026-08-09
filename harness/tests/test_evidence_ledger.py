@@ -58,6 +58,63 @@ def test_scheduler_decision_serialization():
     print("PASS: scheduler_decision_serialization")
 
 
+def test_scheduler_decision_fingerprint_detail_defaults_empty():
+    """Legacy scheduler decisions retain an explicit empty fingerprint explanation."""
+    sd = build_scheduler_decision(
+        selected_actor="a1",
+        logical_operator="DeepArchitect",
+        score_factors={},
+        penalties={},
+        rejected=[],
+    )
+    assert sd["FailureFingerprintPenalty"] == 0.0
+    assert sd["matched_labels"] == []
+    assert sd["evidence_refs"] == []
+    assert sd["failure_fingerprint"] == {
+        "penalty": 0.0,
+        "matched_labels": [],
+        "evidence_refs": [],
+        "explanation": "no fingerprint evidence supplied",
+        "fingerprint_type": "",
+        "actor_id": "a1",
+        "label_penalties": [],
+        "ignored_events": [],
+        "cap_applied": False,
+    }
+    print("PASS: scheduler_decision_fingerprint_detail_defaults_empty")
+
+
+def test_scheduler_decision_fingerprint_detail_structured():
+    """Fingerprint penalty details are preserved for evidence-backed decisions."""
+    detail = {
+        "fingerprint_type": "FINAL_REVIEW",
+        "penalty": 0.25,
+        "explanation": "1 failure label match(es) for FINAL_REVIEW: shallow_final_reasoning",
+        "actor_id": "a1",
+        "matched_labels": ["shallow_final_reasoning"],
+        "label_penalties": [{"label": "shallow_final_reasoning", "penalty": 0.25}],
+        "evidence_refs": ["ev-1"],
+        "ignored_events": [],
+        "cap_applied": False,
+    }
+    penalties = {}
+    sd = build_scheduler_decision(
+        selected_actor="a1",
+        logical_operator="DeepArchitect",
+        score_factors={},
+        penalties=penalties,
+        rejected=[],
+        failure_fingerprint_detail=detail,
+    )
+    assert penalties == {}
+    assert sd["penalties"]["FailureFingerprintPenalty"] == 0.25
+    assert sd["FailureFingerprintPenalty"] == 0.25
+    assert sd["matched_labels"] == ["shallow_final_reasoning"]
+    assert sd["evidence_refs"] == ["ev-1"]
+    assert sd["failure_fingerprint"] == detail
+    print("PASS: scheduler_decision_fingerprint_detail_structured")
+
+
 # ---------------------------------------------------------------------------
 # S03 new tests — run_dir and artifact_refs JSONL behavior
 # ---------------------------------------------------------------------------

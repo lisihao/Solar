@@ -520,6 +520,19 @@ def build_scheduler_decision(
     artifact_refs: Optional[Dict[str, str]] = None,
     replay: Optional[Dict[str, Any]] = None,
     constraints: Optional[Dict[str, Any]] = None,
+    # N1 / S03 fields
+    dispatch_path: Optional[str] = None,
+    fallback_reason: Optional[str] = None,
+    selected_host_type: Optional[str] = None,
+    gate: Optional[str] = None,
+    failure_fingerprint_penalty: Optional[float] = None,
+    matched_labels: Optional[List[str]] = None,
+    evidence_refs: Optional[List[str]] = None,
+    failure_fingerprint_detail: Optional[Dict[str, Any]] = None,
+    policy_decision_id: Optional[str] = None,
+    policy_version: Optional[str] = None,
+    policy_decisions: Optional[List[Dict[str, Any]]] = None,
+    policy_requirements: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a scheduler_decision record with S02 A1 required versioned fields.
 
@@ -532,6 +545,32 @@ def build_scheduler_decision(
         + (f" Quota: {quota_reason}." if quota_reason else "")
         + (f" Risk: {risk_reason}." if risk_reason else "")
     )
+
+    detail = dict(failure_fingerprint_detail or {})
+    ff_penalty = float(
+        failure_fingerprint_penalty
+        if failure_fingerprint_penalty is not None
+        else detail.get("penalty", 0.0) or 0.0
+    )
+    labels = list(matched_labels if matched_labels is not None else detail.get("matched_labels") or [])
+    refs = list(evidence_refs if evidence_refs is not None else detail.get("evidence_refs") or [])
+
+    penalties = dict(penalties or {})
+    if ff_penalty > 0.0:
+        penalties.setdefault("FailureFingerprintPenalty", ff_penalty)
+
+    fingerprint_detail = {
+        "penalty": ff_penalty,
+        "matched_labels": labels,
+        "evidence_refs": refs,
+        "explanation": str(detail.get("explanation") or "no fingerprint evidence supplied"),
+        "fingerprint_type": str(detail.get("fingerprint_type") or ""),
+        "actor_id": str(detail.get("actor_id") or selected_actor),
+        "label_penalties": list(detail.get("label_penalties") or []),
+        "ignored_events": list(detail.get("ignored_events") or []),
+        "cap_applied": bool(detail.get("cap_applied") or False),
+    }
+
     return {
         # S02 A1 required schema fields
         "schema_version": "solar.scheduler_decision.v1",
@@ -556,6 +595,22 @@ def build_scheduler_decision(
             "node_id": node_id,
             "selected_actor": selected_actor,
             "logical_operator": logical_operator,
+            "policy_decision_id": policy_decision_id,
+            "policy_version": policy_version,
         },
         "constraints": constraints or {},
+        # N1 contract fields
+        "dispatch_path": dispatch_path,
+        "fallback_reason": fallback_reason,
+        "selected_host_type": selected_host_type,
+        "gate": gate,
+        # S03 fingerprint fields
+        "FailureFingerprintPenalty": ff_penalty,
+        "matched_labels": labels,
+        "evidence_refs": refs,
+        "failure_fingerprint": fingerprint_detail,
+        "policy_decision_id": policy_decision_id,
+        "policy_version": policy_version,
+        "policy_decisions": list(policy_decisions or []),
+        "policy_requirements": dict(policy_requirements or {}),
     }
