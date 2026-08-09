@@ -34,6 +34,7 @@ def runtime_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     harness = repo / "harness"
     runtime = tmp_path / "solar-home" / "harness"
     (harness / "lib").mkdir(parents=True)
+    (harness / "plugins").mkdir()
     (harness / "run").mkdir()
     (runtime / "lib").mkdir(parents=True)
     (runtime / "run").mkdir()
@@ -41,6 +42,7 @@ def runtime_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     (harness / "lib" / "existing.py").write_text("new\n", encoding="utf-8")
     (harness / "lib" / "created.py").write_text("created\n", encoding="utf-8")
     (harness / "lib" / "untracked.py").write_text("do not deploy\n", encoding="utf-8")
+    (harness / "plugins" / "repo-only.py").write_text("do not deploy\n", encoding="utf-8")
     (harness / "run" / "tracked-runtime.txt").write_text("do not deploy\n", encoding="utf-8")
     (harness / "solar-harness.sh").write_text("#!/bin/bash\necho ok\n", encoding="utf-8")
     (runtime / "lib" / "existing.py").write_text("old\n", encoding="utf-8")
@@ -50,7 +52,15 @@ def runtime_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     _git(repo, "init")
     _git(repo, "config", "user.name", "Solar Test")
     _git(repo, "config", "user.email", "solar-test@example.invalid")
-    _git(repo, "add", "harness/lib/existing.py", "harness/lib/created.py", "harness/run/tracked-runtime.txt", "harness/solar-harness.sh")
+    _git(
+        repo,
+        "add",
+        "harness/lib/existing.py",
+        "harness/lib/created.py",
+        "harness/plugins/repo-only.py",
+        "harness/run/tracked-runtime.txt",
+        "harness/solar-harness.sh",
+    )
     _git(repo, "commit", "-m", "fixture")
 
     env = os.environ.copy()
@@ -75,6 +85,7 @@ def test_tracked_deploy_preserves_runtime_and_supports_verified_rollback(
     assert (runtime / "lib" / "existing.py").read_text(encoding="utf-8") == "new\n"
     assert (runtime / "lib" / "created.py").read_text(encoding="utf-8") == "created\n"
     assert not (runtime / "lib" / "untracked.py").exists()
+    assert not (runtime / "plugins" / "repo-only.py").exists()
     assert (runtime / "lib" / "local-extension.py").read_text(encoding="utf-8") == "keep\n"
     assert (runtime / "run" / "queue.json").read_text(encoding="utf-8") == "runtime-state\n"
     assert not (runtime / "run" / "tracked-runtime.txt").exists()

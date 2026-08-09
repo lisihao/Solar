@@ -190,11 +190,27 @@ CREATED_MANIFEST="$TMP_ROOT/created-manifest.txt"
 git -C "$SOLAR_DIR" ls-files -- harness/ | while IFS= read -r tracked_path; do
     rel="${tracked_path#harness/}"
     case "$rel" in
-        ""|cache/*|logs/*|run/*|state/*|sprints/*|venvs/*|vendor/*|quarantine/*|pm-predrafts/*)
+        ""|.*|*/.*|*/__pycache__/*|cache/*|logs/*|run/*|state/*|sprints/*|venvs/*|vendor/*|quarantine/*|pm-predrafts/*)
             continue
             ;;
-        *.log|*.pid|*.port|*.tmp|*.bak|*.backup|*~)
+        *.log|*.pid|*.port|*.tmp|*.bak*|*.backup|*~)
             continue
+            ;;
+    esac
+    case "$rel" in
+        lib/*|tools/*|config/*|schemas/*|scripts/*|integrations/*|status-server/*|verifier/*|templates/*|personas/*|skills/*|evals/*|migrate/*|installer/*|solar_runtime/*|hooks/*|extensions/*|ui/*|release/*|experience/*|autopilot/*|launchd/*|bin/*|brain/*|queue/*)
+            ;;
+        *)
+            if [[ "$rel" == */* ]]; then
+                continue
+            fi
+            case "$rel" in
+                VERSION|*.sh|*.py|*.ts|auto-boost-config.json|farm-layout.json|multi-task-profiles.json|gitleaks.toml)
+                    ;;
+                *)
+                    continue
+                    ;;
+            esac
             ;;
     esac
     if [[ -e "$SRC_HARNESS/$rel" || -L "$SRC_HARNESS/$rel" ]]; then
