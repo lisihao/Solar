@@ -2812,7 +2812,6 @@ def inspect_sprints(epic_filter: str = "") -> list[dict]:
         sid = status.get("sprint_id") or status.get("id") or path.name.removesuffix(".status.json")
         if epic_filter and str(status.get("epic_id") or "") != epic_filter:
             continue
-        files = sprint_files(sid)
         st = status.get("status", "")
         phase = status.get("phase", "")
         handoff = status.get("handoff_to", "")
@@ -2823,6 +2822,7 @@ def inspect_sprints(epic_filter: str = "") -> list[dict]:
         }
         if st not in ACTIVE_STATUSES and not blocked_but_routable:
             continue
+        files = sprint_files(sid)
         dep_ready, blocked_by = epic_child_dependency_ready(str(sid))
         if not dep_ready:
             raw_findings.append(
@@ -3528,7 +3528,6 @@ def apply_findings(findings: list[dict], dispatch: bool, state: dict, cooldown: 
             actions.append(result)
         elif ftype == "epic_child_dependency_blocked":
             status_path = SPRINTS / f"{sid}.status.json"
-            status = load_json(status_path)
             if sprint_has_terminal_evidence(sid):
                 append_event(
                     sid,
@@ -3547,6 +3546,7 @@ def apply_findings(findings: list[dict], dispatch: bool, state: dict, cooldown: 
                 mark_action(state, f, result)
                 actions.append(result)
                 continue
+            status = load_json(status_path)
             status.update({
                 "status": "queued",
                 "phase": "epic_waiting_dependency",

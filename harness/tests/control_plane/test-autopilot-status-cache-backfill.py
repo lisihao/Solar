@@ -101,6 +101,24 @@ def test_graph_cache_scan_runs_once_per_monitor_cycle(tmp_path, monkeypatch) -> 
     assert graph_loads == [graph_path]
 
 
+def test_inspect_sprints_filters_terminal_status_before_artifact_globs(tmp_path, monkeypatch) -> None:
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    sid = "sprint-terminal-no-glob"
+    (sprints / f"{sid}.status.json").write_text(
+        json.dumps({"sprint_id": sid, "status": "passed", "history": []}, indent=2) + "\n"
+    )
+    monkeypatch.setattr(mod, "SPRINTS", sprints)
+    monkeypatch.setattr(mod, "_ensure_graph_status_caches", lambda: [])
+    monkeypatch.setattr(
+        mod,
+        "sprint_files",
+        lambda sprint_id: (_ for _ in ()).throw(AssertionError("terminal sprint must not glob artifacts")),
+    )
+
+    assert mod.inspect_sprints() == []
+
+
 def test_load_state_refreshes_existing_status_projection_when_graph_changes(tmp_path, monkeypatch) -> None:
     sprints = tmp_path / "sprints"
     sprints.mkdir(parents=True)
