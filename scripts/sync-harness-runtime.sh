@@ -91,7 +91,7 @@ checksum_manifest() {
     local root="$1"
     local manifest="$2"
     local output="$3"
-    local rel hash
+    local rel hash link_target
     : > "$output"
     while IFS= read -r rel; do
         [[ -n "$rel" ]] || continue
@@ -99,7 +99,12 @@ checksum_manifest() {
             echo "missing manifest file: $root/$rel" >&2
             return 1
         fi
-        hash="$(shasum -a 256 "$root/$rel" | awk '{print $1}')"
+        if [[ -L "$root/$rel" ]]; then
+            link_target="$(readlink "$root/$rel")"
+            hash="$(printf 'symlink:%s' "$link_target" | shasum -a 256 | awk '{print $1}')"
+        else
+            hash="$(shasum -a 256 "$root/$rel" | awk '{print $1}')"
+        fi
         printf '%s  %s\n' "$hash" "$rel" >> "$output"
     done < "$manifest"
 }

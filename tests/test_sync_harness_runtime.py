@@ -36,6 +36,7 @@ def runtime_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     (harness / "lib").mkdir(parents=True)
     (harness / "plugins").mkdir()
     (harness / "run").mkdir()
+    (harness / "templates").mkdir()
     (runtime / "lib").mkdir(parents=True)
     (runtime / "run").mkdir()
 
@@ -45,6 +46,7 @@ def runtime_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     (harness / "plugins" / "repo-only.py").write_text("do not deploy\n", encoding="utf-8")
     (harness / "run" / "tracked-runtime.txt").write_text("do not deploy\n", encoding="utf-8")
     (harness / "solar-harness.sh").write_text("#!/bin/bash\necho ok\n", encoding="utf-8")
+    (harness / "templates" / "persona").symlink_to("../lib", target_is_directory=True)
     (runtime / "lib" / "existing.py").write_text("old\n", encoding="utf-8")
     (runtime / "lib" / "local-extension.py").write_text("keep\n", encoding="utf-8")
     (runtime / "run" / "queue.json").write_text("runtime-state\n", encoding="utf-8")
@@ -60,6 +62,7 @@ def runtime_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "harness/plugins/repo-only.py",
         "harness/run/tracked-runtime.txt",
         "harness/solar-harness.sh",
+        "harness/templates/persona",
     )
     _git(repo, "commit", "-m", "fixture")
 
@@ -89,6 +92,7 @@ def test_tracked_deploy_preserves_runtime_and_supports_verified_rollback(
     assert (runtime / "lib" / "local-extension.py").read_text(encoding="utf-8") == "keep\n"
     assert (runtime / "run" / "queue.json").read_text(encoding="utf-8") == "runtime-state\n"
     assert not (runtime / "run" / "tracked-runtime.txt").exists()
+    assert (runtime / "templates" / "persona").is_symlink()
     assert "source_commit=" in (runtime / ".runtime-source").read_text(encoding="utf-8")
 
     backup_line = next(line for line in result.stdout.splitlines() if line.startswith("backup="))
@@ -98,6 +102,7 @@ def test_tracked_deploy_preserves_runtime_and_supports_verified_rollback(
     assert "rollback=ok" in rollback.stdout
     assert (runtime / "lib" / "existing.py").read_text(encoding="utf-8") == "old\n"
     assert not (runtime / "lib" / "created.py").exists()
+    assert not (runtime / "templates" / "persona").exists()
     assert (runtime / "lib" / "local-extension.py").read_text(encoding="utf-8") == "keep\n"
     assert (runtime / "run" / "queue.json").read_text(encoding="utf-8") == "runtime-state\n"
 
