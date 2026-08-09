@@ -384,7 +384,10 @@ def capability_for_profile(profile: dict[str, Any], include_probe: bool = True) 
                 evidence = "deepseek key missing"
         elif provider == "local":
             base_url = str(env.get("thunderomlx_base_url") or os.environ.get("THUNDEROMLX_BASE_URL") or "http://127.0.0.1:8002")
-            local_model = os.environ.get("THUNDEROMLX_LOCAL_MODEL", "Qwen3.6-35b-a3b")
+            local_model = os.environ.get(
+                "THUNDEROMLX_LOCAL_MODEL",
+                "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-OptiQ-4bit-MLX",
+            )
             evidence = f"host={_host_from_url(base_url)} auth=local proxy_model={provider_model_alias('local', model)} local_model={local_model}"
         else:
             status = "error"
@@ -1413,7 +1416,10 @@ def claude_agent_line(model: str, dispatch_expr: str = '"$(cat "$DISPATCH_FILE")
     if provider == "local":
         route_model = provider_model_alias(provider, model)
         base_url = os.environ.get("THUNDEROMLX_BASE_URL", "http://127.0.0.1:8002")
-        local_model = os.environ.get("THUNDEROMLX_LOCAL_MODEL", "Qwen3.6-35b-a3b")
+        local_model = os.environ.get(
+            "THUNDEROMLX_LOCAL_MODEL",
+            "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-OptiQ-4bit-MLX",
+        )
         return "\n".join([
             f"export ANTHROPIC_BASE_URL={shlex.quote(base_url)}",
             "export ANTHROPIC_AUTH_TOKEN=${THUNDEROMLX_AUTH_TOKEN:-local-thunderomlx}",

@@ -34,6 +34,8 @@ LAB_SESSION = os.environ.get("SOLAR_HARNESS_LAB_SESSION", "solar-harness-lab")
 PROFILE_PATH = Path(os.environ.get("SOLAR_MULTI_TASK_PROFILES", HARNESS_DIR / "config" / "multi-task-profiles.json"))
 PHYSICAL_OPERATORS_PATH = Path(os.environ.get("SOLAR_MULTI_TASK_OPERATORS", HARNESS_DIR / "config" / "physical-operators.json"))
 SCREEN_HISTORY_PATH = Path(os.environ.get("SOLAR_MULTI_TASK_SCREEN_HISTORY", RUN_DIR / "screen-history.txt"))
+SCREEN_HISTORY_MAX_ENTRIES = int(os.environ.get("SOLAR_MULTI_TASK_SCREEN_HISTORY_MAX_ENTRIES", "1000") or "1000")
+SCREEN_COMMAND_LOG_MAX_ENTRIES = int(os.environ.get("SOLAR_MULTI_TASK_SCREEN_COMMAND_LOG_MAX_ENTRIES", str(SCREEN_HISTORY_MAX_ENTRIES)) or str(SCREEN_HISTORY_MAX_ENTRIES))
 GRAPH_SUMMARY_CACHE_PATH = Path(os.environ.get("SOLAR_MULTI_TASK_GRAPH_SUMMARY_CACHE", RUN_DIR / "graph-summary-cache.json"))
 DISPATCH_LEDGER_PATH = Path(os.environ.get("SOLAR_DISPATCH_LEDGER", HARNESS_DIR / "run" / "dispatch-ledger.jsonl"))
 DEFAULT_MAX_WORKERS = int(os.environ.get("SOLAR_MULTI_TASK_MAX_WORKERS", "4") or "4")
@@ -3985,30 +3987,53 @@ def command_log_path() -> Path:
     return RUN_DIR / "screen-commands.jsonl"
 
 
+def _bounded_screen_history(lines: list[str]) -> list[str]:
+    limit = max(1, SCREEN_HISTORY_MAX_ENTRIES)
+    return lines[-limit:]
+
+
+def _write_bounded_screen_command_log(record: dict[str, Any]) -> None:
+    path = command_log_path()
+    encoded = json.dumps(record, ensure_ascii=False)
+    limit = max(1, SCREEN_COMMAND_LOG_MAX_ENTRIES)
+    existing = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    existing.append(encoded)
+    path.write_text("\n".join(existing[-limit:]) + "\n", encoding="utf-8")
+
+
 def load_screen_history() -> None:
+    """Load bounded readline UX history only; never dispatch task context."""
     if readline is None:
         return
     try:
         SCREEN_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
         if SCREEN_HISTORY_PATH.exists():
             readline.read_history_file(str(SCREEN_HISTORY_PATH))
-        readline.set_history_length(1000)
+        readline.set_history_length(max(1, SCREEN_HISTORY_MAX_ENTRIES))
     except Exception:
         return
 
 
 def save_screen_history() -> None:
+    """Persist bounded screen debug/compat evidence only; never context authority."""
     if readline is None:
         return
     try:
         SCREEN_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        readline.set_history_length(1000)
+        readline.set_history_length(max(1, SCREEN_HISTORY_MAX_ENTRIES))
         readline.write_history_file(str(SCREEN_HISTORY_PATH))
     except Exception:
         return
 
 
 def remember_screen_input(text: str) -> None:
+    """Remember screen input for UX/debug compatibility, not dispatch context.
+
+    This history is intentionally bounded and has no authority to satisfy
+    context_packet_ref/context_packet requirements. Any future fallback that
+    reads this file would be a legacy memory contamination path and must be
+    explicitly audited before use.
+    """
     raw = text.strip()
     if not raw:
         return
@@ -4026,12 +4051,13 @@ def remember_screen_input(text: str) -> None:
         old = SCREEN_HISTORY_PATH.read_text(encoding="utf-8").splitlines() if SCREEN_HISTORY_PATH.exists() else []
         if not old or old[-1] != raw:
             old.append(raw)
-        SCREEN_HISTORY_PATH.write_text("\n".join(old[-1000:]) + "\n", encoding="utf-8")
+        SCREEN_HISTORY_PATH.write_text("\n".join(_bounded_screen_history(old)) + "\n", encoding="utf-8")
     except Exception:
         return
 
 
 def append_screen_command(text: str, intent: dict[str, Any], action: str, status: str, detail: str = "") -> None:
+    """Append bounded screen diagnostic evidence only; never context authority."""
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     record = {
         "ts": now_iso(),
@@ -4040,9 +4066,11 @@ def append_screen_command(text: str, intent: dict[str, Any], action: str, status
         "action": action,
         "status": status,
         "detail": detail,
+        "authority": "screen_debug_compat_evidence_only",
+        "dispatch_context_authority": False,
+        "contamination_note": "screen history/readline history must not satisfy dispatch context policy",
     }
-    with command_log_path().open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    _write_bounded_screen_command_log(record)
 
 
 def match_intent(text: str) -> dict[str, Any]:
@@ -4398,7 +4426,7 @@ def draw_screen(result: dict[str, Any], messages: list[str], args: argparse.Name
     fixed_input_lines = [
         _screen_selection_line(args),
         "输入: 自然语言需求 / status / profiles / doctor / foreground latest / logs latest / q",
-        f"history: ↑/↓ {SCREEN_HISTORY_PATH.name}; intent_log=screen-commands.jsonl",
+        f"debug_history: ↑/↓ {SCREEN_HISTORY_PATH.name}; debug_intent_log=screen-commands.jsonl",
     ]
     input_body_height = max(0, bottom_h - 2)
     message_slots = max(1, input_body_height - len(fixed_input_lines))

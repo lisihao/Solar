@@ -19,7 +19,7 @@ import datetime
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
@@ -68,6 +68,216 @@ def _read_lease(op_id: str, lease_dir: Path) -> Dict[str, Any]:
     return _read_json(lease_dir / f"{op_id}.json")
 
 
+def _lease_expires_after_now(lease: Dict[str, Any], now_str: str) -> bool:
+    expires_at = lease.get("expires_at") if isinstance(lease, dict) else None
+    if not isinstance(expires_at, str):
+        return False
+    return bool(expires_at) and expires_at > now_str
+
+
+def _as_string_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (str, int, float)):
+        items = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        return []
+    return [str(item) for item in items if str(item or "").strip()]
+
+
+def _common_failure_rows_from_profile(profile: Any) -> List[Dict[str, Any]]:
+    if not isinstance(profile, dict):
+        return []
+    rows = profile.get("common_failures") or profile.get("common_failure_labels") or []
+    if not isinstance(rows, list):
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or row.get("failure_label") or "").strip()
+        if not label:
+            continue
+        normalized.append({
+            "label": label,
+            "count": row.get("count", row.get("frequency", 0)),
+            "weighted_count": row.get("weighted_count", row.get("count", 0)),
+            "severity": str(row.get("severity") or "N/A"),
+            "last_seen": str(row.get("last_seen") or row.get("last_seen_at") or "N/A"),
+            "evidence_refs": _as_string_list(row.get("evidence_refs")),
+            "source_breakdown": row.get("source_breakdown") if isinstance(row.get("source_breakdown"), dict) else {},
+        })
+    return normalized
+
+
+def _project_common_failure_rows(actor_id: str, actor_cfg: Dict[str, Any]) -> tuple[List[Dict[str, Any]], str, List[Dict[str, str]]]:
+    profile = actor_cfg.get("failure_fingerprint") if isinstance(actor_cfg, dict) else {}
+    rows = _common_failure_rows_from_profile(profile)
+    if rows:
+        return rows, "agent-actors.json:failure_fingerprint", []
+
+    evidence_events = actor_cfg.get("failure_fingerprint_evidence")
+    if evidence_events is None:
+        evidence_events = actor_cfg.get("recent_failures")
+    if not evidence_events:
+        return [], "N/A", []
+
+    try:
+        from failure_fingerprint import project_operator_failure_profile
+
+        projected = project_operator_failure_profile(actor_id, evidence_events)
+    except Exception as exc:
+        return [], "N/A", [{"evidence_ref": "N/A", "label": "N/A", "reason": f"profile_projection_error:{exc}"}]
+
+    return (
+        [item.to_dict() for item in projected.common_failures],
+        "project_operator_failure_profile",
+        list(projected.ignored_events),
+    )
+
+
+def _coerce_fingerprint_hit(candidate: Any) -> Dict[str, Any]:
+    if isinstance(candidate, dict):
+        if "failure_fingerprint" in candidate and isinstance(candidate["failure_fingerprint"], dict):
+            return _coerce_fingerprint_hit(candidate["failure_fingerprint"])
+        if "FailureFingerprintPenalty" in candidate and "penalty" not in candidate:
+            coerced = dict(candidate)
+            coerced["penalty"] = candidate.get("FailureFingerprintPenalty")
+            return coerced
+        hit_keys = {
+            "penalty",
+            "total_penalty",
+            "score_delta",
+            "matched_labels",
+            "labels",
+            "label_penalties",
+            "evidence_refs",
+        }
+        return candidate if any(key in candidate for key in hit_keys) else {}
+    if isinstance(candidate, (int, float)):
+        return {
+            "penalty": float(candidate),
+            "explanation": "numeric failure fingerprint penalty supplied",
+        }
+    return {}
+
+
+def _extract_fingerprint_hit(*sources: Any) -> Dict[str, Any]:
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        candidates = [
+            source.get("failure_fingerprint"),
+            source.get("fingerprint_penalty"),
+            source.get("failure_fingerprint_penalty"),
+            source.get("FailureFingerprintPenalty"),
+        ]
+        scheduler_decision = source.get("scheduler_decision")
+        if isinstance(scheduler_decision, dict):
+            candidates.extend([
+                scheduler_decision.get("failure_fingerprint"),
+                scheduler_decision.get("FailureFingerprintPenalty"),
+            ])
+        score = source.get("operator_score_summary")
+        if isinstance(score, dict):
+            candidates.extend([
+                score.get("failure_fingerprint"),
+                score.get("fingerprint_penalty"),
+            ])
+            penalties = score.get("penalties")
+            if isinstance(penalties, dict):
+                candidates.extend([
+                    penalties.get("failure_fingerprint"),
+                    penalties.get("fingerprint_penalty"),
+                    penalties.get("FailureFingerprintPenalty"),
+                ])
+        for candidate in candidates:
+            hit = _coerce_fingerprint_hit(candidate)
+            if hit:
+                return hit
+    return {}
+
+
+def _labels_from_label_penalties(hit: Dict[str, Any]) -> List[str]:
+    rows = hit.get("label_penalties")
+    if not isinstance(rows, list):
+        return []
+
+    labels: List[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or row.get("failure_label") or "").strip()
+        if label and label not in labels:
+            labels.append(label)
+    return labels
+
+
+def _evidence_refs_from_label_penalties(hit: Dict[str, Any]) -> List[str]:
+    rows = hit.get("label_penalties")
+    if not isinstance(rows, list):
+        return []
+
+    refs: List[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for ref in _as_string_list(row.get("evidence_refs")):
+            if ref not in refs:
+                refs.append(ref)
+    return refs
+
+
+def _build_failure_fingerprint_penalties(
+    actor_id: str,
+    actor_cfg: Dict[str, Any],
+    lease_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    common_failures, profile_source, ignored_events = _project_common_failure_rows(actor_id, actor_cfg)
+    hit = _extract_fingerprint_hit(lease_data, actor_cfg)
+
+    matched_labels = (
+        _as_string_list(hit.get("matched_labels"))
+        or _as_string_list(hit.get("labels"))
+        or _labels_from_label_penalties(hit)
+        or [row["label"] for row in common_failures[:3]]
+    )
+    evidence_refs = _as_string_list(hit.get("evidence_refs"))
+    for ref in _evidence_refs_from_label_penalties(hit):
+        if ref not in evidence_refs:
+            evidence_refs.append(ref)
+    for row in common_failures:
+        for ref in row.get("evidence_refs") or []:
+            if ref not in evidence_refs:
+                evidence_refs.append(ref)
+
+    total_penalty = hit.get("total_penalty", hit.get("penalty", hit.get("score_delta", "N/A")))
+    current_task_penalties = [hit] if hit else []
+    degraded_sources: List[str] = []
+    if not common_failures:
+        degraded_sources.append("actor_failure_profile:missing")
+    if not hit:
+        degraded_sources.append("current_task_penalty:missing")
+    if matched_labels and not evidence_refs:
+        degraded_sources.append("fingerprint_evidence_refs:missing")
+
+    return {
+        "status": "degraded" if degraded_sources else "ok",
+        "profile_source": profile_source,
+        "common_failures": common_failures,
+        "matched_labels": matched_labels,
+        "total_penalty": total_penalty,
+        "current_task_penalties": current_task_penalties,
+        "evidence_refs": evidence_refs,
+        "ignored_events": list(hit.get("ignored_events") or ignored_events),
+        "degraded_sources": degraded_sources,
+        "explanation": str(hit.get("explanation") or "N/A"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle state resolution (mirrors operator_runtime logic, path-injected)
 # ---------------------------------------------------------------------------
@@ -104,7 +314,7 @@ def _resolve_lifecycle_state(
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        if lease.get("expires_at", "") > now_str:
+        if _lease_expires_after_now(lease, now_str):
             state = lease.get("state")
             if state in _VALID_STATES:
                 return str(state)
@@ -182,7 +392,7 @@ def get_operator_status_entry(
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        if lease.get("expires_at", "") > now_str:
+        if _lease_expires_after_now(lease, now_str):
             submit_state = {
                 "task_id": str(lease.get("task_id") or "N/A"),
                 "sprint_id": str(lease.get("sprint_id") or "N/A"),
@@ -358,12 +568,18 @@ def resolve_actorhost_status(
         host_id = str(actor_cfg.get("host_id") or "unknown")
         host_cfg = hosts.get(host_id, {}) if isinstance(hosts, dict) else {}
         host_type = str(host_cfg.get("host_type") or "unknown")
+        lease_data = _read_json(lease_dir / f"{resolved_actor_id}.json")
         return _redact_secrets({
             "actor_id": resolved_actor_id,
             "host_id": host_id,
             "host_type": host_type,
             "lease_state": _lease_state_for_actor(resolved_actor_id, lease_dir),
             "capability_match": _capability_match(actor_cfg, required_capabilities),
+            "failure_fingerprint_penalties": _build_failure_fingerprint_penalties(
+                resolved_actor_id,
+                actor_cfg,
+                lease_data,
+            ),
             "compat_fallback": False,
             "compat_maps_to": None,
             "resolution_source": "actor_hosts",
@@ -394,6 +610,11 @@ def resolve_actorhost_status(
                     "missing": [str(item) for item in (required_capabilities or []) if str(item)],
                     "observed": [],
                 },
+                "failure_fingerprint_penalties": _build_failure_fingerprint_penalties(
+                    str(op_id),
+                    {},
+                    {},
+                ),
                 "compat_fallback": True,
                 "compat_maps_to": compat,
                 "resolution_source": "physical_operators.compat_maps_to",
@@ -411,6 +632,11 @@ def resolve_actorhost_status(
             "missing": [str(item) for item in (required_capabilities or []) if str(item)],
             "observed": [],
         },
+        "failure_fingerprint_penalties": _build_failure_fingerprint_penalties(
+            resolved_actor_id or "N/A",
+            {},
+            {},
+        ),
         "compat_fallback": False,
         "compat_maps_to": None,
         "resolution_source": "unresolved",
@@ -447,7 +673,7 @@ def get_actor_status_entry(
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        if lease_data.get("expires_at", "") > now_str:
+        if _lease_expires_after_now(lease_data, now_str):
             lease_state = str(lease_data.get("state") or "leased")
         else:
             lease_state = "stale"
@@ -478,8 +704,37 @@ def get_actor_status_entry(
     context_packet_id = str(ctx_ref.get("packet_id") or "N/A") if isinstance(ctx_ref, dict) else "N/A"
     context_packet_path = str(ctx_ref.get("path") or "N/A") if isinstance(ctx_ref, dict) else "N/A"
 
+    # N3: full context audit projection fields from ctx_ref
+    _ctx = ctx_ref if isinstance(ctx_ref, dict) else {}
+    context_packet_type = str(_ctx.get("packet_type") or "N/A")
+    context_packet_hash = str(_ctx.get("packet_hash") or "N/A")
+    context_packet_expires_at = str(_ctx.get("expires_at") or "N/A")
+    context_packet_staleness_warning = bool(_ctx.get("staleness_warning", False))
+    context_policy_class = str(_ctx.get("policy_class") or "N/A")
+    legacy_memory_fallback = bool(_ctx.get("legacy_memory_fallback", False))
+    fallback_reason = str(_ctx.get("fallback_reason") or "N/A")
+
+    # Derive contamination signals (mirrors status_projection._derive_context_signals logic)
+    contamination_signals: list = list(_ctx.get("contamination_signals") or [])
+    if context_packet_id == "N/A" and not contamination_signals:
+        contamination_signals.append("packet_missing")
+    if context_packet_expires_at not in ("N/A", "") and context_packet_staleness_warning:
+        if "packet_expired" not in contamination_signals:
+            contamination_signals.append("packet_expired")
+    if legacy_memory_fallback and "undeclared_fallback" not in contamination_signals:
+        contamination_signals.append("undeclared_fallback")
+
+    # projection_source: trace reference for evidence chain (A3 criterion)
+    projection_source = str(_ctx.get("projection_source") or "N/A")
+
     # Billing
     billing_pool = str(cost_profile.get("cost_tier") or "N/A")
+
+    failure_fingerprint_penalties = _build_failure_fingerprint_penalties(
+        actor_id,
+        actor_cfg,
+        lease_data,
+    )
 
     return _redact_secrets({
         "actor_id": actor_id,
@@ -497,10 +752,19 @@ def get_actor_status_entry(
         "evidence_path": evidence_path,
         "context_packet_id": context_packet_id,
         "context_packet_path": context_packet_path,
+        "context_packet_type": context_packet_type,
+        "context_packet_hash": context_packet_hash,
+        "context_packet_expires_at": context_packet_expires_at,
+        "context_packet_staleness_warning": context_packet_staleness_warning,
+        "context_policy_class": context_policy_class,
+        "legacy_memory_fallback": legacy_memory_fallback,
+        "fallback_reason": fallback_reason,
+        "contamination_signals": contamination_signals,
+        "projection_source": projection_source,
         "operator_score_summary": None,
         "verification_gate_status": None,
         "capability_token_summary": None,
-        "failure_fingerprint_penalties": None,
+        "failure_fingerprint_penalties": failure_fingerprint_penalties,
         "antigravity_denials": None,
     })
 

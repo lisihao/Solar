@@ -267,6 +267,49 @@ class TestSubmitPathSuccess:
 
         assert captured["envelope"]["command"] == profile["command"]
 
+    def test_policy_denied_submit_payload_is_preserved_in_status(
+        self,
+        tmp_harness,
+        sample_node,
+        profile_with_operator,
+        sample_graph,
+        monkeypatch,
+    ):
+        """Machine-readable policy denial returned by operator_runtime.submit is persisted."""
+        monkeypatch.setattr(mtr, "OPERATORD_SUBMIT_ENABLED", True)
+        monkeypatch.setattr(mtr, "OPERATORD_RESULT_TIMEOUT_SEC", 0)
+
+        graph_path = tmp_harness / "sprints" / "sprint-test-submit-001.task_graph.json"
+        denied_result = {
+            "task_id": "mt-task-1",
+            "operator_id": "test-operator-1",
+            "status": "policy_denied",
+            "success": False,
+            "error": "policy_denied:git_push_denied:test-operator-1",
+            "selected_actor": "test-operator-1",
+            "rejected_candidates": [
+                {"actor_id": "test-operator-1", "reason": "git_push_denied"}
+            ],
+            "score_factors": {"RiskFit": 0.0, "CostFit": 1.0},
+            "policy_version": "actor-profile-policy.v1",
+            "policy_decision_id": "actor-profile-policy.v1:ImplementationWorker:test-operator-1",
+        }
+
+        patches = _base_patches(profile_with_operator)
+        with patches["select_profile"], patches["capability_for_profile"], \
+             patches["build_dispatch_text"], patches["set_node_status"], \
+             patches["save_graph"], patches["set_last_launch"], \
+             mock.patch("operator_runtime.submit", return_value=denied_result):
+
+            result = mtr.launch_node(graph_path, sample_graph, sample_node, _make_args())
+
+        status_file = tmp_harness / "run" / "multi-task" / result["id"] / "status.json"
+        on_disk = json.loads(status_file.read_text())
+        assert result["status"] == "policy_denied"
+        assert on_disk["rejected_candidates"][0]["reason"] == "git_push_denied"
+        assert on_disk["score_factors"]["RiskFit"] == 0.0
+        assert on_disk["policy_version"] == "actor-profile-policy.v1"
+
 
 # ---------------------------------------------------------------------------
 # Test: submit rejection → legacy fallback

@@ -36,7 +36,7 @@ TERMINAL_STATUSES = {"passed", "failed", "skipped", "cancelled", "skipped_parent
 
 
 def _now() -> str:
-    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _atomic_write(path: Path, data: dict[str, Any]) -> None:
