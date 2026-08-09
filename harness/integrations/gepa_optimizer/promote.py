@@ -37,7 +37,16 @@ import time
 from pathlib import Path
 from typing import Any
 
-__all__ = ["PromotionTarget", "Promoter", "PromoteError", "RollbackError"]
+__all__ = [
+    "PromotionTarget",
+    "PromotionRecord",
+    "Promoter",
+    "PromoteError",
+    "RollbackError",
+]
+
+
+_VERSION_RETENTION_COUNT = 5
 
 
 class PromoteError(RuntimeError):
@@ -111,6 +120,57 @@ def _sidecar_path(target: Path) -> Path:
     return target.with_name(target.name + ".gepa-meta.json")
 
 
+def _safe_segment(value: str, *, field_name: str) -> str:
+    segment = value.strip()
+    if not segment:
+        raise PromoteError(f"{field_name} must be non-empty")
+    if segment in {".", ".."} or "/" in segment or "\\" in segment:
+        raise PromoteError(f"{field_name} must be a single path segment")
+    return segment
+
+
+def _version_number(path: Path) -> int | None:
+    name = path.name
+    if not name.startswith("v"):
+        return None
+    try:
+        return int(name[1:])
+    except ValueError:
+        return None
+
+
+def _published_root(payload_path: Path) -> Path:
+    configured = os.environ.get("SOLAR_GEPA_PUBLISH_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve(strict=False)
+    return payload_path.parent / "published"
+
+
+def _atomic_json_write(target: Path, data: dict[str, Any]) -> None:
+    encoded = json.dumps(data, indent=2, sort_keys=True).encode("utf-8")
+    Promoter._atomic_write(target, encoded)
+
+
+@dataclasses.dataclass(frozen=True)
+class PromotionRecord:
+    """Result record for structured versioned promotion."""
+
+    status: str
+    candidate_type: str
+    base_id: str
+    payload_path: str
+    allow_publish: bool
+    publish_root: str
+    version: int | None = None
+    version_dir: str | None = None
+    current: str | None = None
+    retained_versions: tuple[str, ...] = ()
+    pruned_versions: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
+
+
 # ---------------------------------------------------------------------------
 # PromotionTarget
 # ---------------------------------------------------------------------------
@@ -148,6 +208,111 @@ class PromotionTarget:
 
 class Promoter:
     """Promote and rollback candidates with atomic semantics."""
+
+    # ------------------------------------------------------------------
+    # promote_versioned
+    # ------------------------------------------------------------------
+
+    def promote_versioned(
+        self,
+        candidate_type: str,
+        base_id: str,
+        payload_path: str | os.PathLike,
+        *,
+        allow_publish: bool,
+        registry: Any,
+    ) -> PromotionRecord:
+        """Validate and optionally publish a structured candidate version.
+
+        The legacy ``promote()`` method is intentionally unchanged.  This
+        method serves the structured optimizer path: it validates the payload
+        through the candidate schema and hard-policy checker, then publishes a
+        version under ``published/<candidate_type>/<base_id>/vN`` only when
+        ``allow_publish`` is true.
+        """
+        candidate_type_segment = _safe_segment(
+            self._normalize_candidate_type(candidate_type),
+            field_name="candidate_type",
+        )
+        base_id_segment = _safe_segment(str(base_id), field_name="base_id")
+        source_path = Path(payload_path).expanduser().resolve(strict=False)
+        if not source_path.is_file():
+            raise PromoteError(f"payload_path does not exist or is not a file: {source_path}")
+
+        payload = self._load_candidate_payload(source_path)
+        normalized = self._validate_candidate_schema(payload)
+        if normalized.candidate_type.value != candidate_type_segment:
+            raise PromoteError(
+                "candidate_type mismatch: "
+                f"argument={candidate_type_segment!r}, payload={normalized.candidate_type.value!r}"
+            )
+        if normalized.target_id != base_id_segment:
+            raise PromoteError(
+                f"base_id mismatch: argument={base_id_segment!r}, payload={normalized.target_id!r}"
+            )
+
+        policy_result = self._validate_hard_policy(payload, registry)
+        if not policy_result.ok:
+            details = [
+                {
+                    "policy_id": violation.policy_id,
+                    "category": violation.category,
+                    "field_path": violation.field_path,
+                    "severity": violation.severity,
+                }
+                for violation in policy_result.violations
+            ]
+            raise PromoteError("hard_policy_reject: " + json.dumps(details, sort_keys=True))
+
+        publish_root = _published_root(source_path)
+        object_dir = publish_root / candidate_type_segment / base_id_segment
+        if not allow_publish:
+            return PromotionRecord(
+                status="dry_run",
+                candidate_type=candidate_type_segment,
+                base_id=base_id_segment,
+                payload_path=str(source_path),
+                allow_publish=False,
+                publish_root=str(publish_root),
+                current=str(object_dir / "current"),
+            )
+
+        object_dir.mkdir(parents=True, exist_ok=True)
+        version = self._next_version(object_dir)
+        version_dir = object_dir / f"v{version}"
+        version_dir.mkdir(mode=0o755)
+
+        payload_bytes = source_path.read_bytes()
+        self._atomic_write(version_dir / source_path.name, payload_bytes)
+        _atomic_json_write(
+            version_dir / "promotion-meta.json",
+            {
+                "schema_version": "gepa.promote_versioned.v1",
+                "candidate_type": candidate_type_segment,
+                "base_id": base_id_segment,
+                "payload_path": str(source_path),
+                "version": version,
+                "published_at": time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
+                "sha256": hashlib.sha256(payload_bytes).hexdigest(),
+            },
+        )
+
+        current = object_dir / "current"
+        self._atomic_symlink(version_dir.name, current)
+        retained, pruned = self._prune_versions(object_dir)
+        return PromotionRecord(
+            status="published",
+            candidate_type=candidate_type_segment,
+            base_id=base_id_segment,
+            payload_path=str(source_path),
+            allow_publish=True,
+            publish_root=str(publish_root),
+            version=version,
+            version_dir=str(version_dir),
+            current=str(current),
+            retained_versions=tuple(retained),
+            pruned_versions=tuple(pruned),
+        )
 
     # ------------------------------------------------------------------
     # promote
@@ -323,6 +488,92 @@ class Promoter:
             if m.is_file():
                 return m
         return None
+
+    @staticmethod
+    def _normalize_candidate_type(candidate_type: str) -> str:
+        try:
+            from integrations.gepa_optimizer.candidate_schema import CandidateType
+
+            return CandidateType(str(candidate_type)).value
+        except ValueError as exc:
+            raise PromoteError(f"unsupported candidate_type: {candidate_type!r}") from exc
+
+    @staticmethod
+    def _load_candidate_payload(payload_path: Path) -> dict[str, Any]:
+        try:
+            raw = json.loads(payload_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise PromoteError(f"payload_path is not valid JSON: {payload_path}: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise PromoteError("payload JSON must be an object")
+        return raw
+
+    @staticmethod
+    def _validate_candidate_schema(payload: dict[str, Any]) -> Any:
+        try:
+            from integrations.gepa_optimizer.candidate_schema import normalize_candidate
+
+            return normalize_candidate(payload)
+        except Exception as exc:
+            raise PromoteError(f"candidate_schema_reject: {exc}") from exc
+
+    @staticmethod
+    def _validate_hard_policy(payload: dict[str, Any], registry: Any) -> Any:
+        try:
+            from integrations.gepa_optimizer.policy.hard_policy_checker import (
+                CandidateValidator,
+                HardPolicyRegistry,
+            )
+
+            policy_registry = registry if registry is not None else HardPolicyRegistry.load()
+            return CandidateValidator(policy_registry).validate(payload)
+        except Exception as exc:
+            if exc.__class__.__name__ == "PromoteError":
+                raise
+            raise PromoteError(f"hard_policy_validation_error: {exc}") from exc
+
+    @staticmethod
+    def _next_version(object_dir: Path) -> int:
+        versions = [
+            version
+            for version in (_version_number(child) for child in object_dir.iterdir())
+            if version is not None
+        ]
+        if not versions:
+            return 1
+        return max(versions) + 1
+
+    @staticmethod
+    def _atomic_symlink(target_name: str, link_path: Path) -> None:
+        tmp_link = link_path.with_name(
+            f".{link_path.name}.{os.getpid()}.{time.time_ns()}.tmp"
+        )
+        try:
+            os.symlink(target_name, tmp_link)
+            os.replace(tmp_link, link_path)
+        except Exception:
+            try:
+                tmp_link.unlink()
+            except OSError:
+                pass
+            raise
+
+    @staticmethod
+    def _prune_versions(object_dir: Path) -> tuple[list[str], list[str]]:
+        version_dirs: list[tuple[int, Path]] = []
+        for child in object_dir.iterdir():
+            if not child.is_dir():
+                continue
+            version = _version_number(child)
+            if version is not None:
+                version_dirs.append((version, child))
+        version_dirs.sort(key=lambda item: item[0])
+        pruned: list[str] = []
+        while len(version_dirs) > _VERSION_RETENTION_COUNT:
+            _, old_path = version_dirs.pop(0)
+            shutil.rmtree(old_path)
+            pruned.append(old_path.name)
+        return [path.name for _, path in version_dirs], pruned
 
     @staticmethod
     def _atomic_write(target: Path, data: bytes) -> None:

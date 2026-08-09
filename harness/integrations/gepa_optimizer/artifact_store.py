@@ -25,13 +25,17 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import fcntl
 import hashlib
 import json
 import logging
+import os
 import re
 import threading
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence
+
+from .candidate_schema import OptimizationCandidate, normalize_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +204,23 @@ class CandidateRecord:
         return _cache_key(text)[:16]
 
 
+@dataclasses.dataclass(frozen=True)
+class CandidateVersion:
+    """One published structured candidate version."""
+
+    candidate_type: str
+    base_id: str
+    version: int
+    path: str
+    candidate_sha256: str
+    payload_sha256: str
+    published_at: str
+    is_current: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return dataclasses.asdict(self)
+
+
 # ---------------------------------------------------------------------------
 # Pareto-front computation
 # ---------------------------------------------------------------------------
@@ -233,11 +254,323 @@ def _pareto_front_multi(candidates: Sequence[CandidateRecord]) -> list[Candidate
     return pareto
 
 
+_CANDIDATE_LOCKS: dict[str, threading.Lock] = {}
+_CANDIDATE_LOCKS_GUARD = threading.Lock()
+
+
+def _path_segment(value: str, *, field_name: str) -> str:
+    """Validate a candidate-store path segment and return the stripped value."""
+    segment = value.strip()
+    if (
+        not segment
+        or segment in {".", ".."}
+        or "/" in segment
+        or "\\" in segment
+        or "\x00" in segment
+    ):
+        raise ValueError(f"{field_name} must be a safe non-empty path segment")
+    return segment
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_bytes(payload)
+    os.replace(tmp, path)
+
+
+def _version_number(path: Path) -> int | None:
+    name = path.name
+    if not name.startswith("v"):
+        return None
+    try:
+        number = int(name[1:])
+    except ValueError:
+        return None
+    return number if number > 0 else None
+
+
+def _thread_lock_for(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _CANDIDATE_LOCKS_GUARD:
+        lock = _CANDIDATE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _CANDIDATE_LOCKS[key] = lock
+        return lock
+
+
+class CandidateStoreMixin:
+    """Versioned storage for structured optimization candidates."""
+
+    def publish_candidate(
+        self,
+        envelope: OptimizationCandidate | Mapping[str, Any],
+        payload: bytes | str,
+        *,
+        allow_publish: bool,
+        base_dir: str | Path | None = None,
+    ) -> CandidateVersion:
+        """Persist a structured candidate version and atomically update current.
+
+        Published versions are indexed by ``candidate_type`` + ``base_id`` and
+        written under ``published/<type>/<base_id>/v<n>/``.  Dry-run writes use
+        the same layout under ``dryrun/`` and do not move the published current
+        symlink.
+        """
+        candidate = normalize_candidate(envelope)
+        candidate_type = _path_segment(candidate.candidate_type.value, field_name="candidate_type")
+        base_id = _path_segment(candidate.target_id, field_name="base_id")
+        root = Path(base_dir) if base_dir is not None else self.run_dir
+        channel = "published" if allow_publish else "dryrun"
+        collection_dir = root / channel / candidate_type / base_id
+        collection_dir.mkdir(parents=True, exist_ok=True)
+
+        lock_path = collection_dir / ".publish.lock"
+        thread_lock = _thread_lock_for(lock_path)
+        with thread_lock:
+            with lock_path.open("a+", encoding="utf-8") as lock_fh:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+                try:
+                    version = self._next_candidate_version(collection_dir)
+                    version_dir = collection_dir / f"v{version}"
+                    version_dir.mkdir(mode=0o755)
+                    return self._write_candidate_version_locked(
+                        candidate,
+                        payload,
+                        version_dir=version_dir,
+                        collection_dir=collection_dir,
+                        version=version,
+                        allow_publish=allow_publish,
+                    )
+                finally:
+                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+
+    def list_candidates(
+        self,
+        candidate_type: str,
+        base_object_id: str,
+        *,
+        base_dir: str | Path | None = None,
+    ) -> list[CandidateVersion]:
+        """Return known versions for ``candidate_type`` and ``base_object_id``."""
+        collection_dir = self._candidate_collection_dir(
+            candidate_type,
+            base_object_id,
+            base_dir=base_dir,
+        )
+        if not collection_dir.exists():
+            return []
+        current_version = self._current_version_number(collection_dir)
+        versions: list[CandidateVersion] = []
+        for path in sorted(collection_dir.iterdir(), key=lambda p: (_version_number(p) or 0, p.name)):
+            version = _version_number(path)
+            if version is None or not path.is_dir():
+                continue
+            versions.append(
+                self._load_candidate_version(
+                    path,
+                    candidate_type=_path_segment(str(candidate_type), field_name="candidate_type"),
+                    base_id=_path_segment(str(base_object_id), field_name="base_id"),
+                    version=version,
+                    is_current=(version == current_version),
+                )
+            )
+        return versions
+
+    def latest_published(
+        self,
+        candidate_type: str,
+        base_object_id: str,
+        *,
+        base_dir: str | Path | None = None,
+    ) -> CandidateVersion | None:
+        """Return the current published version, or the highest version if needed."""
+        versions = self.list_candidates(candidate_type, base_object_id, base_dir=base_dir)
+        for version in versions:
+            if version.is_current:
+                return version
+        return versions[-1] if versions else None
+
+    def rollback(
+        self,
+        candidate_type: str,
+        base_object_id: str,
+        *,
+        base_dir: str | Path | None = None,
+    ) -> CandidateVersion:
+        """Atomically move ``current`` to the previous published version."""
+        collection_dir = self._candidate_collection_dir(
+            candidate_type,
+            base_object_id,
+            base_dir=base_dir,
+        )
+        lock_path = collection_dir / ".publish.lock"
+        thread_lock = _thread_lock_for(lock_path)
+        with thread_lock:
+            with lock_path.open("a+", encoding="utf-8") as lock_fh:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+                try:
+                    versions = self.list_candidates(
+                        candidate_type,
+                        base_object_id,
+                        base_dir=base_dir,
+                    )
+                    if len(versions) < 2:
+                        raise ValueError("rollback requires at least two published versions")
+                    current = next((v for v in versions if v.is_current), versions[-1])
+                    previous = [v for v in versions if v.version < current.version]
+                    if not previous:
+                        raise ValueError("rollback target does not exist before current version")
+                    target = previous[-1]
+                    self._atomic_current_symlink(collection_dir, target.version)
+                    rolled_back = dataclasses.replace(target, is_current=True)
+                    self._audit(
+                        "candidate_rollback",
+                        {
+                            "candidate_type": rolled_back.candidate_type,
+                            "base_id": rolled_back.base_id,
+                            "from_version": current.version,
+                            "to_version": rolled_back.version,
+                            "path": rolled_back.path,
+                        },
+                    )
+                    return rolled_back
+                finally:
+                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+
+    def _candidate_collection_dir(
+        self,
+        candidate_type: str,
+        base_object_id: str,
+        *,
+        base_dir: str | Path | None = None,
+    ) -> Path:
+        root = Path(base_dir) if base_dir is not None else self.run_dir
+        safe_type = _path_segment(str(candidate_type), field_name="candidate_type")
+        safe_base_id = _path_segment(str(base_object_id), field_name="base_id")
+        return root / "published" / safe_type / safe_base_id
+
+    def _next_candidate_version(self, collection_dir: Path) -> int:
+        versions = [
+            version
+            for version in (_version_number(path) for path in collection_dir.iterdir())
+            if version is not None
+        ]
+        return max(versions, default=0) + 1
+
+    def _write_candidate_version_locked(
+        self,
+        candidate: OptimizationCandidate,
+        payload: bytes | str,
+        *,
+        version_dir: Path,
+        collection_dir: Path,
+        version: int,
+        allow_publish: bool,
+    ) -> CandidateVersion:
+        envelope_json = candidate.canonical_json()
+        candidate_sha256 = _cache_key(envelope_json)
+        if isinstance(payload, bytes):
+            payload_bytes = payload
+            payload_name = "payload.bin"
+        else:
+            payload_bytes = payload.encode("utf-8")
+            payload_name = "payload.md"
+        payload_sha256 = hashlib.sha256(payload_bytes).hexdigest()
+        published_at = _utcnow()
+
+        _atomic_write_text(version_dir / "candidate.envelope.json", envelope_json + "\n")
+        _atomic_write_bytes(version_dir / payload_name, payload_bytes)
+        meta = {
+            "candidate_type": candidate.candidate_type.value,
+            "base_id": candidate.target_id,
+            "version": version,
+            "candidate_sha256": candidate_sha256,
+            "payload_sha256": payload_sha256,
+            "payload_file": payload_name,
+            "published_at": published_at,
+            "allow_publish": allow_publish,
+        }
+        _atomic_write_text(
+            version_dir / "promote.meta.json",
+            json.dumps(meta, indent=2, sort_keys=True) + "\n",
+        )
+        if allow_publish:
+            self._atomic_current_symlink(collection_dir, version)
+        record = CandidateVersion(
+            candidate_type=candidate.candidate_type.value,
+            base_id=candidate.target_id,
+            version=version,
+            path=str(version_dir),
+            candidate_sha256=candidate_sha256,
+            payload_sha256=payload_sha256,
+            published_at=published_at,
+            is_current=allow_publish,
+        )
+        self._audit(
+            "candidate_published" if allow_publish else "candidate_publish_dryrun",
+            record.to_dict(),
+        )
+        return record
+
+    def _load_candidate_version(
+        self,
+        version_dir: Path,
+        *,
+        candidate_type: str,
+        base_id: str,
+        version: int,
+        is_current: bool,
+    ) -> CandidateVersion:
+        meta_path = version_dir / "promote.meta.json"
+        meta: dict[str, Any] = {}
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                logger.warning("Malformed promote metadata at %s", meta_path)
+        return CandidateVersion(
+            candidate_type=str(meta.get("candidate_type") or candidate_type),
+            base_id=str(meta.get("base_id") or base_id),
+            version=int(meta.get("version") or version),
+            path=str(version_dir),
+            candidate_sha256=str(meta.get("candidate_sha256") or ""),
+            payload_sha256=str(meta.get("payload_sha256") or ""),
+            published_at=str(meta.get("published_at") or ""),
+            is_current=is_current,
+        )
+
+    def _current_version_number(self, collection_dir: Path) -> int | None:
+        current = collection_dir / "current"
+        if not current.is_symlink():
+            return None
+        try:
+            target_name = Path(os.readlink(current)).name
+        except OSError:
+            return None
+        if not target_name:
+            return None
+        return _version_number(Path(target_name))
+
+    def _atomic_current_symlink(self, collection_dir: Path, version: int) -> None:
+        tmp = collection_dir / f".current.{os.getpid()}.{threading.get_ident()}.new"
+        if tmp.exists() or tmp.is_symlink():
+            tmp.unlink()
+        os.symlink(f"v{version}", tmp)
+        os.replace(tmp, collection_dir / "current")
+
+
 # ---------------------------------------------------------------------------
 # ArtifactStore
 # ---------------------------------------------------------------------------
 
-class ArtifactStore:
+class ArtifactStore(CandidateStoreMixin):
     """Manage all on-disk artifacts for a single GEPA optimisation run.
 
     Directory layout

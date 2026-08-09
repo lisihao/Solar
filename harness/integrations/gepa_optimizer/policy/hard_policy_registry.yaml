@@ -1,0 +1,68 @@
+schema_version: solar.gepa.hard_policy_registry.v1
+categories:
+  secret_access:
+    - id: HP-SEC-001
+      description: "不允许 mutable 引入 ${SECRETS.*} 或 env-var 引用"
+      pattern: '\$\{SECRETS\.|os\.environ\['
+      severity: hard_reject
+      requires_human_approval: true
+  mcp_forbidden_tools:
+    - id: HP-MCP-001
+      description: "不允许调用 mcp.forbidden_tools 名单中的 tool"
+      forbidden_list:
+        - mcp_internal_admin
+        - mcp_secrets_dump
+      severity: hard_reject
+  destructive_shell_denylist:
+    - id: HP-SHELL-001
+      description: "禁止 destructive shell 命令出现在 skill prompt 或 capsule"
+      patterns:
+        - 'rm\s+-rf\s+/'
+        - 'dd\s+of='
+        - 'mkfs'
+        - ':\(\)\{:\|:&\};:'
+      severity: hard_reject
+  git_push_merge_policy:
+    - id: HP-GIT-001
+      description: "禁止 git push --force 与直接 merge protected branches"
+      patterns:
+        - 'git\s+push\s+--force'
+        - 'git\s+push\s+-f\b'
+      severity: hard_reject
+  payment_external_action:
+    - id: HP-PAY-001
+      description: "禁止触发支付 / 外部不可逆操作"
+      patterns:
+        - 'stripe\.charge'
+        - 'paypal\.execute'
+        - 'sendgrid\.send'
+      severity: hard_reject
+  human_approval_required:
+    - id: HP-HUM-001
+      description: "修改这些类别必须强制 require_human_approval=True"
+      applies_to_keys:
+        - safety_block
+        - secret_scope
+        - audit_required
+        - hard_policy
+      severity: hard_reject
+  data_sensitivity:
+    - id: HP-DAT-001
+      description: "数据敏感度规则不可放宽（PII / PHI / 客户数据）"
+      forbidden_descopes:
+        - pii_field
+        - phi_field
+        - customer_secret_field
+      severity: hard_reject
+  high_risk_cross_provider_verifier:
+    - id: HP-XPV-001
+      description: "高风险任务不可移除 cross-provider verifier 要求"
+      required_keys:
+        - cross_provider_verifier_required
+      severity: hard_reject
+review_log:
+  - reviewer: pending_human_review
+    reviewed_at: pending
+    notes: |
+      初始内容由 S03 Planner 草拟，必须经过监护人 / QMR 审查后才能上架到 published/.
+fail_closed_default: true
