@@ -3,8 +3,8 @@ import json
 import tempfile
 from pathlib import Path
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from multi_task_status import (
     get_actor_status_entry,
@@ -38,6 +38,18 @@ def _make_actors(path):
             },
             "evidence_ledger_ref": {"path": "actors/actor-1/evidence"},
             "context_packet_ref": {"path": None, "packet_id": None},
+            "failure_fingerprint": {
+                "common_failures": [
+                    {
+                        "label": "shallow_final_reasoning",
+                        "count": 2,
+                        "weighted_count": 2.0,
+                        "severity": "medium",
+                        "last_seen": "2026-06-13T00:00:00Z",
+                        "evidence_refs": ["actors/actor-1/evidence/fp-1.jsonl"],
+                    }
+                ]
+            },
         },
         "actor-2": {
             "actor_id": "actor-2",
@@ -177,6 +189,31 @@ def test_stale_actor_lease():
         )
         assert entry["lease_state"] == "stale"
         print("PASS: stale_actor_lease")
+
+
+def test_actor_fleet_with_null_lease_expiry_keeps_fingerprint_summary():
+    with tempfile.TemporaryDirectory() as td:
+        ap = Path(td) / "actors.json"
+        hp = Path(td) / "hosts.json"
+        _make_actors(ap)
+        _make_hosts(hp)
+        lease_dir = Path(td) / "leases"
+        lease_dir.mkdir()
+        (lease_dir / "actor-1.json").write_text(json.dumps({
+            "state": "running",
+            "expires_at": None,
+            "task_id": "t-null-expiry",
+        }))
+
+        fleet = load_actor_fleet(ap, hp, lease_dir=lease_dir)
+
+        assert fleet["actor-1"]["lease_state"] == "stale"
+        penalties = fleet["actor-1"]["failure_fingerprint_penalties"]
+        assert penalties["profile_source"] == "agent-actors.json:failure_fingerprint"
+        assert penalties["common_failures"][0]["label"] == "shallow_final_reasoning"
+        assert penalties["total_penalty"] == "N/A"
+        assert "current_task_penalty:missing" in penalties["degraded_sources"]
+        print("PASS: actor_fleet_with_null_lease_expiry_keeps_fingerprint_summary")
 
 
 def test_missing_host():
@@ -412,22 +449,121 @@ def test_failure_fingerprint_and_antigravity_fields():
         ap = Path(td) / "actors.json"
         _make_actors(ap)
         actors = json.loads(ap.read_text())["actors"]
+        lease_dir = Path(td) / "leases"
+        lease_dir.mkdir()
+        (lease_dir / "actor-1.json").write_text(json.dumps({
+            "state": "leased",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "scheduler_decision": {
+                "failure_fingerprint": {
+                    "penalty": 0.35,
+                    "matched_labels": ["shallow_final_reasoning"],
+                    "evidence_refs": ["run/scheduler_decision.json#failure_fingerprint"],
+                    "explanation": "1 failure label match(es) for FINAL_REVIEW: shallow_final_reasoning",
+                }
+            },
+        }))
 
         entry = get_actor_status_entry(
-            "actor-1", actors["actor-1"], hosts={}, lease_dir=Path(td) / "leases",
+            "actor-1", actors["actor-1"], hosts={}, lease_dir=lease_dir,
         )
-        # Fields exist (None when no active scheduler decision)
+        # Fields exist and failure_fingerprint_penalties is a structured summary.
         assert "failure_fingerprint_penalties" in entry
         assert "antigravity_denials" in entry
         assert "operator_score_summary" in entry
         assert "verification_gate_status" in entry
+        penalties = entry["failure_fingerprint_penalties"]
+        assert penalties["status"] == "ok"
+        assert penalties["profile_source"] == "agent-actors.json:failure_fingerprint"
+        assert penalties["matched_labels"] == ["shallow_final_reasoning"]
+        assert penalties["total_penalty"] == 0.35
+        assert penalties["common_failures"][0]["label"] == "shallow_final_reasoning"
+        assert "actors/actor-1/evidence/fp-1.jsonl" in penalties["evidence_refs"]
+        assert "run/scheduler_decision.json#failure_fingerprint" in penalties["evidence_refs"]
         print("PASS: failure_fingerprint_and_antigravity_fields")
+
+
+def test_failure_fingerprint_summary_explains_missing_sources():
+    with tempfile.TemporaryDirectory() as td:
+        ap = Path(td) / "actors.json"
+        _make_actors(ap)
+        actors = json.loads(ap.read_text())["actors"]
+
+        entry = get_actor_status_entry(
+            "actor-2", actors["actor-2"], hosts={}, lease_dir=Path(td) / "leases",
+        )
+        penalties = entry["failure_fingerprint_penalties"]
+        assert penalties is not None
+        assert penalties["status"] == "degraded"
+        assert penalties["common_failures"] == []
+        assert penalties["total_penalty"] == "N/A"
+        assert "actor_failure_profile:missing" in penalties["degraded_sources"]
+        assert "current_task_penalty:missing" in penalties["degraded_sources"]
+        assert penalties["explanation"] == "N/A"
+        print("PASS: failure_fingerprint_summary_explains_missing_sources")
+
+
+def test_failure_fingerprint_summary_projects_actor_evidence_events():
+    with tempfile.TemporaryDirectory() as td:
+        ap = Path(td) / "actors.json"
+        _make_actors(ap)
+        actors = json.loads(ap.read_text())["actors"]
+        actors["actor-2"]["failure_fingerprint_evidence"] = [
+            {
+                "evidence_id": "fp-evidence-1",
+                "actor_id": "actor-2",
+                "task_type": "FAST_PROTOTYPE",
+                "failure_label": "slow_on_low_value_tasks",
+                "source_type": "eval",
+                "source_ref": "actors/actor-2/evidence/fp-evidence-1.jsonl",
+                "severity": "high",
+                "confidence": 0.8,
+                "observed_at": "2026-06-14T00:00:00Z",
+                "review_state": "confirmed",
+            }
+        ]
+        lease_dir = Path(td) / "leases"
+        lease_dir.mkdir()
+        (lease_dir / "actor-2.json").write_text(json.dumps({
+            "state": "leased",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "operator_score_summary": {
+                "penalties": {
+                    "failure_fingerprint": {
+                        "penalty": 0.12,
+                        "label_penalties": [
+                            {
+                                "label": "slow_on_low_value_tasks",
+                                "penalty": 0.12,
+                                "evidence_refs": ["run/score.json#failure_fingerprint"],
+                            }
+                        ],
+                    }
+                }
+            },
+        }))
+
+        entry = get_actor_status_entry(
+            "actor-2", actors["actor-2"], hosts={}, lease_dir=lease_dir,
+        )
+        penalties = entry["failure_fingerprint_penalties"]
+        assert penalties["status"] == "ok"
+        assert penalties["profile_source"] == "project_operator_failure_profile"
+        assert penalties["common_failures"][0]["label"] == "slow_on_low_value_tasks"
+        assert penalties["common_failures"][0]["count"] == 1
+        assert penalties["matched_labels"] == ["slow_on_low_value_tasks"]
+        assert penalties["total_penalty"] == 0.12
+        assert penalties["current_task_penalties"][0]["label_penalties"][0]["label"] == "slow_on_low_value_tasks"
+        assert "fp-evidence-1" in penalties["evidence_refs"]
+        assert "run/score.json#failure_fingerprint" in penalties["evidence_refs"]
+        print("PASS: failure_fingerprint_summary_projects_actor_evidence_events")
 
 
 if __name__ == "__main__":
     test_actor_status_entry_has_required_fields()
     test_actor_status_with_active_lease()
     test_stale_actor_lease()
+    test_actor_fleet_with_null_lease_expiry_keeps_fingerprint_summary()
     test_missing_host()
     test_degraded_host()
     test_host_status_entry()
@@ -441,4 +577,6 @@ if __name__ == "__main__":
     test_evidence_and_context_paths_exposed()
     test_capability_token_summary_no_raw()
     test_failure_fingerprint_and_antigravity_fields()
-    print("\n16/16 passed")
+    test_failure_fingerprint_summary_explains_missing_sources()
+    test_failure_fingerprint_summary_projects_actor_evidence_events()
+    print("\n19/19 passed")

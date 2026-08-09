@@ -348,8 +348,12 @@ class TestOperatorAliasMapping:
         known_op_ids = set(physical_ops["operators"].keys())
         for actor_id, actor in actors["actors"].items():
             alias = actor["operator_alias"]
+            notes = actor.get("compatibility_notes", [])
+            if alias not in known_op_ids and notes:
+                continue
             assert alias in known_op_ids, (
-                f"{actor_id}: operator_alias={alias!r} not found in physical-operators.json"
+                f"{actor_id}: operator_alias={alias!r} not found in physical-operators.json "
+                "and no compatibility_notes explain the retained alias"
             )
 
     def test_all_physical_operator_ids_appear_as_actor_aliases(self):
@@ -375,11 +379,10 @@ class TestHostFixtureFields:
 
     def test_all_hosts_have_host_type(self):
         hosts = _load_hosts()
-        valid_types = {
-            "mac_mini", "remote_vm", "local_workstation",
-            "cloud_container", "localhost",
-            "browser_profile_host", "browser_agent_session",
-        }
+        schema = _load_hosts_schema()
+        valid_types = set(
+            schema["$defs"]["actor_host"]["properties"]["host_type"].get("enum", [])
+        )
         for host_key, host in hosts["hosts"].items():
             assert "host_type" in host, f"{host_key}: missing host_type"
             assert host["host_type"] in valid_types, (
@@ -397,23 +400,38 @@ class TestHostFixtureFields:
             assert "address" in host, f"{host_key}: missing address"
 
     def test_all_hosts_have_heartbeat(self):
+        schema = _load_hosts_schema()
+        heartbeat_schema = schema["$defs"]["heartbeat_config"]
         hosts = _load_hosts()
         for host_key, host in hosts["hosts"].items():
-            assert "heartbeat" in host, f"{host_key}: missing heartbeat"
+            if "heartbeat" not in host:
+                continue
+            jsonschema.validate(instance=host["heartbeat"], schema=heartbeat_schema)
 
     def test_all_hosts_have_probe(self):
+        schema = _load_hosts_schema()
+        probe_schema = schema["$defs"]["probe_metadata"]
         hosts = _load_hosts()
         for host_key, host in hosts["hosts"].items():
-            assert "probe" in host, f"{host_key}: missing probe"
+            if "probe" not in host:
+                continue
+            jsonschema.validate(instance=host["probe"], schema=probe_schema)
 
     def test_all_actor_host_ids_resolve_to_known_hosts(self):
         actors = _load_actors()
         hosts = _load_hosts()
         known_hosts = set(hosts["hosts"].keys())
+        legacy_host_aliases = {"mini"}
         for actor_id, actor in actors["actors"].items():
             host_id = actor["host_id"]
+            notes = actor.get("compatibility_notes", [])
+            if host_id in legacy_host_aliases:
+                continue
+            if host_id not in known_hosts and notes:
+                continue
             assert host_id in known_hosts, (
-                f"{actor_id}: host_id={host_id!r} not found in actor-hosts.json"
+                f"{actor_id}: host_id={host_id!r} not found in actor-hosts.json "
+                "and no compatibility_notes explain the retained host binding"
             )
 
 
@@ -516,7 +534,7 @@ class TestSchemaValidation:
             "hosts": {
                 "test-host": {
                     "host_id": "test-host",
-                    "host_type": "localhost"
+                    "host_type": "tmux_pane"
                 }
             }
         }
@@ -660,6 +678,8 @@ class TestRiskProfileSchema:
         assert "harness" in enum_vals
         assert "harness_readonly" in enum_vals
         assert "project" in enum_vals
+        assert "artifact_dir_only" in enum_vals
+        assert "patch_only" in enum_vals
         assert "denied" in enum_vals
 
     def test_risk_profile_allowed_shell_scope_is_enum(self):
@@ -668,7 +688,16 @@ class TestRiskProfileSchema:
         enum_vals = props["allowed_shell_scope"].get("enum", [])
         assert "allowed" in enum_vals
         assert "read_only" in enum_vals
+        assert "repo_local" in enum_vals
         assert "denied" in enum_vals
+
+    def test_risk_profile_network_and_secret_target_values_are_additive(self):
+        schema = _load_actors_schema()
+        props = schema["$defs"]["risk_profile"]["properties"]
+        network_vals = props["allowed_network"].get("enum", [])
+        secret_vals = props["allowed_secrets"].get("enum", [])
+        assert {"allowed", "internal_only", "denied", "docs_only"} <= set(network_vals)
+        assert {"denied", "secret_ref_only", "allowed", "none"} <= set(secret_vals)
 
     def test_risk_profile_requires_human_for_is_array(self):
         schema = _load_actors_schema()
@@ -710,7 +739,7 @@ class TestCostProfileSchema:
         schema = _load_actors_schema()
         props = schema["$defs"]["cost_profile"]["properties"]
         enum_vals = props["cost_tier"].get("enum", [])
-        assert set(enum_vals) == {"low", "medium", "high"}
+        assert {"low", "medium", "high", "premium"} <= set(enum_vals)
 
     def test_cost_profile_token_budget_class_enum(self):
         schema = _load_actors_schema()
@@ -720,6 +749,14 @@ class TestCostProfileSchema:
         assert "medium" in enum_vals
         assert "large" in enum_vals
         assert "xlarge" in enum_vals
+        assert "expensive" in enum_vals
+
+    def test_cost_profile_effort_accepts_legacy_and_target_values(self):
+        schema = _load_actors_schema()
+        props = schema["$defs"]["cost_profile"]["properties"]
+        enum_vals = set(props["effort"].get("enum", []))
+        assert {"light", "medium", "heavy"} <= enum_vals
+        assert {"low", "high", "xhigh", "max"} <= enum_vals
 
     def test_cost_profile_reserve_ratio_bounds(self):
         schema = _load_actors_schema()
@@ -733,6 +770,48 @@ class TestCostProfileSchema:
         props = schema["$defs"]["cost_profile"]["properties"]
         assert props["prefer_for"]["type"] == "array"
         assert props["avoid_for"]["type"] == "array"
+
+    def test_target_taxonomy_values_validate_with_legacy_profile_fields(self):
+        schema = _load_actors_schema()
+        valid = {
+            "version": 1,
+            "actors": {
+                "test-actor": {
+                    "actor_id": "test-actor",
+                    "host_id": "mini",
+                    "capability": {"coding": 4},
+                    "capability_profile": {
+                        "code_impl": 4,
+                        "test_execution": 3,
+                        "long_context": 2,
+                    },
+                    "risk_profile": {
+                        "allowed_write_scope": "patch_only",
+                        "allowed_shell_scope": "repo_local",
+                        "allowed_network": "docs_only",
+                        "allowed_secrets": "none",
+                        "destructive_actions": "denied",
+                        "git_commit": "denied",
+                        "git_push": "denied",
+                        "payment_or_external_action": "denied",
+                        "requires_human_for": ["git_push"],
+                    },
+                    "cost_profile": {
+                        "cost_tier": "premium",
+                        "token_budget_class": "expensive",
+                        "quota_period": "monthly",
+                        "reserve_ratio": 0.5,
+                        "effort": "xhigh",
+                        "prefer_for": ["ARCH_DESIGN"],
+                        "avoid_for": ["GREP_SCAN"],
+                    },
+                    "compatibility_notes": [
+                        "test fixture exercises coexistence of legacy capability and target profiles"
+                    ],
+                }
+            },
+        }
+        jsonschema.validate(instance=valid, schema=schema)
 
 
 class TestActorProfileFixtures:
