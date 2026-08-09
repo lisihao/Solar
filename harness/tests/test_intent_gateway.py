@@ -111,6 +111,7 @@ def test_browser_agent_operator_intent_mode_prefers_strategy_over_research(tmp_p
     env = dict(os.environ)
     env["SOLAR_INTENT_GATEWAY_DIR"] = str(tmp_path / "intents")
     env["SOLAR_HARNESS_SPRINTS_DIR"] = str(tmp_path / "sprints")
+    env["SOLAR_GPT_REQUIREMENT_WRITER_DISABLED"] = "1"
     proc = subprocess.run(
         [
             sys.executable,
@@ -134,6 +135,7 @@ def test_capture_embeds_research_artifact_into_requirement_ir(tmp_path):
     env = dict(os.environ)
     env["SOLAR_INTENT_GATEWAY_DIR"] = str(tmp_path / "intents")
     env["SOLAR_HARNESS_SPRINTS_DIR"] = str(tmp_path / "sprints")
+    env["SOLAR_GPT_REQUIREMENT_WRITER_DISABLED"] = "1"
     proc = subprocess.run(
         [
             sys.executable,
