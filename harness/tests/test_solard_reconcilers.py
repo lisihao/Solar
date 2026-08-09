@@ -11,6 +11,8 @@ import pathlib
 import sys
 import tempfile
 import unittest
+import contextlib
+import io
 from unittest.mock import MagicMock, patch, call
 
 # ── 把 harness lib 加入 path ──────────────────────────────────────────────────
@@ -471,6 +473,15 @@ class TestPaneHygieneReconciler(unittest.TestCase):
         self.assertEqual(result["failed_respawn"][0]["error"], "pane_dead_after_respawn")
         mock_save.assert_not_called()
 
+    def test_build_respawn_cmd_clears_anthropic_api_route_env(self):
+        cmd = self.rec._build_respawn_cmd("solar-harness:0.2", "builder")
+
+        joined = " ".join(cmd)
+        self.assertIn("-u ANTHROPIC_BASE_URL", joined)
+        self.assertIn("-u ANTHROPIC_AUTH_TOKEN", joined)
+        self.assertIn("-u ANTHROPIC_API_KEY", joined)
+        self.assertIn("-u ANTHROPIC_DEFAULT_SONNET_MODEL", joined)
+
     @patch.dict(os.environ, {"SOLAR_SOLARD_MODE": "active"})
     def test_exception_propagates(self):
         """hygiene 文件不可读 → RuntimeError 上抛。"""
@@ -481,13 +492,88 @@ class TestPaneHygieneReconciler(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5. RECONCILERS 列表完整性检查
+# 5. GraphDispatchReconciler
+# ═══════════════════════════════════════════════════════════════════════════════
+class TestGraphDispatchReconciler(unittest.TestCase):
+
+    def setUp(self):
+        self.rec = _reconciler("graph_dispatch")
+
+    @patch.dict(os.environ, {"SOLAR_SOLARD_MODE": "active"})
+    def test_active_dispatch_error_keeps_stdout_context(self):
+        import graph_scheduler as gs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sprint_dir = pathlib.Path(tmpdir) / "sprints"
+            sprint_dir.mkdir(parents=True)
+            sid = "sprint-error-context"
+            (sprint_dir / f"{sid}.task_graph.json").write_text("{}", encoding="utf-8")
+
+            proc = MagicMock()
+            proc.returncode = 2
+            proc.stdout = '{"ok":false,"reason":"worker_blocked","node":"N1"}'
+            proc.stderr = ""
+
+            with patch("solard.SPRINTS", sprint_dir), \
+                 patch.object(gs, "load_graph", return_value={"nodes": [{"id": "N1"}]}), \
+                 patch.object(gs, "ready_nodes", return_value=[{"id": "N1"}]), \
+                 patch("subprocess.run", return_value=proc):
+                with self.assertRaises(RuntimeError) as raised:
+                    self.rec.reconcile(sid)
+
+        message = str(raised.exception)
+        self.assertIn("sprint-error-context", message)
+        self.assertIn("worker_blocked", message)
+        self.assertIn("N1", message)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. solard status
+# ═══════════════════════════════════════════════════════════════════════════════
+class TestSolardStatus(unittest.TestCase):
+
+    def test_status_uses_fresh_heartbeat_when_process_probe_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = pathlib.Path(tmpdir)
+            heartbeat = state_dir / "heartbeat.json"
+            heartbeat.write_text(json.dumps({
+                "ts": solard._now(),
+                "pid": 12345,
+                "mode": "active",
+                "loop": 1,
+                "dirty": 0,
+                "loop_ms": 1.2,
+            }), encoding="utf-8")
+
+            def fake_run(*args, **kwargs):
+                proc = MagicMock()
+                proc.returncode = 3
+                proc.stdout = ""
+                proc.stderr = "Cannot get process list"
+                return proc
+
+            buf = io.StringIO()
+            with patch("solard.HEARTBEAT", heartbeat), \
+                 patch("subprocess.run", side_effect=fake_run), \
+                 contextlib.redirect_stdout(buf):
+                rc = solard.cmd_status()
+
+        self.assertEqual(rc, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertTrue(payload["heartbeat_fresh"])
+        self.assertIsNone(payload["process_alive"])
+        self.assertTrue(payload["alive"])
+        self.assertIn("process_probe_error", payload)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. RECONCILERS 列表完整性检查
 # ═══════════════════════════════════════════════════════════════════════════════
 class TestReconcilerRegistry(unittest.TestCase):
 
     def test_all_four_registered(self):
         names = {r.name for r in solard.RECONCILERS}
-        for expected in ("scope_arbiter", "graph_redispatch", "inbox_pump", "pane_hygiene"):
+        for expected in ("graph_dispatch", "scope_arbiter", "graph_redispatch", "inbox_pump", "pane_hygiene"):
             self.assertIn(expected, names, f"reconciler {expected!r} 缺失")
 
     def test_global_scope_intervals(self):

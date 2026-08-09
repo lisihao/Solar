@@ -218,6 +218,11 @@ class GraphDispatchReconciler(Reconciler):
     name = "graph_dispatch"
     scope = "per_sprint"
 
+    @staticmethod
+    def _tail(text: str, limit: int = 500) -> str:
+        text = str(text or "").strip()
+        return text[-limit:] if text else ""
+
     def reconcile(self, sid: str | None = None) -> dict:
         if not sid:
             return {"ok": False, "reason": "sid_required"}
@@ -242,7 +247,14 @@ class GraphDispatchReconciler(Reconciler):
                 capture_output=True, text=True, timeout=180,
                 env={**os.environ, "HARNESS_DIR": str(H)})
             if r.returncode != 0:
-                raise RuntimeError(f"dispatch-ready rc={r.returncode}: {r.stderr[-200:]}")
+                detail = {
+                    "sid": sid,
+                    "ready": ready,
+                    "rc": r.returncode,
+                    "stdout_tail": self._tail(r.stdout),
+                    "stderr_tail": self._tail(r.stderr),
+                }
+                raise RuntimeError(f"dispatch-ready failed: {json.dumps(detail, ensure_ascii=False)}")
             try:
                 out = json.loads(r.stdout)
                 enq = out.get("enqueue", {})
@@ -527,6 +539,9 @@ class PaneHygieneReconciler(Reconciler):
 
         env_cmd = (
             f"env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_EXECPATH "
+            f"-u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_API_KEY "
+            f"-u ANTHROPIC_DEFAULT_OPUS_MODEL -u ANTHROPIC_DEFAULT_SONNET_MODEL "
+            f"-u ANTHROPIC_DEFAULT_HAIKU_MODEL "
             f"HOME='{home}' PATH='{user_path}' "
             f"TMUX_PANE='{pane_fmtid}' "
             f"{bash} {incarnation} {persona} {work_dir}"
@@ -701,12 +716,30 @@ def cmd_status() -> int:
     import subprocess
     out: dict[str, Any] = {"ok": True}
     # (1) 真实进程
-    proc_alive = False
+    proc_alive: bool | None = False
+    process_probe_error = ""
     try:
-        r = subprocess.run(["pgrep", "-f", "solard.py run"], capture_output=True, text=True, timeout=5)
-        proc_alive = bool(r.stdout.strip())
-    except Exception:
-        pass
+        r = subprocess.run(["pgrep", "-f", "solard.py.*run"], capture_output=True, text=True, timeout=5)
+        if r.returncode not in (0, 1):
+            process_probe_error = (r.stderr or r.stdout or f"pgrep rc={r.returncode}").strip()[:240]
+            proc_alive = None
+        else:
+            proc_alive = bool(r.stdout.strip())
+    except Exception as exc:
+        process_probe_error = f"{type(exc).__name__}: {exc}"[:240]
+        proc_alive = None
+    if proc_alive is False:
+        try:
+            r = subprocess.run(["ps", "-axo", "pid,command"], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                proc_alive = any("solard.py" in line and " run" in line for line in r.stdout.splitlines())
+            elif not process_probe_error:
+                process_probe_error = (r.stderr or r.stdout or f"ps rc={r.returncode}").strip()[:240]
+                proc_alive = None
+        except Exception as exc:
+            if not process_probe_error:
+                process_probe_error = f"{type(exc).__name__}: {exc}"[:240]
+            proc_alive = None
     # (2) 心跳新鲜度
     hb_fresh = False
     hb: dict[str, Any] | None = None
@@ -720,8 +753,10 @@ def cmd_status() -> int:
         pass
     out["heartbeat"] = hb
     out["process_alive"] = proc_alive
+    if process_probe_error:
+        out["process_probe_error"] = process_probe_error
     out["heartbeat_fresh"] = hb_fresh
-    out["alive"] = proc_alive and hb_fresh
+    out["alive"] = (hb_fresh if proc_alive is None else (proc_alive and hb_fresh))
     print(json.dumps(out, ensure_ascii=False, indent=1))
     return 0
 
