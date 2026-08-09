@@ -34,6 +34,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import graph_scheduler as gs  # noqa: E402
 import architecture_guard as ag  # noqa: E402
+from status_metadata import read_status_metadata  # noqa: E402
 
 H = pathlib.Path(os.environ.get("HARNESS_DIR", pathlib.Path.home() / ".solar/harness"))
 SPRINTS = H / "sprints"
@@ -254,7 +255,7 @@ def _iter_nonterminal():
     for sp in sorted(SPRINTS.glob("sprint-*.status.json")):
         sid = sp.name[:-len(".status.json")]
         try:
-            if json.load(open(sp)).get("status") in TERM:
+            if read_status_metadata(sp).get("status") in TERM:
                 continue
         except Exception:
             continue

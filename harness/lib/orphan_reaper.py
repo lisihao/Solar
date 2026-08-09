@@ -35,6 +35,7 @@ if str(_HERE) not in sys.path:
 
 import occupancy_liveness as _ol  # noqa: E402
 import graph_scheduler as _gs  # noqa: E402
+from status_metadata import read_status_metadata  # noqa: E402
 
 HARNESS_DIR = pathlib.Path(os.environ.get("HARNESS_DIR", pathlib.Path.home() / ".solar/harness"))
 SPRINTS_DIR = HARNESS_DIR / "sprints"
@@ -116,7 +117,7 @@ def scan_orphans(*, grace_sec: int | None = None) -> list[dict]:
         sid = os.path.basename(gf)[: -len(".task_graph.json")]
         sp = SPRINTS_DIR / f"{sid}.status.json"
         try:
-            if sp.is_file() and json.load(open(sp)).get("status") in TERMINAL_SPRINT:
+            if sp.is_file() and read_status_metadata(sp).get("status") in TERMINAL_SPRINT:
                 continue
             g = _gs.load_graph(gf)
         except Exception:

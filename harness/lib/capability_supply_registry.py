@@ -35,6 +35,8 @@ import sys
 
 import yaml
 
+from status_metadata import read_status_metadata
+
 H = pathlib.Path(os.environ.get("HARNESS_DIR", pathlib.Path.home() / ".solar/harness"))
 SUPPLY_PATH = H / "config" / "capability-supply.yaml"
 EVENTS = H / "events" / "all.jsonl"
@@ -168,7 +170,7 @@ def _demand_counter():
     for f in glob.glob(str(SPRINTS / "sprint-*.task_graph.json")):
         sid = os.path.basename(f)[: -len(".task_graph.json")]
         try:
-            if json.load(open(SPRINTS / f"{sid}.status.json")).get("status") in TERM:
+            if read_status_metadata(SPRINTS / f"{sid}.status.json").get("status") in TERM:
                 continue
             g = json.load(open(f))
         except Exception:
@@ -210,7 +212,7 @@ def cmd_worker_blocked_probe(emit_events: bool) -> int:
     for f in glob.glob(str(SPRINTS / "sprint-*.task_dag.state.json")):
         sid = os.path.basename(f)[: -len(".task_dag.state.json")]
         try:
-            if json.load(open(SPRINTS / f"{sid}.status.json")).get("status") in TERM:
+            if read_status_metadata(SPRINTS / f"{sid}.status.json").get("status") in TERM:
                 continue
             d = json.load(open(f))
         except Exception:
