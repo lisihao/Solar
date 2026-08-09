@@ -107,6 +107,7 @@ export class GoogleCaller extends BaseHttpCaller {
 
     // 2026-05-10 §2/§4：单源归一化（容忍 base / 含 /models / 完整 URL 三种形态）
     const apiUrl = `${ensureGeminiGenerateContentPath(apiEndpoint, effectiveModelId)}?key=${apiKey}`;
+    this.assertEndpointAllowed(apiUrl);
 
     // Extract system message
     const systemMessage = messages.find((m) => m.role === "system");
@@ -287,6 +288,7 @@ export class GoogleCaller extends BaseHttpCaller {
   ): Promise<EmbeddingApiResult> {
     // 2026-05-10 §2/§4：单源归一化。
     const apiUrl = ensureGeminiBatchEmbedContentsPath(apiEndpoint, modelId);
+    this.assertEndpointAllowed(apiUrl);
 
     const taskType = googleTaskType(options?.taskType);
     const outputDimensionality =

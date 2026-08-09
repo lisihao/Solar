@@ -90,6 +90,7 @@ export class OpenaiCaller extends BaseHttpCaller {
     const effectiveEndpoint =
       ensureChatCompletionsPath(apiEndpoint) ||
       "https://api.openai.com/v1/chat/completions";
+    this.assertEndpointAllowed(effectiveEndpoint);
 
     // ★ 数据库驱动：使用配置的 tokenParamName，无需硬编码判断
     const tokenParam = { [tokenParamName]: maxTokens };
@@ -600,8 +601,7 @@ export class OpenaiCaller extends BaseHttpCaller {
                 tokensUsed: ru.total_tokens || 0,
                 inputTokens: ru.prompt_tokens || 0,
                 outputTokens: ru.completion_tokens || 0,
-                cacheReadTokens:
-                  ru.prompt_tokens_details?.cached_tokens || 0,
+                cacheReadTokens: ru.prompt_tokens_details?.cached_tokens || 0,
                 finishReason:
                   retryData.choices?.[0]?.finish_reason || undefined,
                 reasoning: retryReasoning,
@@ -621,8 +621,7 @@ export class OpenaiCaller extends BaseHttpCaller {
                   tokensUsed: ru.total_tokens || 0,
                   inputTokens: ru.prompt_tokens || 0,
                   outputTokens: ru.completion_tokens || 0,
-                  cacheReadTokens:
-                    ru.prompt_tokens_details?.cached_tokens || 0,
+                  cacheReadTokens: ru.prompt_tokens_details?.cached_tokens || 0,
                   finishReason:
                     retryData.choices?.[0]?.finish_reason || undefined,
                   reasoning: retryReasoning,
@@ -729,6 +728,7 @@ export class OpenaiCaller extends BaseHttpCaller {
     const embeddingsUrl =
       ensureOpenAIEmbeddingsPath(apiEndpoint) ||
       "https://api.openai.com/v1/embeddings";
+    this.assertEndpointAllowed(embeddingsUrl);
 
     this.logger.debug(
       `[callOpenAICompatibleEmbeddingAPI] model=${modelId}, inputs=${inputs.length}, endpoint=${embeddingsUrl.substring(0, 60)}...`,

@@ -411,6 +411,42 @@ describe("UserApiKeysService (additional coverage)", () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it("blocks ThunderOMLX hostname before persisting a key", async () => {
+      await expect(
+        service.saveKey(
+          "user-1",
+          "openai",
+          "sk-test",
+          ApiKeyMode.PERSONAL,
+          undefined,
+          "https://api.thunderomlx.example/v1",
+        ),
+      ).rejects.toThrow(
+        "GenesisPod forbids ThunderOMLX/OMLX AI provider endpoints",
+      );
+      expect(mockPrisma.userApiKey!.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.userApiKey!.create).not.toHaveBeenCalled();
+    });
+
+    it("BYOK internal-host allowlist cannot bypass the port 8002 ban", async () => {
+      const original = process.env.BYOK_ALLOWED_INTERNAL_HOSTS;
+      process.env.BYOK_ALLOWED_INTERNAL_HOSTS = "localhost,127.0.0.1";
+      try {
+        await expect(
+          service.testKey("openai", "sk-test", "http://localhost:8002/v1"),
+        ).rejects.toThrow(
+          "GenesisPod forbids ThunderOMLX/OMLX AI provider endpoints",
+        );
+        expect(mockFetch).not.toHaveBeenCalled();
+      } finally {
+        if (original === undefined) {
+          delete process.env.BYOK_ALLOWED_INTERNAL_HOSTS;
+        } else {
+          process.env.BYOK_ALLOWED_INTERNAL_HOSTS = original;
+        }
+      }
+    });
+
     it("allows 172.15 (not in private range)", async () => {
       (mockPrisma.userApiKey!.findUnique as jest.Mock).mockResolvedValue(null);
       (mockPrisma.userApiKey!.create as jest.Mock).mockResolvedValue(

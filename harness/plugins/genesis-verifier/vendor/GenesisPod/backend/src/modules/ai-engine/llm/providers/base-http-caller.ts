@@ -22,6 +22,7 @@ import type {
   ChatCompletionResult,
   EmbeddingApiResult,
 } from "./provider-caller.interface";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 // Re-export the shared result shapes so existing imports from this layer keep
 // resolving without change.
@@ -102,6 +103,11 @@ export abstract class BaseHttpCaller {
       (legacySelfHealService
         ? new ApiCallerSelfHealTriggerService(legacySelfHealService)
         : undefined);
+  }
+
+  /** Final egress guard shared by every provider-specific HTTP caller. */
+  protected assertEndpointAllowed(endpoint: string): void {
+    assertAllowedAiProviderEndpoint(endpoint);
   }
 
   /**

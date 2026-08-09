@@ -57,6 +57,7 @@ export class XaiCaller extends BaseHttpCaller {
     const effectiveEndpoint =
       ensureChatCompletionsPath(apiEndpoint) ||
       "https://api.x.ai/v1/chat/completions";
+    this.assertEndpointAllowed(effectiveEndpoint);
 
     // ★ 数据库驱动：是否走 reasoning 路径由 AIModelConfig.isReasoning 决定
     // 不再用模型名 includes("reasoning") 启发式判断

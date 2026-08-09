@@ -172,5 +172,22 @@ describe("ProviderProbeService", () => {
       const url = mockFetch.mock.calls[0][0] as string;
       expect(url).toContain("custom.example/v9");
     });
+
+    it.each(["https://api.thunderomlx.example/v1", "http://127.0.0.1:8002/v1"])(
+      "forbidden endpoint %s fails without fetch",
+      async (endpointOverride) => {
+        const result = await svc.probeByProvider({
+          provider: "openai",
+          apiKey: "k",
+          endpointOverride,
+        });
+
+        expect(result.ok).toBe(false);
+        expect(result.errorMessage).toContain(
+          "GenesisPod forbids ThunderOMLX/OMLX",
+        );
+        expect(mockFetch).not.toHaveBeenCalled();
+      },
+    );
   });
 });

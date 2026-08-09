@@ -273,6 +273,18 @@ describe("UserModelConfigsService", () => {
         }),
       );
     });
+
+    it("rejects a forbidden provider endpoint before create", async () => {
+      await expect(
+        service.create("user-1", {
+          ...BASE_INPUT,
+          apiEndpoint: "https://api.omlx.example/v1",
+        }),
+      ).rejects.toThrow(
+        "GenesisPod forbids ThunderOMLX/OMLX AI provider endpoints",
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
   });
 
   // ─── update ───────────────────────────────────────────────────────────────
@@ -357,6 +369,20 @@ describe("UserModelConfigsService", () => {
         apiEndpoint: "https://api.example.com/v1",
         modelType: AIModelType.EMBEDDING,
       });
+    });
+
+    it("rejects a forbidden provider endpoint before update", async () => {
+      prisma.userModelConfig.findUnique.mockResolvedValueOnce(SAMPLE_CONFIG);
+
+      await expect(
+        service.update("user-1", "cfg-1", {
+          apiEndpoint: "http://127.0.0.1:8002/v1",
+        }),
+      ).rejects.toThrow(
+        "GenesisPod forbids ThunderOMLX/OMLX AI provider endpoints",
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma._tx.userModelConfig.update).not.toHaveBeenCalled();
     });
   });
 

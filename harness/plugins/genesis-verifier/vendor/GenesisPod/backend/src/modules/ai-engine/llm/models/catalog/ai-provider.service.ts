@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "@/common/prisma/prisma.service";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 /**
  * AIProvider 目录服务（ai_providers 表系统级 provider CRUD，数据驱动 BYOK catalog）。
@@ -33,12 +34,14 @@ export class AiProviderService {
   }
 
   create(dto: AiProviderInput) {
+    assertAllowedAiProviderEndpoint(dto.endpoint);
     return this.prisma.aIProvider.create({
       data: { ...dto, scope: "system", ownerUserId: null },
     });
   }
 
   update(id: string, dto: Partial<AiProviderInput>) {
+    assertAllowedAiProviderEndpoint(dto.endpoint);
     return this.prisma.aIProvider.update({ where: { id }, data: dto });
   }
 

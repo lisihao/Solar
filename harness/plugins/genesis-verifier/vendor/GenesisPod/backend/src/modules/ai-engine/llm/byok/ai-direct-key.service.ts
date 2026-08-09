@@ -20,6 +20,7 @@ import { AiImageGenerationService } from "../image/ai-image-generation.service";
 import { AiModelDiscoveryService } from "../models/catalog/ai-model-discovery.service";
 import { AiChatPromptService } from "../chat/ai-chat-prompt.service";
 import { AiChatRetryService } from "../chat/ai-chat-retry.service";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 /**
  * AI Direct Key Service
@@ -165,6 +166,7 @@ export class AiDirectKeyService {
     fullMessages.push(...augmentedMessages);
 
     try {
+      assertAllowedAiProviderEndpoint(apiEndpoint);
       switch (provider.toLowerCase()) {
         case "xai":
         case "grok":

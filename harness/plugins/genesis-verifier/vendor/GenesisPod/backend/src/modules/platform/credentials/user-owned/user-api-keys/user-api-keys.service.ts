@@ -19,6 +19,7 @@ import {
   buildPersonalKeyId,
   ProviderProbeService,
 } from "@/modules/platform/credentials/governance/key-health";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 /** Valid provider name pattern */
 const PROVIDER_NAME_PATTERN = /^[a-z0-9-]+$/;
@@ -68,6 +69,7 @@ export class UserApiKeysService {
    * of hostnames, e.g. "localhost,127.0.0.1,host.docker.internal".
    */
   private validateEndpointUrl(url: string): void {
+    assertAllowedAiProviderEndpoint(url);
     try {
       const parsed = new URL(url);
       if (!["https:", "http:"].includes(parsed.protocol)) {

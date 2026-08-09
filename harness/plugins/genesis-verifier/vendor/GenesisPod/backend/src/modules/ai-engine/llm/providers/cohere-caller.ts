@@ -50,6 +50,7 @@ export class CohereCaller extends BaseHttpCaller {
   ): Promise<ChatCompletionResult> {
     const effectiveEndpoint =
       ensureCohereChatPath(apiEndpoint) || "https://api.cohere.com/v2/chat";
+    this.assertEndpointAllowed(effectiveEndpoint);
 
     // Cohere v2 messages：role 直通（system/user/assistant/tool），content 转纯文本。
     // 多模态 contentParts 暂以 JSON 字符串兜底（首版不处理 vision block）。
@@ -150,6 +151,7 @@ export class CohereCaller extends BaseHttpCaller {
     // 2026-05-10 §2/§4：单源归一化。
     const embedUrl =
       ensureCohereEmbedPath(apiEndpoint) || "https://api.cohere.com/v1/embed";
+    this.assertEndpointAllowed(embedUrl);
 
     this.logger.debug(
       `[callCohereEmbeddingAPI] model=${modelId}, inputs=${inputs.length}, input_type=${inputType} (cohere format)`,

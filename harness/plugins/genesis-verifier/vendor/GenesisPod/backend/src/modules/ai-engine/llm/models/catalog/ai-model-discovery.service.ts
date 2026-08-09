@@ -3,6 +3,7 @@ import { HttpService } from "@nestjs/axios";
 import { firstValueFrom } from "rxjs";
 import { UserApiKeysService } from "../../../../platform/credentials/user-owned/user-api-keys/user-api-keys.service";
 import { sortByRecencyDesc } from "./model-recency.util";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 export interface DiscoveredModel {
   id: string;
@@ -121,6 +122,8 @@ export class AiModelDiscoveryService {
           error: `Provider "${provider}" not in catalog and no endpoint provided. Please add the provider in API Keys tab or pass apiEndpoint explicitly.`,
         };
       }
+
+      assertAllowedAiProviderEndpoint(endpointResolved);
 
       switch (apiFormat) {
         case "anthropic":

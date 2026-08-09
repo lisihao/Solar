@@ -7,6 +7,7 @@ import {
   ensureMessagesPath,
   reasoningDepthToEffort,
 } from "../types";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 export interface StreamChunk {
   content: string;
@@ -93,6 +94,7 @@ export class AiStreamHandlerService {
     }
 
     try {
+      assertAllowedAiProviderEndpoint(chatUrl);
       // ★ TTFT: 在发出请求前记录时间，以准确测量从请求发起到首个 token 的延迟
       const streamStartTime = Date.now();
       const response = await firstValueFrom(
@@ -223,6 +225,7 @@ export class AiStreamHandlerService {
     }
 
     try {
+      assertAllowedAiProviderEndpoint(messagesUrl);
       // ★ TTFT: 在发出请求前记录时间
       const streamStartTime = Date.now();
       const response = await firstValueFrom(

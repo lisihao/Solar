@@ -13,6 +13,7 @@
  */
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "@/common/prisma/prisma.service";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 const ANTHROPIC_VALIDATION_MODEL = "claude-3-haiku-20240307";
 const PROBE_TIMEOUT_MS = 15_000;
@@ -122,6 +123,7 @@ export class ProviderProbeService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
     try {
+      assertAllowedAiProviderEndpoint(endpoint);
       let response: Response;
       if (apiFormat === "anthropic") {
         response = await fetch(probeUrl(endpoint, "messages"), {

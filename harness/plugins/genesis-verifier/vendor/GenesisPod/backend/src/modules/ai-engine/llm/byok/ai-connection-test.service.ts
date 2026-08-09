@@ -14,6 +14,7 @@ import {
   ensureOpenAIImagesGenerationsPath,
 } from "../types/endpoint.utils";
 import { UserApiKeysService } from "@/modules/platform/credentials/user-owned/user-api-keys/user-api-keys.service";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 /**
  * AI Connection Test Service
@@ -54,12 +55,17 @@ export class AiConnectionTestService {
   ): Promise<string | null> {
     // 用户显式 override 直接走单源 helper
     const overrideNormalized = ensureChatCompletionsPath(override);
-    if (overrideNormalized) return overrideNormalized;
+    if (overrideNormalized) {
+      assertAllowedAiProviderEndpoint(overrideNormalized);
+      return overrideNormalized;
+    }
     // 否则走 DB ai_providers 真源 + 单源 helper
     const defaults = await this.userApiKeys?.resolveProviderDefaults(
       provider.toLowerCase(),
     );
-    return ensureChatCompletionsPath(defaults?.endpoint);
+    const resolved = ensureChatCompletionsPath(defaults?.endpoint);
+    assertAllowedAiProviderEndpoint(resolved);
+    return resolved;
   }
 
   /**
@@ -103,6 +109,7 @@ export class AiConnectionTestService {
     }
 
     try {
+      assertAllowedAiProviderEndpoint(apiEndpoint);
       // Handle EMBEDDING models specially
       if (modelType === "EMBEDDING") {
         return await this.testEmbeddingModel(

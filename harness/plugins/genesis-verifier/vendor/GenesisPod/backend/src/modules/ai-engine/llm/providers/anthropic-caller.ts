@@ -75,6 +75,7 @@ export class AnthropicCaller extends BaseHttpCaller {
     const effectiveEndpoint =
       ensureMessagesPath(apiEndpoint) ||
       "https://api.anthropic.com/v1/messages";
+    this.assertEndpointAllowed(effectiveEndpoint);
 
     // Extract system message
     const systemMessage = messages.find((m) => m.role === "system");

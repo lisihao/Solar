@@ -7,6 +7,7 @@ import {
 import { AIModelType, Prisma, UserModelConfig } from "@prisma/client";
 import { PrismaService } from "../../../../../common/prisma/prisma.service";
 import { inferIsReasoning } from "../../../../ai-engine/llm/types/model.utils";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 const PROVIDER_NAME_PATTERN = /^[a-z0-9-]+$/;
 // 2026-05-11 P2: 删除 PROVIDER_DEFAULTS 硬编码。apiFormat 没填且 DB 也没配
@@ -148,6 +149,7 @@ export class UserModelConfigsService {
       input.displayName = input.modelId;
     }
     const provider = this.validateProvider(input.provider);
+    assertAllowedAiProviderEndpoint(input.apiEndpoint);
     if (input.apiKeyId?.trim()) {
       await this.assertApiKeyOwnership(userId, input.apiKeyId.trim(), provider);
     }
@@ -195,6 +197,7 @@ export class UserModelConfigsService {
     if (!existing || existing.userId !== userId) {
       throw new NotFoundException("Model config not found");
     }
+    assertAllowedAiProviderEndpoint(patch.apiEndpoint);
     if (patch.apiKeyId?.trim()) {
       await this.assertApiKeyOwnership(
         userId,

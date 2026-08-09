@@ -129,6 +129,105 @@ describe("AiApiCallerService", () => {
     jest.clearAllMocks();
   });
 
+  describe("GenesisPod endpoint egress policy", () => {
+    const messages = [{ role: "user" as const, content: "Hello" }];
+    const forbiddenEndpoint = "http://127.0.0.1:8002/v1";
+
+    it.each([
+      [
+        "OpenAI-compatible chat",
+        () =>
+          service.callOpenAICompatibleAPI(
+            forbiddenEndpoint,
+            "test-key",
+            "gpt-4o",
+            messages,
+            64,
+          ),
+      ],
+      [
+        "Anthropic chat",
+        () =>
+          service.callAnthropicAPI(
+            forbiddenEndpoint,
+            "test-key",
+            "claude-test",
+            messages,
+            64,
+          ),
+      ],
+      [
+        "Cohere chat",
+        () =>
+          service.callCohereAPI(
+            forbiddenEndpoint,
+            "test-key",
+            "command-test",
+            messages,
+            64,
+          ),
+      ],
+      [
+        "Google chat",
+        () =>
+          service.callGoogleAPI(
+            forbiddenEndpoint,
+            "test-key",
+            "gemini-test",
+            messages,
+            64,
+          ),
+      ],
+      [
+        "xAI chat",
+        () =>
+          service.callXAIAPI(
+            forbiddenEndpoint,
+            "test-key",
+            "grok-test",
+            messages,
+            64,
+          ),
+      ],
+      [
+        "OpenAI-compatible embedding",
+        () =>
+          service.callOpenAICompatibleEmbeddingAPI(
+            forbiddenEndpoint,
+            "test-key",
+            "embedding-test",
+            ["input"],
+          ),
+      ],
+      [
+        "Google embedding",
+        () =>
+          service.callGoogleEmbeddingAPI(
+            forbiddenEndpoint,
+            "test-key",
+            "embedding-test",
+            ["input"],
+          ),
+      ],
+      [
+        "Cohere embedding",
+        () =>
+          service.callCohereEmbeddingAPI(
+            forbiddenEndpoint,
+            "test-key",
+            "embedding-test",
+            ["input"],
+          ),
+      ],
+    ])("blocks %s before an HTTP request", async (_label, invoke) => {
+      await expect(invoke()).rejects.toThrow(
+        "GenesisPod forbids ThunderOMLX/OMLX AI provider endpoints",
+      );
+      expect(mockHttpService.post).not.toHaveBeenCalled();
+      expect(mockHttpService.get).not.toHaveBeenCalled();
+    });
+  });
+
   // ==================== callOpenAICompatibleAPI ====================
 
   describe("callOpenAICompatibleAPI", () => {

@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../../../common/prisma/prisma.service";
 import { UpsertCustomProviderDto } from "./user-providers.dto";
+import { assertAllowedAiProviderEndpoint } from "@/common/ai/ai-provider-endpoint-policy";
 
 /**
  * 用户自定义 AI Provider CRUD（scope=user / ownerUserId=self）。
@@ -19,6 +20,7 @@ export class UserProvidersService {
   }
 
   create(userId: string, dto: UpsertCustomProviderDto) {
+    assertAllowedAiProviderEndpoint(dto.endpoint);
     return this.prisma.aIProvider.create({
       data: { ...dto, scope: "user", ownerUserId: userId },
     });
@@ -30,6 +32,7 @@ export class UserProvidersService {
     dto: Partial<UpsertCustomProviderDto>,
   ) {
     await this.assertOwned(userId, id);
+    assertAllowedAiProviderEndpoint(dto.endpoint);
     return this.prisma.aIProvider.update({ where: { id }, data: dto });
   }
 
