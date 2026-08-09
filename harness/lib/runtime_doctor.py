@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from status_metadata import read_status_metadata
+from status_metadata import read_status_metadata, read_status_projection_metadata
 
 HARNESS_DIR = os.path.expanduser(os.environ.get("HARNESS_DIR", "~/.solar/harness"))
 SPRINTS_DIR = os.path.join(HARNESS_DIR, "sprints")
@@ -237,7 +237,7 @@ def _check_state_surface_drift(sprint_id: str) -> Dict[str, Any]:
     }
 
     try:
-        status = read_status_metadata(status_path) if status_path.exists() else {}
+        status = read_status_projection_metadata(status_path) if status_path.exists() else {}
     except Exception as exc:
         return {"ok": False, "warn": True, "message": f"status corrupt: {exc}"}
 

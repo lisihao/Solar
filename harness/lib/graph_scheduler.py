@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from prerequisite_resolver import evaluate_prerequisite, iter_blocked
+from status_metadata import read_status_projection_metadata
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
@@ -843,7 +844,7 @@ def sync_status_cache_from_graph(
         result["reason"] = "status_missing"
         return result
     try:
-        current = json.loads(status_path.read_text(encoding="utf-8"))
+        current = read_status_projection_metadata(status_path)
     except Exception as exc:
         result.update({"ok": False, "reason": "status_corrupt", "error": str(exc)})
         return result

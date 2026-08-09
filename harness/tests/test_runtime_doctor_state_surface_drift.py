@@ -69,6 +69,8 @@ def test_status_metadata_reader_skips_large_history(tmp_path) -> None:
                 "status": "active",
                 "updated_at": "2026-08-09T12:00:00Z",
                 "history": [{"event": "repeated", "payload": "x" * 200_000}],
+                "active_node": "N2",
+                "task_graph_status": "active",
             },
             indent=2,
         ),
@@ -82,6 +84,11 @@ def test_status_metadata_reader_skips_large_history(tmp_path) -> None:
         "status": "active",
         "updated_at": "2026-08-09T12:00:00Z",
     }
+
+    projection = runtime_doctor.read_status_projection_metadata(path)
+    assert projection["active_node"] == "N2"
+    assert projection["task_graph_status"] == "active"
+    assert "history" not in projection
 
 
 def test_doctor_all_reuses_one_interface_health_scan(tmp_path, monkeypatch) -> None:
