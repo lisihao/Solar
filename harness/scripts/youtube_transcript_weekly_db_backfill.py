@@ -36,7 +36,7 @@ DEFAULT_DB = LIVE_ROOT / "state/tech-hotspot-radar/tech-hotspot-radar.sqlite"
 DEFAULT_STATE_DIR = LIVE_ROOT / "state/tech-hotspot-radar"
 DEFAULT_CONFIG = HARNESS_ROOT / "config/tech-hotspot-radar.yaml"
 DEFAULT_STATE_PATH = DEFAULT_STATE_DIR / "youtube-weekly-db-backfill-state.json"
-USABLE_SOURCES = {"standard_caption", "youtube_asr_caption", "browser_caption"}
+USABLE_SOURCES = {"standard_caption", "youtube_asr_caption", "youtube_auto_caption", "browser_caption"}
 USABLE_TIERS = {"T0", "T1", "T2"}
 LOCAL_ASR_SOURCES = {"legacy_asr", "faster_whisper", "whisperx", "mlx_whisper", "premium"}
 DB_BUSY_TIMEOUT_MS = 300_000
@@ -257,7 +257,7 @@ def mark_short_metadata(conn: sqlite3.Connection, week: str, min_duration: int, 
            WHERE v.video_id IN ({placeholders})
              AND v.duration_seconds IS NOT NULL AND v.duration_seconds < ?
              AND (t.video_id IS NULL OR NOT (
-               t.source IN ('standard_caption','youtube_asr_caption','browser_caption')
+               t.source IN ('standard_caption','youtube_asr_caption','youtube_auto_caption','browser_caption')
                AND t.quality_tier IN ('T0','T1','T2') AND t.char_count >= 200
              ))
            LIMIT ?""",
@@ -470,7 +470,7 @@ def enqueue_caption_discovery(conn: sqlite3.Connection, week: str, min_duration:
            WHERE v.video_id IN ({placeholders})
              AND (v.duration_seconds IS NULL OR v.duration_seconds >= ?)
              AND (t.video_id IS NULL OR NOT (
-               t.source IN ('standard_caption','youtube_asr_caption','browser_caption')
+               t.source IN ('standard_caption','youtube_asr_caption','youtube_auto_caption','browser_caption')
                AND t.quality_tier IN ('T0','T1','T2') AND t.char_count >= 200
              ))
              AND NOT EXISTS (
@@ -504,6 +504,285 @@ def enqueue_caption_discovery(conn: sqlite3.Connection, week: str, min_duration:
         )
     conn.commit()
     return len(rows)
+
+
+def retry_queue_pending_summary(conn: sqlite3.Connection) -> dict[str, int]:
+    rows = conn.execute(
+        """SELECT COALESCE(t.transcript_status, 'no_row') AS transcript_status, COUNT(*) AS n
+           FROM retry_queue rq
+           LEFT JOIN youtube_transcripts t ON t.video_id = rq.source_id
+           WHERE rq.source='youtube'
+             AND rq.operation='fetch_transcript'
+             AND rq.status='pending'
+           GROUP BY COALESCE(t.transcript_status, 'no_row')"""
+    ).fetchall()
+    return {str(row["transcript_status"]): int(row["n"] or 0) for row in rows}
+
+
+def retry_queue_video_metadata_summary(conn: sqlite3.Connection) -> dict[str, int]:
+    rows = conn.execute(
+        """SELECT
+             CASE
+               WHEN v.video_id IS NULL THEN 'missing_video_row'
+               WHEN v.duration_seconds IS NULL THEN 'missing_duration'
+               ELSE 'has_video_metadata'
+             END AS status,
+             COUNT(*) AS n
+           FROM retry_queue rq
+           LEFT JOIN youtube_videos v ON v.video_id = rq.source_id
+           LEFT JOIN youtube_transcripts t ON t.video_id = rq.source_id
+           WHERE rq.source='youtube'
+             AND rq.operation='fetch_transcript'
+             AND rq.status='pending'
+             AND COALESCE(t.transcript_status, 'missing') != 'fetched'
+           GROUP BY status"""
+    ).fetchall()
+    return {str(row["status"]): int(row["n"] or 0) for row in rows}
+
+
+def normalize_yt_dlp_datetime(payload: dict[str, Any]) -> str | None:
+    timestamp = payload.get("timestamp") or payload.get("release_timestamp")
+    if timestamp:
+        try:
+            return iso_z(dt.datetime.fromtimestamp(float(timestamp), tz=UTC))
+        except Exception:
+            pass
+    upload_date = str(payload.get("upload_date") or payload.get("release_date") or "").strip()
+    if len(upload_date) == 8 and upload_date.isdigit():
+        try:
+            day = dt.datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=UTC)
+            return iso_z(day)
+        except Exception:
+            pass
+    return None
+
+
+def fetch_video_metadata(video_id: str, timeout: int = 30, yt_dlp_bin: str = "yt-dlp") -> tuple[dict[str, Any] | None, str]:
+    try:
+        proc = subprocess.run(
+            [
+                yt_dlp_bin,
+                "--skip-download",
+                "--dump-single-json",
+                f"https://www.youtube.com/watch?v={video_id}",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    if proc.returncode != 0:
+        return None, (proc.stderr or proc.stdout or f"yt-dlp rc={proc.returncode}")[-500:]
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except Exception as exc:
+        return None, f"json_decode_failed:{type(exc).__name__}: {exc}"
+    if not str(payload.get("title") or "").strip():
+        return None, "yt-dlp metadata missing title"
+    return payload, ""
+
+
+def upsert_video_metadata(conn: sqlite3.Connection, video_id: str, payload: dict[str, Any]) -> None:
+    now = iso_z()
+    channel_id = str(payload.get("channel_id") or payload.get("uploader_id") or f"unknown-{video_id}").strip()
+    channel_name = str(payload.get("channel") or payload.get("uploader") or "Unknown Channel").strip()
+    channel_url = str(payload.get("channel_url") or payload.get("uploader_url") or "").strip()
+    title = str(payload.get("title") or "").strip()
+    description = str(payload.get("description") or "")
+    tags = payload.get("tags") or []
+    tags_text = json.dumps(tags, ensure_ascii=False) if isinstance(tags, list) else str(tags or "")
+    video_url = str(payload.get("webpage_url") or f"https://www.youtube.com/watch?v={video_id}")
+    thumbnail_url = str(payload.get("thumbnail") or "")
+    published_at = normalize_yt_dlp_datetime(payload)
+    duration = payload.get("duration")
+
+    conn.execute(
+        """INSERT INTO youtube_channels
+           (channel_id, channel_name, channel_url, category, priority, scan_rotation_group, enabled, imported_at)
+           VALUES (?, ?, ?, '', 'retry_queue_metadata', 1, 1, ?)
+           ON CONFLICT(channel_id) DO UPDATE SET
+             channel_name=excluded.channel_name,
+             channel_url=excluded.channel_url""",
+        (channel_id, channel_name, channel_url, now),
+    )
+    conn.execute(
+        """INSERT INTO youtube_videos
+           (video_id, channel_id, channel_name, video_url, title, description,
+            published_at, duration_seconds, thumbnail_url, view_count, like_count,
+            comment_count, tags, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(video_id) DO UPDATE SET
+             channel_id=excluded.channel_id,
+             channel_name=excluded.channel_name,
+             video_url=excluded.video_url,
+             title=excluded.title,
+             description=excluded.description,
+             published_at=COALESCE(excluded.published_at, youtube_videos.published_at),
+             duration_seconds=COALESCE(excluded.duration_seconds, youtube_videos.duration_seconds),
+             thumbnail_url=excluded.thumbnail_url,
+             view_count=excluded.view_count,
+             like_count=excluded.like_count,
+             comment_count=excluded.comment_count,
+             tags=excluded.tags,
+             fetched_at=excluded.fetched_at""",
+        (
+            video_id,
+            channel_id,
+            channel_name,
+            video_url,
+            title,
+            description,
+            published_at,
+            int(duration) if duration is not None else None,
+            thumbnail_url,
+            payload.get("view_count"),
+            payload.get("like_count"),
+            payload.get("comment_count"),
+            tags_text,
+            now,
+        ),
+    )
+
+
+def backfill_retry_queue_video_metadata(conn: sqlite3.Connection, limit: int, timeout: int, yt_dlp_bin: str = "yt-dlp") -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "metadata_before": retry_queue_video_metadata_summary(conn),
+        "attempted": 0,
+        "inserted": 0,
+        "failed": 0,
+        "failures": [],
+    }
+    if limit <= 0:
+        return result
+    rows = conn.execute(
+        """SELECT DISTINCT rq.source_id AS video_id
+           FROM retry_queue rq
+           LEFT JOIN youtube_videos v ON v.video_id = rq.source_id
+           LEFT JOIN youtube_transcripts t ON t.video_id = rq.source_id
+           WHERE rq.source='youtube'
+             AND rq.operation='fetch_transcript'
+             AND rq.status='pending'
+             AND COALESCE(t.transcript_status, 'missing') != 'fetched'
+             AND (v.video_id IS NULL OR v.duration_seconds IS NULL)
+           ORDER BY datetime(rq.next_retry_at) ASC, rq.retry_id ASC
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    for row in rows:
+        video_id = str(row["video_id"] or "").strip()
+        if not video_id:
+            continue
+        result["attempted"] = int(result["attempted"]) + 1
+        payload, error = fetch_video_metadata(video_id, timeout=timeout, yt_dlp_bin=yt_dlp_bin)
+        if payload is None:
+            result["failed"] = int(result["failed"]) + 1
+            failures = result["failures"]
+            if isinstance(failures, list) and len(failures) < 5:
+                failures.append({"video_id": video_id, "error": error})
+            conn.execute(
+                """UPDATE retry_queue
+                   SET last_error=?
+                   WHERE source='youtube'
+                     AND operation='fetch_transcript'
+                     AND status='pending'
+                     AND source_id=?""",
+                (f"metadata_backfill_failed:{error[:220]}", video_id),
+            )
+            continue
+        upsert_video_metadata(conn, video_id, payload)
+        result["inserted"] = int(result["inserted"]) + 1
+    conn.commit()
+    result["metadata_after"] = retry_queue_video_metadata_summary(conn)
+    return result
+
+
+def enqueue_retry_queue_caption_discovery(conn: sqlite3.Connection, min_duration: int, limit: int) -> dict[str, Any]:
+    """Bridge legacy retry_queue transcript gaps into the subtitle-first job path.
+
+    Weekly scanning can be complete while retry_queue still contains real
+    fetch_transcript gaps. This function treats retry_queue as an explicit
+    backfill source, but still avoids ASR and skips active/usable/short rows.
+    """
+    result: dict[str, Any] = {
+        "pending_before": retry_queue_pending_summary(conn),
+        "metadata_before": retry_queue_video_metadata_summary(conn),
+        "scanned": 0,
+        "enqueued": 0,
+        "skipped_active_job": 0,
+        "skipped_missing_video_metadata": 0,
+        "skipped_short": 0,
+        "skipped_usable": 0,
+    }
+    if limit <= 0:
+        return result
+    scan_limit = max(limit * 50, limit)
+    rows = conn.execute(
+        """SELECT rq.retry_id, rq.source_id AS video_id, v.duration_seconds,
+                  t.source, t.quality_tier, t.char_count
+           FROM retry_queue rq
+           LEFT JOIN youtube_videos v ON v.video_id = rq.source_id
+           LEFT JOIN youtube_transcripts t ON t.video_id = rq.source_id
+           WHERE rq.source='youtube'
+             AND rq.operation='fetch_transcript'
+             AND rq.status='pending'
+             AND COALESCE(t.transcript_status, 'missing') != 'fetched'
+           ORDER BY datetime(rq.next_retry_at) ASC, rq.retry_id ASC
+           LIMIT ?""",
+        (scan_limit,),
+    ).fetchall()
+    result["scan_limit"] = scan_limit
+    now = iso_z()
+    for row in rows:
+        if int(result["enqueued"]) >= limit:
+            break
+        result["scanned"] = int(result["scanned"]) + 1
+        video_id = str(row["video_id"] or "")
+        if not video_id or row["duration_seconds"] is None:
+            result["skipped_missing_video_metadata"] = int(result["skipped_missing_video_metadata"]) + 1
+            continue
+        if is_usable(row):
+            result["skipped_usable"] = int(result["skipped_usable"]) + 1
+            continue
+        if int(row["duration_seconds"]) < min_duration:
+            result["skipped_short"] = int(result["skipped_short"]) + 1
+            continue
+        active = conn.execute(
+            """SELECT 1 FROM youtube_transcript_jobs
+               WHERE video_id=?
+                 AND status IN ('pending','running')
+               LIMIT 1""",
+            (video_id,),
+        ).fetchone()
+        if active:
+            result["skipped_active_job"] = int(result["skipped_active_job"]) + 1
+            continue
+        job_id = stable_job_id(video_id, "caption_discovery", "retry-queue-backfill")
+        conn.execute(
+            """INSERT INTO youtube_transcript_jobs
+               (job_id, video_id, job_type, priority, status, backend, max_attempts, error_message, created_at)
+               VALUES (?, ?, 'caption_discovery', 'P2', 'pending', 'subtitle-first', 3, ?, ?)
+               ON CONFLICT(job_id) DO UPDATE SET
+                 status=CASE
+                   WHEN youtube_transcript_jobs.status IN ('succeeded','running')
+                   THEN youtube_transcript_jobs.status ELSE 'pending' END,
+                 next_retry_at=NULL,
+                 backend='subtitle-first',
+                 error_message=excluded.error_message""",
+            (job_id, video_id, "retry-queue-backfill:pending_fetch_transcript", now),
+        )
+        conn.execute(
+            """UPDATE retry_queue
+               SET last_error=?
+               WHERE retry_id=?""",
+            (f"queued_transcript_job:{job_id}", row["retry_id"]),
+        )
+        result["enqueued"] = int(result["enqueued"]) + 1
+    conn.commit()
+    result["pending_after_enqueue"] = retry_queue_pending_summary(conn)
+    result["metadata_after_enqueue"] = retry_queue_video_metadata_summary(conn)
+    return result
 
 
 def run_youtube_cli(db: Path, state_dir: Path, job_type: str, limit: int, timeout: int, dry_run: bool) -> dict[str, Any]:
@@ -569,7 +848,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--caption-limit", type=int, default=12)
     parser.add_argument("--subtitle-limit", type=int, default=12)
     parser.add_argument("--browser-limit", type=int, default=2)
-    parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--retry-queue-limit", type=int, default=0)
+    parser.add_argument("--retry-queue-metadata-limit", type=int, default=8)
+    parser.add_argument("--metadata-timeout", type=int, default=30)
+    parser.add_argument("--yt-dlp-bin", default=os.environ.get("YT_DLP_BIN", "yt-dlp"))
+    parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -587,20 +870,77 @@ def main(argv: list[str] | None = None) -> int:
     try:
         conn = open_db(db)
         try:
-            week, before_stats = pick_week(conn, weeks, min_duration, args.only_week)
+            retry_queue_metadata_backfill = (
+                backfill_retry_queue_video_metadata(
+                    conn,
+                    args.retry_queue_metadata_limit,
+                    args.metadata_timeout,
+                    args.yt_dlp_bin,
+                )
+                if not args.dry_run and args.retry_queue_limit > 0
+                else {"metadata_before": retry_queue_video_metadata_summary(conn), "attempted": 0, "dry_run": bool(args.dry_run)}
+            )
+            retry_queue_backfill = (
+                enqueue_retry_queue_caption_discovery(conn, min_duration, args.retry_queue_limit)
+                if not args.dry_run
+                else {"pending_before": retry_queue_pending_summary(conn), "enqueued": 0, "dry_run": True}
+            )
+            if int(retry_queue_backfill.get("enqueued") or 0) > 0:
+                week = "retry_queue"
+                before_stats = {
+                    "week": week,
+                    "videos": 0,
+                    "usable": 0,
+                    "short_or_below_threshold": retry_queue_backfill.get("skipped_short", 0),
+                    "needs_backfill": sum(int(v) for v in (retry_queue_backfill.get("pending_before") or {}).values()),
+                    "jobs": {},
+                }
+            else:
+                retry_queue_pending_total = sum(int(v) for v in (retry_queue_backfill.get("pending_before") or {}).values())
+                if retry_queue_pending_total > 0 and args.retry_queue_limit > 0:
+                    state.update({
+                        "last_run_at": iso_z(),
+                        "status": "retry_queue_pending_no_enqueue",
+                        "start_week": args.start_week,
+                        "end_week": args.end_week,
+                        "last_result": {
+                            "retry_queue_metadata_backfill": retry_queue_metadata_backfill,
+                            "retry_queue_backfill": retry_queue_backfill,
+                        },
+                    })
+                    save_state(state_path, state)
+                    print(
+                        json.dumps(
+                            {
+                                "status": "retry_queue_pending_no_enqueue",
+                                "message": "retry_queue has pending fetch_transcript rows, but no eligible subtitle-first jobs were enqueued",
+                                "retry_queue_metadata_backfill": retry_queue_metadata_backfill,
+                                "retry_queue_backfill": retry_queue_backfill,
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                    )
+                    return 0
+                week, before_stats = pick_week(conn, weeks, min_duration, args.only_week)
             if week is None:
                 state.update({"last_run_at": iso_z(), "status": "complete", "start_week": args.start_week, "end_week": args.end_week})
                 save_state(state_path, state)
                 print(json.dumps({"status": "complete", "message": "all target weeks complete"}, ensure_ascii=False, indent=2))
                 return 0
 
-            purged_local_asr = 0 if args.dry_run else purge_local_asr_transcripts(conn, week)
+            purged_local_asr = 0 if args.dry_run or week == "retry_queue" else purge_local_asr_transcripts(conn, week)
             reconciled = {"to_browser_capture": 0, "to_metadata_only": 0, "asr_terminalized": 0}
-            if not args.dry_run:
+            if not args.dry_run and week != "retry_queue":
                 reconciled = reconcile_failed_jobs(conn, week, min_duration)
-            before_stats = get_week_stats(conn, week, min_duration)
-            short_marked = 0 if args.dry_run else mark_short_metadata(conn, week, min_duration, args.short_mark_limit)
-            enqueued = 0 if args.dry_run else enqueue_caption_discovery(conn, week, min_duration, args.enqueue_limit)
+            if week != "retry_queue":
+                before_stats = get_week_stats(conn, week, min_duration)
+            short_marked = 0 if args.dry_run or week == "retry_queue" else mark_short_metadata(conn, week, min_duration, args.short_mark_limit)
+            enqueued = (
+                int(retry_queue_backfill.get("enqueued") or 0)
+                if week == "retry_queue"
+                else (0 if args.dry_run else enqueue_caption_discovery(conn, week, min_duration, args.enqueue_limit))
+            )
         finally:
             conn.close()
 
@@ -610,7 +950,14 @@ def main(argv: list[str] | None = None) -> int:
 
         conn = open_db(db)
         try:
-            after_stats = get_week_stats(conn, week, min_duration)
+            after_stats = (
+                {
+                    "week": "retry_queue",
+                    "retry_queue_pending": retry_queue_pending_summary(conn),
+                }
+                if week == "retry_queue"
+                else get_week_stats(conn, week, min_duration)
+            )
         finally:
             conn.close()
 
@@ -621,6 +968,8 @@ def main(argv: list[str] | None = None) -> int:
             "min_duration_seconds": min_duration,
             "dry_run": bool(args.dry_run),
             "before": before_stats,
+            "retry_queue_metadata_backfill": retry_queue_metadata_backfill,
+            "retry_queue_backfill": retry_queue_backfill,
             "purged_local_asr_transcripts": purged_local_asr,
             "reconciled_failed_jobs": reconciled,
             "short_marked_metadata": short_marked,
@@ -632,7 +981,11 @@ def main(argv: list[str] | None = None) -> int:
             },
             "after": after_stats,
         }
-        next_status = "pending_next_run" if after_stats.get("needs_backfill", 0) else "week_drained"
+        next_status = (
+            "retry_queue_processed"
+            if week == "retry_queue"
+            else ("pending_next_run" if after_stats.get("needs_backfill", 0) else "week_drained")
+        )
         completed_weeks = list(state.get("completed_weeks") or [])
         if next_status == "week_drained" and week not in completed_weeks:
             completed_weeks.append(week)
