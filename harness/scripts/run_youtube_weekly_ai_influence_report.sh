@@ -14,6 +14,7 @@ LOCAL_TZ="${LOCAL_TZ:-America/Toronto}"
 ERR_LOG="${SOLAR_YOUTUBE_REPORT_ERR_LOG:-$LOG_DIR/youtube-daily-ai-influence-report.err.log}"
 SOLAR_HOME="${SOLAR_HOME:-$HOME/.solar}"
 SOLAR_KNOWLEDGE_DIR="${SOLAR_KNOWLEDGE_DIR:-$HOME/Knowledge}"
+GENESISPOD_DIR="${GENESISPOD_DIR:-$HARNESS_DIR/plugins/genesis-verifier/vendor/GenesisPod}"
 
 mkdir -p "$LOG_DIR" "$(dirname "$LOCK_DIR")" "$(dirname "$DB_WRITER_LOCK_DIR")"
 source "$HARNESS_DIR/scripts/lib/browser_agent_queue.sh"
@@ -29,7 +30,6 @@ solar_wait_for_lockdir "$DB_WRITER_LOCK_DIR" "youtube-daily-ai-influence-report-
 rc=$?
 if [[ "$rc" != "0" ]]; then
   solar_release_lockdir "$LOCK_DIR"
-  [[ "$rc" == "75" ]] && exit 0
   exit "$rc"
 fi
 trap 'solar_release_lockdir "$DB_WRITER_LOCK_DIR"; solar_release_lockdir "$LOCK_DIR"' EXIT INT TERM
@@ -45,6 +45,8 @@ export SOLAR_HOME SOLAR_KNOWLEDGE_DIR
 export BROWSER_AGENT_HEADLESS="${BROWSER_AGENT_HEADLESS:-true}"
 export TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS="${TECH_HOTSPOT_BROWSER_CHATGPT_HEADLESS:-true}"
 export BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE="${BROWSER_AGENT_CHATGPT_PROFILE_POLICY_FILE:-${SOLAR_HOME:-$HOME/.solar}/harness/browser-agent-chatgpt-local.json}"
+export BROWSER_AGENT_CHATGPT_PROFILE_LEASE_WAIT_SECONDS="${BROWSER_AGENT_CHATGPT_PROFILE_LEASE_WAIT_SECONDS:-2700}"
+export BROWSER_AGENT_CHATGPT_PROFILE_LEASE_WAIT_POLL_SECONDS="${BROWSER_AGENT_CHATGPT_PROFILE_LEASE_WAIT_POLL_SECONDS:-30}"
 export AI_INFLUENCE_YOUTUBE_CHAPTER_BATCH_SIZE="${AI_INFLUENCE_YOUTUBE_CHAPTER_BATCH_SIZE:-4}"
 export AI_INFLUENCE_YOUTUBE_CHAPTER_REPAIR_ATTEMPTS="${AI_INFLUENCE_YOUTUBE_CHAPTER_REPAIR_ATTEMPTS:-1}"
 export AI_INFLUENCE_YOUTUBE_TRANSCRIPT_CHAR_LIMIT="${AI_INFLUENCE_YOUTUBE_TRANSCRIPT_CHAR_LIMIT:-6000}"
@@ -77,6 +79,7 @@ PY
 
 RADAR=( "$PYTHON" "$HARNESS_DIR/scripts/tech_hotspot_radar.py" --config "$CONFIG" --db "$DB" )
 RC=0
+VALID_EXISTING_REPORT_FOUND=0
 
 run_step() {
   local name="$1"
@@ -161,6 +164,16 @@ run_step_with_timeout() {
   fi
 }
 
+sync_genesispod_youtube() {
+  if [[ "${RUN_GENESISPOD_SYNC:-1}" != "1" ]]; then
+    echo "[genesispod-youtube-sync] skipped RUN_GENESISPOD_SYNC=0"
+    return 0
+  fi
+  run_step_with_timeout "genesispod-youtube-sync" "${GENESISPOD_YOUTUBE_SYNC_TIMEOUT:-180}" \
+    env SOLAR_TECH_HOTSPOT_DB="$DB" \
+      node "$GENESISPOD_DIR/scripts/local/sync-solar-youtube-library.js"
+}
+
 LOOKBACK_DAYS="${YOUTUBE_REPORT_LOOKBACK_DAYS:-1}"
 
 echo "[youtube-daily-ai-influence-report] start $(date) report_date=${REPORT_DATE} window=${WINDOW_START}..${WINDOW_END} week=${REPORT_WEEK} days=${LOOKBACK_DAYS}"
@@ -195,11 +208,11 @@ for report_dir in valid_report_dirs:
         raise SystemExit(1)
 PY
     then
-      echo "[youtube-daily-ai-influence-report] existing valid report+mail found; skip transcript ladder and browser planner/writer date=${REPORT_DATE}"
-      echo "[youtube-daily-ai-influence-report] done $(date) rc=${RC}"
-      exit "$RC"
+      VALID_EXISTING_REPORT_FOUND=1
+      echo "[youtube-daily-ai-influence-report] existing valid report+mail found; will still run transcript ladder before deciding skip date=${REPORT_DATE}"
+    else
+      echo "[youtube-daily-ai-influence-report] existing valid report without sent mail; continue planner/writer mail path date=${REPORT_DATE}" >&2
     fi
-    echo "[youtube-daily-ai-influence-report] existing valid report without sent mail; continue planner/writer mail path date=${REPORT_DATE}" >&2
   fi
 fi
 
@@ -294,13 +307,122 @@ if legacy:
     raise SystemExit(2)
 PY
 
+if [[ "$VALID_EXISTING_REPORT_FOUND" == "1" ]]; then
+  REPLAN_CHECK_FILE="/tmp/solar-youtube-replan-needed-${REPORT_DATE}.json"
+  "$PYTHON" "$HARNESS_DIR/scripts/youtube_report_replan_needed.py" \
+    --db "$DB" \
+    --knowledge-dir "$SOLAR_KNOWLEDGE_DIR" \
+    --report-date "$REPORT_DATE" \
+    --window-start "$WINDOW_START" \
+    --window-end "$WINDOW_END" \
+    --exit-code >"$REPLAN_CHECK_FILE"
+  replan_rc=$?
+  if [[ "$replan_rc" == "0" ]]; then
+    echo "[youtube-daily-ai-influence-report] existing valid report+mail found and no post-backfill uncovered transcript upgrades; skip browser planner/writer date=${REPORT_DATE}"
+    cat "$REPLAN_CHECK_FILE"
+    sync_genesispod_youtube
+    echo "[youtube-daily-ai-influence-report] done $(date) rc=${RC}"
+    exit "$RC"
+  elif [[ "$replan_rc" == "10" ]]; then
+    echo "[youtube-daily-ai-influence-report] post-backfill uncovered transcript upgrades detected; reopen browser planner/writer date=${REPORT_DATE}"
+    cat "$REPLAN_CHECK_FILE"
+  else
+    echo "[youtube-daily-ai-influence-report] warn: replan-needed check failed rc=${replan_rc}; continue planner/writer to avoid silently missing upgraded transcripts" >&2
+    cat "$REPLAN_CHECK_FILE" 2>/dev/null || true
+  fi
+fi
+
+NO_INPUT_RESULT="${SOLAR_KNOWLEDGE_DIR:-$HOME/Knowledge}/_raw/tech-hotspot-radar/ai-influence-planned/${REPORT_DATE}/no-input-result.json"
+REPORT_INPUT_COUNT="$("$PYTHON" - "$DB" "$REPORT_DATE" "$LOOKBACK_DAYS" "$NO_INPUT_RESULT" <<'PY'
+import datetime as dt
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+db, report_date, lookback_days, no_input_path = sys.argv[1], sys.argv[2], int(sys.argv[3]), Path(sys.argv[4])
+end_day = dt.date.fromisoformat(report_date)
+start_day = end_day - dt.timedelta(days=lookback_days)
+conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+conn.row_factory = sqlite3.Row
+rows = conn.execute(
+    """
+    SELECT
+      COUNT(*) AS input_count,
+      SUM(CASE WHEN COALESCE(v.duration_seconds, 0) >= 600 THEN 1 ELSE 0 END) AS long_video_count,
+      SUM(CASE WHEN t.video_id IS NOT NULL THEN 1 ELSE 0 END) AS transcript_count
+    FROM youtube_videos v
+    JOIN youtube_transcripts t ON t.video_id=v.video_id
+    WHERE datetime(substr(v.published_at,1,19)) >= datetime(?)
+      AND datetime(substr(v.published_at,1,19)) < datetime(?)
+      AND (COALESCE(v.duration_seconds,0) >= 600
+           OR (v.duration_seconds IS NULL AND COALESCE(t.char_count,0) >= 12000))
+      AND t.transcript_status IN ('fetched','auto_generated')
+      AND COALESCE(t.char_count,0) > 0
+      AND LENGTH(COALESCE(t.transcript_clean,'')) > 0
+    """,
+    (start_day.isoformat(), end_day.isoformat()),
+).fetchone()
+conn.close()
+input_count = int(rows["input_count"] or 0)
+if input_count <= 0:
+    no_input_path.parent.mkdir(parents=True, exist_ok=True)
+    no_input_path.write_text(
+        json.dumps(
+            {
+                "status": "no_input",
+                "report_date": report_date,
+                "window_start": start_day.isoformat(),
+                "window_end_exclusive": end_day.isoformat(),
+                "reason": "no completed long-video transcripts in report window",
+                "long_video_count": int(rows["long_video_count"] or 0),
+                "transcript_count": int(rows["transcript_count"] or 0),
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+print(input_count)
+PY
+)"
+if [[ "${REPORT_INPUT_COUNT:-0}" == "0" ]]; then
+  echo "[youtube-daily-ai-influence-report] no reportable long-video transcript input; wrote ${NO_INPUT_RESULT}"
+  sync_genesispod_youtube
+  echo "[youtube-daily-ai-influence-report] done $(date) rc=${RC}"
+  exit "$RC"
+fi
+
 PLAN_FILE="${SOLAR_KNOWLEDGE_DIR:-$HOME/Knowledge}/_raw/tech-hotspot-radar/ai-influence-planned/${REPORT_DATE}/report-plan.json"
-if run_step_with_timeout "plan-ai-influence-reports daily ${WINDOW_START}" "${YOUTUBE_DAILY_REPORT_PLAN_TIMEOUT:-600}" \
+if run_step_with_timeout "plan-ai-influence-reports daily ${WINDOW_START}" "${YOUTUBE_DAILY_REPORT_PLAN_TIMEOUT:-2700}" \
   "${RADAR[@]}" plan-ai-influence-reports \
   --date "$REPORT_DATE" \
   --days "$LOOKBACK_DAYS" \
   --limit "${YOUTUBE_DAILY_REPORT_LIMIT:-45}" \
   --model "${YOUTUBE_REPORT_MODEL:-chatgpt-5.5}" && [[ -s "$PLAN_FILE" ]]; then
+
+  SELECTED_REPORT_COUNT="$("$PYTHON" - "$PLAN_FILE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except Exception:
+    print("-1")
+    raise SystemExit(0)
+reports = payload.get("reports")
+print(len(reports) if isinstance(reports, list) else -1)
+PY
+)"
+  if [[ "$SELECTED_REPORT_COUNT" == "0" ]]; then
+    echo "[youtube-daily-ai-influence-report] no selected reports; planner excluded all materials date=${REPORT_DATE}"
+    sync_genesispod_youtube
+    echo "[youtube-daily-ai-influence-report] done $(date) rc=${RC}"
+    exit "$RC"
+  fi
 
   run_step_with_timeout "run-ai-influence-planned-reports daily ${WINDOW_START}" "${YOUTUBE_DAILY_REPORT_RUN_TIMEOUT:-1800}" \
     "${RADAR[@]}" run-ai-influence-planned-reports \
@@ -321,5 +443,6 @@ else
   echo "[youtube-daily-ai-influence-report] blocked: report-plan.json missing; planner likely blocked by Browser Agent/ChatGPT login or Cloudflare" >&2
 fi
 
+sync_genesispod_youtube
 echo "[youtube-daily-ai-influence-report] done $(date) rc=${RC}"
 exit "$RC"

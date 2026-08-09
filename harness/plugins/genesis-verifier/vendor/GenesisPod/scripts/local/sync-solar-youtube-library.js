@@ -499,6 +499,12 @@ function buildVideoRows() {
   });
 }
 
+function normalizePgTimestamp(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
 async function upsertResource(client, item) {
   const existing = await client.query(
     `select id from resources
@@ -518,7 +524,7 @@ async function upsertResource(client, item) {
     item.content,
     item.source_url,
     item.thumbnail_url,
-    item.published_at,
+    normalizePgTimestamp(item.published_at),
     item.primary_category,
     JSON.stringify(item.categories),
     JSON.stringify(item.tags),

@@ -9,7 +9,7 @@ CONFIG="$HARNESS_DIR/config/youtube-influence-digest.yaml"
 
 host="$(hostname 2>/dev/null || true)"
 case "$host" in
-  lisihaodeMac-mini-3.local|lisihaodeMac-mini-3) ;;
+  lisihaodeMac-mini-3.local|lisihaodeMac-mini-3|lisihaodeMini-3.local|lisihaodeMini-3) ;;
   *)
     echo "[youtube-digest] skip install: Mac-mini-only job, current host=$host"
     exit 0

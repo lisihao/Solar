@@ -42,7 +42,7 @@ export AI_INFLUENCE_MAIL_CONFIG="$MAIL_CONFIG"
 export GMAIL_USER="${GMAIL_USER:-lisihao@gmail.com}"
 export GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE="${GMAIL_APP_PASSWORD_KEYCHAIN_SERVICE:-solar-ai-influence-gmail}"
 export AI_INFLUENCE_MAIL_TO="${AI_INFLUENCE_MAIL_TO:-}"
-export YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL="${YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL:-true}"
+export YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL="${YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL:-false}"
 
 OUT_FILE="$(mktemp -t youtube-influence-digest.XXXXXX.json)"
 trap 'rm -f "$OUT_FILE"' EXIT
@@ -120,5 +120,40 @@ result_payload = {
 print(json.dumps(result_payload, ensure_ascii=False))
 PY
 else
-  printf '%s\n' '{"mail":{"ok":true,"skipped":true,"reason":"YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL=false"}}'
+  "$PYTHON" -c '
+import json
+import re
+import sys
+from pathlib import Path
+
+stdout_file = Path(sys.argv[1])
+stdout_text = stdout_file.read_text(encoding="utf-8", errors="replace")
+payload = None
+for match in re.finditer(r"\{", stdout_text):
+    candidate = stdout_text[match.start():].strip()
+    try:
+        parsed = json.loads(candidate)
+    except Exception:
+        continue
+    if isinstance(parsed, dict) and parsed.get("digest_path"):
+        payload = parsed
+
+result_payload = {
+    "mail": {
+        "ok": True,
+        "status": "skipped",
+        "skipped": True,
+        "reason": "YOUTUBE_INFLUENCE_DIGEST_SEND_MAIL=false",
+    }
+}
+if payload:
+    digest_path = Path(str(payload["digest_path"])).expanduser()
+    result_payload["digest_path"] = str(digest_path)
+    if digest_path.exists():
+        (digest_path.parent / "mail-result.json").write_text(
+            json.dumps(result_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+print(json.dumps(result_payload, ensure_ascii=False))
+' "$OUT_FILE"
 fi

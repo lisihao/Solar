@@ -11,6 +11,7 @@ LOG_DIR="${SOLAR_YOUTUBE_DAILY_COLLECT_LOG_DIR:-/Users/lisihao/.solar/harness/ru
 ERR_LOG="${SOLAR_YOUTUBE_DAILY_COLLECT_ERR_LOG:-$LOG_DIR/youtube-daily-previous-day.err.log}"
 LOCK_DIR="${SOLAR_YOUTUBE_DAILY_COLLECT_LOCK_DIR:-/tmp/solar-youtube-daily-previous-day.lockdir}"
 LOCAL_TZ="${LOCAL_TZ:-America/Toronto}"
+GENESISPOD_DIR="${GENESISPOD_DIR:-$HARNESS_DIR/plugins/genesis-verifier/vendor/GenesisPod}"
 
 source "$HARNESS_DIR/scripts/lib/browser_agent_queue.sh"
 solar_browser_agent_enqueue_or_continue "youtube-daily-previous-day" "$HARNESS_DIR" "$0" "$@"
@@ -41,8 +42,12 @@ import datetime as dt
 import os
 from zoneinfo import ZoneInfo
 
-today = dt.datetime.now(ZoneInfo(os.environ.get("LOCAL_TZ", "America/Toronto"))).date()
-day = today - dt.timedelta(days=1)
+target = os.environ.get("YOUTUBE_DAILY_COLLECT_TARGET_DATE", "").strip()
+if target:
+    day = dt.date.fromisoformat(target)
+else:
+    today = dt.datetime.now(ZoneInfo(os.environ.get("LOCAL_TZ", "America/Toronto"))).date()
+    day = today - dt.timedelta(days=1)
 year, week, _ = day.isocalendar()
 print(day.isoformat(), f"{year}-W{week:02d}")
 PY
@@ -211,6 +216,14 @@ print(json.dumps({
     "forbidden_audio_transcription_jobs": forbidden_audio_transcription_jobs,
 }, ensure_ascii=False, indent=2))
 PY
+
+if [[ "${RUN_GENESISPOD_SYNC:-1}" == "1" ]]; then
+  run_step "genesispod-youtube-sync" \
+    env SOLAR_TECH_HOTSPOT_DB="$DB" \
+      node "$GENESISPOD_DIR/scripts/local/sync-solar-youtube-library.js"
+else
+  echo "[genesispod-youtube-sync] skipped RUN_GENESISPOD_SYNC=0"
+fi
 
 echo "[youtube-daily-previous-day] done $(date) rc=${RC}"
 if [[ "$RC" != "0" ]]; then
