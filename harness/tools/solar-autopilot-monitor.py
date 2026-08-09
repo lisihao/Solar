@@ -45,7 +45,8 @@ MODEL_DOCTOR_TIMEOUT_SEC = int(os.environ.get("SOLAR_MODEL_DOCTOR_TIMEOUT_SEC", 
 PM_INBOX_DIR = HARNESS / "run" / "pm-inbox"
 ROLE_HANDOFF_RETRY_COOLDOWN_SEC = int(os.environ.get("SOLAR_ROLE_HANDOFF_RETRY_COOLDOWN_SEC", "30"))
 
-REAL_HARNESS = Path(os.environ.get("REAL_HARNESS_DIR", HARNESS))
+SCRIPT_HARNESS = Path(__file__).resolve().parents[1]
+REAL_HARNESS = Path(os.environ.get("REAL_HARNESS_DIR", SCRIPT_HARNESS))
 sys.path.insert(0, str(REAL_HARNESS / "lib"))
 if REAL_HARNESS != HARNESS:
     sys.path.insert(1, str(HARNESS / "lib"))
@@ -124,8 +125,6 @@ EPIC_ACTIVE_CHILD_PHASES = {"prd_ready", "planning_complete", "graph_dispatch_ac
 _GRAPH_STATUS_CACHE_SCAN_DONE = False
 _GRAPH_STATUS_CACHE_SCAN_ROOT = ""
 
-import sys
-sys.path.insert(0, str(HARNESS / "lib"))
 try:
     from pane_overlay_state import pane_overlay_detail, prompt_match_is_stale, tail_has_idle_prompt_footer as shared_tail_has_idle_prompt_footer
 except Exception:  # pragma: no cover - monitor must fail open on older installs

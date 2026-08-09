@@ -1011,6 +1011,20 @@ def sync_status_cache_from_graph(
     has_stale_acceptance_projection = "acceptance_verdict" in current
     acceptance_block = _acceptance_verdict_block_for_parent_pass(graph, graph_path)
     if acceptance_block.get("blocked"):
+        desired_acceptance_projection = {
+            "phase": "eval_failed",
+            "stage": "acceptance_failed",
+            "active_node": None,
+            "graph_parent_ready": parent,
+            "task_graph_status": "passed",
+            "acceptance_verdict": acceptance_block,
+        }
+        if (
+            str(current.get("status") or "").lower() == "failed_review"
+            and all(current.get(key) == value for key, value in desired_acceptance_projection.items())
+        ):
+            result["reason"] = "acceptance_verdict_already_blocked"
+            return result
         current = _project_status_via_runtime(
             status_path,
             new_status="failed_review",
@@ -1019,12 +1033,7 @@ def sync_status_cache_from_graph(
             graph_path=graph_path,
             allow_reopen=True,
             status_fields={
-                "phase": "eval_failed",
-                "stage": "acceptance_failed",
-                "active_node": None,
-                "graph_parent_ready": parent,
-                "task_graph_status": "passed",
-                "acceptance_verdict": acceptance_block,
+                **desired_acceptance_projection,
             },
             extra={"note": "task_graph is ready but acceptance_verdict blocks parent pass"},
         )
@@ -1033,6 +1042,20 @@ def sync_status_cache_from_graph(
     result["closure_projection"] = _refresh_pending_closure_projection_from_graph(graph, graph_path)
     closure_block = _closure_block_for_parent_pass(graph, graph_path)
     if closure_block.get("blocked"):
+        desired_closure_projection = {
+            "phase": "eval_failed",
+            "stage": "closure_failed",
+            "active_node": None,
+            "graph_parent_ready": parent,
+            "task_graph_status": "passed",
+            "closure_verdict": closure_block,
+        }
+        if (
+            str(current.get("status") or "").lower() == "failed_review"
+            and all(current.get(key) == value for key, value in desired_closure_projection.items())
+        ):
+            result["reason"] = "closure_already_blocked"
+            return result
         current = _project_status_via_runtime(
             status_path,
             new_status="failed_review",
@@ -1041,12 +1064,7 @@ def sync_status_cache_from_graph(
             graph_path=graph_path,
             allow_reopen=True,
             status_fields={
-                "phase": "eval_failed",
-                "stage": "closure_failed",
-                "active_node": None,
-                "graph_parent_ready": parent,
-                "task_graph_status": "passed",
-                "closure_verdict": closure_block,
+                **desired_closure_projection,
             },
             extra={"note": "task_graph is ready but closure evidence blocks parent pass"},
         )

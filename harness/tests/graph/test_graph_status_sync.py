@@ -194,6 +194,13 @@ def test_sync_status_cache_blocks_parent_pass_when_acceptance_verdict_fails(tmp_
     assert updated["stage"] == "acceptance_failed"
     assert updated["acceptance_verdict"]["reasons"] == ["review_decision_failed:N2"]
 
+    history_count = len(updated.get("history", []))
+    repeated = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_parent_ready_passed")
+    repeated_status = json.loads(status_path.read_text(encoding="utf-8"))
+    assert repeated["updated"] is False
+    assert repeated["reason"] == "acceptance_verdict_already_blocked"
+    assert len(repeated_status.get("history", [])) == history_count
+
 
 def test_sync_status_cache_refreshes_pending_closure_before_parent_pass(tmp_path, monkeypatch):
     import graph_scheduler as gs
@@ -283,6 +290,13 @@ def test_sync_status_cache_blocks_parent_pass_when_closure_fails(tmp_path, monke
     assert updated["status"] == "failed_review"
     assert updated["stage"] == "closure_failed"
     assert updated["closure_verdict"]["status"] == "failed"
+
+    history_count = len(updated.get("history", []))
+    repeated = gs.sync_status_cache_from_graph(graph, graph_path, actor="test", event="graph_parent_ready_passed")
+    repeated_status = json.loads(status_path.read_text(encoding="utf-8"))
+    assert repeated["updated"] is False
+    assert repeated["reason"] == "closure_already_blocked"
+    assert len(repeated_status.get("history", [])) == history_count
 
 
 def test_sync_status_cache_reopens_stale_cancelled_inflight_projection(tmp_path, monkeypatch):
