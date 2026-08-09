@@ -369,26 +369,27 @@ def test_tools_eval_fallback_skips_deepseek_advisor_before_codex(monkeypatch, tm
     assert [worker["operator_id"] for worker in workers] == ["mini-codex-gpt55-medium-builder-1"]
 
 
-def test_operator_pool_operator_probe_uses_short_ttl_cache(monkeypatch, tmp_path: Path) -> None:
-    calls = []
+def test_operator_pool_operator_probe_uses_in_process_snapshot(monkeypatch, tmp_path: Path) -> None:
     operator_id = "mini-codex-gpt55-medium-builder-1"
 
-    def fake_run(cmd, **kwargs):
-        calls.append((cmd, kwargs))
-        return SimpleNamespace(returncode=0, stdout=f"[DRY-RUN] operator_id = {operator_id}")
+    def fail_run(*args, **kwargs):
+        raise AssertionError("capacity checks must not spawn pm_dispatch")
 
     monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
     monkeypatch.setattr(gnd, "_builder_operator_pool_enabled", lambda: True)
-    monkeypatch.setattr(gnd.subprocess, "run", fake_run)
-    monkeypatch.setenv("SOLAR_GRAPH_OPERATOR_POOL_PROBE_CACHE_SEC", "60")
-    monkeypatch.setenv("SOLAR_GRAPH_OPERATOR_POOL_PROBE_TIMEOUT_SEC", "0.5")
-    gnd._OPERATOR_POOL_ROLE_PROBE_CACHE.clear()
+    monkeypatch.setattr(gnd.subprocess, "run", fail_run)
+    monkeypatch.setattr(
+        gnd,
+        "_operator_pool_availability_snapshot",
+        lambda: {
+            operator_id: {"available": True, "roles": ["builder"]},
+            "mini-evaluator": {"available": True, "roles": ["evaluator"]},
+        },
+    )
+    monkeypatch.setattr(gnd, "_operator_pool_operator_can_closeout_eval_sidecar", lambda _operator_id: True)
 
     assert gnd._operator_pool_operator_available_for_role(operator_id, "evaluator") is True
-    assert gnd._operator_pool_operator_available_for_role(operator_id, "evaluator") is True
-
-    assert len(calls) == 1
-    assert calls[0][1]["timeout"] == 0.5
+    assert gnd._operator_pool_role_available("evaluator") is True
 
 
 def test_graph_queue_dispatch_role_normalizes_builder_aliases() -> None:

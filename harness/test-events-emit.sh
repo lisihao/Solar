@@ -19,8 +19,9 @@ export HARNESS_DIR="$TEST_TMP"
 export _SPRINTS_DIR="$TEST_TMP/sprints"
 mkdir -p "$TEST_TMP/events" "$TEST_TMP/sprints" "$TEST_TMP/lib"
 
-# Source the library
-source "$HOME/.solar/harness/lib/events.sh"
+# Source the repository copy by default; callers may override for deployment smoke tests.
+EVENTS_LIB="${EVENTS_LIB:-$(cd "$(dirname "$0")" && pwd)/lib/events.sh}"
+source "$EVENTS_LIB"
 
 # ── Test framework ──
 PASS=0
@@ -125,6 +126,14 @@ echo "TC7: list_event_types returns unique event names"
 TYPES=$(list_event_types)
 assert "state_change in types" 'echo "$TYPES" | grep -q "state_change"'
 assert "dispatch_sent in types" 'echo "$TYPES" | grep -q "dispatch_sent"'
+echo ""
+
+# ── alias stability test ──
+echo "TC8: events_emit remains canonical after emit_event is overridden"
+emit_event() { return 99; }
+events_emit "coordinator" "alias_stability" "info" "sprint-alias" '{}'
+assert "events_emit does not recurse through overridden emit_event" \
+  'python3 -c "import json; d=json.loads(open(\"$TEST_TMP/sprints/sprint-alias.events.jsonl\").read()); assert d[\"sprint_id\"]==\"sprint-alias\""'
 echo ""
 
 # ── Summary ──

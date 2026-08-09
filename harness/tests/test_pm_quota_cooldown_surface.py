@@ -47,6 +47,7 @@ def ofc():
 @pytest.fixture()
 def pm(tmp_path, monkeypatch):
     mod = _load("pm_dispatch", TOOLS_DIR / "pm_dispatch.py")
+    mod.PM_LEGACY_EVIDENCE_SCAN = True
     monkeypatch.setattr(mod, "OPERATOR_STATUS_DIR", tmp_path / "run" / "operator-status")
     (tmp_path / "run" / "operator-status").mkdir(parents=True, exist_ok=True)
 

@@ -253,21 +253,24 @@ def test_rewind_prompt_in_stale_scrollback_does_not_block_idle_prompt():
 def test_builder_operator_pool_available_count_is_cached(monkeypatch):
     calls = {"count": 0}
 
-    def _fake_run(*args, **kwargs):
+    def _snapshot():
         calls["count"] += 1
-        assert kwargs.get("timeout", 0) >= 12
-        return subprocess.CompletedProcess(args[0], 0, stdout='{"total_available": 3}', stderr="")
+        return {
+            "builder-a": {"available": True, "roles": ["builder"]},
+            "builder-b": {"available": True, "roles": ["builder"]},
+            "builder-c": {"available": True, "roles": ["builder"]},
+        }
 
     monkeypatch.setenv("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "30")
     monkeypatch.setattr(gnd, "_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE", {"checked_at": 0.0, "available": 0})
-    monkeypatch.setattr(gnd.subprocess, "run", _fake_run)
+    monkeypatch.setattr(gnd, "_operator_pool_availability_snapshot", _snapshot)
 
     assert gnd._builder_operator_pool_available_count() == 3
     assert gnd._builder_operator_pool_available_count() == 3
     assert calls["count"] == 1
 
 
-def test_builder_operator_pool_available_count_prefers_fresh_autoscale_snapshot(monkeypatch, tmp_path):
+def test_builder_operator_pool_available_count_falls_back_to_fresh_autoscale_snapshot(monkeypatch, tmp_path):
     snapshot = tmp_path / "run" / "backlog-autoscale" / "latest.json"
     snapshot.parent.mkdir(parents=True)
     snapshot.write_text(
@@ -291,18 +294,17 @@ def test_builder_operator_pool_available_count_prefers_fresh_autoscale_snapshot(
     monkeypatch.setenv("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "0")
     monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
     monkeypatch.setattr(gnd, "_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE", {"checked_at": 0.0, "available": 0})
+    monkeypatch.setattr(gnd, "_operator_pool_availability_snapshot", lambda: {})
     monkeypatch.setattr(gnd.subprocess, "run", _unexpected_run)
 
     assert gnd._builder_operator_pool_available_count() == 3
 
 
-def test_builder_operator_pool_available_count_timeout_uses_stale_cache(monkeypatch):
-    def _timeout(*args, **kwargs):
-        raise subprocess.TimeoutExpired(args[0], kwargs.get("timeout", 0))
-
+def test_builder_operator_pool_available_count_empty_snapshots_use_stale_cache(monkeypatch):
     monkeypatch.setenv("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "0")
     monkeypatch.setattr(gnd, "_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE", {"checked_at": 1.0, "available": 2})
-    monkeypatch.setattr(gnd.subprocess, "run", _timeout)
+    monkeypatch.setattr(gnd, "_operator_pool_availability_snapshot", lambda: {})
+    monkeypatch.setattr(gnd, "_builder_operator_pool_available_from_snapshot", lambda now: None)
 
     assert gnd._builder_operator_pool_available_count() == 2
 

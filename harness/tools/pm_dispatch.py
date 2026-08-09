@@ -66,6 +66,9 @@ PM_CAPACITY_PROBE_PREFIXES = (
     "pm-graph-dispatch-capacity-probe-",
     "pm-eval-capacity-probe-",
 )
+PM_LEGACY_EVIDENCE_SCAN = str(
+    os.environ.get("SOLAR_PM_LEGACY_EVIDENCE_SCAN", "0")
+).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _ensure_runtime_import_path() -> None:
@@ -1402,11 +1405,13 @@ def _shared_quota_block_for_operator(op: dict[str, Any]) -> dict[str, str]:
 
 def is_dispatchable(op: dict[str, Any], *, dispatch_surface: str = "one_shot") -> tuple[bool, str]:
     operator_id = str(op.get("operator_id", ""))
-    evidence_block = (
-        _recent_pm_operator_flow_control_block(operator_id)
-        or _recent_operator_result_log_quota_block_strict(op)
-        or _shared_recent_operator_quota_block(op)
-    )
+    evidence_block = None
+    if PM_LEGACY_EVIDENCE_SCAN:
+        evidence_block = (
+            _recent_pm_operator_flow_control_block(operator_id)
+            or _recent_operator_result_log_quota_block_strict(op)
+            or _shared_recent_operator_quota_block(op)
+        )
     if evidence_block:
         expires_at = str(evidence_block.get("expires_at") or "")
         source = str(evidence_block.get("source") or "pm_operator_flow_control")
@@ -1421,7 +1426,7 @@ def is_dispatchable(op: dict[str, Any], *, dispatch_surface: str = "one_shot") -
         decision = availability.resolve_operator_availability(
             op,
             cooldown_block_fn=_operator_cooldown_db_block,
-            recent_quota_block_fn=_recent_operator_quota_block,
+            recent_quota_block_fn=_recent_operator_quota_block if PM_LEGACY_EVIDENCE_SCAN else (lambda _op: None),
             runtime_state_fn=get_operator_runtime_state,
             status_data_fn=get_operator_status_data,
             registry_fn=load_registry,
@@ -1738,19 +1743,9 @@ def _operator_is_claude_subscription_interactive(op: dict[str, Any]) -> bool:
 
 def _active_role_spillover_count(role: str) -> int:
     norm_role = normalize_role(role)
-    active_statuses = {"submitted", "submitted_fallback", "leased", "running", "pending"}
-    active_runtime_states = {"leased", "running", "draining"}
     count = 0
-    for payload in _iter_pm_inbox_projections():
-        status = str(payload.get("status") or "").strip().lower()
-        if status not in active_statuses:
-            continue
+    for payload in _iter_active_operator_inbox_projections():
         if normalize_role(str(payload.get("borrowed_for_role") or "")) == norm_role:
-            operator_id = str(payload.get("operator_id") or "").strip()
-            if operator_id:
-                runtime_state = get_operator_runtime_state(operator_id)
-                if status in {"submitted", "submitted_fallback", "pending"} and runtime_state not in active_runtime_states:
-                    continue
             count += 1
     return count
 
@@ -1758,24 +1753,62 @@ def _active_role_spillover_count(role: str) -> int:
 ACTIVE_PM_OPERATOR_STATUSES = {"submitted", "submitted_fallback", "leased", "running", "pending", "in_progress"}
 
 
+def _iter_active_operator_inbox_projections(operator_id: str = "") -> list[dict[str, str]]:
+    """Read current operator inboxes only; historical PM records are not capacity."""
+    roots: list[Path] = []
+    if operator_id:
+        roots = [OPERATOR_INBOX_DIR / operator_id]
+    else:
+        try:
+            roots = [path for path in OPERATOR_INBOX_DIR.iterdir() if path.is_dir() and path.name != "_deferred"]
+        except OSError:
+            roots = []
+    rows: list[dict[str, str]] = []
+    for root in roots:
+        try:
+            paths = root.glob("*.json")
+            for path in paths:
+                row = _pm_inbox_projection_from_path(path)
+                if row:
+                    rows.append(row)
+        except OSError:
+            continue
+    return rows
+
+
+def _active_actor_lease_task_id(operator_id: str) -> str:
+    path = ACTOR_LEASE_DIR / f"{operator_id}.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if str(payload.get("state") or "").strip().lower() not in {"leased", "running", "finalizing", "draining"}:
+        return ""
+    expires_at = _parse_utc(str(payload.get("expires_at") or ""))
+    if expires_at is not None and expires_at <= datetime.datetime.now(datetime.timezone.utc):
+        return ""
+    return str(payload.get("task_id") or payload.get("dispatch_id") or f"lease:{operator_id}")
+
+
 def _active_pm_count_for_operator(operator_id: str, role: str = "") -> int:
     operator_id = str(operator_id or "").strip()
     if not operator_id:
         return 0
     norm_role = normalize_role(role) if role else ""
-    count = 0
-    for payload in _iter_pm_inbox_projections():
-        if str(payload.get("operator_id") or "").strip() != operator_id:
-            continue
-        status = str(payload.get("status") or "").strip().lower()
-        if status not in ACTIVE_PM_OPERATOR_STATUSES:
-            continue
+    active_task_ids: set[str] = set()
+    for payload in _iter_active_operator_inbox_projections(operator_id):
         if norm_role:
             task_role = normalize_role(str(payload.get("requested_role") or payload.get("borrowed_for_role") or ""))
             if task_role and task_role != norm_role:
                 continue
-        count += 1
-    return count
+        active_task_ids.add(str(payload.get("task_id") or payload.get("path") or "pending"))
+    lease_task_id = _active_actor_lease_task_id(operator_id)
+    if lease_task_id:
+        active_task_ids.add(lease_task_id)
+    runtime_state = get_operator_runtime_state(operator_id)
+    if runtime_state in {"leased", "running", "draining"} and not active_task_ids:
+        active_task_ids.add(f"runtime:{operator_id}")
+    return len(active_task_ids)
 
 
 def _operator_active_task_limit(op: dict[str, Any]) -> int:

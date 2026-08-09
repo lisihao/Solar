@@ -2120,10 +2120,9 @@ emit_event() {
   [[ -z "$payload" ]] && payload="{}"
   # Write to structured events (lib/events.sh events_emit)
   events_emit "$actor" "$event" "$sev" "$sid" "$payload" 2>/dev/null || true
-  # Managed Agent Runtime adoption: dual-write legacy coordinator events into
-  # session-log v2 so projection/replay can recover the sprint without relying
-  # on tmux pane scrollback or status.json as the only truth source.
-  if [[ -n "$sid" && -f "$HARNESS_DIR/lib/runtime_bridge.py" ]]; then
+  # events_emit already dual-writes to runtime_bridge. Only use the direct path
+  # when the structured events library is unavailable.
+  if ! type events_emit &>/dev/null && [[ -n "$sid" && -f "$HARNESS_DIR/lib/runtime_bridge.py" ]]; then
     python3 "$HARNESS_DIR/lib/runtime_bridge.py" event "$sid" "$event" "$actor" "$payload" --quiet 2>/dev/null || true
   fi
   # Also write to legacy session.sh event stream for backward compat

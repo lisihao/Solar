@@ -22,6 +22,7 @@ def _load_pm_dispatch():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    module.PM_LEGACY_EVIDENCE_SCAN = True
     module.ACTOR_LEASE_DIR = Path(tempfile.mkdtemp(prefix="pm-dispatch-actor-leases-"))
     return module
 
@@ -65,6 +66,62 @@ def test_runtime_import_path_evicts_legacy_tools_modules(tmp_path, monkeypatch):
             sys.modules.pop("actor_profiles", None)
         else:
             sys.modules["actor_profiles"] = old_module
+
+
+def test_active_operator_count_uses_live_inbox_not_historical_pm_records(tmp_path, monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    operator_id = "mini-test-builder"
+    operator_inbox = tmp_path / "operator-inbox"
+    pm_inbox = tmp_path / "pm-inbox"
+    actor_leases = tmp_path / "actor-leases"
+    (operator_inbox / operator_id).mkdir(parents=True)
+    pm_inbox.mkdir()
+    actor_leases.mkdir()
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", operator_inbox)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", pm_inbox)
+    monkeypatch.setattr(pm_dispatch, "ACTOR_LEASE_DIR", actor_leases)
+    monkeypatch.setattr(pm_dispatch, "get_operator_runtime_state", lambda _operator_id: "idle")
+
+    for idx in range(200):
+        (pm_inbox / f"pm-history-{idx}.json").write_text(
+            json.dumps({"task_id": f"history-{idx}", "operator_id": operator_id, "status": "submitted"}),
+            encoding="utf-8",
+        )
+    (operator_inbox / operator_id / "pm-live.json").write_text(
+        json.dumps({"task_id": "live", "operator_id": operator_id, "requested_role": "builder"}),
+        encoding="utf-8",
+    )
+
+    assert pm_dispatch._active_pm_count_for_operator(operator_id, "builder") == 1
+
+
+def test_dispatchability_uses_canonical_store_without_legacy_log_scans(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    pm_dispatch.PM_LEGACY_EVIDENCE_SCAN = False
+
+    def fail(*args, **kwargs):
+        raise AssertionError("legacy evidence scan should be disabled")
+
+    monkeypatch.setattr(pm_dispatch, "_recent_pm_operator_flow_control_block", fail)
+    monkeypatch.setattr(pm_dispatch, "_recent_operator_result_log_quota_block_strict", fail)
+    monkeypatch.setattr(pm_dispatch, "_shared_recent_operator_quota_block", fail)
+    monkeypatch.setattr(pm_dispatch, "_recent_operator_quota_block", fail)
+    monkeypatch.setattr(pm_dispatch, "_operator_external_health", lambda op: (True, ""))
+    monkeypatch.setattr(pm_dispatch, "_actor_lease_runtime_state", lambda operator_id: "")
+
+    class Availability:
+        @staticmethod
+        def resolve_operator_availability(op, **kwargs):
+            assert kwargs["recent_quota_block_fn"](op) is None
+            return {"dispatchable": True, "state": "idle"}
+
+    monkeypatch.setattr(pm_dispatch, "_load_operator_availability_module", lambda: Availability)
+    ok, reason = pm_dispatch.is_dispatchable(
+        {"operator_id": "mini-test", "enabled": True, "available": True, "role": "builder"},
+        dispatch_surface="mailbox",
+    )
+    assert ok is True
+    assert reason == ""
 
 
 def test_legacy_tools_policy_modules_expose_runtime_policy_api():
@@ -246,9 +303,9 @@ def test_select_operator_by_role_honors_env_exclude_ids(monkeypatch):
 
 def test_select_operator_by_role_skips_operator_at_active_pm_limit(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
-    inbox = tmp_path / "pm-inbox"
-    inbox.mkdir()
-    (inbox / "pm-active-a.json").write_text(
+    inbox = tmp_path / "operator-inbox"
+    (inbox / "builder-a").mkdir(parents=True)
+    (inbox / "builder-a" / "pm-active-a.json").write_text(
         json.dumps(
             {
                 "task_id": "pm-active-a",
@@ -259,7 +316,7 @@ def test_select_operator_by_role_skips_operator_at_active_pm_limit(monkeypatch, 
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", inbox)
     monkeypatch.setattr(
         pm_dispatch,
         "load_registry",

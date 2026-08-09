@@ -21,6 +21,7 @@ from __future__ import annotations
 import fcntl
 import base64
 import json
+import mmap
 import os
 import uuid
 from datetime import datetime, timezone
@@ -79,6 +80,7 @@ class SessionLog:
         self._path = os.path.join(self._dir, "events.jsonl")
         self._seq = 0
         self._seen_idem: set[str] = set()
+        self._seen_idem_fully_loaded = False
         os.makedirs(self._dir, exist_ok=True)
         self._load_state()
 
@@ -87,24 +89,58 @@ class SessionLog:
     # ------------------------------------------------------------------
 
     def _load_state(self) -> None:
-        """Scan existing log to recover seq and seen idempotency keys."""
+        """Recover the last sequence without materializing the complete log."""
         if not os.path.exists(self._path):
             return
-        with open(self._path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
+        with open(self._path, "rb") as fh:
+            event = self._last_valid_event(fh)
+        if event:
+            self._seq = int(event.get("seq", 0) or 0)
+
+    @staticmethod
+    def _last_valid_event(fh) -> Dict[str, Any]:
+        """Return the newest valid JSON event using bounded reverse reads."""
+        fh.seek(0, os.SEEK_END)
+        position = fh.tell()
+        carry = b""
+        block_size = 64 * 1024
+        while position > 0:
+            read_size = min(block_size, position)
+            position -= read_size
+            fh.seek(position)
+            chunk = fh.read(read_size) + carry
+            lines = chunk.split(b"\n")
+            carry = lines.pop(0) if position > 0 else b""
+            for line in reversed(lines):
+                if not line.strip():
                     continue
                 try:
-                    ev = json.loads(line)
-                except json.JSONDecodeError:
+                    event = json.loads(line)
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     continue
-                seq = ev.get("seq", 0)
-                if seq > self._seq:
-                    self._seq = seq
-                ik = ev.get("idempotency_key")
-                if ik:
-                    self._seen_idem.add(ik)
+                if isinstance(event, dict):
+                    return event
+        if carry.strip():
+            try:
+                event = json.loads(carry)
+                return event if isinstance(event, dict) else {}
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
+        return {}
+
+    @staticmethod
+    def _file_contains_idempotency_key(fh, key: str) -> bool:
+        """Check one key exactly with mmap instead of parsing the whole JSONL."""
+        fh.seek(0, os.SEEK_END)
+        if fh.tell() <= 0:
+            return False
+        encoded_key = json.dumps(key, ensure_ascii=False).encode("utf-8")
+        needles = (
+            b'"idempotency_key": ' + encoded_key,
+            b'"idempotency_key":' + encoded_key,
+        )
+        with mmap.mmap(fh.fileno(), length=0, access=mmap.ACCESS_READ) as mapped:
+            return any(mapped.find(needle) >= 0 for needle in needles)
 
     def _now_ts(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -140,32 +176,13 @@ class SessionLog:
             raise UnauthorizedEventWrite(f"{role} cannot write {event_type}")
 
         event_id = str(uuid.uuid4())
-        with open(self._path, "a+", encoding="utf-8") as fh:
+        with open(self._path, "a+b") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
-            # Re-scan under the file lock. Multiple SessionLog instances can be
-            # alive in the same process or in sibling processes; relying only on
-            # this instance's _seen_idem/_seq lets at-least-once adoption write
-            # duplicate idempotency keys and duplicate seq values.
-            fh.seek(0)
-            locked_seq = 0
-            locked_seen: set[str] = set()
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                seq = ev.get("seq", 0)
-                if seq > locked_seq:
-                    locked_seq = seq
-                ik = ev.get("idempotency_key")
-                if ik:
-                    locked_seen.add(ik)
-            if idempotency_key and idempotency_key in locked_seen:
+            latest = self._last_valid_event(fh)
+            locked_seq = int(latest.get("seq", 0) or 0) if latest else 0
+            if idempotency_key and self._file_contains_idempotency_key(fh, idempotency_key):
                 self._seq = max(self._seq, locked_seq)
-                self._seen_idem.update(locked_seen)
+                self._seen_idem.add(idempotency_key)
                 fcntl.flock(fh, fcntl.LOCK_UN)
                 raise DuplicateEventError(
                     f"Duplicate idempotency_key={idempotency_key!r} — event suppressed"
@@ -188,7 +205,7 @@ class SessionLog:
                 "idempotency_key": idempotency_key,
                 "payload": payload or {},
             }
-            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+            fh.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
             fcntl.flock(fh, fcntl.LOCK_UN)
 
         if idempotency_key:
@@ -227,6 +244,12 @@ class SessionLog:
         return list(self.replay())
 
     def seen_idempotency_keys(self) -> set[str]:
+        if not self._seen_idem_fully_loaded and os.path.exists(self._path):
+            for event in self.replay():
+                key = event.get("idempotency_key")
+                if key:
+                    self._seen_idem.add(str(key))
+            self._seen_idem_fully_loaded = True
         return set(self._seen_idem)
 
     def get_events(

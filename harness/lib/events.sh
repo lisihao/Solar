@@ -46,7 +46,7 @@ _atomic_append() {
   rmdir "$lock_dir" 2>/dev/null || true
 }
 
-emit_event() {
+events_emit() {
   local actor="${1:?emit_event: actor required}"
   local event_name="${2:?emit_event: event required}"
   local severity="${3:-info}"
@@ -134,5 +134,6 @@ for e in sorted(seen):
 " 2>/dev/null
 }
 
-# Also export as events_emit for callers that need to avoid name collision
-events_emit() { emit_event "$@"; }
+# Compatibility name. Keep the implementation in events_emit so callers that
+# redefine emit_event cannot make the canonical path recurse back into itself.
+emit_event() { events_emit "$@"; }

@@ -12,6 +12,7 @@ import argparse
 import datetime
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -6140,6 +6141,189 @@ _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE: dict[str, Any] = {
     "snapshot_enabled": True,
 }
 _OPERATOR_POOL_ROLE_PROBE_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
+_OPERATOR_POOL_AVAILABILITY_CACHE: dict[str, Any] = {
+    "checked_at": 0.0,
+    "harness_dir": "",
+    "operators": {},
+}
+_OPERATOR_POOL_AVAILABILITY_MODULES: dict[str, Any] = {}
+
+
+def _load_operator_pool_module(filename: str, module_prefix: str) -> Any | None:
+    path = HARNESS_DIR / "lib" / filename
+    cache_key = str(path)
+    if cache_key in _OPERATOR_POOL_AVAILABILITY_MODULES:
+        return _OPERATOR_POOL_AVAILABILITY_MODULES[cache_key]
+    try:
+        spec = importlib.util.spec_from_file_location(
+            f"{module_prefix}_{hashlib.sha256(cache_key.encode()).hexdigest()[:12]}",
+            path,
+        )
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception:
+        return None
+    _OPERATOR_POOL_AVAILABILITY_MODULES[cache_key] = module
+    return module
+
+
+def _operator_pool_status_data(operator_id: str) -> dict[str, Any]:
+    try:
+        data = json.loads(
+            (HARNESS_DIR / "run" / "operator-status" / f"{operator_id}.json").read_text(encoding="utf-8")
+        )
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _operator_pool_actor_lease_active(operator_id: str, now: datetime.datetime) -> bool:
+    try:
+        lease = json.loads(
+            (HARNESS_DIR / "run" / "actor-leases" / f"{operator_id}.json").read_text(encoding="utf-8")
+        )
+    except Exception:
+        return False
+    state = str(lease.get("state") or "").strip().lower()
+    if state not in {"leased", "running", "finalizing", "draining"}:
+        return False
+    expires_at = _parse_utc(str(lease.get("expires_at") or ""))
+    if expires_at is None:
+        return True
+    return _normalized_utc(expires_at) > _normalized_utc(now)
+
+
+def _operator_pool_roles(spec: dict[str, Any]) -> set[str]:
+    raw_roles = spec.get("roles")
+    if isinstance(raw_roles, str):
+        values = [raw_roles]
+    elif isinstance(raw_roles, list):
+        values = raw_roles
+    else:
+        values = []
+    values.append(spec.get("role") or spec.get("profile") or "")
+    aliases = {
+        "build": "builder",
+        "implementation": "builder",
+        "eval": "evaluator",
+        "review": "evaluator",
+        "reviewer": "evaluator",
+        "verifier": "evaluator",
+        "plan": "planner",
+        "planning": "planner",
+        "architect": "planner",
+    }
+    roles: set[str] = set()
+    for value in values:
+        role = str(value or "").strip().lower().replace("_", "-")
+        if role:
+            roles.add(aliases.get(role, role))
+    return roles
+
+
+def _operator_pool_availability_snapshot() -> dict[str, dict[str, Any]]:
+    """Resolve operator capacity in-process without launching PM dry-run probes."""
+    now_ts = time.time()
+    try:
+        cache_ttl = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_CACHE_SEC", "30") or "30")
+    except Exception:
+        cache_ttl = 30.0
+    harness_key = str(HARNESS_DIR)
+    if (
+        cache_ttl > 0
+        and str(_OPERATOR_POOL_AVAILABILITY_CACHE.get("harness_dir") or "") == harness_key
+        and now_ts - float(_OPERATOR_POOL_AVAILABILITY_CACHE.get("checked_at") or 0.0) <= cache_ttl
+    ):
+        cached = _OPERATOR_POOL_AVAILABILITY_CACHE.get("operators")
+        return dict(cached) if isinstance(cached, dict) else {}
+
+    try:
+        registry = json.loads((HARNESS_DIR / "config" / "physical-operators.json").read_text(encoding="utf-8"))
+    except Exception:
+        registry = {"operators": {}}
+    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
+    availability = _load_operator_pool_module("operator_availability.py", "_solar_graph_operator_availability")
+    cooldown_db = _load_operator_pool_module("operator_cooldown_db.py", "_solar_graph_operator_cooldown_db")
+    status_by_operator = {str(op_id): _operator_pool_status_data(str(op_id)) for op_id in operators}
+    cooldown_by_operator: dict[str, dict[str, Any] | None] = {}
+
+    def cooldown_block(operator_id: str) -> dict[str, Any] | None:
+        if operator_id not in cooldown_by_operator:
+            block = None
+            if cooldown_db is not None and hasattr(cooldown_db, "current_cooldown_block"):
+                try:
+                    block = cooldown_db.current_cooldown_block(
+                        operator_id,
+                        db_path=HARNESS_DIR / "run" / "operator-cooldowns.sqlite",
+                        prune_expired=False,
+                    )
+                except Exception:
+                    block = None
+            cooldown_by_operator[operator_id] = block if isinstance(block, dict) else None
+        return cooldown_by_operator[operator_id]
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    snapshot: dict[str, dict[str, Any]] = {}
+    for operator_id, raw_spec in operators.items():
+        if not isinstance(raw_spec, dict):
+            continue
+        op_id = str(operator_id)
+        spec = dict(raw_spec)
+        spec["operator_id"] = op_id
+        status = status_by_operator.get(op_id, {})
+
+        def runtime_state_fn(candidate_id: str, *, _status=status, _spec=spec) -> str:
+            return str(
+                _status.get("runtime_state")
+                or (_spec.get("state") or {}).get("runtime_state")
+                or "idle"
+            )
+
+        def stale_runtime_fn(candidate_id: str, state: str, *, _status=status) -> str:
+            if state not in {"cooldown", "quota_exhausted", "auth_expired"}:
+                return state
+            expires_at = _parse_utc(str(_status.get("expires_at") or _status.get("cooldown_until") or ""))
+            if expires_at is not None and _normalized_utc(expires_at) <= _normalized_utc(now):
+                return "idle"
+            return state
+
+        if availability is not None and hasattr(availability, "resolve_operator_availability"):
+            try:
+                decision = availability.resolve_operator_availability(
+                    spec,
+                    cooldown_block_fn=cooldown_block,
+                    recent_quota_block_fn=lambda _op: None,
+                    runtime_state_fn=runtime_state_fn,
+                    status_data_fn=lambda _candidate_id, _status=status: _status,
+                    registry_fn=lambda: registry,
+                    stale_runtime_fn=stale_runtime_fn,
+                    dispatch_surface="mailbox",
+                )
+            except Exception as exc:
+                decision = {"dispatchable": False, "state": "error", "reason": type(exc).__name__}
+        else:
+            state = stale_runtime_fn(op_id, runtime_state_fn(op_id))
+            dispatchable = bool(spec.get("enabled", False)) and bool(spec.get("available", False))
+            dispatchable = dispatchable and state not in {
+                "leased", "running", "draining", "cooldown", "quota_exhausted",
+                "auth_expired", "disabled", "no_subscription", "needs_human_review",
+            }
+            decision = {"dispatchable": dispatchable, "state": state, "reason": "fallback_status_snapshot"}
+        if bool(decision.get("dispatchable")) and _operator_pool_actor_lease_active(op_id, now):
+            decision = {"dispatchable": False, "state": "leased", "reason": "actor_lease_active"}
+        snapshot[op_id] = {
+            "available": bool(decision.get("dispatchable")),
+            "state": str(decision.get("state") or "unknown"),
+            "reason": str(decision.get("reason") or ""),
+            "roles": sorted(_operator_pool_roles(spec)),
+        }
+
+    _OPERATOR_POOL_AVAILABILITY_CACHE.update(
+        {"checked_at": now_ts, "harness_dir": harness_key, "operators": snapshot}
+    )
+    return dict(snapshot)
 
 
 def _operator_usable_from_watchdog_snapshot(operator_id: str) -> bool:
@@ -6210,12 +6394,6 @@ def _builder_operator_pool_available_count() -> int:
     if not _builder_operator_pool_enabled():
         return 0
     now = time.time()
-    # 吞吐瓶颈修复 (2026-06-17): pm_dispatch builder-pool-status 探针实测 41-49s
-    # (串行 probe ~14 operator), 但默认超时仅 12s → 每个 drain 周期都超时 →
-    # 回退缓存默认 0 → 调度器永远看到"0 个可用 builder" → 41 个 ready 活派不进
-    # operator 池 → 吞吐归零。真实可用其实有 1-2 个。
-    # 止血: 超时 12→60s 给探针完成机会; 缓存 TTL 20→90s 减少昂贵探针频率
-    # (探针慢, 多缓存; 牛马建议的治本是读 health-watchdog 快照/并行化, 留 P1.5)。
     try:
         cache_ttl = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "90") or "90")
     except Exception:
@@ -6223,6 +6401,15 @@ def _builder_operator_pool_available_count() -> int:
     cached_at = float(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("checked_at") or 0.0)
     if cache_ttl > 0 and cached_at > 0 and now - cached_at <= cache_ttl:
         return max(0, int(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("available") or 0))
+    operator_snapshot = _operator_pool_availability_snapshot()
+    if operator_snapshot:
+        available = sum(
+            1
+            for item in operator_snapshot.values()
+            if bool(item.get("available")) and "builder" in set(item.get("roles") or [])
+        )
+        _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.update({"checked_at": now, "available": available})
+        return available
     explicit_pool_setting = os.environ.get("SOLAR_GRAPH_BUILDER_OPERATOR_POOL")
     snapshot_enabled = bool(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("snapshot_enabled"))
     if explicit_pool_setting is not None:
@@ -6232,137 +6419,28 @@ def _builder_operator_pool_available_count() -> int:
         if snapshot_available is not None:
             _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.update({"checked_at": now, "available": snapshot_available})
             return snapshot_available
-    try:
-        timeout = float(os.environ.get("SOLAR_GRAPH_BUILDER_POOL_STATUS_TIMEOUT_SEC", "60") or "60")
-    except Exception:
-        timeout = 60.0
-    try:
-        completed = subprocess.run(
-            [
-                sys.executable,
-                str(HARNESS_DIR / "tools" / "pm_dispatch.py"),
-                "builder-pool-status",
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=max(0.1, timeout),
-            env=_broker_env(),
-        )
-    except Exception:
-        # Avoid multiplying a slow status probe across every graph in one drain
-        # cycle. A stale in-process value is safer than blocking the controller.
-        return max(0, int(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("available") or 0))
-    if completed.returncode != 0:
-        _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.update({"checked_at": now, "available": 0})
-        return 0
-    try:
-        data = json.loads(completed.stdout)
-    except Exception:
-        _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.update({"checked_at": now, "available": 0})
-        return 0
-    try:
-        available = int(data.get("total_available") or 0)
-    except Exception:
-        available = 0
-    if available <= 0:
-        groups = data.get("groups") if isinstance(data.get("groups"), dict) else {}
-        for group in groups.values():
-            if not isinstance(group, dict):
-                continue
-            try:
-                available += int(group.get("available") or 0)
-            except Exception:
-                pass
-    available = max(0, available)
-    _BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.update({"checked_at": now, "available": available})
-    return available
+    return max(0, int(_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE.get("available") or 0))
 
 
 def _operator_pool_role_available(role: str) -> bool:
     if not _builder_operator_pool_enabled():
         return False
-    now = time.time()
-    try:
-        cache_ttl = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_CACHE_SEC", "30") or "30")
-    except Exception:
-        cache_ttl = 30.0
-    cache_key = ("role", role)
-    cached = _OPERATOR_POOL_ROLE_PROBE_CACHE.get(cache_key)
-    if cache_ttl > 0 and cached and now - cached[0] <= cache_ttl:
-        return cached[1]
-    cmd = [
-        sys.executable,
-        str(HARNESS_DIR / "tools" / "pm_dispatch.py"),
-        "submit",
-        "--role",
-        role,
-        "--sprint",
-        "graph-dispatch-capacity-probe",
-        "--node",
-        "CAPACITY",
-        "--objective",
-        f"capacity probe for graph-dispatch {role}",
-        "--dry-run",
-    ]
-    env = _broker_env()
-    env["SOLAR_PM_DISPATCH_ALLOW_DIRECT"] = "1"
-    try:
-        timeout = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_TIMEOUT_SEC", "2") or "2")
-    except Exception:
-        timeout = 2.0
-    try:
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(0.1, timeout), env=env)
-    except Exception:
-        _OPERATOR_POOL_ROLE_PROBE_CACHE[cache_key] = (now, False)
-        return False
-    available = completed.returncode == 0 and "operator_id" in completed.stdout
-    _OPERATOR_POOL_ROLE_PROBE_CACHE[cache_key] = (now, available)
-    return available
+    normalized_role = next(iter(_operator_pool_roles({"role": role})), str(role).strip().lower())
+    return any(
+        bool(item.get("available")) and normalized_role in set(item.get("roles") or [])
+        for item in _operator_pool_availability_snapshot().values()
+    )
 
 
 def _operator_pool_operator_available_for_role(operator_id: str, role: str) -> bool:
     if not _builder_operator_pool_enabled() or not operator_id:
         return False
-    now = time.time()
-    try:
-        cache_ttl = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_CACHE_SEC", "30") or "30")
-    except Exception:
-        cache_ttl = 30.0
-    cache_key = (role, operator_id)
-    cached = _OPERATOR_POOL_ROLE_PROBE_CACHE.get(cache_key)
-    if cache_ttl > 0 and cached and now - cached[0] <= cache_ttl:
-        return cached[1]
-    cmd = [
-        sys.executable,
-        str(HARNESS_DIR / "tools" / "pm_dispatch.py"),
-        "submit",
-        "--role",
-        role,
-        "--operator",
-        operator_id,
-        "--sprint",
-        "graph-dispatch-capacity-probe",
-        "--node",
-        "CAPACITY",
-        "--objective",
-        f"capacity probe for graph-dispatch {role} via {operator_id}",
-        "--dry-run",
-    ]
-    env = _broker_env()
-    env["SOLAR_PM_DISPATCH_ALLOW_DIRECT"] = "1"
-    try:
-        timeout = float(os.environ.get("SOLAR_GRAPH_OPERATOR_POOL_PROBE_TIMEOUT_SEC", "2") or "2")
-    except Exception:
-        timeout = 2.0
-    try:
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=max(0.1, timeout), env=env)
-    except Exception:
-        _OPERATOR_POOL_ROLE_PROBE_CACHE[cache_key] = (now, False)
+    item = _operator_pool_availability_snapshot().get(operator_id) or {}
+    if not bool(item.get("available")):
         return False
-    available = completed.returncode == 0 and f"operator_id = {operator_id}" in completed.stdout
-    _OPERATOR_POOL_ROLE_PROBE_CACHE[cache_key] = (now, available)
-    return available
+    if str(role).strip().lower() == "evaluator":
+        return _operator_pool_operator_can_closeout_eval_sidecar(operator_id)
+    return True
 
 
 def _operator_pool_operator_can_closeout_eval_sidecar(operator_id: str) -> bool:
