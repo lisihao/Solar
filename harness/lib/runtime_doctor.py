@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 HARNESS_DIR = os.path.expanduser(os.environ.get("HARNESS_DIR", "~/.solar/harness"))
 SPRINTS_DIR = os.path.join(HARNESS_DIR, "sprints")
 SESSIONS_DIR = os.path.join(HARNESS_DIR, "sessions")
+STATUS_METADATA_READ_LIMIT = 128 * 1024
 
 
 def _now_ts() -> str:
@@ -35,6 +36,41 @@ def _age_minutes(ts_str: str) -> Optional[float]:
         return (datetime.now(timezone.utc) - dt).total_seconds() / 60
     except ValueError:
         return None
+
+
+def _read_status_metadata(path: Path) -> Dict[str, Any]:
+    """Read top-level status metadata without materializing its large history."""
+    lines: List[str] = []
+    bytes_read = 0
+    history_found = False
+    reached_eof = False
+
+    with path.open(encoding="utf-8") as fh:
+        while bytes_read < STATUS_METADATA_READ_LIMIT:
+            line = fh.readline()
+            if not line:
+                reached_eof = True
+                break
+            bytes_read += len(line.encode("utf-8"))
+            if line.lstrip().startswith('"history"'):
+                history_found = True
+                break
+            lines.append(line)
+
+    if history_found:
+        prefix = "".join(lines).rstrip()
+        if prefix.endswith(","):
+            prefix = prefix[:-1]
+        data = json.loads(f"{prefix}\n}}")
+    elif reached_eof:
+        data = json.loads("".join(lines))
+    else:
+        # Non-standard field ordering falls back to a full, correctness-first read.
+        data = json.loads(path.read_text(encoding="utf-8"))
+
+    if not isinstance(data, dict):
+        raise ValueError("status document must be a JSON object")
+    return data
 
 
 # ------------------------------------------------------------------
@@ -139,13 +175,55 @@ def _check_stale_activities(sprint_id: str) -> Dict[str, Any]:
         return {"ok": False, "warn": True, "message": f"error: {exc}"}
 
 
-def _check_status_json(sprint_id: str) -> Dict[str, Any]:
+def _check_projection_bundle(sprint_id: str) -> Dict[str, Dict[str, Any]]:
+    """Project a sprint once and derive all projection-backed diagnostics."""
+    sys.path.insert(0, os.path.dirname(__file__))
+    try:
+        from projection_engine import ProjectionEngine
+
+        state = ProjectionEngine(sprint_id, harness_dir=HARNESS_DIR).project()
+        duplicates = state.duplicate_commands
+        stale = state.stale_activities
+        return {
+            "projection_drift": {
+                "ok": not state.drift_detected,
+                "warn": state.drift_detected,
+                "message": state.drift_reason if state.drift_detected else "no drift",
+                "projected_status": state.status,
+                "event_count": state.event_count,
+            },
+            "duplicate_commands": {
+                "ok": len(duplicates) == 0,
+                "warn": len(duplicates) > 0,
+                "message": f"{len(duplicates)} duplicate(s): {duplicates[:5]}" if duplicates else "none",
+                "duplicate_commands": duplicates,
+            },
+            "stale_activities": {
+                "ok": len(stale) == 0,
+                "warn": len(stale) > 0,
+                "message": f"{len(stale)} stale: {stale[:5]}" if stale else "none",
+                "stale_activities": stale,
+            },
+        }
+    except Exception as exc:
+        message = f"projection error: {exc}"
+        return {
+            "projection_drift": {"ok": False, "warn": True, "message": message},
+            "duplicate_commands": {"ok": False, "warn": True, "message": message},
+            "stale_activities": {"ok": False, "warn": True, "message": message},
+        }
+
+
+def _check_status_json(sprint_id: str, *, full_validation: bool = True) -> Dict[str, Any]:
     path = os.path.join(SPRINTS_DIR, f"{sprint_id}.status.json")
     if not os.path.exists(path):
         return {"ok": False, "warn": True, "message": "status.json missing"}
     try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
+        if full_validation:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        else:
+            data = _read_status_metadata(Path(path))
         age = None
         ts = data.get("updated_at") or data.get("projected_at")
         if ts:
@@ -156,6 +234,7 @@ def _check_status_json(sprint_id: str) -> Dict[str, Any]:
             "message": "ok",
             "status": data.get("status"),
             "age_minutes": round(age, 1) if age is not None else None,
+            "validation_scope": "full" if full_validation else "metadata",
         }
     except Exception as exc:
         return {"ok": False, "warn": True, "message": f"corrupt: {exc}"}
@@ -192,7 +271,7 @@ def _check_state_surface_drift(sprint_id: str) -> Dict[str, Any]:
     }
 
     try:
-        status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+        status = _read_status_metadata(status_path) if status_path.exists() else {}
     except Exception as exc:
         return {"ok": False, "warn": True, "message": f"status corrupt: {exc}"}
 
@@ -553,29 +632,43 @@ def doctor_sprint(
     sprint_id: str,
     *,
     stale_threshold_minutes: int = 60,
+    interface_health: Optional[Dict[str, Any]] = None,
+    deep: bool = True,
 ) -> Dict[str, Any]:
     """Run all checks for one sprint and return a report dict."""
-    # Default adoption path: every doctor pass first mirrors legacy sprint
-    # artifacts into session-log v2. This makes doctor a runtime gate, not a
-    # passive linter that can silently ignore old-only state.
-    try:
-        sys.path.insert(0, os.path.dirname(__file__))
-        from runtime_bridge import adopt_sprint
-        adopt_sprint(sprint_id, harness_dir=Path(HARNESS_DIR))
-    except Exception:
-        # Individual checks below will surface event/projection issues. Doctor
-        # must remain fail-open enough to report corrupt legacy state.
-        pass
+    # Legacy adoption is intentionally limited to explicit deep, single-sprint
+    # diagnostics. A fleet health scan must remain read-only and bounded.
+    if deep:
+        try:
+            sys.path.insert(0, os.path.dirname(__file__))
+            from runtime_bridge import adopt_sprint
 
+            adopt_sprint(sprint_id, harness_dir=Path(HARNESS_DIR))
+        except Exception:
+            # Individual checks below will surface event/projection issues.
+            # Doctor must remain fail-open enough to report corrupt legacy state.
+            pass
+
+    projection_checks = _check_projection_bundle(sprint_id)
+    context_runtime = (
+        _check_context_runtime(sprint_id)
+        if deep
+        else {
+            "ok": True,
+            "warn": False,
+            "skipped": True,
+            "message": "skipped in fleet scan; run runtime doctor <sprint_id> for deep context checks",
+        }
+    )
     checks = {
         "event_log_health": _check_event_log_health(sprint_id),
-        "projection_drift":  _check_projection_drift(sprint_id),
-        "duplicate_commands": _check_duplicate_commands(sprint_id),
-        "stale_activities":  _check_stale_activities(sprint_id),
-        "status_json":       _check_status_json(sprint_id),
+        "projection_drift": projection_checks["projection_drift"],
+        "duplicate_commands": projection_checks["duplicate_commands"],
+        "stale_activities": projection_checks["stale_activities"],
+        "status_json":       _check_status_json(sprint_id, full_validation=deep),
         "state_surface_drift": _check_state_surface_drift(sprint_id),
-        "interface_health": _check_interface_health(sprint_id),
-        "context_runtime": _check_context_runtime(sprint_id),
+        "interface_health": interface_health or _check_interface_health(sprint_id),
+        "context_runtime": context_runtime,
         "model_call_runtime": _check_model_call_runtime(sprint_id),
         "process_audit": _check_process_audit(sprint_id),
     }
@@ -587,39 +680,73 @@ def doctor_sprint(
         "sprint_id": sprint_id,
         "ok": all_ok,
         "warn": any_warn and all_ok,
+        "deep": deep,
         "ts": _now_ts(),
         "checks": checks,
     }
 
 
-def doctor_all(*, active_only: bool = True) -> Dict[str, Any]:
+def doctor_all(
+    *,
+    active_only: bool = True,
+    deep: bool = False,
+    limit: Optional[int] = 25,
+) -> Dict[str, Any]:
     """Scan all sprints in SPRINTS_DIR and run checks."""
     pattern = os.path.join(SPRINTS_DIR, "*.status.json")
-    sprint_ids: List[str] = []
+    candidates: List[Tuple[str, str]] = []
+    terminal_statuses = {
+        "archived",
+        "cancelled",
+        "closed",
+        "completed",
+        "eval_passed",
+        "failed",
+        "failed_review",
+        "finalized",
+        "passed",
+        "skipped",
+        "superseded",
+    }
     for p in sorted(glob.glob(pattern)):
         try:
-            with open(p, encoding="utf-8") as fh:
-                data = json.load(fh)
+            data = _read_status_metadata(Path(p))
             sid = data.get("sprint_id") or data.get("id") or data.get("sid")
             if not sid:
                 continue
             if active_only:
-                status = data.get("status", "")
-                if status in ("passed", "cancelled", "finalized"):
+                status = str(data.get("status", "")).lower()
+                if status in terminal_statuses:
                     continue
-            sprint_ids.append(sid)
+            freshness = str(data.get("updated_at") or data.get("created_at") or "")
+            candidates.append((freshness, str(sid)))
         except Exception:
             continue
 
-    reports = [doctor_sprint(sid) for sid in sprint_ids]
+    candidates.sort(reverse=True)
+    eligible_sprint_count = len(candidates)
+    if limit is not None and limit > 0:
+        candidates = candidates[:limit]
+    sprint_ids = [sid for _, sid in candidates]
+
+    shared_interface_health = _check_interface_health("_fleet")
+    reports = [
+        doctor_sprint(sid, interface_health=shared_interface_health, deep=deep)
+        for sid in sprint_ids
+    ]
     overall_ok = all(r["ok"] for r in reports)
     any_warn = any(r.get("warn") for r in reports)
 
     return {
         "ok": overall_ok,
         "warn": any_warn and overall_ok,
+        "deep": deep,
         "ts": _now_ts(),
         "sprint_count": len(reports),
+        "eligible_sprint_count": eligible_sprint_count,
+        "limit": limit,
+        "truncated": len(reports) < eligible_sprint_count,
+        "shared_checks": {"interface_health": shared_interface_health},
         "sprints": reports,
     }
 
@@ -638,12 +765,23 @@ def main() -> None:
                         help="Sprint ID (default: all active sprints)")
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--all", action="store_true", help="Include terminal sprints")
+    parser.add_argument(
+        "--deep",
+        action="store_true",
+        help="Run external context checks for every sprint in a fleet scan",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Maximum fleet-scan sprints, newest first; 0 means unlimited (default: 25)",
+    )
     args = parser.parse_args()
 
     if args.sprint_id:
         report = doctor_sprint(args.sprint_id)
     else:
-        report = doctor_all(active_only=not args.all)
+        report = doctor_all(active_only=not args.all, deep=args.deep, limit=args.limit)
 
     if args.json:
         print(json.dumps(report, indent=2))
