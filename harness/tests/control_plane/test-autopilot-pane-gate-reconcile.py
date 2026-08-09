@@ -281,6 +281,45 @@ def test_should_act_retries_role_handoff_soon_after_failed_pm_attempt(tmp_path, 
     assert mod.should_act(state, finding, 300) is True
 
 
+def test_pm_record_lookup_only_reads_matching_sprint_files(tmp_path, monkeypatch) -> None:
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir(parents=True)
+    target_sid = "sprint-target"
+    target = inbox / "pm-sprint-target-N1-target.json"
+    target.write_text(json.dumps({
+        "task_id": "pm-target",
+        "sprint_id": target_sid,
+        "requested_role": "builder",
+        "status": "submitted",
+    }))
+    for index in range(200):
+        (inbox / f"pm-sprint-unrelated-{index}-N1.json").write_text(json.dumps({
+            "task_id": f"pm-unrelated-{index}",
+            "sprint_id": f"sprint-unrelated-{index}",
+            "requested_role": "builder",
+            "status": "completed",
+        }))
+
+    monkeypatch.setattr(mod, "PM_INBOX_DIR", inbox)
+    mod._reset_pm_inbox_cache()
+    original_read_text = Path.read_text
+    reads: list[str] = []
+
+    def tracked_read_text(path, *args, **kwargs):
+        if path.parent == inbox:
+            reads.append(path.name)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", tracked_read_text)
+
+    records = mod._pm_inbox_records_for_sprint_role(target_sid, "builder")
+    cached = mod._pm_inbox_records_for_sprint_role(target_sid, "builder")
+
+    assert [record["task_id"] for record in records] == ["pm-target"]
+    assert cached == records
+    assert reads == [target.name]
+
+
 def test_apply_findings_skips_duplicate_role_handoff_when_live_pm_task_exists(tmp_path, monkeypatch) -> None:
     inbox = tmp_path / "pm-inbox"
     inbox.mkdir(parents=True, exist_ok=True)

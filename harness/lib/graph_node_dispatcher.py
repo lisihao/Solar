@@ -3779,31 +3779,60 @@ def _pop_graph_queue_item(sprint_id: str) -> dict[str, Any] | None:
     with open(lock_path, "a") as lf:
         fcntl.flock(lf, fcntl.LOCK_EX)
         try:
-            items: list[dict[str, Any]] = []
-            for line in qf.read_text().splitlines():
-                try:
-                    items.append(json.loads(line))
-                except Exception:
-                    pass
-            pending = sorted(
-                [item for item in items if not item.get("consumed") and _is_graph_queue_item(item)],
-                key=lambda x: (-x.get("priority", 0), x.get("enqueued_at", "")),
-            )
-            if not pending:
+            selected: dict[str, Any] | None = None
+            selected_line = -1
+            selected_key: tuple[float, str] | None = None
+            consumed_count = 0
+            with qf.open(encoding="utf-8") as source:
+                for line_number, line in enumerate(source):
+                    try:
+                        item = json.loads(line)
+                    except Exception:
+                        continue
+                    if item.get("consumed"):
+                        consumed_count += 1
+                        continue
+                    if not _is_graph_queue_item(item):
+                        continue
+                    try:
+                        priority = float(item.get("priority", 0))
+                    except (TypeError, ValueError):
+                        priority = 0.0
+                    item_key = (-priority, str(item.get("enqueued_at", "")))
+                    if selected_key is None or item_key < selected_key:
+                        selected = item
+                        selected_line = line_number
+                        selected_key = item_key
+
+            retain_consumed = max(0, int(os.environ.get("SOLAR_GRAPH_QUEUE_CONSUMED_RETENTION", "100")))
+            compact_min_bytes = max(0, int(os.environ.get("SOLAR_GRAPH_QUEUE_COMPACT_MIN_BYTES", str(8 * 1024 * 1024))))
+            compact = qf.stat().st_size >= compact_min_bytes and consumed_count > retain_consumed
+            if selected is None and not compact:
                 return None
-            target = pending[0]
-            target["consumed"] = True
-            target["consumed_at"] = _utc_now()
-            for idx, item in enumerate(items):
-                if item.get("id") == target.get("id"):
-                    items[idx] = target
-                    break
+
+            drop_consumed = max(0, consumed_count - retain_consumed) if compact else 0
+            consumed_seen = 0
+            selected_written = False
             tmp = str(qf) + ".tmp"
-            with open(tmp, "w") as f:
-                for item in items:
-                    f.write(json.dumps(item) + "\n")
+            with qf.open(encoding="utf-8") as source, open(tmp, "w", encoding="utf-8") as target_file:
+                for line_number, line in enumerate(source):
+                    try:
+                        item = json.loads(line)
+                    except Exception:
+                        target_file.write(line)
+                        continue
+                    if item.get("consumed"):
+                        consumed_seen += 1
+                        if consumed_seen <= drop_consumed:
+                            continue
+                    elif selected is not None and not selected_written and line_number == selected_line:
+                        item["consumed"] = True
+                        item["consumed_at"] = _utc_now()
+                        selected = item
+                        selected_written = True
+                    target_file.write(json.dumps(item) + "\n")
             os.replace(tmp, str(qf))
-            return target
+            return selected if selected_written else None
         finally:
             fcntl.flock(lf, fcntl.LOCK_UN)
             # The lock is advisory and fd-scoped. Leaving an empty sidecar

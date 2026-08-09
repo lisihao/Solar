@@ -11,6 +11,7 @@ clear instructions to tmux panes when requested.
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import os
@@ -124,6 +125,9 @@ EPIC_ACTIVE_CHILD_STATUSES = {"active", "approved", "reviewing", "ready_for_revi
 EPIC_ACTIVE_CHILD_PHASES = {"prd_ready", "planning_complete", "graph_dispatch_active", "handoff_ready", "builder_in_progress"}
 _GRAPH_STATUS_CACHE_SCAN_DONE = False
 _GRAPH_STATUS_CACHE_SCAN_ROOT = ""
+_PM_INBOX_ENTRY_CACHE_ROOT = ""
+_PM_INBOX_ENTRY_CACHE: tuple[Path, ...] | None = None
+_PM_INBOX_RECORD_CACHE: dict[tuple[str, str, str], tuple[dict, ...]] = {}
 
 try:
     from pane_overlay_state import pane_overlay_detail, prompt_match_is_stale, tail_has_idle_prompt_footer as shared_tail_has_idle_prompt_footer
@@ -1515,11 +1519,44 @@ def _pm_record_age_seconds(record: dict) -> float:
     return 0.0
 
 
+def _reset_pm_inbox_cache() -> None:
+    global _PM_INBOX_ENTRY_CACHE_ROOT, _PM_INBOX_ENTRY_CACHE
+    _PM_INBOX_ENTRY_CACHE_ROOT = ""
+    _PM_INBOX_ENTRY_CACHE = None
+    _PM_INBOX_RECORD_CACHE.clear()
+
+
+def _pm_inbox_entry_paths() -> tuple[Path, ...]:
+    global _PM_INBOX_ENTRY_CACHE_ROOT, _PM_INBOX_ENTRY_CACHE
+    root = str(PM_INBOX_DIR)
+    if _PM_INBOX_ENTRY_CACHE is not None and _PM_INBOX_ENTRY_CACHE_ROOT == root:
+        return _PM_INBOX_ENTRY_CACHE
+    paths: list[Path] = []
+    try:
+        with os.scandir(PM_INBOX_DIR) as entries:
+            for entry in entries:
+                if entry.name.startswith("pm-") and entry.name.endswith(".json") and entry.is_file():
+                    paths.append(Path(entry.path))
+    except OSError:
+        paths = []
+    _PM_INBOX_ENTRY_CACHE_ROOT = root
+    _PM_INBOX_ENTRY_CACHE = tuple(paths)
+    _PM_INBOX_RECORD_CACHE.clear()
+    return _PM_INBOX_ENTRY_CACHE
+
+
 def _pm_inbox_records_for_sprint_role(sid: str, role: str) -> list[dict]:
     if not sid or not role or not PM_INBOX_DIR.exists():
         return []
+    cache_key = (str(PM_INBOX_DIR), sid, role)
+    cached = _PM_INBOX_RECORD_CACHE.get(cache_key)
+    if cached is not None:
+        return list(cached)
     records: list[dict] = []
-    for path in PM_INBOX_DIR.glob("pm-*.json"):
+    filename_prefix = f"pm-{sid}"
+    for path in _pm_inbox_entry_paths():
+        if not path.name.startswith(filename_prefix):
+            continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
@@ -1531,6 +1568,7 @@ def _pm_inbox_records_for_sprint_role(sid: str, role: str) -> list[dict]:
         payload["_path"] = str(path)
         records.append(payload)
     records.sort(key=lambda item: str(item.get("submitted_at") or item.get("created_at") or item.get("updated_at") or ""), reverse=True)
+    _PM_INBOX_RECORD_CACHE[cache_key] = tuple(records)
     return records
 
 
@@ -3855,6 +3893,7 @@ def drain_builder_ready_backlog() -> dict:
 
 
 def scan_once(args: argparse.Namespace, state: dict) -> dict:
+    _reset_pm_inbox_cache()
     epic_filter = str(getattr(args, "epic", "") or "")
     reconcile_action = reconcile_pm_inbox() if args.apply else {}
     queue_actions = retry_queue(state, args.dispatch, args.cooldown, epic_filter=epic_filter) if args.apply else []
@@ -4005,6 +4044,9 @@ def main() -> int:
             iterations += 1
             if not args.loop or (args.max_iterations and iterations >= args.max_iterations):
                 break
+            del payload
+            _reset_pm_inbox_cache()
+            gc.collect()
             time.sleep(max(5, args.interval))
     finally:
         if args.loop:

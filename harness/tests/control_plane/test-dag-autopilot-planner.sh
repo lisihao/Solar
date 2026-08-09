@@ -59,6 +59,7 @@ chmod +x "$TMPDIR_TEST/bin/tmux"
 export PATH="$TMPDIR_TEST/bin:$PATH"
 
 cp "$HARNESS_DIR_REAL/lib/graph_scheduler.py" "$TMPDIR_TEST/lib/graph_scheduler.py"
+cp "$HARNESS_DIR_REAL/lib/status_metadata.py" "$TMPDIR_TEST/lib/status_metadata.py"
 cp "$HARNESS_DIR_REAL/lib/task_queue.py" "$TMPDIR_TEST/lib/task_queue.py"
 cp "$HARNESS_DIR_REAL/lib/pane_lease.py" "$TMPDIR_TEST/lib/pane_lease.py"
 cp "$HARNESS_DIR_REAL/lib/prerequisite_resolver.py" "$TMPDIR_TEST/lib/prerequisite_resolver.py"
@@ -122,7 +123,7 @@ cat > "$TMPDIR_TEST/sprints/${SID}.task_graph.json" <<JSON
       "write_scope": ["/b"],
       "read_scope": ["/"],
       "required_skills": ["python"],
-      "preferred_model": "glm-5.1",
+      "preferred_model": "sonnet",
       "gate": "G2",
       "acceptance": ["S2 passed"],
       "estimated_cost": 1
