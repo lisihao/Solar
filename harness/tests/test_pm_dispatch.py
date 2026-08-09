@@ -930,6 +930,8 @@ def test_pm_operator_flow_control_yields_to_positive_quota_observation(monkeypat
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
     monkeypatch.setattr(pm_dispatch, "_load_operator_availability_module", lambda: None)
     monkeypatch.setattr(pm_dispatch, "_operator_external_health", lambda op: (True, "ok"))
+    monkeypatch.setattr(pm_dispatch, "get_operator_runtime_state", lambda operator_id: "cooldown")
+    monkeypatch.setattr(pm_dispatch, "_actor_lease_runtime_state", lambda operator_id: "")
     operator_id = "mini-codex-gpt53-spark-builder-1"
     (inbox / "pm-spark-limit.json").write_text(
         json.dumps(

@@ -6000,10 +6000,6 @@ def _mark_parent_sprint_passed_if_ready(sid: str, parent: dict[str, Any], dry_ru
     status_file = SPRINTS_DIR / f"{sid}.status.json"
     if not status_file.exists():
         return False
-    try:
-        data = json.loads(status_file.read_text(encoding="utf-8"))
-    except Exception:
-        return False
 
     now = _utc_now()
     if transition_status is not None:
@@ -6024,6 +6020,10 @@ def _mark_parent_sprint_passed_if_ready(sid: str, parent: dict[str, Any], dry_ru
             },
         )
     else:
+        try:
+            data = json.loads(status_file.read_text(encoding="utf-8"))
+        except Exception:
+            return False
         history = data.get("history")
         if not isinstance(history, list):
             history = []

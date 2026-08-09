@@ -30,6 +30,37 @@ err()  { echo -e "${R}[TokenTracker]${N} $*"; }
 
 mkdir -p "$REPORTS_DIR"
 
+status_field() {
+  local path="$1"
+  local field="$2"
+  local default_value="${3:-}"
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$path" "$field" "$default_value" <<'PY' 2>/dev/null
+import sys
+from status_metadata import read_status_metadata
+
+print(read_status_metadata(sys.argv[1]).get(sys.argv[2], sys.argv[3]))
+PY
+}
+
+status_rows() {
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SPRINTS_DIR" <<'PY' 2>/dev/null
+import glob
+import os
+import sys
+from status_metadata import read_status_metadata
+
+paths = glob.glob(os.path.join(sys.argv[1], "*.status.json"))
+paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+for path in paths:
+    try:
+        data = read_status_metadata(path)
+    except Exception:
+        continue
+    sid = data.get("sprint_id") or data.get("id") or os.path.basename(path)[:-len(".status.json")]
+    print(f"{data.get('status', '')}\t{sid}\t{path}")
+PY
+}
+
 # --- 计算文件的 token 数 (行数 × 系数) ---
 count_tokens_in_file() {
   local f="$1"
@@ -77,16 +108,12 @@ do_baseline() {
 
   # 找最近 5 个 passed sprint
   local passed_sids=()
-  while IFS= read -r f; do
+  while IFS=$'\t' read -r st sid f; do
     [[ -f "$f" ]] || continue
-    local st
-    st=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
     if [[ "$st" == "passed" || "$st" == "eval_pass" ]]; then
-      local sid
-      sid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
       passed_sids+=("$sid")
     fi
-  done < <(ls -t "$SPRINTS_DIR"/*.status.json 2>/dev/null)
+  done < <(status_rows)
 
   local count=0
   local total_tokens=0
@@ -101,7 +128,7 @@ do_baseline() {
     local tokens
     tokens=$(measure_sprint "$sid")
     local round
-    round=$(python3 -c "import json; print(json.load(open('$SPRINTS_DIR/${sid}.status.json')).get('round',0))" 2>/dev/null || echo "0")
+    round=$(status_field "$SPRINTS_DIR/${sid}.status.json" "round" "0" || echo "0")
 
     # 计算平均每轮
     local per_round=0
@@ -135,7 +162,7 @@ do_measure() {
   local tokens
   tokens=$(measure_sprint "$sid")
   local round
-  round=$(python3 -c "import json; print(json.load(open('$SPRINTS_DIR/${sid}.status.json')).get('round',0))" 2>/dev/null || echo "0")
+  round=$(status_field "$SPRINTS_DIR/${sid}.status.json" "round" "0" || echo "0")
 
   ok "Sprint ${sid}:"
   echo "  总 token: ${tokens}"
@@ -166,18 +193,15 @@ do_report() {
 
   # 计算基线 (最近 5 个 passed, 排除当前 sprint)
   local baseline_total=0 baseline_count=0
-  while IFS= read -r f; do
+  while IFS=$'\t' read -r bst bsid f; do
     [[ -f "$f" ]] || continue
-    local bst bsid
-    bst=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-    bsid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
     if [[ "$bst" == "passed" || "$bst" == "eval_pass" ]] && [[ "$bsid" != "$sid" ]]; then
       if [[ "$baseline_count" -lt 5 ]]; then
         baseline_total=$((baseline_total + $(measure_sprint "$bsid")))
         baseline_count=$((baseline_count + 1))
       fi
     fi
-  done < <(ls -t "$SPRINTS_DIR"/*.status.json 2>/dev/null)
+  done < <(status_rows)
 
   if [[ "$baseline_count" -eq 0 ]]; then
     err "无历史 Sprint 作为基线"
@@ -190,11 +214,8 @@ do_report() {
 
   # 归档后活跃文件 token (归档的实际节省效果)
   local archived_active_total=0 archived_count=0
-  while IFS= read -r f; do
+  while IFS=$'\t' read -r bst bsid f; do
     [[ -f "$f" ]] || continue
-    local bst bsid
-    bst=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-    bsid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
     if [[ "$bst" == "passed" || "$bst" == "eval_pass" ]] && [[ "$bsid" != "$sid" ]]; then
       if [[ -f "$SPRINTS_DIR/${bsid}.summary.md" ]]; then
         # 已归档: 只算活跃文件
@@ -202,7 +223,7 @@ do_report() {
         archived_count=$((archived_count + 1))
       fi
     fi
-  done < <(ls -t "$SPRINTS_DIR"/*.status.json 2>/dev/null)
+  done < <(status_rows)
 
   local archived_avg=0
   if [[ "$archived_count" -gt 0 ]]; then
@@ -221,7 +242,7 @@ do_report() {
   fi
 
   local round
-  round=$(python3 -c "import json; print(json.load(open('$SPRINTS_DIR/${sid}.status.json')).get('round',0))" 2>/dev/null || echo "0")
+  round=$(status_field "$SPRINTS_DIR/${sid}.status.json" "round" "0" || echo "0")
 
   cat > "$report_file" << REPORT_EOF
 # Token 节省报告 — ${sid}
@@ -257,18 +278,15 @@ Sprint: ${sid}
 REPORT_EOF
 
   # 已归档 Sprint 明细
-  while IFS= read -r f; do
+  while IFS=$'\t' read -r bst bsid f; do
     [[ -f "$f" ]] || continue
-    local bst bsid
-    bst=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-    bsid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
     if [[ "$bst" == "passed" || "$bst" == "eval_pass" ]] && [[ -f "$SPRINTS_DIR/${bsid}.summary.md" ]]; then
       local total_t active_t
       total_t=$(measure_sprint "$bsid")
       active_t=$(measure_active_tokens "$bsid")
       echo "| ${bsid} | 全量 ${total_t} → 活跃 ${active_t} |" >> "$report_file"
     fi
-  done < <(ls -t "$SPRINTS_DIR"/*.status.json 2>/dev/null | head -5)
+  done < <(status_rows | head -5)
 
   # 本 Sprint 明细
   echo "" >> "$report_file"

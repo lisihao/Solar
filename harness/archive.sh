@@ -27,6 +27,18 @@ err()  { echo -e "${R}[Archive]${N} $*"; }
 
 mkdir -p "$ARCHIVE_DIR"
 
+status_field() {
+  local path="$1"
+  local field="$2"
+  local default_value="${3:-}"
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$path" "$field" "$default_value" <<'PY' 2>/dev/null
+import sys
+from status_metadata import read_status_projection_metadata
+
+print(read_status_projection_metadata(sys.argv[1], tail_read_limit=512 * 1024).get(sys.argv[2], sys.argv[3]))
+PY
+}
+
 # --- 生成 summary.md ---
 generate_summary() {
   local sid="$1"
@@ -34,33 +46,40 @@ generate_summary() {
   local events_file="$SPRINTS_DIR/${sid}.events.jsonl"
   local summary_file="$SPRINTS_DIR/${sid}.summary.md"
 
-  local title status created_at round
-  title=$(python3 -c "import json; print(json.load(open('$sf')).get('title',''))" 2>/dev/null || echo "unknown")
-  status=$(python3 -c "import json; print(json.load(open('$sf')).get('status',''))" 2>/dev/null || echo "unknown")
-  created_at=$(python3 -c "import json; print(json.load(open('$sf')).get('created_at',''))" 2>/dev/null || echo "unknown")
-  round=$(python3 -c "import json; print(json.load(open('$sf')).get('round',0))" 2>/dev/null || echo "0")
-  local updated_at
-  updated_at=$(python3 -c "import json; print(json.load(open('$sf')).get('updated_at',''))" 2>/dev/null || echo "unknown")
+  local title status created_at round updated_at
+  IFS=$'\t' read -r title status created_at round updated_at < <(
+    PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$sf" <<'PY' 2>/dev/null
+import sys
+from status_metadata import read_status_projection_metadata
+
+d = read_status_projection_metadata(sys.argv[1], tail_read_limit=512 * 1024)
+values = [d.get("title", "unknown"), d.get("status", "unknown"), d.get("created_at", "unknown"), d.get("round", 0), d.get("updated_at", "unknown")]
+print("\t".join(str(value).replace("\t", " ").replace("\n", " ") for value in values))
+PY
+  )
 
   # 从 events.jsonl 提取关键事件
   local key_events=""
   if [[ -f "$events_file" ]]; then
     key_events=$(python3 -c "
 import json, sys
-lines = [l.strip() for l in open('${events_file}') if l.strip()]
 # 提取关键事件: dispatched, waked, passed, failed, watchdog_restart
 key_types = {'dispatched', 'waked', 'state_changed', 'watchdog_restart', 'watchdog_circuit_break'}
 result = []
-for line in lines:
+for line in open('${events_file}'):
+    line = line.strip()
+    if not line:
+        continue
     try:
         d = json.loads(line)
         evt = d.get('event', '')
         if evt in key_types or 'passed' in evt.lower() or 'fail' in evt.lower():
             result.append(f\"- {d.get('ts','')} [{d.get('by','')}] {evt}\" + (f\": {d.get('data',{}).get('to','') if isinstance(d.get('data'),dict) else ''}\" if isinstance(d.get('data'),dict) else ''))
+            if len(result) >= 20:
+                break
     except:
         pass
-# 最多 20 条
-for r in result[:20]:
+for r in result:
     print(r)
 " 2>/dev/null || echo "- (无法解析事件)")
   fi
@@ -120,7 +139,7 @@ do_archive() {
   [[ -f "$sf" ]] || { err "Sprint 不存在: $sid"; exit 1; }
 
   local st
-  st=$(python3 -c "import json; print(json.load(open('$sf')).get('status',''))" 2>/dev/null)
+  st=$(status_field "$sf" "status")
 
   case "$st" in
     passed|done|failed|eval_pass) ;;
@@ -277,8 +296,8 @@ do_status() {
       local summary="$SPRINTS_DIR/${sid}.summary.md"
       if [[ -f "$summary" ]]; then
         local st round
-        st=$(python3 -c "import json; print(json.load(open('$SPRINTS_DIR/${sid}.status.json')).get('status',''))" 2>/dev/null || echo "?")
-        round=$(python3 -c "import json; print(json.load(open('$SPRINTS_DIR/${sid}.status.json')).get('round',0))" 2>/dev/null || echo "?")
+        st=$(status_field "$SPRINTS_DIR/${sid}.status.json" "status" "?" || echo "?")
+        round=$(status_field "$SPRINTS_DIR/${sid}.status.json" "round" "0" || echo "?")
         echo -e "  ${C}${sid}${N}  ${st}  R${round}"
       else
         echo -e "  ${Y}${sid}${N}  (无 summary)"

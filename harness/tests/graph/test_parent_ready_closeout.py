@@ -30,6 +30,17 @@ def _install_canonical_graph_scheduler() -> None:
     sys.modules["graph_scheduler"] = module
 
 
+def _install_canonical_graph_node_dispatcher():
+    spec = importlib.util.spec_from_file_location(
+        "graph_node_dispatcher", HARNESS_LIB / "graph_node_dispatcher.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    sys.modules["graph_node_dispatcher"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -86,7 +97,7 @@ def tmp_harness(tmp_path, monkeypatch):
     (sprints / f"{sid}.status.json").write_text(json.dumps(status) + "\n")
 
     monkeypatch.setenv("HARNESS_DIR", str(tmp_path))
-    import graph_node_dispatcher as gnd
+    gnd = _install_canonical_graph_node_dispatcher()
     monkeypatch.setattr(gnd, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
 
@@ -137,6 +148,41 @@ class TestParentReadyCloseout:
         assert status["status"] == "passed"
         assert status["phase"] == "completed"
         assert "graph_parent_ready_passed" in str(status.get("history", []))
+
+    def test_parent_pass_uses_transition_without_full_status_read(self, tmp_harness, monkeypatch):
+        import graph_node_dispatcher as gnd
+
+        _tmp_path, sprints, sid, _graph = tmp_harness
+        status_path = sprints / f"{sid}.status.json"
+        calls = []
+
+        def fake_transition(path, status, event, actor, *, extra):
+            calls.append((path, status, event, actor, extra))
+
+        original_read_text = Path.read_text
+
+        def guarded_read_text(path, *args, **kwargs):
+            if path == status_path:
+                raise AssertionError("transition path must not full-load sprint status")
+            return original_read_text(path, *args, **kwargs)
+
+        target = gnd._mark_parent_sprint_passed_if_ready
+        # Other graph suites reload this module during collection. Patch the
+        # function globals directly so this regression is order-independent.
+        monkeypatch.setitem(target.__globals__, "SPRINTS_DIR", sprints)
+        monkeypatch.setitem(target.__globals__, "transition_status", fake_transition)
+        monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+        result = target(
+            sid,
+            {"ready": True, "node_count": 1, "required_gates": []},
+            dry_run=False,
+        )
+
+        assert result is True
+        assert len(calls) == 1
+        assert calls[0][0] == status_path
+        assert calls[0][1:4] == ("passed", "graph_parent_ready_passed", "graph-dispatch")
 
     def test_parent_not_passed_in_dry_run(self, tmp_harness):
         """Dry run never marks parent as passed."""

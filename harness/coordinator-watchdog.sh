@@ -101,6 +101,50 @@ is_actionable_state() {
   esac
 }
 
+status_field() {
+  local path="$1"
+  local field="$2"
+  local default_value="${3:-}"
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$path" "$field" "$default_value" <<'PY' 2>/dev/null
+import sys
+from status_metadata import read_status_metadata
+
+print(read_status_metadata(sys.argv[1]).get(sys.argv[2], sys.argv[3]))
+PY
+}
+
+find_actionable_sprint() {
+  local order="${1:-lexical}"
+  local state_filter="${2:-actionable}"
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SPRINTS_DIR" "$order" "$state_filter" <<'PY' 2>/dev/null
+import glob
+import os
+import sys
+from status_metadata import read_status_metadata
+
+sprints_dir, order, state_filter = sys.argv[1:4]
+paths = glob.glob(os.path.join(sprints_dir, "*.status.json"))
+if order == "newest":
+    paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+else:
+    paths.sort()
+terminal = {"passed", "done", "failed", "eval_pass", "cancelled"}
+actionable = {"drafting", "active", "reviewing", "approved"}
+for path in paths:
+    try:
+        data = read_status_metadata(path)
+    except Exception:
+        continue
+    status = str(data.get("status") or "")
+    if state_filter == "nonterminal" and status in terminal:
+        continue
+    if state_filter != "nonterminal" and status not in actionable:
+        continue
+    print(data.get("id") or "")
+    break
+PY
+}
+
 # --- 读取连续失败计数 ---
 get_failure_count() {
   if [[ -f "$WATCHDOG_STATE" ]]; then
@@ -160,7 +204,7 @@ do_check() {
     sf=$(ls -t "$SPRINTS_DIR"/*.status.json 2>/dev/null | head -1)
     if [[ -n "$sf" ]]; then
       local sid
-      sid=$(python3 -c "import json; print(json.load(open('$sf')).get('id',''))" 2>/dev/null)
+      sid=$(status_field "$sf" "id")
       if [[ -n "$sid" ]]; then
         bash "$HARNESS_DIR/session.sh" append "$sid" "{\"event\":\"watchdog_circuit_break\",\"by\":\"watchdog\",\"data\":{\"failures\":${failures}}}" 2>/dev/null || true
       fi
@@ -176,23 +220,16 @@ do_check() {
     active_sid=$(sed -n 's/^solar-harness:0\.2=\([^:]*\):.*/\1/p' "$HARNESS_DIR/.pane-assignments" | head -1)
     if [[ -n "$active_sid" && -f "$SPRINTS_DIR/${active_sid}.status.json" ]]; then
       local assigned_st
-      assigned_st=$(python3 -c "import json; print(json.load(open('$SPRINTS_DIR/${active_sid}.status.json')).get('status',''))" 2>/dev/null)
+      assigned_st=$(status_field "$SPRINTS_DIR/${active_sid}.status.json" "status")
       is_actionable_state "$assigned_st" || active_sid=""
     else
       active_sid=""
     fi
   fi
 
-  for f in $(ls -t "$SPRINTS_DIR"/*.status.json 2>/dev/null); do
-    [[ -z "$active_sid" ]] || break
-    [[ -f "$f" ]] || continue
-    local st
-    st=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-    if is_actionable_state "$st"; then
-      active_sid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
-      break
-    fi
-  done
+  if [[ -z "$active_sid" ]]; then
+    active_sid=$(find_actionable_sprint newest)
+  fi
 
   bash "$HARNESS_DIR/coordinator.sh" >> "$HARNESS_DIR/.coordinator.log" 2>&1 &
   log "Coordinator 重启已触发 (spawn PID: $!, pidfile 由 coordinator 接管)"
@@ -447,14 +484,7 @@ check_panes() {
     if (( elapsed < PANE_RESTART_COOLDOWN && count >= PANE_MAX_RESTARTS )); then
       # 超限 → 写警告转人工
       local active_sid=""
-      for f in "$SPRINTS_DIR"/*.status.json; do
-        [[ -f "$f" ]] || continue
-        local fst
-        fst=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-        case "$fst" in passed|done|failed|eval_pass|cancelled) continue ;; esac
-        active_sid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
-        break
-      done
+      active_sid=$(find_actionable_sprint lexical nonterminal)
       if [[ -n "$active_sid" ]]; then
         bash "$HARNESS_DIR/session.sh" append "$active_sid" \
           "{\"event\":\"pane_restart_rate_limited\",\"by\":\"watchdog\",\"data\":{\"pane\":\"$target\",\"persona\":\"$persona\",\"host_role\":\"$host_role\",\"count\":$count}}" 2>/dev/null || true
@@ -528,14 +558,7 @@ check_panes() {
 
     # 写事件
     local active_sid=""
-    for f in "$SPRINTS_DIR"/*.status.json; do
-      [[ -f "$f" ]] || continue
-      local fst
-      fst=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-      case "$fst" in passed|done|failed|eval_pass|cancelled) continue ;; esac
-      active_sid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
-      break
-    done
+    active_sid=$(find_actionable_sprint lexical nonterminal)
     if [[ -n "$active_sid" ]]; then
         bash "$HARNESS_DIR/session.sh" append "$active_sid" \
         "{\"event\":\"pane_auto_restarted\",\"by\":\"watchdog\",\"data\":{\"pane\":\"$target\",\"persona\":\"$persona\",\"host_role\":\"$host_role\",\"restart_count\":$new_count}}" 2>/dev/null || true

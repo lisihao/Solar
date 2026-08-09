@@ -65,6 +65,8 @@ LIB = pathlib.Path(__file__).resolve().parent
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
+from status_metadata import read_status_metadata
+
 
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -142,7 +144,7 @@ class DirtyScanner:
                     continue  # 终态且未变, 纯 stat 跳过 (无 json.load)
             else:
                 try:
-                    is_term = json.load(open(sp)).get("status") in TERM
+                    is_term = read_status_metadata(sp).get("status") in TERM
                 except Exception:
                     continue  # 损坏文件交 repair 路径, 不进脏集
                 self.terminal_cache[sid] = is_term

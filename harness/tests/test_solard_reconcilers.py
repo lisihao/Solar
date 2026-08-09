@@ -527,6 +527,32 @@ class TestGraphDispatchReconciler(unittest.TestCase):
         self.assertIn("N1", message)
 
 
+class TestDirtyScanner(unittest.TestCase):
+
+    def test_status_change_uses_bounded_metadata_reader(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            sprints = root / "sprints"
+            state_dir = root / "state"
+            sprints.mkdir()
+            sid = "sprint-large-status"
+            status_path = sprints / f"{sid}.status.json"
+            status_path.write_text(
+                json.dumps({"status": "active", "history": ["x" * 1024] * 1024}),
+                encoding="utf-8",
+            )
+
+            with patch("solard.SPRINTS", sprints), \
+                 patch("solard.STATE_DIR", state_dir), \
+                 patch("solard.SNAPSHOT", state_dir / "dirty-snapshot.json"), \
+                 patch("solard.read_status_metadata", return_value={"status": "active"}) as reader:
+                scanner = solard.DirtyScanner()
+                dirty = scanner.scan()
+
+        self.assertEqual(dirty, [sid])
+        reader.assert_called_once_with(status_path)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. solard status
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -331,11 +331,12 @@ choose_available_builder_pane() {
 sprint_queue_priority() {
   local sid="$1" sf="$SPRINTS_DIR/${sid}.status.json"
   local compile_boost
-  compile_boost=$(python3 -c "
-import json, pathlib
+  compile_boost=$(PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+import pathlib
+from status_metadata import read_status_metadata
 sf=pathlib.Path('$sf')
 sid=sf.name.replace('.status.json','')
-d=json.load(open(sf))
+d=read_status_metadata(sf)
 phase=str(d.get('phase',''))
 handoff=str(d.get('handoff_to',''))
 root=sf.parent
@@ -352,7 +353,8 @@ else:
     return 0
   fi
   local p
-  p=$(python3 -c "import json; print(str(json.load(open('$sf')).get('priority','P1')).upper())" 2>/dev/null || echo "P1")
+  p=$(get_field "$sf" "priority" 2>/dev/null || echo "P1")
+  p=$(printf '%s' "${p:-P1}" | tr '[:lower:]' '[:upper:]')
   case "$p" in
     P0|0) echo 100 ;;
     P1|1) echo 50 ;;
@@ -637,16 +639,14 @@ status_is_terminal_for_assignment() {
   local sid="$1"
   local sf="$SPRINTS_DIR/${sid}.status.json"
   [[ -f "$sf" ]] || return 0
-  local st
-  st=$(python3 -c "import json; print(json.load(open('$sf')).get('status',''))" 2>/dev/null || echo "")
-  case "$st" in
-    passed|done|eval_pass|failed|cancelled|superseded|interrupted)
-      return 0
-      ;;
-  esac
-  python3 - "$sf" <<'PY' 2>/dev/null && return 0 || true
-import json, sys
-d = json.load(open(sys.argv[1]))
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$sf" <<'PY' 2>/dev/null && return 0 || true
+import sys
+from status_metadata import read_status_projection_metadata
+
+d = read_status_projection_metadata(sys.argv[1], tail_read_limit=512 * 1024)
+status = d.get("status", "")
+if status in {"passed", "done", "eval_pass", "failed", "cancelled", "superseded", "interrupted"}:
+    raise SystemExit(0)
 phase = d.get("phase", "")
 handoff_to = d.get("handoff_to", "")
 target_role = d.get("target_role", "")
@@ -793,40 +793,45 @@ clear_stale_dispatch_lock() {
 # 防重复派发靠主循环 last_state != current_state，不靠此处跳过
 declare -A _corrupted_logged
 get_latest_sprint_file() {
-  local best="" best_mtime=0
-
-  for f in "$SPRINTS_DIR"/sprint-*.status.json; do
-    [[ -f "$f" ]] || continue
-
-    # JSON 可读但缺 id/sprint_id 时按文件名自愈；真正不可读才降频告警。
-    local fid
-    fid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
-    if [[ -z "$fid" ]]; then
-      local repair_result
+  local kind f fid repair_result
+  while IFS=$'\t' read -r kind f; do
+    [[ -n "$f" ]] || continue
+    if [[ "$kind" == "ok" ]]; then
+      echo "$f"
+      return 0
+    fi
+    if [[ "$kind" == "missing_id" ]]; then
       repair_result="$(repair_status_identity "$f" 2>/dev/null || true)"
       if [[ "$repair_result" == "repaired" || "$repair_result" == "ok" ]]; then
-        fid=$(python3 -c "import json; print(json.load(open('$f')).get('id',''))" 2>/dev/null)
-        [[ -n "$fid" ]] && [[ "$repair_result" == "repaired" ]] && log "${Y}[status-repair] recovered missing id: $f -> $fid${N}"
+        fid=$(get_field "$f" "id")
+        if [[ -n "$fid" ]]; then
+          [[ "$repair_result" == "repaired" ]] && log "${Y}[status-repair] recovered missing id: $f -> $fid${N}"
+          echo "$f"
+          return 0
+        fi
       fi
     fi
-    if [[ -z "$fid" ]]; then
-      if [[ -z "${_corrupted_logged[$f]:-}" ]]; then
-        log "corrupted status.json skipped: $f"
-        _corrupted_logged[$f]=1
-      fi
-      continue
+    if [[ -z "${_corrupted_logged[$f]:-}" ]]; then
+      log "corrupted status.json skipped: $f"
+      _corrupted_logged[$f]=1
     fi
+  done < <(PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SPRINTS_DIR" <<'PY' 2>/dev/null
+import glob
+import os
+import sys
+from status_metadata import read_status_metadata
 
-    # 取修改时间最新的 sprint (不管状态)
-    local mtime
-    mtime=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)
-    if [[ "$mtime" -gt "$best_mtime" ]]; then
-      best_mtime="$mtime"
-      best="$f"
-    fi
-  done
-
-  echo "$best"
+paths = glob.glob(os.path.join(sys.argv[1], "sprint-*.status.json"))
+paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+for path in paths:
+    try:
+        data = read_status_metadata(path)
+    except Exception:
+        print(f"corrupt\t{path}")
+        continue
+    print(f"{'ok' if data.get('id') else 'missing_id'}\t{path}")
+PY
+  )
 }
 
 get_field() {
@@ -2637,9 +2642,9 @@ pm_requirements_file() {
 
 status_has_manual_override() {
   local sf="$1"
-  python3 -c "
-import json, sys
-d=json.load(open('$sf'))
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+from status_metadata import read_status_metadata
+d=read_status_metadata('$sf')
 print('1' if d.get('manual_override') is True or d.get('source') == 'manual_override' else '')
 " 2>/dev/null | grep -q 1
 }
@@ -2670,11 +2675,11 @@ status_has_bypass_pm() {
   local sid="$1"
   local sf="$SPRINTS_DIR/${sid}.status.json"
   [[ -f "$sf" ]] || return 1
-  python3 - "$sf" <<'PY' 2>/dev/null | grep -q 1
-import json
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$sf" <<'PY' 2>/dev/null | grep -q 1
 import sys
+from status_metadata import read_status_metadata
 
-d = json.load(open(sys.argv[1]))
+d = read_status_metadata(sys.argv[1])
 handoff = str(d.get("handoff_to", ""))
 phase = str(d.get("phase", ""))
 if d.get("bypass_pm") is True or d.get("contract_bypass_pm") is True:
@@ -2898,9 +2903,10 @@ handle_drafting() {
   local plan="$SPRINTS_DIR/${sid}.plan.md"
   local req_file=""
 
-  if python3 - "$sf" <<'PY' 2>/dev/null
-import json, sys
-d=json.load(open(sys.argv[1]))
+  if PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$sf" <<'PY' 2>/dev/null
+import sys
+from status_metadata import read_status_metadata
+d=read_status_metadata(sys.argv[1])
 if d.get("auto_held") or d.get("status") == "drafting_held":
     sys.exit(0)
 sys.exit(1)
@@ -3762,7 +3768,9 @@ merge_handoffs() {
 handle_building_parallel() {
   local sid="$1" sf="$2"
   local expected
-  expected=$(python3 -c "import json; d=json.load(open('$sf')); print(int(d.get('parallel_expected_handoffs', 2)))" 2>/dev/null || echo 2)
+  expected=$(get_field "$sf" "parallel_expected_handoffs" 2>/dev/null || echo 2)
+  expected="${expected:-2}"
+  [[ "$expected" =~ ^[0-9]+$ ]] || expected=2
 
   local count=0 i
   for (( i=1; i<=expected; i++ )); do
@@ -3778,7 +3786,8 @@ handle_building_parallel() {
   merge_handoffs "$sid" || { log "${R}[mixture] merge failed${N}"; return 1; }
 
   local integrate_enabled
-  integrate_enabled=$(python3 -c "import json; d=json.load(open('$sf')); print('1' if d.get('parallel_integrate_enabled') else '0')" 2>/dev/null || echo 0)
+  integrate_enabled=$(get_field "$sf" "parallel_integrate_enabled" 2>/dev/null || echo 0)
+  case "${integrate_enabled,,}" in true|1) integrate_enabled=1 ;; *) integrate_enabled=0 ;; esac
   if [[ "$integrate_enabled" == "1" ]]; then
     if ! bash "$HARNESS_DIR/lib/parallel-integrate.sh" "$sid" >> "$COORD_LOG" 2>&1; then
       log "${R}[parallel-integrate] ${sid}: 集成失败，已保留报告 ${SPRINTS_DIR}/${sid}.parallel-integrate.md${N}"
@@ -4002,7 +4011,7 @@ remote_notify() {
     local sf="$SPRINTS_DIR/${sid}.status.json"
     if [[ ! -f "$sf" ]]; then return 0; fi
     local origin
-    origin=$(python3 -c "import json; d=json.load(open('$sf')); print(d.get('remote_origin',''))" 2>/dev/null || echo "")
+    origin=$(get_field "$sf" "remote_origin" 2>/dev/null || echo "")
     if [[ -z "$origin" ]]; then return 0; fi
     local outbox="$HOME/.solar/state/remote-outbox.jsonl"
     mkdir -p "$(dirname "$outbox")"

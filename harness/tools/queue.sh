@@ -215,9 +215,9 @@ with open(lock_path, 'a') as lf:
             print(0)
             sys.exit(0)
 
-        items = []
-        with open(qf) as f:
-            for line in f:
+        tmp = qf + '.tmp'
+        with open(qf) as source, open(tmp, 'w') as target:
+            for line in source:
                 line = line.strip()
                 if not line:
                     continue
@@ -231,12 +231,7 @@ with open(lock_path, 'a') as lf:
                     item['consumed_by'] = 'queue_consume_all'
                     item['consume_reason'] = reason
                     changed += 1
-                items.append(item)
-
-        tmp = qf + '.tmp'
-        with open(tmp, 'w') as f:
-            for item in items:
-                f.write(json.dumps(item, ensure_ascii=False) + '\n')
+                target.write(json.dumps(item, ensure_ascii=False) + '\n')
         os.replace(tmp, qf)
         print(changed)
     finally:
