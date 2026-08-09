@@ -23,7 +23,20 @@ def _load_pm_dispatch():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module.PM_LEGACY_EVIDENCE_SCAN = True
-    module.ACTOR_LEASE_DIR = Path(tempfile.mkdtemp(prefix="pm-dispatch-actor-leases-"))
+    runtime_root = Path(tempfile.mkdtemp(prefix="pm-dispatch-runtime-"))
+    module.PM_INBOX_DIR = runtime_root / "pm-inbox"
+    module.OPERATOR_INBOX_DIR = runtime_root / "operator-inbox"
+    module.OPERATOR_RESULTS_DIR = runtime_root / "operator-results"
+    module.OPERATOR_STATUS_DIR = runtime_root / "operator-status"
+    module.ACTOR_LEASE_DIR = runtime_root / "actor-leases"
+    for path in (
+        module.PM_INBOX_DIR,
+        module.OPERATOR_INBOX_DIR,
+        module.OPERATOR_RESULTS_DIR,
+        module.OPERATOR_STATUS_DIR,
+        module.ACTOR_LEASE_DIR,
+    ):
+        path.mkdir(parents=True)
     return module
 
 
@@ -1369,6 +1382,7 @@ def test_eval_sidecar_only_operator_rejected_for_non_eval_closeout_artifacts(mon
         },
     )
     monkeypatch.setattr(pm_dispatch, "is_dispatchable", lambda op: (True, ""))
+    monkeypatch.setattr(pm_dispatch, "_active_pm_count_for_operator", lambda operator_id, role="": 0)
 
     operator_id, operator, reason = pm_dispatch.select_operator_by_role(
         role="evaluator",

@@ -1768,6 +1768,8 @@ def _existing_node_handoff(sid: str, node: dict[str, Any], graph: dict[str, Any]
 
 
 _EVAL_SIDECAR_MTIME_TOLERANCE_SEC = 2.0
+_DISPATCH_LEDGER_INDEX_SIGNATURE: tuple[int, int] | None = None
+_DISPATCH_LEDGER_INDEX: dict[tuple[str, str], dict[str, Any]] = {}
 
 
 def _eval_sidecar_fresh_for_handoff(eval_json_path: str | Path, handoff_path: str | Path, sid: str, node_id: str) -> dict[str, Any]:
@@ -1799,23 +1801,56 @@ def _eval_sidecar_fresh_for_handoff(eval_json_path: str | Path, handoff_path: st
     }
 
 
-def _ledger_dispatch_for(sid: str, instruction_file: Path) -> dict[str, Any]:
+def _dispatch_ledger_index() -> dict[tuple[str, str], dict[str, Any]]:
+    global _DISPATCH_LEDGER_INDEX_SIGNATURE, _DISPATCH_LEDGER_INDEX
     if not DISPATCH_LEDGER.exists():
+        _DISPATCH_LEDGER_INDEX_SIGNATURE = None
+        _DISPATCH_LEDGER_INDEX = {}
+        return _DISPATCH_LEDGER_INDEX
+    try:
+        stat = DISPATCH_LEDGER.stat()
+        signature = (stat.st_size, stat.st_mtime_ns)
+    except OSError:
         return {}
+    if signature == _DISPATCH_LEDGER_INDEX_SIGNATURE:
+        return _DISPATCH_LEDGER_INDEX
+
+    index: dict[tuple[str, str], dict[str, Any]] = {}
+    with DISPATCH_LEDGER.open(encoding="utf-8", errors="ignore") as ledger:
+        for raw in ledger:
+            try:
+                row = json.loads(raw)
+            except Exception:
+                continue
+            if row.get("kind") != "intent_injected":
+                continue
+            row_sid = str(row.get("sid") or "")
+            instruction = str(row.get("instruction_file") or "")
+            if not instruction and isinstance(row.get("_raw"), str):
+                try:
+                    nested, _ = json.JSONDecoder().raw_decode(row["_raw"])
+                except Exception:
+                    nested = {}
+                if isinstance(nested, dict):
+                    instruction = str(nested.get("instruction_file") or "")
+            if not row_sid or not instruction:
+                continue
+            index[(row_sid, instruction)] = {
+                "sid": row_sid,
+                "kind": "intent_injected",
+                "pane": str(row.get("pane") or ""),
+                "dispatch_id": str(row.get("dispatch_id") or ""),
+                "instruction_file": instruction,
+            }
+    _DISPATCH_LEDGER_INDEX_SIGNATURE = signature
+    _DISPATCH_LEDGER_INDEX = index
+    return _DISPATCH_LEDGER_INDEX
+
+
+def _ledger_dispatch_for(sid: str, instruction_file: Path) -> dict[str, Any]:
     needle = str(instruction_file)
-    found: dict[str, Any] = {}
-    for raw in DISPATCH_LEDGER.read_text(encoding="utf-8", errors="ignore").splitlines():
-        try:
-            row = json.loads(raw)
-        except Exception:
-            continue
-        if row.get("sid") != sid or row.get("kind") != "intent_injected":
-            continue
-        text = json.dumps(row, ensure_ascii=False)
-        if needle not in text:
-            continue
-        found = row
-    return found
+    indexed = _dispatch_ledger_index().get((sid, needle))
+    return dict(indexed) if indexed is not None else {}
 
 
 def _active_multi_task_status_for(sid: str, node_id: str) -> dict[str, Any] | None:
