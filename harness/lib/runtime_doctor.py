@@ -18,10 +18,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from status_metadata import read_status_metadata
+
 HARNESS_DIR = os.path.expanduser(os.environ.get("HARNESS_DIR", "~/.solar/harness"))
 SPRINTS_DIR = os.path.join(HARNESS_DIR, "sprints")
 SESSIONS_DIR = os.path.join(HARNESS_DIR, "sessions")
-STATUS_METADATA_READ_LIMIT = 128 * 1024
 
 
 def _now_ts() -> str:
@@ -36,41 +37,6 @@ def _age_minutes(ts_str: str) -> Optional[float]:
         return (datetime.now(timezone.utc) - dt).total_seconds() / 60
     except ValueError:
         return None
-
-
-def _read_status_metadata(path: Path) -> Dict[str, Any]:
-    """Read top-level status metadata without materializing its large history."""
-    lines: List[str] = []
-    bytes_read = 0
-    history_found = False
-    reached_eof = False
-
-    with path.open(encoding="utf-8") as fh:
-        while bytes_read < STATUS_METADATA_READ_LIMIT:
-            line = fh.readline()
-            if not line:
-                reached_eof = True
-                break
-            bytes_read += len(line.encode("utf-8"))
-            if line.lstrip().startswith('"history"'):
-                history_found = True
-                break
-            lines.append(line)
-
-    if history_found:
-        prefix = "".join(lines).rstrip()
-        if prefix.endswith(","):
-            prefix = prefix[:-1]
-        data = json.loads(f"{prefix}\n}}")
-    elif reached_eof:
-        data = json.loads("".join(lines))
-    else:
-        # Non-standard field ordering falls back to a full, correctness-first read.
-        data = json.loads(path.read_text(encoding="utf-8"))
-
-    if not isinstance(data, dict):
-        raise ValueError("status document must be a JSON object")
-    return data
 
 
 # ------------------------------------------------------------------
@@ -223,7 +189,7 @@ def _check_status_json(sprint_id: str, *, full_validation: bool = True) -> Dict[
             with open(path, encoding="utf-8") as fh:
                 data = json.load(fh)
         else:
-            data = _read_status_metadata(Path(path))
+            data = read_status_metadata(path)
         age = None
         ts = data.get("updated_at") or data.get("projected_at")
         if ts:
@@ -271,7 +237,7 @@ def _check_state_surface_drift(sprint_id: str) -> Dict[str, Any]:
     }
 
     try:
-        status = _read_status_metadata(status_path) if status_path.exists() else {}
+        status = read_status_metadata(status_path) if status_path.exists() else {}
     except Exception as exc:
         return {"ok": False, "warn": True, "message": f"status corrupt: {exc}"}
 
@@ -710,7 +676,7 @@ def doctor_all(
     }
     for p in sorted(glob.glob(pattern)):
         try:
-            data = _read_status_metadata(Path(p))
+            data = read_status_metadata(p)
             sid = data.get("sprint_id") or data.get("id") or data.get("sid")
             if not sid:
                 continue

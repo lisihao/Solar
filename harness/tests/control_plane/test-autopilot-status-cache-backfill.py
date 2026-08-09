@@ -54,6 +54,27 @@ def test_load_state_backfills_missing_status_cache_from_graph(tmp_path, monkeypa
     assert f"{sid}:ready_for_builder" in state["actions"]
 
 
+def test_graph_cache_scan_skips_unchanged_terminal_status(tmp_path, monkeypatch) -> None:
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    sid = "sprint-terminal-cache"
+    graph_path = sprints / f"{sid}.task_graph.json"
+    graph_path.write_text(json.dumps({"sprint_id": sid, "nodes": []}) + "\n")
+    status_path = sprints / f"{sid}.status.json"
+    status_path.write_text(
+        json.dumps({"sprint_id": sid, "status": "passed", "history": []}, indent=2) + "\n"
+    )
+    monkeypatch.setattr(mod, "SPRINTS", sprints)
+    monkeypatch.setattr(mod, "_refresh_requirement_coverage_if_stale", lambda *args: False)
+    graph_loads: list[Path] = []
+    monkeypatch.setattr(mod, "load_graph", lambda path: graph_loads.append(path))
+
+    created = mod._ensure_graph_status_caches()
+
+    assert created == []
+    assert graph_loads == []
+
+
 def test_load_state_refreshes_existing_status_projection_when_graph_changes(tmp_path, monkeypatch) -> None:
     sprints = tmp_path / "sprints"
     sprints.mkdir(parents=True)

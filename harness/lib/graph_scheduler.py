@@ -857,6 +857,16 @@ def sync_status_cache_from_graph(
             history = []
         if str(current.get("status") or "").lower() == "passed":
             if _status_has_terminal_evidence(sid, current, graph_path):
+                desired_terminal_projection = {
+                    "phase": str(current.get("phase") or "completed"),
+                    "stage": str(current.get("stage") or "completed"),
+                    "graph_parent_ready": parent,
+                    "task_graph_status": str(current.get("task_graph_status") or "passed"),
+                    "active_node": None,
+                }
+                if all(current.get(key) == value for key, value in desired_terminal_projection.items()):
+                    result["reason"] = "terminal_evidence_already_preserved"
+                    return result
                 current = _project_status_via_runtime(
                     status_path,
                     new_status="passed",
@@ -864,11 +874,7 @@ def sync_status_cache_from_graph(
                     event="graph_parent_ready_preserved_terminal",
                     graph_path=graph_path,
                     status_fields={
-                        "phase": str(current.get("phase") or "completed"),
-                        "stage": str(current.get("stage") or "completed"),
-                        "graph_parent_ready": parent,
-                        "task_graph_status": str(current.get("task_graph_status") or "passed"),
-                        "active_node": None,
+                        **desired_terminal_projection,
                     },
                     extra={"note": "terminal closeout evidence preserved while parent projection refreshed"},
                 )

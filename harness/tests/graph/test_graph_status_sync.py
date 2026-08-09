@@ -445,6 +445,19 @@ def test_sync_status_cache_does_not_reopen_passed_sprint_with_terminal_evidence(
     assert updated["phase"] == "completed"
     assert all(item.get("event") != "graph_parent_ready_revoked" for item in updated.get("history", []))
 
+    history_count = len(updated.get("history", []))
+    repeated = gs.sync_status_cache_from_graph(
+        graph,
+        graph_path,
+        actor="test",
+        event="graph_parent_ready_revoked",
+    )
+    repeated_status = json.loads(status_path.read_text(encoding="utf-8"))
+
+    assert repeated["updated"] is False
+    assert repeated["reason"] == "terminal_evidence_already_preserved"
+    assert len(repeated_status.get("history", [])) == history_count
+
 
 def test_parent_ready_check_self_heals_stale_blocked_gate(tmp_path, monkeypatch):
     import graph_scheduler as gs

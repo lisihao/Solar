@@ -54,6 +54,10 @@ try:
 except Exception:  # pragma: no cover - monitor must fail open
     record_legacy_event = None  # type: ignore
 try:
+    from status_metadata import read_status_metadata
+except Exception:  # pragma: no cover - older harness installs may not have it
+    read_status_metadata = None  # type: ignore
+try:
     from workflow_guard import route as workflow_route
 except Exception:  # pragma: no cover - older harness installs may not have it
     workflow_route = None  # type: ignore
@@ -226,6 +230,15 @@ def load_json(path: Path) -> dict:
         return {}
 
 
+def load_status_metadata(path: Path) -> dict:
+    if read_status_metadata is None:
+        return load_json(path)
+    try:
+        return read_status_metadata(path)
+    except Exception:
+        return {}
+
+
 def save_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -252,7 +265,7 @@ def epic_activation_pressure(limit: int | None = None) -> dict:
     cap = max(0, int(EPIC_ACTIVE_CHILD_LIMIT if limit is None else limit))
     active = []
     for path in sorted(SPRINTS.glob("sprint-*.status.json")):
-        status = load_json(path)
+        status = load_status_metadata(path)
         if not is_active_epic_child_status(status):
             continue
         sid = str(status.get("sprint_id") or status.get("id") or path.name.removesuffix(".status.json"))
@@ -303,6 +316,15 @@ def _ensure_graph_status_caches() -> list[str]:
     created: list[str] = []
     for graph_path in sorted(SPRINTS.glob("sprint-*.task_graph.json")):
         sid = graph_path.name.removesuffix(".task_graph.json")
+        status_path = SPRINTS / f"{sid}.status.json"
+        status_metadata = load_status_metadata(status_path) if status_path.exists() else {}
+        if (
+            str(status_metadata.get("status") or "").lower()
+            in {"passed", "completed", "eval_passed", "finalized"}
+            and status_path.stat().st_mtime_ns >= graph_path.stat().st_mtime_ns
+        ):
+            _refresh_requirement_coverage_if_stale(sid, graph_path)
+            continue
         try:
             graph = load_graph(graph_path)
         except Exception:
@@ -316,7 +338,6 @@ def _ensure_graph_status_caches() -> list[str]:
             )
         except Exception:
             continue
-        status_path = SPRINTS / f"{sid}.status.json"
         if sync.get("created") and status_path.exists():
             created.append(sid)
         _refresh_requirement_coverage_if_stale(sid, graph_path)
@@ -1187,7 +1208,7 @@ def sprint_epic_id_for_sid(sid: str) -> str:
     if not status_path.exists():
         return ""
     try:
-        status = load_json(status_path)
+        status = load_status_metadata(status_path)
     except Exception:
         return ""
     return str(status.get("epic_id") or "")
@@ -1241,7 +1262,7 @@ def retry_queue(state: dict, dispatch: bool, cooldown: int, epic_filter: str = "
             actions.append({"sid": sid, "action": item.get("type"), "dropped": "stale_sprint", "target": target})
             continue
         if sid:
-            status = load_json(SPRINTS / f"{sid}.status.json")
+            status = load_status_metadata(SPRINTS / f"{sid}.status.json")
             status_value = str(status.get("status") or "").lower()
             if status_value in TERMINAL_STATUSES or status_value not in ACTIVE_STATUSES:
                 append_event(
@@ -1761,7 +1782,7 @@ def active_statuses() -> list[dict]:
     _ensure_graph_status_caches()
     rows = []
     for path in sorted(SPRINTS.glob("sprint-*.status.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        d = load_json(path)
+        d = load_status_metadata(path)
         sid = d.get("sprint_id") or d.get("id") or path.name.removesuffix(".status.json")
         if d.get("status") in ACTIVE_STATUSES:
             d["_sid"] = sid
@@ -2741,6 +2762,7 @@ def normalize_status_to_workflow_route(sid: str, status: dict, route: dict) -> b
     )
     if not changed:
         return False
+    status = load_json(SPRINTS / f"{sid}.status.json") or status
     status.update(
         {
             "status": new_status,
@@ -2773,7 +2795,7 @@ def inspect_sprints(epic_filter: str = "") -> list[dict]:
     _ensure_graph_status_caches()
     raw_findings = []
     for path in sorted(SPRINTS.glob("sprint-*.status.json")):
-        status = load_json(path)
+        status = load_status_metadata(path)
         sid = status.get("sprint_id") or status.get("id") or path.name.removesuffix(".status.json")
         if epic_filter and str(status.get("epic_id") or "") != epic_filter:
             continue
@@ -2817,7 +2839,7 @@ def inspect_sprints(epic_filter: str = "") -> list[dict]:
             continue
         if route.get("ok") and not route.get("violations"):
             if normalize_status_to_workflow_route(str(sid), status, route):
-                status = load_json(path)
+                status = load_status_metadata(path)
                 st = status.get("status", "")
                 phase = status.get("phase", "")
                 handoff = status.get("handoff_to", "")
@@ -2934,7 +2956,11 @@ def inspect_sprints(epic_filter: str = "") -> list[dict]:
                     "message": instruction_for(status, files),
                 }
             )
-    p0 = [f for f in raw_findings if load_json(SPRINTS / f"{f.get('sid')}.status.json").get("priority") == "P0"]
+    p0 = [
+        f
+        for f in raw_findings
+        if load_status_metadata(SPRINTS / f"{f.get('sid')}.status.json").get("priority") == "P0"
+    ]
     return p0 or raw_findings
 
 
@@ -3059,7 +3085,7 @@ def inspect_panes(state: dict, stall_seconds: int) -> list[dict]:
                 continue
             sid = candidate_sid_for_role(role)
             if sid:
-                status = load_json(SPRINTS / f"{sid}.status.json")
+                status = load_status_metadata(SPRINTS / f"{sid}.status.json")
                 files = sprint_files(sid)
                 if files.get("task_graph"):
                     continue

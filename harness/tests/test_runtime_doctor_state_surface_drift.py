@@ -75,7 +75,7 @@ def test_status_metadata_reader_skips_large_history(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    metadata = runtime_doctor._read_status_metadata(path)  # noqa: SLF001
+    metadata = runtime_doctor.read_status_metadata(path)
 
     assert metadata == {
         "sprint_id": "sprint-large",
