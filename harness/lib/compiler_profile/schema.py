@@ -1,11 +1,11 @@
-"""schema.py — Compiler profile schema definition and validation.
+"""schema.py — Compiler profile schema definition, validation, and digest.
 
 A compiler profile is a named, versioned collection of 6 policy
 configurations that parameterize the requirement compilation pipeline.
 GEPA optimises profiles; the production compile pipeline consumes them
 deterministically.
 
-Schema::
+Schema (v2)::
 
     profile_id:   str           — unique identifier
     version:      int >= 1      — monotonically increasing version
@@ -13,18 +13,42 @@ Schema::
     tags:         list[str]     — categorisation tags
     created_at:   str (ISO 8601)
     policies:     dict with exactly 6 keys
-      intake_policy:              {version: str, params: dict}
-      requirement_ir_policy:      {version: str, params: dict}
-      contract_compiler_policy:   {version: str, params: dict}
-      dag_compiler_policy:        {version: str, params: dict}
-      evidence_policy:            {version: str, params: dict}
-      handoff_policy:             {version: str, params: dict}
+      intake_policy:              {version: str, params: dict, text: str}
+      requirement_ir_policy:      {version: str, params: dict, text: str}
+      contract_compiler_policy:   {version: str, params: dict, text: str}
+      dag_compiler_policy:        {version: str, params: dict, text: str}
+      evidence_policy:            {version: str, params: dict, text: str}
+      handoff_policy:             {version: str, params: dict, text: str}
+
+The v2 schema requires every policy to carry a non-empty ``text`` field
+(the GEPA-optimisable prompt body).  Legacy v1 profiles (params-only)
+validate only under ``mode="compat_v1"``, which downgrades the missing
+``text`` errors to warnings.
+
+``compute_digest`` produces a content digest over the *policies* only
+(profile_id / version / name metadata are intentionally excluded) so that
+two profiles with identical policy content share a digest regardless of
+their identity fields.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
-__all__ = ["validate_profile", "REQUIRED_POLICY_KEYS"]
+__all__ = [
+    "validate_profile",
+    "compute_digest",
+    "REQUIRED_POLICY_KEYS",
+    "SCHEMA_VERSION",
+    "MAX_TEXT_LEN",
+]
+
+SCHEMA_VERSION: int = 2
+
+# Upper bound on a single policy ``text`` body (characters).  Generous enough
+# for full prompt bodies while still bounding pathological inputs.
+MAX_TEXT_LEN: int = 200_000
 
 REQUIRED_POLICY_KEYS: tuple[str, ...] = (
     "intake_policy",
@@ -44,19 +68,44 @@ _REQUIRED_TOP_LEVEL: tuple[str, ...] = (
     "policies",
 )
 
+_VALID_MODES: tuple[str, ...] = ("strict_v2", "compat_v1")
 
-def validate_profile(data: dict[str, Any]) -> tuple[bool, list[str]]:
+
+def validate_profile(
+    data: Any,
+    *,
+    mode: str = "strict_v2",
+) -> tuple[bool, list[str]]:
     """Validate a compiler profile dict against the schema.
+
+    Parameters
+    ----------
+    data:
+        The profile to validate.
+    mode:
+        ``"strict_v2"`` (default) requires every policy to carry a
+        non-empty ``text`` field.  ``"compat_v1"`` accepts legacy
+        params-only profiles, emitting a warning (kept in the returned
+        list) for each policy missing ``text`` but still reporting the
+        profile as valid when nothing else is wrong.
 
     Returns
     -------
     (is_valid, errors) : tuple[bool, list[str]]
-        ``is_valid`` is True when ``errors`` is empty.
+        In ``strict_v2`` mode ``is_valid`` is True iff ``errors`` is empty.
+        In ``compat_v1`` mode the missing-``text`` entries are warnings and
+        do not flip ``is_valid`` to False.
     """
+    if mode not in _VALID_MODES:
+        raise ValueError(f"unknown validation mode: {mode!r}")
+
     if not isinstance(data, dict):
         return False, ["profile must be a dict"]
 
     errors: list[str] = []
+    # In compat_v1 mode the missing-text entries are warnings: collected
+    # separately so they do not flip the validity result.
+    compat_warnings: list[str] = []
 
     # --- top-level required fields ---
     for key in _REQUIRED_TOP_LEVEL:
@@ -111,13 +160,79 @@ def validate_profile(data: dict[str, Any]) -> tuple[bool, list[str]]:
             if not isinstance(policy, dict):
                 errors.append(f"'policies.{key}' must be a dict")
                 continue
+
+            # version
             if "version" not in policy:
                 errors.append(f"'policies.{key}' missing 'version'")
             elif not isinstance(policy["version"], str):
                 errors.append(f"'policies.{key}.version' must be a string")
+
+            # params
             if "params" not in policy:
                 errors.append(f"'policies.{key}' missing 'params'")
             elif not isinstance(policy["params"], dict):
                 errors.append(f"'policies.{key}.params' must be a dict")
 
-    return (len(errors) == 0, errors)
+            # text (v2 requirement)
+            text = policy.get("text")
+            if not isinstance(text, str) or not text.strip():
+                msg = (
+                    f"'policies.{key}' missing or empty 'text' "
+                    "(required by schema v2)"
+                )
+                if mode == "compat_v1":
+                    compat_warnings.append(f"[compat_v1 warning] {msg}")
+                else:
+                    errors.append(msg)
+            elif len(text) > MAX_TEXT_LEN:
+                errors.append(
+                    f"'policies.{key}.text' exceeds MAX_TEXT_LEN "
+                    f"({len(text)} > {MAX_TEXT_LEN})"
+                )
+
+            # optional metadata
+            if "metadata" in policy and not isinstance(policy["metadata"], dict):
+                errors.append(f"'policies.{key}.metadata' must be a dict")
+
+    is_valid = len(errors) == 0
+    # Warnings ride along in the returned list but never flip validity.
+    return (is_valid, errors + compat_warnings)
+
+
+def _canonical_policies(profile: dict[str, Any]) -> str:
+    """Return canonical JSON of the digest-relevant policy content.
+
+    Only the policy bodies participate in the digest — identity/metadata
+    fields (profile_id, version, name, tags, created_at) are excluded so
+    that two profiles with identical policies share a digest.
+    """
+    policies = profile.get("policies") or {}
+    canonical: dict[str, Any] = {}
+    for key in REQUIRED_POLICY_KEYS:
+        policy = policies.get(key)
+        if not isinstance(policy, dict):
+            canonical[key] = policy
+            continue
+        canonical[key] = {
+            "version": policy.get("version", ""),
+            "params": policy.get("params", {}),
+            "text": policy.get("text", ""),
+        }
+    return json.dumps(canonical, sort_keys=True, ensure_ascii=False)
+
+
+def compute_digest(profile: dict[str, Any]) -> str:
+    """Return a deterministic sha256 hex digest of the profile's policies.
+
+    The digest covers only the policy content (version / params / text per
+    policy key), not the identity metadata fields.  Two profiles with the
+    same policies therefore share a digest even if their profile_id, version,
+    or name differ.
+
+    Returns
+    -------
+    str
+        64-character lowercase hex sha256 digest.
+    """
+    payload = _canonical_policies(profile)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
