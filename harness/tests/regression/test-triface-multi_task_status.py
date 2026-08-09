@@ -13,6 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+__test__ = False
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "lib"))
 
