@@ -110,14 +110,9 @@ def test_graph_status_returns_ready_nodes_when_dispatchable(tmp_path: Path, monk
     monkeypatch.setattr(
         mod,
         "graph_dispatch_ready",
-        lambda *a, **kw: {
-            "enqueue": {
-                "assigned": [{"node": "S1"}],
-                "enqueued": [{"node": "S1"}],
-            },
-            "drain": {"ok": True, "processed": 1, "results": []},
-        },
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("status scan must not simulate dispatch")),
     )
+    monkeypatch.setattr(mod, "scheduler_ready_nodes", lambda graph: [{"id": "S1"}])
 
     status = mod.graph_status(sid)
 
@@ -125,3 +120,4 @@ def test_graph_status_returns_ready_nodes_when_dispatchable(tmp_path: Path, monk
     assert status["ready_nodes"] == ["S1"]
     assert status["dispatchable_nodes"] == ["S1"]
     assert status["blocked"] == []
+    assert status["graph_dispatch_ready"]["mode"] == "scheduler_ready_nodes"

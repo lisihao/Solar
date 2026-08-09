@@ -119,6 +119,66 @@ def test_inspect_sprints_filters_terminal_status_before_artifact_globs(tmp_path,
     assert mod.inspect_sprints() == []
 
 
+def test_sprint_status_payload_uses_bounded_metadata_reader(tmp_path, monkeypatch) -> None:
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    sid = "sprint-large-epic-child"
+    (sprints / f"{sid}.status.json").write_text(
+        json.dumps(
+            {
+                "sprint_id": sid,
+                "epic_id": "epic-one",
+                "status": "active",
+                "history": [{"payload": "x" * 200_000}],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    monkeypatch.setattr(mod, "SPRINTS", sprints)
+    monkeypatch.setattr(
+        mod,
+        "load_json",
+        lambda path: (_ for _ in ()).throw(AssertionError("status history must not be loaded")),
+    )
+
+    payload = mod.sprint_status_payload(sid)
+
+    assert payload["status"] == "active"
+    assert payload["epic_id"] == "epic-one"
+    assert "history" not in payload
+
+
+def test_sprint_artifact_index_supports_direct_and_node_artifacts(tmp_path, monkeypatch) -> None:
+    sprints = tmp_path / "sprints"
+    sprints.mkdir(parents=True)
+    sid = "sprint-artifact-index"
+    for name in (
+        f"{sid}.status.json",
+        f"{sid}.contract.md",
+        f"{sid}.N2-design.md",
+        f"{sid}.N4-handoff.md",
+        f"{sid}.N5-eval.json",
+        f"{sid}.task_graph.json",
+    ):
+        (sprints / name).write_text("{}\n")
+    monkeypatch.setattr(mod, "SPRINTS", sprints)
+
+    index = mod.sprint_artifact_index()
+    files = mod.sprint_files(sid, artifact_index=index)
+
+    assert files == {
+        "status": True,
+        "prd": False,
+        "contract": True,
+        "design": True,
+        "plan": False,
+        "task_graph": True,
+        "handoff": True,
+        "eval": True,
+    }
+
+
 def test_load_state_refreshes_existing_status_projection_when_graph_changes(tmp_path, monkeypatch) -> None:
     sprints = tmp_path / "sprints"
     sprints.mkdir(parents=True)

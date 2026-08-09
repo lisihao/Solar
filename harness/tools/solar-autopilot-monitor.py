@@ -142,10 +142,11 @@ try:
         summarize_blocked_prerequisites,
         doctor_graph,
         node_status,
+        ready_nodes as scheduler_ready_nodes,
         sync_status_cache_from_graph,
     )
 except Exception:  # pragma: no cover - fallback for partially installed harnesses
-    load_graph = save_graph = enqueue_ready = parent_ready_check = validate_graph = blocked_external_prerequisites = summarize_blocked_prerequisites = doctor_graph = node_status = sync_status_cache_from_graph = None
+    load_graph = save_graph = enqueue_ready = parent_ready_check = validate_graph = blocked_external_prerequisites = summarize_blocked_prerequisites = doctor_graph = node_status = scheduler_ready_nodes = sync_status_cache_from_graph = None
 try:
     from prerequisite_resolver import iter_blocked
 except Exception:  # pragma: no cover - fallback for partially installed harnesses
@@ -1749,8 +1750,32 @@ def recover_pane_blocker(target: str) -> bool:
     return False
 
 
-def sprint_files(sid: str) -> dict[str, bool]:
+def sprint_artifact_index() -> dict[str, set[str]]:
+    index: dict[str, set[str]] = {}
+    try:
+        with os.scandir(SPRINTS) as entries:
+            for entry in entries:
+                sid, separator, remainder = entry.name.partition(".")
+                if not separator or not sid.startswith("sprint-"):
+                    continue
+                index.setdefault(sid, set()).add(remainder)
+    except OSError:
+        return {}
+    return index
+
+
+def sprint_files(
+    sid: str,
+    *,
+    artifact_index: dict[str, set[str]] | None = None,
+) -> dict[str, bool]:
+    indexed_names = artifact_index.get(sid, set()) if artifact_index is not None else None
+
     def artifact_exists(suffix: str, *, node_level: bool = True) -> bool:
+        if indexed_names is not None:
+            if suffix in indexed_names:
+                return True
+            return node_level and any(name.endswith(f"-{suffix}") for name in indexed_names)
         direct = SPRINTS / f"{sid}.{suffix}"
         if direct.exists():
             return True
@@ -1759,12 +1784,12 @@ def sprint_files(sid: str) -> dict[str, bool]:
         return any(path.exists() for path in SPRINTS.glob(f"{sid}.*-{suffix}"))
 
     return {
-        "status": (SPRINTS / f"{sid}.status.json").exists(),
+        "status": "status.json" in indexed_names if indexed_names is not None else (SPRINTS / f"{sid}.status.json").exists(),
         "prd": artifact_exists("prd.md", node_level=False),
         "contract": artifact_exists("contract.md", node_level=False),
         "design": artifact_exists("design.md"),
         "plan": artifact_exists("plan.md"),
-        "task_graph": (SPRINTS / f"{sid}.task_graph.json").exists(),
+        "task_graph": "task_graph.json" in indexed_names if indexed_names is not None else (SPRINTS / f"{sid}.task_graph.json").exists(),
         "handoff": artifact_exists("handoff.md"),
         "eval": artifact_exists("eval.md") or artifact_exists("eval.json"),
     }
@@ -2026,7 +2051,7 @@ def sprint_status_payload(sid: str) -> dict:
     path = SPRINTS / f"{sid}.status.json"
     if not path.exists():
         return {}
-    return load_json(path)
+    return load_status_metadata(path)
 
 
 def sprint_has_terminal_evidence(sid: str) -> bool:
@@ -2361,24 +2386,17 @@ def graph_status(sid: str) -> dict:
         dispatch_ready = {}
         ready_nodes: list[str] = []
         dispatchable_nodes: list[str] = []
-        if graph_dispatch_ready is not None and not blocked:
+        if scheduler_ready_nodes is not None and not blocked:
             try:
-                dispatch_ready = graph_dispatch_ready(str(path), dry_run=True, ttl=900)
-                enqueue = dispatch_ready.get("enqueue") if isinstance(dispatch_ready, dict) else {}
-                if not isinstance(enqueue, dict):
-                    enqueue = {}
-                assigned = enqueue.get("assigned") or []
-                enqueued = enqueue.get("enqueued") or enqueue.get("queued") or []
-                ready_nodes = [
-                    str(item.get("node") or item.get("node_id") or "")
-                    for item in assigned
-                    if isinstance(item, dict) and str(item.get("node") or item.get("node_id") or "")
-                ]
-                dispatchable_nodes = [
-                    str(item.get("node") or item.get("node_id") or "")
-                    for item in enqueued
-                    if isinstance(item, dict) and str(item.get("node") or item.get("node_id") or "")
-                ]
+                locally_ready = scheduler_ready_nodes(graph)
+                ready_nodes = [str(item.get("id") or "") for item in locally_ready if item.get("id")]
+                dispatchable_nodes = list(ready_nodes)
+                dispatch_ready = {
+                    "ok": True,
+                    "mode": "scheduler_ready_nodes",
+                    "dry_run": True,
+                    "ready_nodes": list(ready_nodes),
+                }
             except Exception as exc:
                 dispatch_ready = {"ok": False, "error": str(exc)}
         scheduler_state = "blocked" if blocked else ("ready" if ready_nodes or dispatchable_nodes else "idle")
@@ -2807,6 +2825,7 @@ def normalize_status_to_workflow_route(sid: str, status: dict, route: dict) -> b
 def inspect_sprints(epic_filter: str = "") -> list[dict]:
     _ensure_graph_status_caches()
     raw_findings = []
+    artifact_index = sprint_artifact_index()
     for path in sorted(SPRINTS.glob("sprint-*.status.json")):
         status = load_status_metadata(path)
         sid = status.get("sprint_id") or status.get("id") or path.name.removesuffix(".status.json")
@@ -2822,7 +2841,7 @@ def inspect_sprints(epic_filter: str = "") -> list[dict]:
         }
         if st not in ACTIVE_STATUSES and not blocked_but_routable:
             continue
-        files = sprint_files(sid)
+        files = sprint_files(sid, artifact_index=artifact_index)
         dep_ready, blocked_by = epic_child_dependency_ready(str(sid))
         if not dep_ready:
             raw_findings.append(
