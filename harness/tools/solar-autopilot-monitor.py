@@ -3851,6 +3851,17 @@ def release_lock() -> None:
 
 
 def reconcile_pm_inbox() -> dict:
+    try:
+        max_writes = max(1, int(os.environ.get("SOLAR_AUTOPILOT_PM_RECONCILE_MAX_WRITES", "32") or "32"))
+    except (TypeError, ValueError):
+        max_writes = 32
+    try:
+        max_scan_records = max(
+            max_writes,
+            int(os.environ.get("SOLAR_AUTOPILOT_PM_RECONCILE_MAX_SCAN_RECORDS", "2000") or "2000"),
+        )
+    except (TypeError, ValueError):
+        max_scan_records = 2000
     cmd = [
         sys.executable,
         str(HARNESS / "tools" / "pm_dispatch.py"),
@@ -3858,6 +3869,10 @@ def reconcile_pm_inbox() -> dict:
         "--max-age-minutes",
         "30",
         "--apply",
+        "--max-writes",
+        str(max_writes),
+        "--max-scan-records",
+        str(max_scan_records),
         "--json",
     ]
     try:

@@ -24,6 +24,26 @@ def _utc_after(seconds: int) -> str:
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def test_pm_inbox_reconcile_is_write_and_scan_bounded(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=0, stdout='{"ok": true, "writes_applied": 0}', stderr="")
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setenv("SOLAR_AUTOPILOT_PM_RECONCILE_MAX_WRITES", "7")
+    monkeypatch.setenv("SOLAR_AUTOPILOT_PM_RECONCILE_MAX_SCAN_RECORDS", "111")
+
+    result = mod.reconcile_pm_inbox()
+
+    command, kwargs = calls[0]
+    assert command[command.index("--max-writes") + 1] == "7"
+    assert command[command.index("--max-scan-records") + 1] == "111"
+    assert kwargs["timeout"] == 20
+    assert result["ok"] is True
+
+
 def test_pane_gate_clears_stale_assignment_without_graph_or_lease(tmp_path, monkeypatch) -> None:
     assignments = tmp_path / ".pane-assignments"
     assignments.write_text("solar-harness-lab:0.1=stale-sprint:1779000000\n")
