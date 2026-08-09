@@ -22,8 +22,17 @@ from typing import Any
 import sys
 
 _LIB_DIR = str(Path(__file__).resolve().parents[1] / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
+if _LIB_DIR in sys.path:
+    sys.path.remove(_LIB_DIR)
+sys.path.insert(0, _LIB_DIR)
+
+_loaded_compile_eval = sys.modules.get("compile_eval")
+_expected_package_dir = (Path(_LIB_DIR) / "compile_eval").resolve()
+_loaded_file = Path(str(getattr(_loaded_compile_eval, "__file__", ""))).resolve()
+if _loaded_compile_eval is not None and _loaded_file.parent != _expected_package_dir:
+    for _module_name in tuple(sys.modules):
+        if _module_name == "compile_eval" or _module_name.startswith("compile_eval."):
+            sys.modules.pop(_module_name, None)
 
 from compile_eval.dataset import (
     DatasetManifest,
