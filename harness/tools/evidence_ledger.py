@@ -7,6 +7,7 @@ task.yaml, and operator_snapshot.json.
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import re
 import sys
@@ -356,6 +357,82 @@ class NoopMaterializer:
 
     def materialize(self, *args: Any, **kwargs: Any) -> Tuple[Optional[str], Dict[str, str]]:
         return None, {}
+
+
+class DispatchEvidenceRecorder:
+    """Write one scrubbed dispatch evidence package plus an append-only index."""
+
+    def __init__(self, harness_dir: Optional[Path] = None, sprints_dir: Optional[Path] = None):
+        self.harness_dir = harness_dir or HARNESS_DIR
+        self.sprints_dir = sprints_dir or self.harness_dir / "sprints"
+        self.evidence_dir = self.harness_dir / "run" / "dispatch-evidence"
+        self.ledger_path = self.evidence_dir / "dispatch-evidence.jsonl"
+
+    @staticmethod
+    def _dispatch_redaction_markers(payload: Any) -> Any:
+        if isinstance(payload, dict):
+            return {key: DispatchEvidenceRecorder._dispatch_redaction_markers(value) for key, value in payload.items()}
+        if isinstance(payload, list):
+            return [DispatchEvidenceRecorder._dispatch_redaction_markers(value) for value in payload]
+        if isinstance(payload, str):
+            return payload.replace("<REDACTED_SECRET>", "[REDACTED]").replace(
+                "<REDACTED_CREDENTIAL>", "[REDACTED]"
+            )
+        return payload
+
+    def record(
+        self,
+        *,
+        task_id: str,
+        sprint_id: str,
+        node_id: str,
+        role: str,
+        pane: str,
+        status: str,
+        event: str,
+        artifact_paths: Optional[Dict[str, Any]] = None,
+        reason: str = "",
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        self.evidence_dir.mkdir(parents=True, exist_ok=True)
+        paths = dict(artifact_paths or {})
+        paths.setdefault("handoff_path", str(self.sprints_dir / f"{sprint_id}.{node_id}-handoff.md"))
+        paths.setdefault("eval_json_path", str(self.sprints_dir / f"{sprint_id}.{node_id}-eval.json"))
+        evidence_path = self.evidence_dir / f"{task_id}.json"
+        paths["evidence_json_path"] = str(evidence_path)
+        payload: Dict[str, Any] = {
+            "schema_version": "solar.dispatch_evidence.v1",
+            "recorded_at": _now_iso(),
+            "task_id": task_id,
+            "sprint_id": sprint_id,
+            "node_id": node_id,
+            "role": role,
+            "pane": pane,
+            "status": status,
+            "event": event,
+            "reason": reason,
+            "artifact_paths": paths,
+        }
+        if extra:
+            payload["extra"] = dict(extra)
+        scrubbed = scrub_artifact(payload)
+        safe_payload = self._dispatch_redaction_markers(scrubbed.payload)
+        tmp = evidence_path.with_suffix(f".json.{uuid.uuid4().hex}.tmp")
+        tmp.write_text(json.dumps(safe_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(evidence_path)
+
+        lock_path = self.ledger_path.with_suffix(".lock")
+        with open(lock_path, "a", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                with open(self.ledger_path, "a", encoding="utf-8") as ledger:
+                    ledger.write(json.dumps(safe_payload, ensure_ascii=False) + "\n")
+                    ledger.flush()
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+        safe_payload["evidence_path"] = str(evidence_path)
+        safe_payload["evidence_ledger_path"] = str(self.ledger_path)
+        return safe_payload
 
 
 # ---------------------------------------------------------------------------

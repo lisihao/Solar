@@ -8,7 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib"))
 
-from graph_scheduler import assign_workers, enqueue_ready  # noqa: E402
+from graph_scheduler import assign_workers, enqueue_ready, ready_nodes  # noqa: E402
 
 
 def _worker(pane: str, *, busy: bool = False) -> dict:
@@ -324,6 +324,98 @@ def test_worker_blocked_nodes_are_retryable_after_capability_fix(tmp_path: Path,
     assert result["enqueued"][0]["node"] == "N1"
     assert result["queued"] == []
     assert graph["nodes"][0]["status"] == "assigned"
+
+
+def test_actorhost_missing_capability_overrides_static_worker_capabilities() -> None:
+    lab_worker = _worker("solar-harness-lab:0.3")
+    lab_worker["capabilities"] = ["testing"]
+    lab_worker["actorhost"] = {
+        "capability_match": {
+            "required": ["testing"],
+            "matched": [],
+            "missing": ["testing"],
+            "observed": [],
+        },
+        "resolution_source": "unresolved",
+    }
+    pool_worker = _worker("operator-pool:builder.0")
+    pool_worker["capabilities"] = ["testing"]
+    pool_worker["actorhost"] = {
+        "capability_match": {
+            "required": ["testing"],
+            "matched": ["testing"],
+            "missing": [],
+            "observed": ["testing"],
+        },
+        "resolution_source": "operator_pool_virtual",
+    }
+    node = {
+        "id": "N1",
+        "preferred_model": "sonnet",
+        "required_skills": [],
+        "required_capabilities": ["testing"],
+    }
+
+    result = assign_workers([node], [lab_worker, pool_worker])
+
+    assert result["queued"] == []
+    assert result["assigned"][0]["pane"] == "operator-pool:builder.0"
+
+
+def test_compatibility_fallback_capability_mismatch_is_retryable() -> None:
+    graph = {
+        "sprint_id": "sid",
+        "nodes": [
+            {"id": "B1", "status": "passed", "depends_on": []},
+            {
+                "id": "B4",
+                "status": "worker_blocked",
+                "depends_on": ["B1"],
+                "blocking_reason": "compatibility_fallback_capability_mismatch",
+                "required_capabilities": ["testing"],
+            },
+        ],
+    }
+
+    assert [node["id"] for node in ready_nodes(graph)] == ["B4"]
+
+
+def test_unverified_actorhost_worker_requeues_worker_blocked_node(tmp_path: Path, monkeypatch) -> None:
+    graph = {
+        "sprint_id": "sid",
+        "nodes": [
+            {
+                "id": "B4",
+                "status": "worker_blocked",
+                "depends_on": [],
+                "blocking_reason": "compatibility_fallback_capability_mismatch",
+                "required_skills": ["python"],
+                "required_capabilities": ["testing"],
+            },
+        ],
+    }
+    graph_path = tmp_path / "sid.task_graph.json"
+    graph_path.write_text("{}", encoding="utf-8")
+    worker = _worker("solar-harness-lab:0.3")
+    worker["capabilities"] = ["testing"]
+    worker["actorhost"] = {
+        "capability_match": {
+            "required": ["testing"],
+            "matched": [],
+            "missing": ["testing"],
+            "observed": [],
+        },
+        "resolution_source": "unresolved",
+    }
+    monkeypatch.setattr("task_queue.enqueue", lambda *a, **kw: {"ok": True, "id": "q-3"})
+
+    result = enqueue_ready(graph, str(graph_path), [worker], lease=False, dry_run=False)
+
+    assert result["queued"][0]["reason"] == "verified_worker_unavailable"
+    assert result["worker_blocked"] == []
+    assert graph["nodes"][0]["status"] == "queued"
+    assert graph["nodes"][0].get("blocking_reason") is None
+    assert graph["node_results"]["B4"]["blocking_reason"] == "verified_worker_unavailable"
 
 
 def test_worker_blocked_node_becomes_queued_when_matching_worker_is_pane_busy(tmp_path: Path, monkeypatch) -> None:

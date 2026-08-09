@@ -42,16 +42,53 @@ PHYSICAL_OPERATORS_PATH = Path(
 )
 PERSONAS_DIR = HARNESS_DIR / "personas"
 PM_INBOX_DIR = HARNESS_DIR / "run" / "pm-inbox"
+DISPATCH_LEDGER_PATH = HARNESS_DIR / "run" / "dispatch-ledger" / "pm-dispatch.jsonl"
 OPERATOR_INBOX_DIR = HARNESS_DIR / "run" / "operator-inbox"
 OPERATOR_RESULTS_DIR = HARNESS_DIR / "run" / "operator-results"
 OPERATOR_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
+ACTOR_LEASE_DIR = HARNESS_DIR / "run" / "actor-leases"
 SPRINTS_DIR = Path(os.environ.get("SOLAR_HARNESS_SPRINTS_DIR", HARNESS_DIR / "sprints"))
 REPO_HARNESS_DIR = Path(__file__).resolve().parents[1]
 HEALTH_CACHE_SCHEMA_VERSION = 2
+STATUS_FULL_LOAD_MAX_BYTES = int(os.environ.get("SOLAR_PM_STATUS_FULL_LOAD_MAX_BYTES", "131072"))
+STATUS_SCAN_BYTES = int(os.environ.get("SOLAR_PM_STATUS_SCAN_BYTES", "16384"))
+BUILDER_POOL_BACKLOG_CACHE = HARNESS_DIR / "run" / "builder-pool-backlog-cache.json"
+PM_FLOW_CONTROL_SCAN_MAX_FILES = int(os.environ.get("SOLAR_PM_FLOW_CONTROL_SCAN_MAX_FILES", "300"))
+_PM_FLOW_CONTROL_BLOCK_CACHE: dict[str, dict[str, Any] | None] = {}
+_POSITIVE_QUOTA_RECOVERY_CACHE: dict[str, dict[str, Any]] = {}
+_PM_FLOW_CONTROL_INDEX_LOADED = False
+_STRICT_RESULT_LOG_BLOCK_CACHE: dict[str, dict[str, Any] | None] = {}
+_PM_INBOX_PROJECTION_CACHE: tuple[float, str, int, list[dict[str, str]]] | None = None
+BUILDER_POOL_BACKLOG_CACHE_TTL_SEC = int(os.environ.get("SOLAR_PM_BUILDER_POOL_BACKLOG_CACHE_TTL_SEC", "20"))
+QUOTA_SNAPSHOT_PATH = HARNESS_DIR / "run" / "quota-snapshots" / "latest.json"
+QUOTA_SNAPSHOT_FALLBACK_TTL_SEC = int(os.environ.get("SOLAR_PM_QUOTA_SNAPSHOT_FALLBACK_TTL_SEC", "1800"))
 PM_CAPACITY_PROBE_PREFIXES = (
     "pm-graph-dispatch-capacity-probe-",
     "pm-eval-capacity-probe-",
 )
+
+
+def _ensure_runtime_import_path() -> None:
+    """Keep canonical lib modules ahead of legacy tools shims.
+
+    pm_dispatch runs from ``tools/``, so Python places that directory at
+    ``sys.path[0]``.  Actor runtime imports must resolve to ``lib/`` first;
+    otherwise stale tools copies of modules like actor_profiles shadow the
+    policy-aware runtime implementations.
+    """
+    lib_dir = str(HARNESS_DIR / "lib")
+    tools_dir = str(HARNESS_DIR / "tools")
+    for path in (lib_dir, tools_dir):
+        while path in sys.path:
+            sys.path.remove(path)
+    sys.path.insert(0, tools_dir)
+    sys.path.insert(0, lib_dir)
+    for module_name in ("operator_runtime", "logical_operator_router", "actor_profiles"):
+        module = sys.modules.get(module_name)
+        module_file = str(getattr(module, "__file__", "") or "")
+        if module_file.startswith(tools_dir + os.sep):
+            sys.modules.pop(module_name, None)
+
 
 # ── 角色别名映射 ───────────────────────────────────────────────────────────────
 ROLE_ALIASES: dict[str, str] = {
@@ -77,11 +114,13 @@ ROLE_ALIASES: dict[str, str] = {
 }
 
 NON_DISPATCHABLE_STATES = {"leased", "running", "draining", "cooldown", "quota_exhausted", "auth_expired", "disabled"}
+HARD_BLOCK_TYPES = {"cooldown", "quota_exhausted", "auth_expired", "health", "busy", "disabled"}
 GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD = int(os.environ.get("SOLAR_GRAPH_TRANSIENT_FAILURE_BLOCK_THRESHOLD", "3"))
 GRAPH_TRANSIENT_FAILURE_BLOCK_WINDOW_SEC = int(os.environ.get("SOLAR_GRAPH_TRANSIENT_FAILURE_BLOCK_WINDOW_SEC", "900"))
 TRANSIENT_OPERATOR_FAILURE_RE = re.compile(
     r"runtime_state=(?:cooldown|quota_exhausted|auth_expired)|"
     r"Error loading config\.toml:\s+unknown variant [`'\"]?default[`'\"]?, expected [`'\"]?fast[`'\"]? or [`'\"]?flex[`'\"]?|"
+    r"spawn .*codex.* ENOENT|codex.* ENOENT|"
     r"you(?:'|’)ve hit .*limit|usage limit|rate[- ]?limit|quota(?:\s+exhausted)?|"
     r"auth_expired|not logged in|not authenticated",
     re.I,
@@ -182,6 +221,8 @@ BUILDER_READY_LOGICAL_OPERATORS = {
     "PatchWorker",
     "TestDesigner",
     "TestRunner",
+    "RunTests",
+    "VerifyClaim",
     "BenchmarkRunner",
     "ResearchSynthesizer",
     "ArtifactCurator",
@@ -339,6 +380,20 @@ def _load_operator_runtime_module() -> Any | None:
         return None
 
 
+def _load_actor_runtime_class() -> Any:
+    """Load the canonical lib ActorRuntime, not a tools mirror."""
+    lib_dir = HARNESS_DIR / "lib"
+    if str(lib_dir) not in sys.path:
+        sys.path.insert(0, str(lib_dir))
+    module_path = lib_dir / "actor_runtime.py"
+    spec = importlib.util.spec_from_file_location("_solar_actor_runtime_for_pm_dispatch", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"actor_runtime_unavailable: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.ActorRuntime
+
+
 def _load_operator_flow_control_module() -> Any | None:
     """Best-effort load of operator_flow_control for log-backed quota state."""
     try:
@@ -350,6 +405,72 @@ def _load_operator_flow_control_module() -> Any | None:
         return operator_flow_control
     except Exception:
         return None
+
+
+def _load_operator_cooldown_db_module() -> Any | None:
+    """Best-effort load of the SQLite cooldown ledger."""
+    try:
+        lib_dir = HARNESS_DIR / "lib"
+        if str(lib_dir) not in sys.path:
+            sys.path.insert(0, str(lib_dir))
+        import operator_cooldown_db  # type: ignore
+
+        return operator_cooldown_db
+    except Exception:
+        return None
+
+
+def _quota_recovery_supersedes_block(operator_id: str, block: dict[str, Any]) -> bool:
+    mod = _load_operator_cooldown_db_module()
+    if mod is not None and hasattr(mod, "quota_recovery_observation"):
+        try:
+            recovery = mod.quota_recovery_observation(operator_id, block=block)
+        except Exception:
+            recovery = None
+        if isinstance(recovery, dict):
+            _POSITIVE_QUOTA_RECOVERY_CACHE[operator_id] = dict(recovery)
+            return True
+    source = str(block.get("source") or "").strip().lower()
+    if source in {"operator_result_log_strict", "pm_operator_flow_control"}:
+        return False
+    try:
+        if time.time() - QUOTA_SNAPSHOT_PATH.stat().st_mtime > QUOTA_SNAPSHOT_FALLBACK_TTL_SEC:
+            return False
+        data = json.loads(QUOTA_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    snapshot_at = _parse_utc(str(data.get("generated_at") or ""))
+    triggered_at = _parse_utc(str(block.get("triggered_at") or ""))
+    if snapshot_at is not None and triggered_at is not None and snapshot_at < triggered_at:
+        return False
+    operators = data.get("operators") if isinstance(data.get("operators"), list) else []
+    for row in operators:
+        if not isinstance(row, dict) or str(row.get("operator_id") or "") != operator_id:
+            continue
+        state = str(row.get("state") or row.get("runtime_state") or "").strip().lower()
+        usable = bool(row.get("usable", state in {"idle", "ok", "available"}))
+        recovered = usable and state not in {"cooldown", "quota_exhausted", "auth_expired", "no_subscription", "needs_human_review"}
+        if recovered:
+            _POSITIVE_QUOTA_RECOVERY_CACHE[operator_id] = dict(row)
+        return recovered
+    return False
+
+
+def _load_operator_availability_module() -> Any | None:
+    """Best-effort load of the shared availability resolver."""
+    for path in (REPO_HARNESS_DIR / "lib" / "operator_availability.py", HARNESS_DIR / "lib" / "operator_availability.py"):
+        try:
+            if not path.exists():
+                continue
+            spec = importlib.util.spec_from_file_location("_solar_operator_availability_resolver", path)
+            if spec is None or spec.loader is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+        except Exception:
+            continue
+    return None
 
 
 def get_operator_runtime_state(operator_id: str) -> str:
@@ -380,12 +501,347 @@ def _recent_operator_quota_block(op: dict[str, Any]) -> dict[str, Any] | None:
     if flow_mod is None or not hasattr(flow_mod, "recent_operator_quota_block"):
         return None
     try:
-        return flow_mod.recent_operator_quota_block(
+        block = flow_mod.recent_operator_quota_block(
             operator_id,
             model_hint=str(op.get("model") or op.get("profile") or ""),
         )
     except Exception:
         return None
+    if isinstance(block, dict) and _quota_recovery_supersedes_block(operator_id, block):
+        return None
+    return block if isinstance(block, dict) else None
+
+
+def _recent_operator_result_log_quota_block_strict(op: dict[str, Any]) -> dict[str, Any] | None:
+    operator_id = str(op.get("operator_id") or "").strip()
+    if not operator_id:
+        return None
+    if operator_id in _STRICT_RESULT_LOG_BLOCK_CACHE:
+        return _STRICT_RESULT_LOG_BLOCK_CACHE[operator_id]
+    flow_mod = _load_operator_flow_control_module()
+    if flow_mod is None:
+        _STRICT_RESULT_LOG_BLOCK_CACHE[operator_id] = None
+        return None
+    root = OPERATOR_RESULTS_DIR / operator_id
+    if not root.exists():
+        _STRICT_RESULT_LOG_BLOCK_CACHE[operator_id] = None
+        return None
+    now = datetime.datetime.now(datetime.timezone.utc)
+    max_age = int(os.environ.get("SOLAR_OPERATOR_STRICT_RESULT_QUOTA_BLOCK_MAX_AGE_SECONDS", "7200"))
+    try:
+        result_dirs = sorted(
+            [path for path in root.iterdir() if path.is_dir()],
+            key=lambda path: path.stat().st_mtime if path.exists() else 0.0,
+            reverse=True,
+        )[:20]
+    except Exception:
+        result_dirs = []
+    candidates: list[Path] = []
+    for result_dir in result_dirs:
+        for name in ("codex-cli-output.log", "output.log"):
+            path = result_dir / name
+            if path.is_file():
+                candidates.append(path)
+    for path in candidates:
+        try:
+            mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime, tz=datetime.timezone.utc)
+        except Exception:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")[-12000:]
+        except Exception:
+            continue
+        try:
+            if flow_mod.classify_failure_state(text) != "cooldown" or not flow_mod.has_explicit_quota_evidence(text):
+                continue
+            reset_at = flow_mod.parse_rate_limit_reset_at(text, now=now)
+        except Exception:
+            continue
+        if reset_at is None or reset_at <= now:
+            continue
+        has_absolute_reset_date = bool(
+            re.search(
+                r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*\d{4})?",
+                text,
+                re.I,
+            )
+        )
+        if max_age > 0 and (now - mtime).total_seconds() > max_age and not has_absolute_reset_date:
+            continue
+        result = {
+            "operator_id": operator_id,
+            "runtime_state": "cooldown",
+            "expires_at": reset_at.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "source": "operator_result_log_strict",
+            "path": str(path),
+            "triggered_at": mtime.isoformat().replace("+00:00", "Z"),
+        }
+        if _quota_recovery_supersedes_block(operator_id, result):
+            _STRICT_RESULT_LOG_BLOCK_CACHE[operator_id] = None
+            return None
+        _STRICT_RESULT_LOG_BLOCK_CACHE[operator_id] = result
+        return result
+    _STRICT_RESULT_LOG_BLOCK_CACHE[operator_id] = None
+    return None
+
+
+def _load_recent_pm_flow_control_index() -> None:
+    global _PM_FLOW_CONTROL_INDEX_LOADED
+    if _PM_FLOW_CONTROL_INDEX_LOADED:
+        return
+    _PM_FLOW_CONTROL_INDEX_LOADED = True
+    now = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        paths = sorted(
+            pm_inbox_dir().glob("pm-*.json"),
+            key=lambda item: item.stat().st_mtime if item.exists() else 0.0,
+            reverse=True,
+        )[: max(1, PM_FLOW_CONTROL_SCAN_MAX_FILES)]
+    except Exception:
+        paths = list(pm_inbox_dir().glob("pm-*.json"))[: max(1, PM_FLOW_CONTROL_SCAN_MAX_FILES)]
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        op_id = str(payload.get("operator_id") or "").strip()
+        if not op_id:
+            continue
+        flow = payload.get("operator_flow_control")
+        if not isinstance(flow, dict) or not flow.get("applied"):
+            continue
+        runtime_state = str(flow.get("runtime_state") or "").strip().lower()
+        if runtime_state not in {"cooldown", "quota_exhausted", "auth_expired"}:
+            continue
+        expires_at = str(flow.get("expires_at") or "").strip()
+        expires_dt = _parse_utc(expires_at)
+        if expires_dt is not None and expires_dt <= now:
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        existing = _PM_FLOW_CONTROL_BLOCK_CACHE.get(op_id)
+        existing_mtime = float(existing.get("_mtime", -1.0)) if isinstance(existing, dict) else -1.0
+        if mtime <= existing_mtime:
+            continue
+        _PM_FLOW_CONTROL_BLOCK_CACHE[op_id] = {
+            "operator_id": op_id,
+            "runtime_state": runtime_state,
+            "expires_at": expires_at,
+            "triggered_at": str(flow.get("triggered_at") or payload.get("failed_at") or payload.get("submitted_at") or payload.get("issued_at") or ""),
+            "reason": str(flow.get("reason") or payload.get("failure_reason") or runtime_state),
+            "rule_name": str(flow.get("rule_name") or "pm_operator_flow_control"),
+            "evidence_ref": str(flow.get("evidence_ref") or payload.get("task_id") or ""),
+            "source": "pm_operator_flow_control",
+            "path": str(path),
+            "task_id": str(payload.get("task_id") or ""),
+            "_mtime": mtime,
+        }
+
+
+def _recent_pm_operator_flow_control_block(operator_id: str) -> dict[str, Any] | None:
+    op_id = str(operator_id or "").strip()
+    if not op_id:
+        return None
+    _load_recent_pm_flow_control_index()
+    block = _PM_FLOW_CONTROL_BLOCK_CACHE.get(op_id)
+    if isinstance(block, dict):
+        public_block = {k: v for k, v in block.items() if k != "_mtime"}
+        if _quota_recovery_supersedes_block(op_id, public_block):
+            _PM_FLOW_CONTROL_BLOCK_CACHE[op_id] = None
+            return None
+        return public_block
+    return None
+
+
+def _shared_recent_operator_quota_block(op: dict[str, Any]) -> dict[str, Any] | None:
+    operator_id = str(op.get("operator_id") or "").strip()
+    if not operator_id:
+        return None
+    provider = str(op.get("provider") or "").strip().lower()
+    model = str(op.get("model") or "").strip().lower()
+    key_ref = str(op.get("key_ref") or "").strip()
+    pool = op.get("builder_pool") if isinstance(op.get("builder_pool"), dict) else {}
+    group = str(pool.get("group") or "").strip()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for peer_id, peer_spec in (load_registry().get("operators") or {}).items():
+        peer_id = str(peer_id)
+        if not peer_id or peer_id == operator_id or not isinstance(peer_spec, dict):
+            continue
+        peer_provider = str(peer_spec.get("provider") or "").strip().lower()
+        peer_model = str(peer_spec.get("model") or "").strip().lower()
+        peer_key_ref = str(peer_spec.get("key_ref") or "").strip()
+        peer_pool = peer_spec.get("builder_pool") if isinstance(peer_spec.get("builder_pool"), dict) else {}
+        peer_group = str(peer_pool.get("group") or "").strip()
+        same_group = bool(group and peer_group == group and (not provider or not peer_provider or provider == peer_provider))
+        same_key_model = bool(key_ref and peer_key_ref == key_ref and provider and model and provider == peer_provider and model == peer_model)
+        if not (same_group or same_key_model):
+            continue
+        peer_op = {"operator_id": peer_id, **dict(peer_spec)}
+        block = _recent_pm_operator_flow_control_block(peer_id) or _recent_operator_result_log_quota_block_strict(peer_op)
+        if not block:
+            continue
+        expires_at = str(block.get("expires_at") or "").strip()
+        expires_dt = _parse_utc(expires_at)
+        if expires_dt is not None and expires_dt <= now:
+            continue
+        return {
+            **block,
+            "operator_id": operator_id,
+            "peer_operator_id": peer_id,
+            "source": f"shared_{block.get('source') or 'quota_block'}",
+            "match": "builder_pool" if same_group else "key_ref",
+        }
+    return None
+
+
+def _operator_cooldown_db_block(operator_id: str) -> dict[str, Any] | None:
+    mod = _load_operator_cooldown_db_module()
+    if mod is None or not hasattr(mod, "current_cooldown_block"):
+        return _operator_quota_snapshot_block(operator_id)
+    try:
+        block = mod.current_cooldown_block(operator_id)
+    except Exception:
+        return _operator_quota_snapshot_block(operator_id)
+    if isinstance(block, dict):
+        return block
+    return _operator_quota_snapshot_block(operator_id)
+
+
+def _operator_quota_snapshot_block(operator_id: str) -> dict[str, Any] | None:
+    """Fail closed from the latest quota snapshot when the cooldown DB is unavailable."""
+    if not operator_id or QUOTA_SNAPSHOT_FALLBACK_TTL_SEC <= 0:
+        return None
+    try:
+        stat = QUOTA_SNAPSHOT_PATH.stat()
+        if time.time() - stat.st_mtime > QUOTA_SNAPSHOT_FALLBACK_TTL_SEC:
+            return None
+        data = json.loads(QUOTA_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    operators = data.get("operators") if isinstance(data.get("operators"), list) else []
+    for row in operators:
+        if not isinstance(row, dict) or str(row.get("operator_id") or "") != operator_id:
+            continue
+        state = str(row.get("state") or row.get("runtime_state") or "").strip().lower()
+        if state not in {"cooldown", "quota_exhausted", "auth_expired", "no_subscription", "needs_human_review"}:
+            return None
+        expires_at = str(row.get("next_available_at") or row.get("expires_at") or "").strip()
+        expires_dt = _parse_utc(expires_at)
+        if state in {"cooldown", "quota_exhausted"}:
+            if expires_dt is None or expires_dt <= datetime.datetime.now(datetime.timezone.utc):
+                return None
+        block = {
+            "operator_id": operator_id,
+            "runtime_state": state,
+            "reason": f"quota_snapshot_fallback:{state}",
+            "source": "quota_snapshot_fallback",
+            "scope": "operator_id",
+            "rule_name": "quota_snapshot_fallback",
+            "triggered_at": str(data.get("generated_at") or ""),
+            "expires_at": expires_at,
+            "evidence_ref": str(data.get("run_id") or data.get("generated_at") or ""),
+        }
+        mod = _load_operator_cooldown_db_module()
+        if state in {"cooldown", "quota_exhausted", "auth_expired"} and mod is not None and hasattr(mod, "quota_recovery_observation"):
+            try:
+                recovery = mod.quota_recovery_observation(operator_id, block=block)
+            except Exception:
+                recovery = None
+            if isinstance(recovery, dict):
+                return None
+        return block
+    return None
+
+
+def _format_cooldown_db_reason(block: dict[str, Any]) -> str:
+    mod = _load_operator_cooldown_db_module()
+    if mod is not None and hasattr(mod, "format_block_reason"):
+        try:
+            return str(mod.format_block_reason(block))
+        except Exception:
+            pass
+    state = str(block.get("runtime_state") or "cooldown")
+    reason = str(block.get("reason") or state)
+    expires_at = str(block.get("expires_at") or "")
+    text = f"cooldown_db={state}, reason={reason}"
+    eta = _format_reset_eta(expires_at)
+    if eta:
+        text += f", resets {eta}"
+    if expires_at:
+        text += f" (until {expires_at})"
+    return text
+
+
+def _cooldown_block_is_quota_like(block: dict[str, Any] | None) -> bool:
+    if not isinstance(block, dict):
+        return False
+    state = str(block.get("runtime_state") or "").strip().lower()
+    if state in {"quota_exhausted", "auth_expired"}:
+        return True
+    reason = str(block.get("reason") or "").strip().lower()
+    source = str(block.get("source") or "").strip().lower()
+    rule = str(block.get("rule_name") or "").strip().lower()
+    evidence = str(block.get("evidence_excerpt") or "").strip().lower()
+    quota_terms = (
+        "quota",
+        "rate_limit",
+        "usage limit",
+        "pane_tui_rate_limit",
+        "result_log_quota_block",
+        "you've hit",
+        "too many requests",
+        "429",
+    )
+    material = " ".join([reason, source, rule, evidence])
+    return any(term in material for term in quota_terms)
+
+
+_SHARED_COOLDOWN_SCOPES = {
+    "account",
+    "billing_pool",
+    "key_ref",
+    "model_key",
+    "provider",
+    "quota_pool",
+    "subscription",
+}
+
+
+def _cooldown_block_is_shared_scope(block: dict[str, Any] | None) -> bool:
+    if not isinstance(block, dict):
+        return False
+    scope = str(block.get("scope") or "operator_id").strip().lower()
+    return scope in _SHARED_COOLDOWN_SCOPES or scope.startswith("shared_")
+
+
+def _is_claude_code_operator(op: dict[str, Any]) -> bool:
+    flow_mod = _load_operator_flow_control_module()
+    operator_id = str(op.get("operator_id") or "")
+    if flow_mod is not None and hasattr(flow_mod, "_is_claude_code_operator"):
+        try:
+            return bool(flow_mod._is_claude_code_operator(operator_id, op))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    provider = str(op.get("provider") or "").strip().lower()
+    model = str(op.get("model") or "").strip().lower()
+    if provider and provider not in {"anthropic", "claude", "claude-code"}:
+        return False
+    return (
+        "claude" in operator_id.lower()
+        or provider in {"anthropic", "claude", "claude-code"}
+        or model in {"opus", "sonnet", "haiku"}
+    )
+
+
+def _claude_stale_quota_block_without_recent_evidence(op: dict[str, Any], state: str) -> bool:
+    state_l = str(state or "").strip().lower()
+    if state_l not in {"cooldown", "quota_exhausted"}:
+        return False
+    if not _is_claude_code_operator(op):
+        return False
+    return _recent_operator_quota_block(op) is None
 
 
 def get_operator_status_data(operator_id: str) -> dict[str, Any]:
@@ -554,9 +1010,14 @@ def _operator_health_watchdog_status() -> dict[str, Any]:
 def _operator_block_info(op_id: str, op: dict[str, Any], runtime_state: str, reason: str) -> dict[str, Any]:
     state = op.get("state") if isinstance(op.get("state"), dict) else {}
     status = get_operator_status_data(op_id)
+    pm_flow_block = _recent_pm_operator_flow_control_block(op_id)
+    strict_log_block = _recent_operator_result_log_quota_block_strict({"operator_id": op_id, **dict(op)})
+    shared_block = _shared_recent_operator_quota_block({"operator_id": op_id, **dict(op)})
+    evidence_block = pm_flow_block or strict_log_block or shared_block
     quota_state = str(op.get("quota_guard_state") or "").strip().lower()
     expires_at = str(
-        op.get("quota_refresh_at")
+        ((evidence_block or {}).get("expires_at") if evidence_block else "")
+        or op.get("quota_refresh_at")
         or state.get("cooldown_until")
         or status.get("expires_at")
         or ""
@@ -564,15 +1025,25 @@ def _operator_block_info(op_id: str, op: dict[str, Any], runtime_state: str, rea
     block_type = "none"
     reason_l = (reason or "").lower()
     state_l = (runtime_state or "").lower()
-    if quota_state in {"cooldown", "quota_exhausted", "auth_expired"}:
+    match = re.search(r"\(until ([^)]+)\)", reason or "")
+    if match and not expires_at:
+        expires_at = match.group(1).strip()
+    if evidence_block:
+        block_type = str(evidence_block.get("runtime_state") or "cooldown")
+    elif quota_state in {"cooldown", "quota_exhausted", "auth_expired"}:
         block_type = quota_state
     elif state_l in {"cooldown", "quota_exhausted", "auth_expired"}:
         block_type = state_l
+    elif "quota_exhausted" in reason_l:
+        block_type = "quota_exhausted"
+    elif "auth_expired" in reason_l:
+        block_type = "auth_expired"
+    elif "cooldown" in reason_l or "rate-limit" in reason_l or "usage limit" in reason_l:
+        block_type = "cooldown"
     elif "result_log_quota_block" in reason_l:
         block_type = "cooldown"
-        match = re.search(r"\(until ([^)]+)\)", reason or "")
-        if match and not expires_at:
-            expires_at = match.group(1).strip()
+    elif "flow_control_auth_expired" in reason_l or "authentication" in reason_l or "api error: 401" in reason_l:
+        block_type = "auth_expired"
     elif "health_check_failed" in reason_l or "unavailable:" in reason_l:
         block_type = "health"
     elif state_l in {"leased", "running", "draining"}:
@@ -581,9 +1052,12 @@ def _operator_block_info(op_id: str, op: dict[str, Any], runtime_state: str, rea
         block_type = "disabled"
     elif reason:
         block_type = "other"
+    effective_quota_state = quota_state or "ok"
+    if block_type in {"cooldown", "quota_exhausted", "auth_expired"}:
+        effective_quota_state = block_type
     return {
         "block_type": block_type,
-        "quota_guard_state": quota_state or "ok",
+        "quota_guard_state": effective_quota_state,
         "cooldown_until": expires_at,
         "cooldown_eta": _format_reset_eta(expires_at),
     }
@@ -868,6 +1342,33 @@ def _shared_quota_block_for_operator(op: dict[str, Any]) -> dict[str, str]:
         )
         if not (same_pool or same_key):
             continue
+        peer_op = {"operator_id": str(peer_id), **dict(peer_spec)}
+        peer_db_block = _operator_cooldown_db_block(str(peer_id))
+        if (
+            peer_db_block
+            and _cooldown_block_is_quota_like(peer_db_block)
+            and _cooldown_block_is_shared_scope(peer_db_block)
+        ):
+            expires_at = str(peer_db_block.get("expires_at") or "")
+            expires_dt = _parse_utc(expires_at)
+            if expires_dt is None or expires_dt > now:
+                return {
+                    "state": str(peer_db_block.get("runtime_state") or "cooldown"),
+                    "peer_operator_id": str(peer_id),
+                    "expires_at": expires_at,
+                    "match": "billing_pool" if same_pool else "key_ref",
+                }
+        recent_block = _recent_operator_quota_block(peer_op)
+        if recent_block and _cooldown_block_is_shared_scope(recent_block):
+            expires_at = str(recent_block.get("expires_at") or "")
+            expires_dt = _parse_utc(expires_at)
+            if expires_dt is None or expires_dt > now:
+                return {
+                    "state": str(recent_block.get("runtime_state") or "cooldown"),
+                    "peer_operator_id": str(peer_id),
+                    "expires_at": expires_at,
+                    "match": "billing_pool" if same_pool else "key_ref",
+                }
         status = get_operator_status_data(str(peer_id))
         state = str(
             status.get("runtime_state")
@@ -876,6 +1377,10 @@ def _shared_quota_block_for_operator(op: dict[str, Any]) -> dict[str, str]:
             or ""
         ).strip().lower()
         if state not in {"cooldown", "quota_exhausted", "auth_expired"}:
+            continue
+        if _claude_stale_quota_block_without_recent_evidence(peer_op, state):
+            continue
+        if str(peer_spec.get("quota_guard_state") or "").strip().lower() not in {"cooldown", "quota_exhausted", "auth_expired"}:
             continue
         expires_at = str(
             status.get("expires_at")
@@ -895,77 +1400,95 @@ def _shared_quota_block_for_operator(op: dict[str, Any]) -> dict[str, str]:
     return {}
 
 
-def is_dispatchable(op: dict[str, Any]) -> tuple[bool, str]:
-    if not op.get("enabled", False):
-        return False, f"disabled: {op.get('disabled_reason', 'unknown')}"
-    if not op.get("available", False):
-        return False, f"unavailable: health={op.get('health_status', 'unknown')}"
-    operator_id = op.get("operator_id", "")
-    quota_state = str(op.get("quota_guard_state") or "ok").strip().lower()
-    if quota_state not in {"", "ok", "ready"}:
-        expires_at = str(op.get("quota_refresh_at") or (op.get("state") or {}).get("cooldown_until") or "")
-        expires_dt = _parse_utc(expires_at)
-        if expires_dt is not None and expires_dt <= datetime.datetime.now(datetime.timezone.utc):
-            try:
-                lib_dir = HARNESS_DIR / "lib"
-                if str(lib_dir) not in sys.path:
-                    sys.path.insert(0, str(lib_dir))
-                import operator_flow_control as ofc  # type: ignore
-
-                ofc.clear_expired_operator_config_block(str(operator_id))
-            except Exception:
-                pass
-        else:
-            reason = f"quota_guard_state={quota_state}"
-            eta = _format_reset_eta(expires_at)
-            if eta:
-                reason += f", resets {eta}"
-            if expires_at:
-                reason += f" (until {expires_at})"
-            return False, reason
-    result_log_block = _recent_operator_quota_block(op)
-    if result_log_block:
-        expires_at = str(result_log_block.get("expires_at") or "")
-        reason = f"result_log_quota_block={result_log_block.get('runtime_state', 'cooldown')}"
-        eta = _format_reset_eta(expires_at)
-        if eta:
-            reason += f", resets {eta}"
+def is_dispatchable(op: dict[str, Any], *, dispatch_surface: str = "one_shot") -> tuple[bool, str]:
+    operator_id = str(op.get("operator_id", ""))
+    evidence_block = (
+        _recent_pm_operator_flow_control_block(operator_id)
+        or _recent_operator_result_log_quota_block_strict(op)
+        or _shared_recent_operator_quota_block(op)
+    )
+    if evidence_block:
+        expires_at = str(evidence_block.get("expires_at") or "")
+        source = str(evidence_block.get("source") or "pm_operator_flow_control")
+        reason = f"{source}={evidence_block.get('runtime_state', 'cooldown')}"
+        if evidence_block.get("peer_operator_id"):
+            reason += f", peer={evidence_block.get('peer_operator_id')}"
         if expires_at:
             reason += f" (until {expires_at})"
         return False, reason
-    shared_block = _shared_quota_block_for_operator(op)
-    if shared_block:
-        state = shared_block.get("state", "cooldown")
-        expires_at = shared_block.get("expires_at", "")
-        reason = (
-            f"shared_quota_guard_state={state}"
-            f", peer={shared_block.get('peer_operator_id', 'unknown')}"
-            f", match={shared_block.get('match', 'unknown')}"
+    availability = _load_operator_availability_module()
+    if availability is not None and hasattr(availability, "resolve_operator_availability"):
+        decision = availability.resolve_operator_availability(
+            op,
+            cooldown_block_fn=_operator_cooldown_db_block,
+            recent_quota_block_fn=_recent_operator_quota_block,
+            runtime_state_fn=get_operator_runtime_state,
+            status_data_fn=get_operator_status_data,
+            registry_fn=load_registry,
+            stale_runtime_fn=lambda op_id, state: _maybe_clear_stale_runtime(str(op_id), str(state)),
+            dispatch_surface=dispatch_surface,
         )
-        eta = _format_reset_eta(expires_at)
-        if eta:
-            reason += f", resets {eta}"
-        if expires_at:
-            reason += f" (until {expires_at})"
-        return False, reason
-    state = get_operator_runtime_state(operator_id)
-    state = _maybe_clear_stale_runtime(str(operator_id), state)
-    if state in NON_DISPATCHABLE_STATES:
-        if state in ("cooldown", "quota_exhausted", "auth_expired"):
-            status = get_operator_status_data(operator_id)
-            expires_at = str(status.get("expires_at") or "")
-            eta = _format_reset_eta(expires_at)
-            reason = f"runtime_state={state}"
-            if eta:
-                reason += f", resets {eta}"
-            if expires_at:
-                reason += f" (until {expires_at})"
-            return False, reason
-        return False, f"runtime_state={state}"
+        if not bool(decision.get("dispatchable")):
+            return False, str(decision.get("reason") or f"runtime_state={decision.get('state', 'unknown')}")
+    else:
+        state = get_operator_runtime_state(operator_id)
+        state = _maybe_clear_stale_runtime(str(operator_id), state)
+        if state in {"cooldown", "quota_exhausted"} and operator_id in _POSITIVE_QUOTA_RECOVERY_CACHE:
+            state = "idle"
+        if state in NON_DISPATCHABLE_STATES:
+            return False, f"runtime_state={state}"
+    actor_state = _actor_lease_runtime_state(operator_id)
+    if dispatch_surface != "mailbox" and actor_state in {"leased", "running", "finalizing", "draining"}:
+        return False, f"actor_lease_state={actor_state}"
     health_ok, health_reason = _operator_external_health(op)
     if not health_ok:
         return False, f"health_check_failed: {health_reason}"
+    surface_reject = _operator_reject_reason_for_task(
+        op,
+        str(op.get("role") or ""),
+        "",
+        dispatch_surface=dispatch_surface,
+    )
+    if surface_reject:
+        return False, surface_reject
     return True, ""
+
+
+def _actor_lease_runtime_state(operator_id: str) -> str:
+    if not operator_id:
+        return ""
+    path = ACTOR_LEASE_DIR / f"{operator_id}.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    state = str(data.get("state") or "").strip().lower()
+    if state in {"leased", "running", "finalizing", "draining"}:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        expires_at = _parse_utc(str(data.get("expires_at") or ""))
+        if expires_at is not None and expires_at <= now:
+            return ""
+        last_heartbeat_at = _parse_utc(str(data.get("last_heartbeat_at") or ""))
+        heartbeat_timeout = int(data.get("heartbeat_timeout_sec") or 0)
+        if last_heartbeat_at is not None and heartbeat_timeout > 0:
+            if (now - last_heartbeat_at).total_seconds() > heartbeat_timeout:
+                return ""
+    if state == "leased":
+        return "leased"
+    if state == "running":
+        return "running"
+    if state == "finalizing":
+        return "finalizing"
+    if state == "draining":
+        return "draining"
+    return ""
+
+
+def _is_dispatchable_on_surface(op: dict[str, Any], dispatch_surface: str) -> tuple[bool, str]:
+    try:
+        return is_dispatchable(op, dispatch_surface=dispatch_surface)
+    except TypeError:
+        return is_dispatchable(op)  # tests may monkeypatch the legacy one-arg shape
 
 
 def load_task_graph_node(sprint_id: str, node_id: str) -> dict[str, Any] | None:
@@ -1130,6 +1653,7 @@ def _operator_reject_reason_for_task(
     role: str,
     task_type: str,
     resolved_capsule: dict[str, Any] | None = None,
+    dispatch_surface: str = "one_shot",
 ) -> str:
     """Hard guard for advisory-only operators.
 
@@ -1140,10 +1664,23 @@ def _operator_reject_reason_for_task(
     norm_role = normalize_role(role)
     task = str(task_type or "").strip().lower()
     policy = op.get("policy") if isinstance(op.get("policy"), dict) else {}
-    if norm_role == "planner" and str(policy.get("write_files") or "").strip().lower() == "denied":
-        return "operator_cannot_write_planner_artifacts"
+    surface = op.get("surface") if isinstance(op.get("surface"), dict) else {}
+    provider = str(op.get("provider") or "").strip().lower()
+    backend = str(op.get("backend") or "").strip().lower()
+    surface_type = str(surface.get("type") or "").strip().lower()
+    launch_cmd_kind = str(op.get("launch_cmd_kind") or "").strip().lower()
+    auth_mode = str(op.get("auth_mode") or "").strip().lower()
+    key_ref = str(op.get("key_ref") or "").strip().lower()
+    billing_surface = str(op.get("billing_surface") or "").strip().lower()
+    billing_pool = str(op.get("billing_pool") or "").strip().lower()
+    claude_interactive_subscription = _operator_is_claude_subscription_interactive(op)
+    surface_name = str(dispatch_surface or "one_shot").strip().lower()
+    if claude_interactive_subscription and surface_name not in {"actor_runtime", "mailbox", "tmux", "tmux_mailbox"}:
+        return "claude_subscription_interactive_requires_tmux_repl"
 
     write_files = str(policy.get("write_files") or "").strip().lower()
+    if norm_role == "planner" and write_files in {"denied", "eval_sidecar_only", "artifact_dir_only", "restricted"}:
+        return "operator_cannot_write_planner_artifacts"
     profile = str(op.get("profile") or "").strip().lower()
     declared_role = normalize_role(str(op.get("role") or ""))
     operator_class = str(op.get("operator_class") or "").strip().lower()
@@ -1177,17 +1714,34 @@ def _operator_reject_reason_for_task(
     return ""
 
 
+def _operator_is_claude_subscription_interactive(op: dict[str, Any]) -> bool:
+    surface = op.get("surface") if isinstance(op.get("surface"), dict) else {}
+    provider = str(op.get("provider") or "").strip().lower()
+    backend = str(op.get("backend") or "").strip().lower()
+    surface_type = str(surface.get("type") or "").strip().lower()
+    launch_cmd_kind = str(op.get("launch_cmd_kind") or "").strip().lower()
+    auth_mode = str(op.get("auth_mode") or "").strip().lower()
+    key_ref = str(op.get("key_ref") or "").strip().lower()
+    billing_surface = str(op.get("billing_surface") or "").strip().lower()
+    billing_pool = str(op.get("billing_pool") or "").strip().lower()
+    return bool(
+        (provider == "anthropic" or backend == "claude-cli" or surface_type == "claude_code_interactive")
+        and (launch_cmd_kind == "interactive_repl" or surface_type == "claude_code_interactive")
+        and (
+            auth_mode == "subscription"
+            or "subscription" in key_ref
+            or "subscription_interactive" in billing_surface
+            or "subscription_interactive" in billing_pool
+        )
+    )
+
+
 def _active_role_spillover_count(role: str) -> int:
     norm_role = normalize_role(role)
     active_statuses = {"submitted", "submitted_fallback", "leased", "running", "pending"}
     active_runtime_states = {"leased", "running", "draining"}
     count = 0
-    d = pm_inbox_dir()
-    for path in d.glob("pm-*.json"):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+    for payload in _iter_pm_inbox_projections():
         status = str(payload.get("status") or "").strip().lower()
         if status not in active_statuses:
             continue
@@ -1199,6 +1753,42 @@ def _active_role_spillover_count(role: str) -> int:
                     continue
             count += 1
     return count
+
+
+ACTIVE_PM_OPERATOR_STATUSES = {"submitted", "submitted_fallback", "leased", "running", "pending", "in_progress"}
+
+
+def _active_pm_count_for_operator(operator_id: str, role: str = "") -> int:
+    operator_id = str(operator_id or "").strip()
+    if not operator_id:
+        return 0
+    norm_role = normalize_role(role) if role else ""
+    count = 0
+    for payload in _iter_pm_inbox_projections():
+        if str(payload.get("operator_id") or "").strip() != operator_id:
+            continue
+        status = str(payload.get("status") or "").strip().lower()
+        if status not in ACTIVE_PM_OPERATOR_STATUSES:
+            continue
+        if norm_role:
+            task_role = normalize_role(str(payload.get("requested_role") or payload.get("borrowed_for_role") or ""))
+            if task_role and task_role != norm_role:
+                continue
+        count += 1
+    return count
+
+
+def _operator_active_task_limit(op: dict[str, Any]) -> int:
+    pool = op.get("builder_pool") if isinstance(op.get("builder_pool"), dict) else {}
+    for payload in (pool, op):
+        for key in ("max_active_tasks", "max_concurrent_tasks", "concurrency", "capacity"):
+            try:
+                value = int(payload.get(key, 0) or 0)
+            except Exception:
+                value = 0
+            if value > 0:
+                return value
+    return 1
 
 
 def _role_spillover_spec(policy_mod: Any | None, policy: dict[str, Any], role: str) -> dict[str, Any]:
@@ -1287,6 +1877,7 @@ def _role_spillover_candidates(
     policy: dict[str, Any],
     spillover_spec: dict[str, Any],
     resolved_capsule: dict[str, Any] | None = None,
+    dispatch_surface: str = "one_shot",
 ) -> tuple[list[tuple[int, str, dict[str, Any]]], str]:
     max_active = int(spillover_spec.get("max_active", 0) or 0)
     if max_active <= 0:
@@ -1317,12 +1908,12 @@ def _role_spillover_candidates(
             continue
         if allowed_groups and policy_mod and policy_mod.infer_builder_group(op) not in allowed_groups:
             continue
-        ok, _ = is_dispatchable(op)
+        ok, _ = _is_dispatchable_on_surface(op, dispatch_surface)
         if not ok:
             continue
         if _task_type_rejected(op, task_type):
             continue
-        if _operator_reject_reason_for_task(op, norm_role, task_type, resolved_capsule):
+        if _operator_reject_reason_for_task(op, norm_role, task_type, resolved_capsule, dispatch_surface=dispatch_surface):
             continue
         borrowed = dict(op)
         borrowed["borrowed_for_role"] = norm_role
@@ -1349,12 +1940,231 @@ def _role_spillover_candidates(
     return candidates, ""
 
 
+LAST_OPERATOR_SELECTION_DIAGNOSTICS: dict[str, Any] = {}
+
+
+def _compact_operator_candidate(
+    *,
+    priority: int,
+    operator_id: str,
+    operator: dict[str, Any],
+    policy_mod: Any | None,
+    selected: bool = False,
+) -> dict[str, Any]:
+    group = ""
+    if policy_mod is not None:
+        try:
+            group = str(policy_mod.infer_builder_group(operator) or "")
+        except Exception:
+            group = ""
+    return {
+        "operator_id": operator_id,
+        "priority": priority,
+        "selected": bool(selected),
+        "group": group,
+        "roles": sorted(_operator_roles(operator)),
+        "model": str(operator.get("model") or "N/A"),
+        "provider": str(operator.get("provider") or "N/A"),
+        "runtime_state": get_operator_runtime_state(operator_id),
+        "quota_guard_state": str(operator.get("quota_guard_state") or "ok"),
+        "borrowed_for_role": str(operator.get("borrowed_for_role") or ""),
+    }
+
+
+def _record_operator_selection_success(
+    *,
+    source: str,
+    norm_role: str,
+    task_type: str,
+    logical_operator: str,
+    pool_mode: bool,
+    candidates: list[tuple[int, str, dict[str, Any]]],
+    selected_operator_id: str,
+    selected_priority: int,
+    policy_mod: Any | None,
+    fallback_reason: str = "",
+    limit: int = 20,
+) -> None:
+    sorted_candidates = sorted(candidates, key=lambda x: (-x[0], x[1]))
+    _record_operator_selection_diagnostics(
+        {
+            "source": source,
+            "role": norm_role,
+            "task_type": task_type,
+            "logical_operator": logical_operator,
+            "pool_mode": pool_mode,
+            "selected_operator_id": selected_operator_id,
+            "selected_priority": selected_priority,
+            "fallback_reason": fallback_reason,
+            "candidate_count": len(sorted_candidates),
+            "candidates": [
+                _compact_operator_candidate(
+                    priority=priority,
+                    operator_id=op_id,
+                    operator=op,
+                    policy_mod=policy_mod,
+                    selected=(op_id == selected_operator_id),
+                )
+                for priority, op_id, op in sorted_candidates[:limit]
+            ],
+            "truncated": len(sorted_candidates) > limit,
+        }
+    )
+
+
+def _dispatch_ledger_selection_summary(selection_diagnostics: dict[str, Any]) -> dict[str, Any]:
+    if not selection_diagnostics:
+        return {}
+    return {
+        "source": selection_diagnostics.get("source", ""),
+        "selected_operator_id": selection_diagnostics.get("selected_operator_id", ""),
+        "selected_priority": selection_diagnostics.get("selected_priority", ""),
+        "candidate_count": selection_diagnostics.get("candidate_count", ""),
+        "pool_mode": selection_diagnostics.get("pool_mode", False),
+        "excluded_counts": selection_diagnostics.get("excluded_counts", {}),
+    }
+
+
+def _write_dispatch_ledger_event(event: dict[str, Any]) -> None:
+    """Append a best-effort PM dispatch audit event without blocking dispatch."""
+    try:
+        payload = {
+            "ts": _now(),
+            "schema_version": "pm_dispatch_selection.v1",
+            **dict(event),
+        }
+        DISPATCH_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with DISPATCH_LEDGER_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception as exc:
+        print(f"WARNING: failed to write dispatch ledger: {exc}", file=sys.stderr)
+
+
+def _operator_selection_diagnostics(
+    *,
+    operators: dict[str, Any],
+    norm_role: str,
+    task_type: str,
+    logical_operator: str,
+    preferred_ops: set[str],
+    forbidden_ops: set[str],
+    default_profile: str,
+    pool_mode: bool,
+    pool_member_ids: set[str],
+    policy_mod: Any | None,
+    policy: dict[str, Any],
+    resolved_capsule: dict[str, Any] | None,
+    dispatch_surface: str = "one_shot",
+    limit: int = 80,
+) -> dict[str, Any]:
+    """Explain why operator selection had no dispatchable candidates."""
+
+    rows: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    pool_members_seen = 0
+
+    def add_count(reason: str) -> None:
+        counts[reason] = counts.get(reason, 0) + 1
+
+    for op_id, spec in operators.items():
+        op = dict(spec)
+        op["operator_id"] = op_id
+        group = ""
+        if policy_mod is not None:
+            try:
+                group = str(policy_mod.infer_builder_group(op) or "")
+            except Exception:
+                group = ""
+        op_roles = sorted(_operator_roles(op))
+        is_pool_member = op_id in pool_member_ids
+        if is_pool_member:
+            pool_members_seen += 1
+
+        should_show = is_pool_member or norm_role in op_roles or op_id in preferred_ops
+        if not should_show:
+            continue
+
+        reason = ""
+        ok, unavailable_reason = _is_dispatchable_on_surface(op, dispatch_surface)
+        if op_id in forbidden_ops:
+            reason = "forbidden_by_policy_or_env"
+        elif not ok:
+            reason = f"unavailable:{unavailable_reason or 'unknown'}"
+        elif norm_role not in op_roles:
+            reason = "role_mismatch"
+        elif pool_mode and not is_pool_member:
+            reason = "not_builder_pool_member"
+        elif _task_type_rejected(op, task_type):
+            reason = "task_type_rejected"
+        else:
+            task_reject = _operator_reject_reason_for_task(
+                op,
+                norm_role,
+                task_type,
+                resolved_capsule,
+                dispatch_surface=dispatch_surface,
+            )
+            active_count = _active_pm_count_for_operator(op_id, norm_role)
+            active_limit = _operator_active_task_limit(op)
+            if task_reject:
+                reason = task_reject
+            elif active_count >= active_limit:
+                reason = f"operator_active_task_limit_reached:{active_count}/{active_limit}"
+            else:
+                reason = "candidate"
+
+        add_count(reason.split(":", 1)[0])
+        if len(rows) >= limit:
+            continue
+        rows.append(
+            {
+                "operator_id": op_id,
+                "reason": reason,
+                "group": group,
+                "roles": op_roles,
+                "enabled": bool(op.get("enabled", False)),
+                "available": bool(op.get("available", False)),
+                "runtime_state": get_operator_runtime_state(op_id),
+                "quota_guard_state": str(op.get("quota_guard_state") or "ok"),
+                "model": str(op.get("model") or "N/A"),
+                "pool_member": bool(is_pool_member),
+            }
+        )
+
+    return {
+        "role": norm_role,
+        "task_type": task_type,
+        "logical_operator": logical_operator,
+        "pool_mode": pool_mode,
+        "pool_member_count": pool_members_seen,
+        "excluded_counts": counts,
+        "candidate_exclusions": rows,
+        "truncated": len(rows) >= limit,
+    }
+
+
+def _record_operator_selection_diagnostics(payload: dict[str, Any]) -> None:
+    global LAST_OPERATOR_SELECTION_DIAGNOSTICS
+    LAST_OPERATOR_SELECTION_DIAGNOSTICS = dict(payload)
+
+
+def _print_operator_selection_diagnostics() -> None:
+    if not LAST_OPERATOR_SELECTION_DIAGNOSTICS:
+        return
+    print(
+        "SOLAR_PM_SELECTION_DIAGNOSTICS="
+        + json.dumps(LAST_OPERATOR_SELECTION_DIAGNOSTICS, ensure_ascii=False, sort_keys=True),
+        file=sys.stderr,
+    )
+
+
 def select_operator_by_role(
     role: str,
     task_type: str = "",
     prefer_operator: str = "",
     resolved_capsule: dict[str, Any] | None = None,
     logical_operator: str = "",
+    dispatch_surface: str = "one_shot",
 ) -> tuple[str, dict[str, Any], str]:
     """选择最合适的可调度算子。
 
@@ -1379,6 +2189,7 @@ def select_operator_by_role(
     }
     forbidden_ops.update(env_excluded_ops)
     default_profile = str(capsule_constraints.get("default_operator_profile") or "")
+    _record_operator_selection_diagnostics({})
 
     # 1. 指定 operator 优先
     if prefer_operator:
@@ -1387,14 +2198,71 @@ def select_operator_by_role(
             op["operator_id"] = prefer_operator
             if normalize_role(str(op.get("role") or "")) != norm_role:
                 op["selected_for_role"] = norm_role
-            task_reject_reason = _operator_reject_reason_for_task(op, norm_role, task_type, resolved_capsule)
+            task_reject_reason = _operator_reject_reason_for_task(
+                op,
+                norm_role,
+                task_type,
+                resolved_capsule,
+                dispatch_surface=dispatch_surface,
+            )
+            active_count = _active_pm_count_for_operator(prefer_operator, norm_role)
+            active_limit = _operator_active_task_limit(op)
+            if active_count >= active_limit:
+                task_reject_reason = f"operator_active_task_limit_reached:{active_count}/{active_limit}"
             if task_reject_reason:
+                _record_operator_selection_diagnostics(
+                    {
+                        "source": "preferred_operator",
+                        "role": norm_role,
+                        "task_type": task_type,
+                        "logical_operator": logical_operator,
+                        "selected_operator_id": "",
+                        "candidate_count": 1,
+                        "rejected_operator_id": prefer_operator,
+                        "rejection_reason": task_reject_reason,
+                    }
+                )
                 return "", {}, f"preferred_operator_rejected_for_task: {prefer_operator}: {task_reject_reason}"
-            ok, reason = is_dispatchable(op)
+            ok, reason = _is_dispatchable_on_surface(op, dispatch_surface)
             if ok:
+                _record_operator_selection_success(
+                    source="preferred_operator",
+                    norm_role=norm_role,
+                    task_type=task_type,
+                    logical_operator=logical_operator,
+                    pool_mode=pool_mode,
+                    candidates=[(10_000, prefer_operator, op)],
+                    selected_operator_id=prefer_operator,
+                    selected_priority=10_000,
+                    policy_mod=policy_mod,
+                )
                 return prefer_operator, op, ""
             else:
+                _record_operator_selection_diagnostics(
+                    {
+                        "source": "preferred_operator",
+                        "role": norm_role,
+                        "task_type": task_type,
+                        "logical_operator": logical_operator,
+                        "selected_operator_id": "",
+                        "candidate_count": 1,
+                        "rejected_operator_id": prefer_operator,
+                        "rejection_reason": reason,
+                    }
+                )
                 return "", {}, f"preferred_operator_unavailable: {prefer_operator}: {reason}"
+        _record_operator_selection_diagnostics(
+            {
+                "source": "preferred_operator",
+                "role": norm_role,
+                "task_type": task_type,
+                "logical_operator": logical_operator,
+                "selected_operator_id": "",
+                "candidate_count": 0,
+                "rejection_reason": "preferred_operator_not_found",
+                "requested_operator_id": prefer_operator,
+            }
+        )
         return "", {}, f"preferred_operator_not_found: {prefer_operator}"
 
     # 2. 按 role 过滤；builder 默认从显式 builder_pool 中挑可用算子。
@@ -1402,7 +2270,7 @@ def select_operator_by_role(
     for op_id, spec in operators.items():
         op = dict(spec)
         op["operator_id"] = op_id
-        ok, _ = is_dispatchable(op)
+        ok, _ = _is_dispatchable_on_surface(op, dispatch_surface)
         if not ok:
             continue
         if op_id in forbidden_ops:
@@ -1420,7 +2288,11 @@ def select_operator_by_role(
         # long-running interactive session.
         if _task_type_rejected(op, task_type):
             continue
-        if _operator_reject_reason_for_task(op, norm_role, task_type, resolved_capsule):
+        if _operator_reject_reason_for_task(op, norm_role, task_type, resolved_capsule, dispatch_surface=dispatch_surface):
+            continue
+        active_count = _active_pm_count_for_operator(op_id, norm_role)
+        active_limit = _operator_active_task_limit(op)
+        if active_count >= active_limit:
             continue
         # 评分：builder pool 用统一池优先级；旧模式保留 print_once > command > interactive_repl。
         priority = _operator_priority(
@@ -1452,19 +2324,76 @@ def select_operator_by_role(
                 policy=policy,
                 spillover_spec=spillover_spec,
                 resolved_capsule=resolved_capsule,
+                dispatch_surface=dispatch_surface,
             )
             if spillover_candidates:
                 spillover_candidates.sort(key=lambda x: -x[0])
-                _, best_id, best_op = spillover_candidates[0]
+                best_priority, best_id, best_op = spillover_candidates[0]
+                _record_operator_selection_success(
+                    source="spillover_candidates",
+                    norm_role=norm_role,
+                    task_type=task_type,
+                    logical_operator=logical_operator,
+                    pool_mode=pool_mode,
+                    candidates=spillover_candidates,
+                    selected_operator_id=best_id,
+                    selected_priority=best_priority,
+                    policy_mod=policy_mod,
+                )
                 return best_id, best_op, ""
             if spillover_reason:
                 return "", {}, f"no_dispatchable_operator_for_role: {norm_role}; {spillover_reason}"
         if pool_mode:
+            _record_operator_selection_diagnostics(
+                _operator_selection_diagnostics(
+                    operators=operators,
+                    norm_role=norm_role,
+                    task_type=task_type,
+                    logical_operator=logical_operator,
+                    preferred_ops=preferred_ops,
+                    forbidden_ops=forbidden_ops,
+                    default_profile=default_profile,
+                    pool_mode=pool_mode,
+                    pool_member_ids=pool_member_ids,
+                    policy_mod=policy_mod,
+                    policy=policy,
+                    resolved_capsule=resolved_capsule,
+                    dispatch_surface=dispatch_surface,
+                )
+            )
             return "", {}, f"no_dispatchable_operator_for_role: {norm_role}; builder_pool_depleted"
+        _record_operator_selection_diagnostics(
+            _operator_selection_diagnostics(
+                operators=operators,
+                norm_role=norm_role,
+                task_type=task_type,
+                logical_operator=logical_operator,
+                preferred_ops=preferred_ops,
+                forbidden_ops=forbidden_ops,
+                default_profile=default_profile,
+                pool_mode=pool_mode,
+                pool_member_ids=pool_member_ids,
+                policy_mod=policy_mod,
+                policy=policy,
+                resolved_capsule=resolved_capsule,
+                dispatch_surface=dispatch_surface,
+            )
+        )
         return "", {}, f"no_dispatchable_operator_for_role: {norm_role}"
 
     candidates.sort(key=lambda x: -x[0])
-    _, best_id, best_op = candidates[0]
+    best_priority, best_id, best_op = candidates[0]
+    _record_operator_selection_success(
+        source="primary_candidates",
+        norm_role=norm_role,
+        task_type=task_type,
+        logical_operator=logical_operator,
+        pool_mode=pool_mode,
+        candidates=candidates,
+        selected_operator_id=best_id,
+        selected_priority=best_priority,
+        policy_mod=policy_mod,
+    )
     return best_id, best_op, ""
 
 
@@ -1568,6 +2497,7 @@ def build_pm_dispatch_text(
         ## Required Closeout
 
         把结论写到：`{result_path}`
+        PM 会同时写入结构化 evidence package；完成状态必须能追溯到 dispatch、handoff 和 eval artifact。
 {eval_closeout_block}
 
         格式：
@@ -1661,10 +2591,55 @@ def _should_direct_inbox_graph_eval(role: str, task_type: str) -> bool:
 def write_pm_task_record(task_id: str, record: dict[str, Any]) -> Path:
     path = pm_inbox_dir() / f"{task_id}.json"
     tmp = str(path) + ".tmp"
+    _compact_pm_reconcile_history(record)
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(record, f, indent=2, ensure_ascii=False)
     os.replace(tmp, str(path))
+    global _PM_INBOX_PROJECTION_CACHE
+    _PM_INBOX_PROJECTION_CACHE = None
     return path
+
+
+def _record_pm_dispatch_evidence(
+    record: dict[str, Any],
+    *,
+    event: str,
+    status: str | None = None,
+    reason: str = "",
+) -> dict[str, Any]:
+    module_path = REPO_HARNESS_DIR / "lib" / "evidence_ledger.py"
+    spec = importlib.util.spec_from_file_location("_solar_pm_dispatch_evidence", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"dispatch_evidence_unavailable:{module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    recorder = module.DispatchEvidenceRecorder(harness_dir=HARNESS_DIR, sprints_dir=SPRINTS_DIR)
+    sprint_id = str(record.get("sprint_id") or "")
+    node_id = str(record.get("node_id") or "")
+    artifact_paths = dict(record.get("artifact_paths") or {})
+    for key in ("dispatch_file", "result_path", "inbox_path", "outbox_path"):
+        value = str(record.get(key) or "").strip()
+        if value:
+            artifact_paths[key] = value
+    evidence = recorder.record(
+        task_id=str(record.get("task_id") or ""),
+        sprint_id=sprint_id,
+        node_id=node_id,
+        role=str(record.get("requested_role") or record.get("role") or ""),
+        pane=str(record.get("operator_id") or ""),
+        status=str(status or record.get("status") or "unknown"),
+        event=event,
+        artifact_paths=artifact_paths,
+        reason=reason,
+        extra={"submit_mode": record.get("submit_mode", "")},
+    )
+    prior_ledger = str(record.get("evidence_ledger_path") or "").strip()
+    if prior_ledger and prior_ledger != evidence["evidence_ledger_path"]:
+        record["actor_evidence_ledger_path"] = prior_ledger
+    record["artifact_paths"] = dict(evidence["artifact_paths"])
+    record["evidence_path"] = str(evidence["evidence_path"])
+    record["evidence_ledger_path"] = str(evidence["evidence_ledger_path"])
+    return evidence
 
 
 def read_pm_task_record(task_id: str) -> dict[str, Any] | None:
@@ -1675,6 +2650,19 @@ def read_pm_task_record(task_id: str) -> dict[str, Any] | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _compact_pm_reconcile_history(record: dict[str, Any]) -> None:
+    history = record.get("reconcile_history")
+    if not isinstance(history, list):
+        return
+    try:
+        max_entries = int(os.environ.get("SOLAR_PM_RECONCILE_HISTORY_MAX_ENTRIES", "40"))
+    except Exception:
+        max_entries = 40
+    max_entries = max(1, max_entries)
+    if len(history) > max_entries:
+        record["reconcile_history"] = history[-max_entries:]
 
 
 def _pm_task_projection_key(record: dict[str, Any]) -> tuple[str, str, str]:
@@ -1861,6 +2849,20 @@ def _sync_task_dag_state_node(
             assigned_to=assigned_to,
             dispatch_id=dispatch_id,
         )
+        node_status = state.setdefault("node_status", {})
+        if isinstance(node_status, dict):
+            entry = node_status.setdefault(node_id, {})
+            if isinstance(entry, dict):
+                entry["status"] = status
+                entry["updated_at"] = _now()
+                if assigned_to:
+                    entry["assigned_to"] = assigned_to
+                else:
+                    entry.pop("assigned_to", None)
+                if dispatch_id:
+                    entry["dispatch_id"] = dispatch_id
+                else:
+                    entry.pop("dispatch_id", None)
         if not dispatch_id and isinstance(state.get("dispatch_ids"), dict):
             state["dispatch_ids"].pop(node_id, None)
         if extra:
@@ -1895,7 +2897,11 @@ def _sprint_id_from_status_path(path: Path) -> str:
 def _active_pm_record_for_node(sprint_id: str, node_id: str) -> dict[str, Any] | None:
     newest: dict[str, Any] | None = None
     newest_mtime = -1.0
-    for path in pm_inbox_dir().glob("pm-*.json"):
+    if any(char in sprint_id + node_id for char in "*?[]"):
+        paths = pm_inbox_dir().glob("pm-*.json")
+    else:
+        paths = pm_inbox_dir().glob(f"pm-{sprint_id}-{node_id}-*.json")
+    for path in paths:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
@@ -1910,6 +2916,16 @@ def _active_pm_record_for_node(sprint_id: str, node_id: str) -> dict[str, Any] |
         if mtime > newest_mtime:
             newest = payload
             newest_mtime = mtime
+    if newest is not None:
+        return newest
+    for payload in _iter_pm_inbox_projections():
+        if str(payload.get("sprint_id") or "") != sprint_id:
+            continue
+        if str(payload.get("node_id") or "") != node_id:
+            continue
+        if _pm_status_is_terminal(str(payload.get("status") or "")):
+            continue
+        return dict(payload)
     return newest
 
 
@@ -1942,8 +2958,6 @@ def _node_has_pm_dispatch_marker(graph: dict[str, Any], node_id: str, node: dict
             return True
         if str(payload.get("dispatch_id") or "").strip():
             return True
-        if str(payload.get("dispatched_via") or "").strip() == "pm_dispatch":
-            return True
     return False
 
 
@@ -1974,11 +2988,54 @@ def _node_builder_task_type(node: dict[str, Any]) -> str:
         return "tests"
     if logical_operator == "TestRunner":
         return "test"
+    if logical_operator == "RunTests":
+        return "tests"
+    if logical_operator == "VerifyClaim":
+        return "verification"
     if logical_operator == "PatchWorker":
         return "patch"
     if logical_operator == "BenchmarkRunner":
         return "benchmark"
     return "implementation"
+
+
+def _release_markerless_active_builder_claims(graph: dict[str, Any], sprint_id: str) -> list[dict[str, str]]:
+    changed: list[dict[str, str]] = []
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return changed
+    results = graph.get("node_results")
+    if not isinstance(results, dict):
+        results = {}
+        graph["node_results"] = results
+    now = _now()
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or node.get("node_id") or "").strip()
+        if not node_id or not _node_is_builder_ready(node):
+            continue
+        status = str(node.get("status") or "").strip().lower()
+        if status not in {"assigned", "dispatched", "in_progress", "running"}:
+            continue
+        if _node_has_pm_dispatch_marker(graph, node_id, node):
+            continue
+        if _active_pm_record_for_node(sprint_id, node_id):
+            continue
+        node["status"] = "pending"
+        node["updated_at"] = now
+        node["requeue_reason"] = "markerless_active_claim_released"
+        for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
+            node.pop(key, None)
+        entry = results.get(node_id) if isinstance(results.get(node_id), dict) else {}
+        entry["status"] = "pending"
+        entry["updated_at"] = now
+        entry["requeue_reason"] = "markerless_active_claim_released"
+        for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
+            entry.pop(key, None)
+        results[node_id] = entry
+        changed.append({"node_id": node_id, "previous_status": status, "status": "pending"})
+    return changed
 
 
 def _node_builder_objective(sprint_id: str, node: dict[str, Any]) -> str:
@@ -2034,6 +3091,11 @@ def _builder_ready_nodes_for_sprint(sprint_id: str) -> tuple[list[dict[str, Any]
     try:
         graph_scheduler.SPRINTS_DIR = SPRINTS_DIR
         graph = graph_scheduler.load_graph(graph_path)
+        if hasattr(graph_scheduler, "sync_child_sprint_status_projection"):
+            graph_scheduler.sync_child_sprint_status_projection(graph, graph_path, persist=True)
+        markerless_releases = _release_markerless_active_builder_claims(graph, sprint_id)
+        if markerless_releases:
+            graph_scheduler.save_graph(graph_path, graph)
         ready = graph_scheduler.ready_nodes(graph)
     except Exception as exc:
         return [], {"ok": False, "reason": f"ready_nodes_failed:{type(exc).__name__}", "error": str(exc), "graph": str(graph_path)}
@@ -2042,14 +3104,23 @@ def _builder_ready_nodes_for_sprint(sprint_id: str) -> tuple[list[dict[str, Any]
         node_id = str(node.get("id") or "").strip()
         if not node_id or not _node_is_builder_ready(node):
             continue
-        if _node_has_non_latent_status(node):
+        has_pm_dispatch_marker = _node_has_pm_dispatch_marker(graph, node_id, node)
+        active_record = _active_pm_record_for_node(sprint_id, node_id)
+        node_status = str(node.get("status") or "").strip().lower()
+        markerless_active_status = node_status in {"assigned", "dispatched", "in_progress", "running"} and not has_pm_dispatch_marker and not active_record
+        if _node_has_non_latent_status(node) and not markerless_active_status:
             continue
-        if _node_has_pm_dispatch_marker(graph, node_id, node):
+        if has_pm_dispatch_marker:
             continue
-        if _active_pm_record_for_node(sprint_id, node_id):
+        if active_record:
             continue
         nodes.append(dict(node))
-    return nodes, {"ok": True, "graph": str(graph_path), "ready_count": len(nodes)}
+    return nodes, {
+        "ok": True,
+        "graph": str(graph_path),
+        "ready_count": len(nodes),
+        "graph_ready_count": len(ready),
+    }
 
 
 def _latent_builder_ready_items(limit: int = 0) -> list[dict[str, Any]]:
@@ -2077,6 +3148,35 @@ def _latent_builder_ready_items(limit: int = 0) -> list[dict[str, Any]]:
 
 def _latent_builder_ready_backlog_count() -> int:
     return len(_latent_builder_ready_items())
+
+
+def _planner_ready_items(limit: int = 0) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for payload in _iter_status_projections():
+        sprint_id = str(payload.get("sprint_id") or "").strip()
+        if not sprint_id:
+            continue
+        status = str(payload.get("status") or "").strip().lower()
+        phase = str(payload.get("phase") or "").strip().lower()
+        handoff = str(payload.get("handoff_to") or "").strip().lower()
+        if status not in {"active", "drafting"} or phase != "prd_ready" or handoff != "planner":
+            continue
+        if _active_pm_record_for_node(sprint_id, "N0"):
+            continue
+        items.append(
+            {
+                "sprint_id": sprint_id,
+                "node_id": "N0",
+                "task_type": "planning",
+                "status": status,
+                "phase": phase,
+                "handoff_to": handoff,
+                "objective": _planner_objective_for_compiled_sprint(sprint_id),
+            }
+        )
+        if limit and len(items) >= limit:
+            return items
+    return items
 
 
 def _node_eval_json_path(sprint_id: str, node_id: str) -> Path:
@@ -2253,10 +3353,33 @@ def _pm_expected_artifacts(record: dict[str, Any]) -> list[Path]:
     return []
 
 
+def _pm_result_identity_mismatches(record: dict[str, Any]) -> list[str]:
+    """Detect when a shared pm-result file belongs to a different PM task."""
+    task_id = str(record.get("task_id") or "").strip()
+    result_path_raw = str(record.get("result_path") or "").strip()
+    if not task_id or not result_path_raw:
+        return []
+    result_path = Path(result_path_raw).expanduser()
+    if not result_path.exists() or not result_path.is_file() or result_path.stat().st_size <= 0:
+        return []
+    try:
+        text = result_path.read_text(encoding="utf-8", errors="replace")[:STATUS_SCAN_BYTES]
+    except Exception:
+        return []
+    match = re.search(r"(?im)^#\s*PM Task Result\s+[—-]\s*(`?)([^`\n\r]+)\1\s*$", text)
+    if not match:
+        return []
+    result_task_id = match.group(2).strip()
+    if result_task_id and result_task_id != task_id:
+        return [f"{result_path}: task_id_mismatch result={result_task_id} record={task_id}"]
+    return []
+
+
 def _pm_closeout_status(record: dict[str, Any]) -> dict[str, Any]:
     expected = _pm_expected_artifacts(record)
     missing = [str(path) for path in expected if not path.exists() or path.stat().st_size <= 0]
     stale: list[str] = []
+    identity_mismatches = _pm_result_identity_mismatches(record)
     submitted_at = _parse_record_time(record.get("submitted_at") or record.get("issued_at"))
     if submitted_at is not None:
         threshold = submitted_at - datetime.timedelta(seconds=2)
@@ -2270,10 +3393,11 @@ def _pm_closeout_status(record: dict[str, Any]) -> dict[str, Any]:
             if artifact_mtime < threshold:
                 stale.append(str(path))
     return {
-        "ok": not missing and not stale,
+        "ok": not missing and not stale and not identity_mismatches,
         "expected_artifacts": [str(path) for path in expected],
         "missing_artifacts": missing,
         "stale_artifacts": stale,
+        "identity_mismatches": identity_mismatches,
     }
 
 
@@ -2641,10 +3765,13 @@ def cmd_submit(args: argparse.Namespace) -> int:
         prefer_operator=prefer_operator,
         resolved_capsule=resolved_capsule,
         logical_operator=logical_operator,
+        dispatch_surface="mailbox",
     )
+    selection_diagnostics = dict(LAST_OPERATOR_SELECTION_DIAGNOSTICS or {})
     if not operator_id:
         if dry_run:
             print(f"[DRY-RUN] ERROR: 没有可用算子 ({fallback_reason})", file=sys.stderr)
+            _print_operator_selection_diagnostics()
             return 1
         failure_record: dict[str, Any] = {
             "task_id": task_id,
@@ -2659,11 +3786,31 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "requested_role": normalize_role(role),
             "task_type": task_type,
             "failure_reason": fallback_reason or "no_dispatchable_operator_for_role",
+            "logical_operator": logical_operator,
         }
+        if selection_diagnostics:
+            failure_record["selection_diagnostics"] = selection_diagnostics
+            failure_record["selection_summary"] = _dispatch_ledger_selection_summary(selection_diagnostics)
         if capsule_submit.get("capability_capsule_id"):
             failure_record["capability_capsule_id"] = capsule_submit["capability_capsule_id"]
             failure_record["logical_operator"] = logical_operator
         write_pm_task_record(task_id, failure_record)
+        _write_dispatch_ledger_event(
+            {
+                "status": "no_dispatchable_operator",
+                "task_id": task_id,
+                "sprint_id": sprint_id,
+                "node_id": node_id,
+                "requested_role": normalize_role(role),
+                "task_type": task_type,
+                "logical_operator": logical_operator,
+                "preferred_operator": prefer_operator,
+                "selected_operator_id": "",
+                "fallback_reason": fallback_reason or "no_dispatchable_operator_for_role",
+                "dry_run": False,
+                "selection_diagnostics": selection_diagnostics,
+            }
+        )
         msg = f"ERROR: 没有可用算子 ({fallback_reason})"
         # Surface cooldown ETA when the fallback reason mentions cooldown/quota
         if any(kw in fallback_reason for kw in ("cooldown", "quota_exhausted", "auth_expired")):
@@ -2678,6 +3825,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 if _expires:
                     msg += f" (until {_expires})"
         print(msg, file=sys.stderr)
+        _print_operator_selection_diagnostics()
         return 1
 
     # 3. 构建 dispatch 文件
@@ -2746,6 +3894,19 @@ def cmd_submit(args: argparse.Namespace) -> int:
         "pm_context": context[:500] if context else "",
         "requested_role": normalize_role(role),
     }
+    if context:
+        envelope["context_packet"] = {
+            "packet_type": "task",
+            "data": {
+                "sprint_id": sprint_id,
+                "node_id": node_id,
+                "task_id": task_id,
+                "objective": objective[:300],
+                "context": context,
+                "requested_role": normalize_role(role),
+                "task_type": task_type or "pm_order",
+            },
+        }
     if operator.get("borrowed_for_role"):
         envelope["borrowed_for_role"] = operator.get("borrowed_for_role")
         envelope["borrowed_from_roles"] = operator.get("borrowed_from_roles", [])
@@ -2778,7 +3939,10 @@ def cmd_submit(args: argparse.Namespace) -> int:
         "submitted_at": _now(),
         "requested_role": normalize_role(role),
         "task_type": task_type or "pm_order",
+        "logical_operator": logical_operator,
     }
+    if selection_diagnostics:
+        record["selection_summary"] = _dispatch_ledger_selection_summary(selection_diagnostics)
     if operator.get("borrowed_for_role"):
         record["borrowed_for_role"] = operator.get("borrowed_for_role")
         record["borrowed_from_roles"] = operator.get("borrowed_from_roles", [])
@@ -2789,8 +3953,81 @@ def cmd_submit(args: argparse.Namespace) -> int:
         record["logical_operator"] = logical_operator
 
     # 尝试通过 operator_runtime.submit 投递；graph evaluator 走直接 inbox 快路径，
-    # 避免验收闭环被 runtime lease/bootstrap 慢路径卡住。
-    if graph_eval_direct_inbox:
+    # Claude Code 订阅交互算子走 ActorRuntime mailbox，避免 one-shot API/process surface。
+    if _operator_is_claude_subscription_interactive(operator):
+        try:
+            ActorRuntime = _load_actor_runtime_class()
+            submit_result = ActorRuntime().submit(
+                envelope,
+                actor_id=operator_id,
+                sprint_id=sprint_id,
+                node_id=node_id,
+            )
+        except Exception as exc:
+            record["status"] = "failed_submit_exception"
+            record["failed_at"] = _now()
+            record["failure_reason"] = f"actor_runtime.submit failed: {exc}"
+            record["submit_error"] = str(exc)
+            write_pm_task_record(task_id, record)
+            _write_dispatch_ledger_event(
+                {
+                    "status": "failed_submit_exception",
+                    "task_id": task_id,
+                    "sprint_id": sprint_id,
+                    "node_id": node_id,
+                    "requested_role": normalize_role(role),
+                    "task_type": task_type or "pm_order",
+                    "logical_operator": logical_operator,
+                    "preferred_operator": prefer_operator,
+                    "selected_operator_id": operator_id,
+                    "fallback_reason": fallback_reason,
+                    "dry_run": False,
+                    "submit_error": str(exc),
+                    "selection_diagnostics": selection_diagnostics,
+                }
+            )
+            print(f"ERROR: actor_runtime.submit failed: {exc}", file=sys.stderr)
+            return 1
+        if not bool(getattr(submit_result, "success", False)):
+            error = str(getattr(submit_result, "error", "") or "actor_runtime_submit_failed")
+            record["status"] = "failed_submit_exception"
+            record["failed_at"] = _now()
+            record["failure_reason"] = f"actor_runtime.submit failed: {error}"
+            record["submit_error"] = error
+            write_pm_task_record(task_id, record)
+            _write_dispatch_ledger_event(
+                {
+                    "status": "failed_submit_exception",
+                    "task_id": task_id,
+                    "sprint_id": sprint_id,
+                    "node_id": node_id,
+                    "requested_role": normalize_role(role),
+                    "task_type": task_type or "pm_order",
+                    "logical_operator": logical_operator,
+                    "preferred_operator": prefer_operator,
+                    "selected_operator_id": operator_id,
+                    "fallback_reason": fallback_reason,
+                    "dry_run": False,
+                    "submit_error": error,
+                    "selection_diagnostics": selection_diagnostics,
+                }
+            )
+            print(f"ERROR: actor_runtime.submit failed: {error}", file=sys.stderr)
+            return 1
+        lease = getattr(submit_result, "lease", None)
+        lease_dict = lease.to_dict() if hasattr(lease, "to_dict") else {}
+        record["status"] = "submitted"
+        record["lease_id"] = str(lease_dict.get("lease_id") or "")
+        record["actor_lease"] = lease_dict
+        record["inbox_path"] = str(getattr(submit_result, "inbox_path", "") or "")
+        record["outbox_path"] = str(getattr(submit_result, "outbox_path", "") or "")
+        record["evidence_ledger_path"] = str(getattr(submit_result, "evidence_ledger_path", "") or "")
+        record["run_dir"] = str(getattr(submit_result, "run_dir", "") or "")
+        artifact_refs = getattr(submit_result, "artifact_refs", {}) or {}
+        if artifact_refs:
+            record["artifact_refs"] = artifact_refs
+        submit_mode = "actor_runtime.mailbox"
+    elif graph_eval_direct_inbox:
         inbox_path = _write_operator_inbox_envelope(operator_id, task_id, envelope)
         record["status"] = "submitted_fallback"
         record["inbox_path"] = str(inbox_path)
@@ -2798,12 +4035,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
         submit_mode = "direct_inbox_graph_eval"
     else:
         try:
-            lib_dir = HARNESS_DIR / "lib"
-            if str(lib_dir) not in sys.path:
-                sys.path.insert(0, str(lib_dir))
-            tools_dir = HARNESS_DIR / "tools"
-            if str(tools_dir) not in sys.path:
-                sys.path.insert(0, str(tools_dir))
+            _ensure_runtime_import_path()
 
             from operator_runtime import submit  # type: ignore
         except Exception as exc:
@@ -2822,6 +4054,23 @@ def cmd_submit(args: argparse.Namespace) -> int:
                 record["failure_reason"] = f"operator_runtime.submit failed: {exc}"
                 record["submit_error"] = str(exc)
                 write_pm_task_record(task_id, record)
+                _write_dispatch_ledger_event(
+                    {
+                        "status": "failed_submit_exception",
+                        "task_id": task_id,
+                        "sprint_id": sprint_id,
+                        "node_id": node_id,
+                        "requested_role": normalize_role(role),
+                        "task_type": task_type or "pm_order",
+                        "logical_operator": logical_operator,
+                        "preferred_operator": prefer_operator,
+                        "selected_operator_id": operator_id,
+                        "fallback_reason": fallback_reason,
+                        "dry_run": False,
+                        "submit_error": str(exc),
+                        "selection_diagnostics": selection_diagnostics,
+                    }
+                )
                 print(f"ERROR: operator_runtime.submit failed: {exc}", file=sys.stderr)
                 return 1
             record["status"] = "submitted"
@@ -2839,8 +4088,27 @@ def cmd_submit(args: argparse.Namespace) -> int:
             {"ts": record["submitted_at"], "action": "graph_eval_dispatch", **graph_eval_dispatch}
         )
 
+    _record_pm_dispatch_evidence(record, event="dispatch_submitted")
+
     # 6. 写 PM inbox 记录
     write_pm_task_record(task_id, record)
+    _write_dispatch_ledger_event(
+        {
+            "status": record.get("status", "submitted"),
+            "task_id": task_id,
+            "sprint_id": sprint_id,
+            "node_id": node_id,
+            "requested_role": normalize_role(role),
+            "task_type": task_type or "pm_order",
+            "logical_operator": logical_operator,
+            "preferred_operator": prefer_operator,
+            "selected_operator_id": operator_id,
+            "fallback_reason": fallback_reason,
+            "dry_run": False,
+            "submit_mode": submit_mode,
+            "selection_diagnostics": selection_diagnostics,
+        }
+    )
 
     # 7. 输出
     print(f"✅ PM 任务已提交")
@@ -2902,13 +4170,8 @@ def cmd_fleet_status(args: argparse.Namespace) -> int:
 
 
 def _pending_pm_backlog_count() -> int:
-    d = pm_inbox_dir()
     count = 0
-    for path in d.glob("pm-*.json"):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+    for payload in _iter_pm_inbox_projections():
         status = str(payload.get("status") or "").strip().lower()
         if not _pm_status_is_terminal(status):
             count += 1
@@ -2917,11 +4180,7 @@ def _pending_pm_backlog_count() -> int:
 
 def _active_pm_sprint_ids() -> set[str]:
     active: set[str] = set()
-    for path in pm_inbox_dir().glob("pm-*.json"):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+    for payload in _iter_pm_inbox_projections():
         if _pm_status_is_terminal(str(payload.get("status") or "")):
             continue
         sid = str(payload.get("sprint_id") or "").strip()
@@ -2930,17 +4189,199 @@ def _active_pm_sprint_ids() -> set[str]:
     return active
 
 
+def _decode_json_string(value: str) -> str:
+    try:
+        return json.loads(f'"{value}"')
+    except Exception:
+        return value
+
+
+def _scan_json_string_field(text: str, key: str) -> str:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*"((?:\\.|[^"\\])*)"', text)
+    return _decode_json_string(match.group(1)) if match else ""
+
+
+def _status_projection_from_path(path: Path) -> dict[str, str]:
+    sid_default = _sprint_id_from_status_path(path)
+    try:
+        size = path.stat().st_size
+    except Exception:
+        size = 0
+    try:
+        if size <= STATUS_FULL_LOAD_MAX_BYTES:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return {}
+            return {
+                "sprint_id": str(payload.get("sprint_id") or sid_default).strip(),
+                "status": str(payload.get("status") or "").strip().lower(),
+                "phase": str(payload.get("phase") or "").strip().lower(),
+                "handoff_to": str(payload.get("handoff_to") or "").strip().lower(),
+            }
+        with open(path, "rb") as f:
+            text = f.read(max(STATUS_SCAN_BYTES, 1024)).decode("utf-8", errors="replace")
+        return {
+            "sprint_id": (_scan_json_string_field(text, "sprint_id") or sid_default).strip(),
+            "status": _scan_json_string_field(text, "status").strip().lower(),
+            "phase": _scan_json_string_field(text, "phase").strip().lower(),
+            "handoff_to": _scan_json_string_field(text, "handoff_to").strip().lower(),
+        }
+    except Exception:
+        return {}
+
+
+def _iter_status_projections() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for path in SPRINTS_DIR.glob("*.status.json"):
+        row = _status_projection_from_path(path)
+        if row:
+            rows.append(row)
+    return rows
+
+
+def _pm_inbox_projection_from_path(path: Path) -> dict[str, str]:
+    try:
+        with open(path, "rb") as f:
+            text = f.read(max(STATUS_SCAN_BYTES, 1024)).decode("utf-8", errors="replace")
+        task_id = (_scan_json_string_field(text, "task_id") or path.stem).strip()
+        return {
+            "task_id": task_id,
+            "sprint_id": _scan_json_string_field(text, "sprint_id").strip(),
+            "node_id": _scan_json_string_field(text, "node_id").strip(),
+            "status": _scan_json_string_field(text, "status").strip().lower(),
+            "operator_id": _scan_json_string_field(text, "operator_id").strip(),
+            "requested_role": (
+                _scan_json_string_field(text, "requested_role") or _scan_json_string_field(text, "role")
+            ).strip().lower(),
+            "borrowed_for_role": _scan_json_string_field(text, "borrowed_for_role").strip().lower(),
+            "path": str(path),
+        }
+    except Exception:
+        return {}
+
+
+def _iter_pm_inbox_projections() -> list[dict[str, str]]:
+    global _PM_INBOX_PROJECTION_CACHE
+    now = time.time()
+    cache_key = str(PM_INBOX_DIR)
+    try:
+        cache_mtime_ns = pm_inbox_dir().stat().st_mtime_ns
+    except Exception:
+        cache_mtime_ns = 0
+    if _PM_INBOX_PROJECTION_CACHE is not None:
+        cache_ts, cached_key, cached_mtime_ns, cached_rows = _PM_INBOX_PROJECTION_CACHE
+        if cached_key == cache_key and cached_mtime_ns == cache_mtime_ns and now - cache_ts <= 2.0:
+            return list(cached_rows)
+    rows: list[dict[str, str]] = []
+    for path in pm_inbox_dir().glob("pm-*.json"):
+        row = _pm_inbox_projection_from_path(path)
+        if row:
+            rows.append(row)
+    _PM_INBOX_PROJECTION_CACHE = (now, cache_key, cache_mtime_ns, rows)
+    return rows
+
+
+def _pm_inbox_backlog_summary() -> tuple[int, set[str]]:
+    pending = 0
+    active_sprints: set[str] = set()
+    for payload in _iter_pm_inbox_projections():
+        status = str(payload.get("status") or "").strip().lower()
+        if status not in ACTIVE_PM_OPERATOR_STATUSES or _pm_status_is_terminal(status):
+            continue
+        pending += 1
+        sid = str(payload.get("sprint_id") or "").strip()
+        if sid:
+            active_sprints.add(sid)
+    return pending, active_sprints
+
+
+def _read_builder_pool_backlog_cache() -> dict[str, int] | None:
+    if BUILDER_POOL_BACKLOG_CACHE_TTL_SEC <= 0:
+        return None
+    try:
+        if not BUILDER_POOL_BACKLOG_CACHE.exists():
+            return None
+        if time.time() - BUILDER_POOL_BACKLOG_CACHE.stat().st_mtime > BUILDER_POOL_BACKLOG_CACHE_TTL_SEC:
+            return None
+        payload = json.loads(BUILDER_POOL_BACKLOG_CACHE.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        if str(payload.get("sprints_dir") or "") != str(SPRINTS_DIR):
+            return None
+        if str(payload.get("pm_inbox_dir") or "") != str(PM_INBOX_DIR):
+            return None
+        if int(payload.get("pm_inbox_mtime_ns", -1)) != _directory_mtime_ns(PM_INBOX_DIR):
+            return None
+        if int(payload.get("sprints_mtime_ns", -1)) != _directory_mtime_ns(SPRINTS_DIR):
+            return None
+        breakdown = payload.get("breakdown") if isinstance(payload.get("breakdown"), dict) else {}
+        required = {
+            "pending_pm",
+            "latent_builder_ready",
+            "planner_prd_ready",
+            "builder_planning_complete",
+            "blocked_builder_planning_complete",
+            "graph_waiting_builder_planning_complete",
+            "filtered_builder_planning_complete",
+            "evaluator_handoff_ready",
+            "total",
+        }
+        if not required.issubset(set(breakdown.keys())):
+            return None
+        return {key: int(breakdown.get(key, 0) or 0) for key in required}
+    except Exception:
+        return None
+
+
+def _write_builder_pool_backlog_cache(breakdown: dict[str, int]) -> None:
+    if BUILDER_POOL_BACKLOG_CACHE_TTL_SEC <= 0:
+        return
+    try:
+        BUILDER_POOL_BACKLOG_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = BUILDER_POOL_BACKLOG_CACHE.with_suffix(f".json.{os.getpid()}.{time.time_ns()}.tmp")
+        payload = {
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "sprints_dir": str(SPRINTS_DIR),
+            "pm_inbox_dir": str(PM_INBOX_DIR),
+            "pm_inbox_mtime_ns": _directory_mtime_ns(PM_INBOX_DIR),
+            "sprints_mtime_ns": _directory_mtime_ns(SPRINTS_DIR),
+            "breakdown": breakdown,
+        }
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(BUILDER_POOL_BACKLOG_CACHE)
+    except Exception:
+        pass
+
+
+def _directory_mtime_ns(path: Path) -> int:
+    try:
+        latest = path.stat().st_mtime_ns
+        for child in path.iterdir():
+            try:
+                latest = max(latest, child.stat().st_mtime_ns)
+            except OSError:
+                continue
+        return latest
+    except OSError:
+        return 0
+
+
+def _invalidate_builder_pool_backlog_cache() -> None:
+    try:
+        BUILDER_POOL_BACKLOG_CACHE.unlink()
+    except FileNotFoundError:
+        return
+    except Exception:
+        pass
+
+
 def _status_backlog_count(*, statuses: set[str], phase: str, handoff_to: str = "", exclude_sprints: set[str] | None = None) -> int:
     exclude_sprints = exclude_sprints or set()
     count = 0
     phase_value = phase.strip().lower()
     handoff_value = handoff_to.strip().lower()
-    for path in SPRINTS_DIR.glob("*.status.json"):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        sid = str(payload.get("sprint_id") or path.name.removesuffix(".status.json")).strip()
+    for payload in _iter_status_projections():
+        sid = str(payload.get("sprint_id") or "").strip()
         if sid in exclude_sprints:
             continue
         status = str(payload.get("status") or "").strip().lower()
@@ -2955,52 +4396,66 @@ def _status_backlog_count(*, statuses: set[str], phase: str, handoff_to: str = "
 
 
 def _builder_pool_backlog_breakdown() -> dict[str, int]:
-    pending_pm = _pending_pm_backlog_count()
-    active_pm_sprints = _active_pm_sprint_ids()
-    latent_builder_ready = _latent_builder_ready_backlog_count()
-    planner_prd_ready = _status_backlog_count(
-        statuses={"active", "drafting"},
-        phase="prd_ready",
-        handoff_to="planner",
-        exclude_sprints=active_pm_sprints,
-    )
-    builder_planning_complete = _status_backlog_count(
-        statuses={"active"},
-        phase="planning_complete",
-        handoff_to="builder_main",
-        exclude_sprints=active_pm_sprints,
-    )
+    cached = _read_builder_pool_backlog_cache()
+    if cached is not None:
+        return cached
+    pending_pm, active_pm_sprints = _pm_inbox_backlog_summary()
+    latent_items = _latent_builder_ready_items()
+    latent_builder_ready = len(latent_items)
+    latent_builder_sprints = {str(item.get("sprint_id") or "").strip() for item in latent_items}
+    planner_prd_ready = 0
+    builder_planning_complete = 0
+    blocked_builder_planning_complete = 0
+    graph_waiting_builder_planning_complete = 0
+    filtered_builder_planning_complete = 0
     evaluator_handoff_ready = 0
-    for status_path in SPRINTS_DIR.glob("*.status.json"):
-        try:
-            payload = json.loads(status_path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        sprint_id = str(payload.get("sprint_id") or _sprint_id_from_status_path(status_path)).strip()
+    for payload in _iter_status_projections():
+        sprint_id = str(payload.get("sprint_id") or "").strip()
         if sprint_id in active_pm_sprints:
             continue
-        if str(payload.get("status") or "").strip().lower() != "reviewing":
+        status = str(payload.get("status") or "").strip().lower()
+        phase = str(payload.get("phase") or "").strip().lower()
+        handoff = str(payload.get("handoff_to") or "").strip().lower()
+        if status in {"active", "drafting"} and phase == "prd_ready" and handoff == "planner":
+            planner_prd_ready += 1
             continue
-        if str(payload.get("phase") or "").strip().lower() != "handoff_ready":
+        if status == "active" and phase == "planning_complete" and handoff == "builder_main":
+            builder_planning_complete += 1
+            if sprint_id not in latent_builder_sprints:
+                nodes, meta = _builder_ready_nodes_for_sprint(sprint_id)
+                if meta.get("ok") and int(meta.get("graph_ready_count", 0) or 0) <= 0:
+                    graph_waiting_builder_planning_complete += 1
+                else:
+                    blocked_builder_planning_complete += 1
+                    if meta.get("ok") and not nodes:
+                        filtered_builder_planning_complete += 1
             continue
-        if str(payload.get("handoff_to") or "").strip().lower() != "evaluator":
+        if status != "reviewing":
+            continue
+        if phase != "handoff_ready":
+            continue
+        if handoff != "evaluator":
             continue
         if _sprint_has_actionable_eval_backlog(sprint_id):
             evaluator_handoff_ready += 1
-    return {
+    breakdown = {
         "pending_pm": pending_pm,
         "latent_builder_ready": latent_builder_ready,
         "planner_prd_ready": planner_prd_ready,
         "builder_planning_complete": builder_planning_complete,
+        "blocked_builder_planning_complete": blocked_builder_planning_complete,
+        "graph_waiting_builder_planning_complete": graph_waiting_builder_planning_complete,
+        "filtered_builder_planning_complete": filtered_builder_planning_complete,
         "evaluator_handoff_ready": evaluator_handoff_ready,
         "total": (
             pending_pm
             + latent_builder_ready
             + planner_prd_ready
-            + builder_planning_complete
             + evaluator_handoff_ready
         ),
     }
+    _write_builder_pool_backlog_cache(breakdown)
+    return breakdown
 
 
 def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
@@ -3012,14 +4467,34 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
     policy = policy_mod.load_policy()
     pool = policy_mod.builder_pool_config(policy)
     groups_cfg = pool.get("groups") if isinstance(pool.get("groups"), dict) else {}
+    try:
+        autoscale_snapshot = (
+            policy_mod.backlog_autoscaling_snapshot(policy)
+            if hasattr(policy_mod, "backlog_autoscaling_snapshot")
+            else {}
+        )
+    except Exception:
+        autoscale_snapshot = {}
+    dynamic_pool = autoscale_snapshot.get("builder_pool") if isinstance(autoscale_snapshot.get("builder_pool"), dict) else {}
+    dynamic_groups = dynamic_pool.get("groups") if isinstance(dynamic_pool.get("groups"), dict) else {}
+    group_desired_cache: dict[str, int] = {}
     groups: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
     recovery_actions: list[dict[str, Any]] = []
     def group_desired(group: str, spec: dict[str, Any] | None = None) -> int:
+        if group in group_desired_cache:
+            return group_desired_cache[group]
         try:
-            return int(policy_mod.pool_group_desired(group, policy))
+            if group in dynamic_groups:
+                value = int(dynamic_groups.get(group, 0))
+            elif dynamic_pool:
+                value = int((spec or {}).get("desired", 0) or 0)
+            else:
+                value = int(policy_mod.pool_group_desired(group, policy))
         except Exception:
-            return int((spec or {}).get("desired", 0) or 0)
+            value = int((spec or {}).get("desired", 0) or 0)
+        group_desired_cache[group] = value
+        return value
 
     for group, spec in groups_cfg.items():
         groups[group] = {
@@ -3037,19 +4512,12 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
         }
 
     pool_member_specs: list[tuple[str, dict[str, Any], str]] = []
-    group_result_log_blocks: dict[str, dict[str, Any]] = {}
     for op_id, spec in operators.items():
         op = {"operator_id": op_id, **dict(spec)}
         if not policy_mod.is_pool_member(op):
             continue
         group = policy_mod.infer_builder_group(op) or "unknown"
         pool_member_specs.append((str(op_id), dict(spec), group))
-        result_log_block = _recent_operator_quota_block(op)
-        if result_log_block and group not in group_result_log_blocks:
-            group_result_log_blocks[group] = {
-                **result_log_block,
-                "peer_operator_id": str(op_id),
-            }
 
     rate_limit_blocks: list[dict[str, Any]] = []
     for op_id, spec, group in pool_member_specs:
@@ -3071,31 +4539,29 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
             },
         )
         groups[group]["configured"] += 1
-        ok, reason = is_dispatchable(op)
-        group_block = group_result_log_blocks.get(group)
-        if ok and group_block:
-            expires_at = str(group_block.get("expires_at") or "")
-            reason = (
-                f"shared_result_log_quota_block={group_block.get('runtime_state', 'cooldown')}"
-                f", peer={group_block.get('peer_operator_id', 'unknown')}"
-            )
-            eta = _format_reset_eta(expires_at)
-            if eta:
-                reason += f", resets {eta}"
-            if expires_at:
-                reason += f" (until {expires_at})"
-            ok = False
+        ok, reason = _is_dispatchable_on_surface(op, "mailbox")
         if recover and not ok and "health_check_failed" in reason:
             started, start_reason = _try_auto_start_operator(op)
             recovery_actions.append({"operator_id": op_id, "action": "auto_start", "ok": started, "reason": start_reason})
         state = get_operator_runtime_state(op_id) if op.get("enabled", False) else "disabled"
+        actor_state = _actor_lease_runtime_state(op_id)
+        if actor_state and state not in {"cooldown", "quota_exhausted", "auth_expired", "disabled"}:
+            state = actor_state
         block_info = _operator_block_info(op_id, op, state, reason)
         block_type = str(block_info.get("block_type") or "none")
+        if ok and block_type in HARD_BLOCK_TYPES:
+            block_info = {
+                "block_type": "none",
+                "quota_guard_state": block_info.get("quota_guard_state", "ok"),
+                "cooldown_until": "",
+                "cooldown_eta": "",
+            }
+            block_type = "none"
         if ok:
             groups[group]["available"] += 1
         else:
             groups[group]["blocked"] += 1
-            if block_type in {"cooldown", "quota_exhausted", "auth_expired", "health", "busy", "disabled"}:
+            if block_type in HARD_BLOCK_TYPES:
                 groups[group][block_type] += 1
             else:
                 groups[group]["other_blocked"] += 1
@@ -3127,20 +4593,32 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
 
     backlog_breakdown = _builder_pool_backlog_breakdown()
     backlog = int(backlog_breakdown.get("total", 0))
-    total_desired = int(policy_mod.builder_pool_desired_total(policy) or 0)
+    try:
+        if "desired_total" in dynamic_pool:
+            total_desired = int(dynamic_pool.get("desired_total") or 0)
+        elif dynamic_pool:
+            total_desired = int(pool.get("desired_total", 0) or 0)
+        else:
+            total_desired = int(policy_mod.builder_pool_desired_total(policy) or 0)
+    except Exception:
+        total_desired = int(pool.get("desired_total", 0) or 0)
     if total_desired <= 0:
         total_desired = sum(int(item.get("desired", 0)) for item in groups.values())
     total_configured = sum(int(item.get("configured", 0)) for item in groups.values())
     total_available = sum(int(item.get("available", 0)) for item in groups.values())
+    total_busy = sum(int(item.get("busy", 0)) for item in groups.values())
     recovery = policy_mod.recovery_settings(policy)
     high_backlog = int(recovery.get("high_backlog_pending_tasks", 6))
     min_ratio = float(recovery.get("min_available_ratio", 0.5))
     ratio = (total_available / total_desired) if total_desired else 0.0
     recommended_action = "ok"
     if backlog >= high_backlog and ratio < min_ratio:
-        recommended_action = "inspect_dead_or_unhealthy_builders"
-        if bool(recovery.get("auto_start_services", False)):
+        if total_desired > 0 and total_available + total_busy >= total_desired:
+            recommended_action = "ok_busy_at_capacity"
+        elif bool(recovery.get("auto_start_services", False)):
             recommended_action = "auto_start_services_enabled"
+        else:
+            recommended_action = "inspect_dead_or_unhealthy_builders"
     return {
         "ok": True,
         "level": policy_mod.active_level(policy),
@@ -3150,6 +4628,7 @@ def builder_pool_snapshot(recover: bool = False) -> dict[str, Any]:
         "total_desired": total_desired,
         "total_configured": total_configured,
         "total_available": total_available,
+        "total_busy": total_busy,
         "available_ratio": round(ratio, 3),
         "recommended_action": recommended_action,
         "recovery_actions": recovery_actions,
@@ -3267,13 +4746,88 @@ def _run_cmd_submit_for_builder_node(item: dict[str, Any], dry_run: bool, json_m
         operator_id = str(record.get("operator_id") or "")
     if task_id in before_task_ids:
         task_id = ""
+    stdout_text = stdout.getvalue() if json_mode else ""
+    if not task_id and stdout_text:
+        match = re.search(r"task_id\s*=\s*(\S+)", stdout_text)
+        if match:
+            task_id = match.group(1).strip()
+    if not operator_id and stdout_text:
+        match = re.search(r"operator\s*=\s*([^\s(]+)", stdout_text)
+        if match:
+            operator_id = match.group(1).strip()
     return {
         **item,
         "ok": rc == 0,
         "returncode": rc,
         "task_id": task_id,
         "operator_id": operator_id,
-        "stdout": stdout.getvalue() if json_mode else "",
+        "stdout": stdout_text,
+        "stderr": stderr.getvalue() if json_mode else "",
+    }
+
+
+def _run_cmd_submit_for_planner_item(item: dict[str, Any], dry_run: bool, json_mode: bool) -> dict[str, Any]:
+    sprint_id = str(item.get("sprint_id") or "")
+    node_id = str(item.get("node_id") or "N0")
+    before_task_ids = {
+        str(payload.get("task_id") or "")
+        for payload in [_active_pm_record_for_node(sprint_id, node_id)]
+        if payload
+    }
+    args = argparse.Namespace(
+        role="planner",
+        objective=str(item.get("objective") or _planner_objective_for_compiled_sprint(sprint_id)),
+        operator="",
+        sprint=sprint_id,
+        node=node_id,
+        task_type=str(item.get("task_type") or "planning"),
+        context=(
+            "auto_drain_source=prd_ready\n"
+            f"status_phase={item.get('phase') or 'prd_ready'}\n"
+            f"handoff_to={item.get('handoff_to') or 'planner'}"
+        ),
+        dry_run=dry_run,
+    )
+    old_direct = os.environ.get("SOLAR_PM_DISPATCH_ALLOW_DIRECT")
+    os.environ["SOLAR_PM_DISPATCH_ALLOW_DIRECT"] = "1"
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    try:
+        if json_mode:
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                rc = cmd_submit(args)
+        else:
+            rc = cmd_submit(args)
+    finally:
+        if old_direct is None:
+            os.environ.pop("SOLAR_PM_DISPATCH_ALLOW_DIRECT", None)
+        else:
+            os.environ["SOLAR_PM_DISPATCH_ALLOW_DIRECT"] = old_direct
+
+    record = _active_pm_record_for_node(sprint_id, node_id)
+    task_id = ""
+    operator_id = ""
+    if record:
+        task_id = str(record.get("task_id") or "")
+        operator_id = str(record.get("operator_id") or "")
+    if task_id in before_task_ids:
+        task_id = ""
+    stdout_text = stdout.getvalue() if json_mode else ""
+    if not task_id and stdout_text:
+        match = re.search(r"task_id\s*=\s*(\S+)", stdout_text)
+        if match:
+            task_id = match.group(1).strip()
+    if not operator_id and stdout_text:
+        match = re.search(r"operator\s*=\s*([^\s(]+)", stdout_text)
+        if match:
+            operator_id = match.group(1).strip()
+    return {
+        **item,
+        "ok": rc == 0,
+        "returncode": rc,
+        "task_id": task_id,
+        "operator_id": operator_id,
+        "stdout": stdout_text,
         "stderr": stderr.getvalue() if json_mode else "",
     }
 
@@ -3289,6 +4843,8 @@ def _mark_graph_node_pm_dispatched(item: dict[str, Any], submitted: dict[str, An
     node_id = str(item.get("node_id") or "")
     task_id = str(submitted.get("task_id") or "")
     operator_id = str(submitted.get("operator_id") or "")
+    if not task_id:
+        return {"ok": False, "reason": "missing_pm_task_id", "sprint_id": sprint_id, "node_id": node_id}
     try:
         graph_scheduler.SPRINTS_DIR = SPRINTS_DIR
         graph = graph_scheduler.load_graph(graph_path)
@@ -3361,7 +4917,8 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
             break
     if target is None:
         return {"ok": False, "released": False, "reason": "node_missing", "graph": str(graph_path), "node_id": node_id}
-    if str(target.get("status") or "") != "dispatched":
+    target_status = str(target.get("status") or "").strip().lower()
+    if target_status not in {"pending", "assigned", "dispatched", "in_progress", "running"}:
         return {"ok": False, "released": False, "reason": "node_not_dispatched", "status": str(target.get("status") or "")}
 
     dispatch_ids = {
@@ -3383,7 +4940,25 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
             str(result_entry.get("assigned_to") or "").strip().removeprefix("operator:"),
         }
         graph_operator_ids.discard("")
-        if not record_operator or record_operator not in graph_operator_ids:
+        graph_pm_task_ids = {
+            str(target.get("pm_task_id") or "").strip(),
+            str(result_entry.get("pm_task_id") or "").strip(),
+        }
+        graph_pm_task_ids.discard("")
+        assigned_placeholders = {
+            str(target.get("assigned_to") or "").strip(),
+            str(result_entry.get("assigned_to") or "").strip(),
+        }
+        graph_dispatch_ids = {item for item in dispatch_ids if item}
+        dispatchless_pool_claim = (
+            not graph_pm_task_ids
+            and (
+                not graph_dispatch_ids
+                or any(item.startswith("operator-pool:") for item in assigned_placeholders)
+                or any(item.startswith("graph-") for item in graph_dispatch_ids)
+            )
+        )
+        if not dispatchless_pool_claim and (not record_operator or record_operator not in graph_operator_ids):
             return {"ok": False, "released": False, "reason": "dispatch_mismatch", "node_id": node_id}
 
     now = _now()
@@ -3762,7 +5337,7 @@ def _archive_stale_eval_sidecars_for_pm_repair(sprint_id: str, node_id: str, tar
     return archived
 
 
-def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> dict[str, Any]:
+def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any], *, apply_changes: bool = True) -> dict[str, Any]:
     if normalize_role(str(record.get("requested_role") or "")) != "builder":
         return {"ok": False, "marked": False, "reason": "not_builder_task"}
     sprint_id = str(record.get("sprint_id") or "").strip()
@@ -3813,7 +5388,25 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
     if str(target.get("status") or "") == "reviewing":
         stale_keys = [key for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id") if target.get(key) is not None]
         if not stale_keys and str(target.get("handoff_path") or "") == str(handoff_path):
-            return {"ok": True, "marked": False, "reason": "already_reviewing", "graph": str(graph_path), "node_id": node_id}
+            state_sync = (
+                _sync_task_dag_state_node(
+                    sprint_id,
+                    node_id,
+                    "reviewing",
+                    note="pm_dispatch builder already reviewing state sync",
+                    extra={"handoff_path": str(handoff_path)},
+                )
+                if apply_changes
+                else {"ok": True, "skipped": True, "reason": "dry_run"}
+            )
+            return {
+                "ok": True,
+                "marked": False,
+                "reason": "already_reviewing",
+                "graph": str(graph_path),
+                "node_id": node_id,
+                "state_sync": state_sync,
+            }
         now = _now()
         previous = {key: target.get(key) for key in stale_keys}
         target.setdefault("completion_history", []).append(
@@ -3840,7 +5433,8 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
         )
         for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
             result_entry.pop(key, None)
-        graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if apply_changes:
+            graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return {
             "ok": True,
             "marked": True,
@@ -3859,7 +5453,14 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
     repair_completion = False
     if task_id not in dispatch_ids:
         repair_completion = _is_terminal_repair_completion(record, target, result_entry, handoff_path)
-    if task_id not in dispatch_ids and not repair_completion:
+    dispatchless_completion = (
+        task_id not in dispatch_ids
+        and not any(dispatch_id for dispatch_id in dispatch_ids)
+        and target_status not in closed_statuses
+        and result_status not in closed_statuses
+        and _handoff_is_fresh_for_record(record, handoff_path)
+    )
+    if task_id not in dispatch_ids and not repair_completion and not dispatchless_completion:
         return {"ok": False, "marked": False, "reason": "dispatch_mismatch", "node_id": node_id}
 
     if repair_completion and _node_has_fresh_terminal_eval_sidecar(sprint_id, node_id, handoff_path, target, result_entry):
@@ -3881,13 +5482,17 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
     target.setdefault("completion_history", []).append(
         {
             "ts": now,
-            "reason": "pm_builder_repair_complete" if repair_completion else "pm_builder_complete",
+            "reason": "pm_builder_repair_complete" if repair_completion else ("pm_builder_dispatchless_complete" if dispatchless_completion else "pm_builder_complete"),
             "task_id": task_id,
             "previous_dispatch": previous,
             "handoff": str(handoff_path),
         }
     )
-    archived_eval_sidecars = _archive_stale_eval_sidecars_for_pm_repair(sprint_id, node_id, target) if repair_completion else []
+    archived_eval_sidecars = (
+        _archive_stale_eval_sidecars_for_pm_repair(sprint_id, node_id, target)
+        if repair_completion and apply_changes
+        else []
+    )
     target["status"] = "reviewing"
     target["updated_at"] = now
     target["handoff_path"] = str(handoff_path)
@@ -3901,7 +5506,11 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
     result_entry["updated_at"] = now
     result_entry["handoff_path"] = str(handoff_path)
     result_entry.setdefault("completion_history", []).append(
-        {"ts": now, "reason": "pm_builder_repair_complete" if repair_completion else "pm_builder_complete", "task_id": task_id}
+        {
+            "ts": now,
+            "reason": "pm_builder_repair_complete" if repair_completion else ("pm_builder_dispatchless_complete" if dispatchless_completion else "pm_builder_complete"),
+            "task_id": task_id,
+        }
     )
     if archived_eval_sidecars:
         result_entry["last_eval_sidecar_archive"] = archived_eval_sidecars
@@ -3909,7 +5518,8 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
     for key in ("assigned_to", "dispatch_id", "dispatched_via", "pm_task_id", "operator_id"):
         result_entry.pop(key, None)
 
-    graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if apply_changes:
+        graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     status_path = SPRINTS_DIR / f"{sprint_id}.status.json"
     status_payload: dict[str, Any] = {}
@@ -3930,7 +5540,8 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
             "updated_at": now,
         }
     )
-    status_path.write_text(json.dumps(status_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if apply_changes:
+        status_path.write_text(json.dumps(status_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     state_extra: dict[str, Any] = {
         "handoff_path": str(handoff_path),
         "completion_history": result_entry.get("completion_history", []),
@@ -3938,12 +5549,20 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
     if archived_eval_sidecars:
         state_extra["last_eval_sidecar_archive"] = archived_eval_sidecars
         state_extra["eval_retry_reason"] = "pm_repair_archived_stale_eval_sidecars"
-    state_sync = _sync_task_dag_state_node(
-        sprint_id,
-        node_id,
-        "reviewing",
-        note="pm_dispatch builder repair complete" if repair_completion else "pm_dispatch builder complete",
-        extra=state_extra,
+    state_sync = (
+        _sync_task_dag_state_node(
+            sprint_id,
+            node_id,
+            "reviewing",
+            note=(
+                "pm_dispatch builder repair complete"
+                if repair_completion
+                else ("pm_dispatch builder dispatchless complete" if dispatchless_completion else "pm_dispatch builder complete")
+            ),
+            extra=state_extra,
+        )
+        if apply_changes
+        else {"ok": True, "skipped": True, "reason": "dry_run"}
     )
     return {
         "ok": True,
@@ -3953,6 +5572,7 @@ def _mark_graph_node_reviewing_on_builder_complete(record: dict[str, Any]) -> di
         "sprint_id": sprint_id,
         "node_id": node_id,
         "repair_completion": repair_completion,
+        "dispatchless_completion": dispatchless_completion,
         "archived_eval_sidecars": archived_eval_sidecars,
         "state_sync": state_sync,
     }
@@ -4007,6 +5627,8 @@ def cmd_drain_builder_ready(args: argparse.Namespace) -> int:
         "marked": marked,
         "skipped": skipped,
     }
+    if submitted:
+        _invalidate_builder_pool_backlog_cache()
     if json_mode:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
@@ -4014,6 +5636,58 @@ def cmd_drain_builder_ready(args: argparse.Namespace) -> int:
             "drain_builder_ready "
             f"dry_run={dry_run} latent={len(items)} submitted={len(submitted)} "
             f"marked={sum(1 for item in marked if item.get('ok'))} skipped={len(skipped)}"
+        )
+        for item in (submitted or skipped)[:20]:
+            print(
+                f"  - {item.get('sprint_id')} {item.get('node_id')} "
+                f"task={item.get('task_id') or 'N/A'} op={item.get('operator_id') or 'N/A'} "
+                f"ok={item.get('ok', False)}"
+            )
+    return 0 if payload["ok"] else 1
+
+
+def cmd_drain_planner_ready(args: argparse.Namespace) -> int:
+    max_items = max(0, int(getattr(args, "max_items", 0) or 0))
+    dry_run = bool(getattr(args, "dry_run", False))
+    json_mode = bool(getattr(args, "json", False))
+    requested_sprint = str(getattr(args, "sprint", "") or "").strip()
+
+    if requested_sprint:
+        all_items = _planner_ready_items(limit=0)
+        items = [item for item in all_items if str(item.get("sprint_id") or "") == requested_sprint]
+        if max_items:
+            items = items[:max_items]
+    else:
+        items = _planner_ready_items(limit=max_items)
+
+    submitted: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for item in items:
+        if dry_run:
+            skipped.append({**item, "reason": "dry_run"})
+            continue
+        result = _run_cmd_submit_for_planner_item(item, dry_run=False, json_mode=json_mode)
+        submitted.append(result)
+        if not result.get("ok"):
+            skipped.append({**item, "reason": "submit_failed", "returncode": result.get("returncode")})
+
+    payload = {
+        "ok": all(item.get("ok") for item in submitted),
+        "dry_run": dry_run,
+        "max_items": max_items,
+        "sprint": requested_sprint or "",
+        "planner_prd_ready": len(items),
+        "submitted": submitted,
+        "skipped": skipped,
+    }
+    if submitted:
+        _invalidate_builder_pool_backlog_cache()
+    if json_mode:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(
+            "drain_planner_ready "
+            f"dry_run={dry_run} planner_ready={len(items)} submitted={len(submitted)} skipped={len(skipped)}"
         )
         for item in (submitted or skipped)[:20]:
             print(
@@ -4228,6 +5902,12 @@ def cmd_complete(args: argparse.Namespace) -> int:
             record.setdefault("reconcile_history", []).append(
                 {"ts": record["failed_at"], "action": "graph_eval_requeue", **graph_eval_requeue}
             )
+        _record_pm_dispatch_evidence(
+            record,
+            event="handoff_closeout_failed",
+            status="failed_contract_closeout",
+            reason=record["failure_reason"],
+        )
         write_pm_task_record(task_id, record)
         print(json.dumps({"ok": False, "task_id": task_id, "reason": record["failure_reason"], **closeout}, ensure_ascii=False))
         return 2
@@ -4255,6 +5935,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
         record.setdefault("reconcile_history", []).append(
             {"ts": record["completed_at"], "action": "graph_reviewing", **graph_reviewing}
         )
+    _record_pm_dispatch_evidence(record, event="dispatch_completed", status="completed")
     write_pm_task_record(task_id, record)
     print(f"✅ 任务 {task_id} 已标记为 completed")
     return 0
@@ -4302,6 +5983,9 @@ def _pm_completion_handoff_path(record: dict[str, Any], sprint_id: str, node_id:
             return str(candidate)
 
     result_path = Path(str(record.get("result_path") or "")).expanduser()
+    if normalize_role(str(record.get("requested_role") or record.get("role") or "")) == "planner":
+        if result_path.exists() and result_path.is_file():
+            return str(result_path)
     if result_path.exists() and result_path.is_file() and "handoff" in result_path.name:
         return str(result_path)
     return ""
@@ -4374,11 +6058,34 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
     """Repair PM inbox projection drift without bypassing operator evidence."""
     max_age_minutes = max(1, int(args.max_age_minutes or 60))
     apply_changes = bool(args.apply)
+    max_writes = max(0, int(getattr(args, "max_writes", 0) or 0))
+    max_scan_records = max(0, int(getattr(args, "max_scan_records", 0) or 0))
+    bounded_reconcile = bool(max_writes or max_scan_records)
+    writes_applied = 0
+    writes_skipped = 0
+    scanned_records = 0
+    scan_limited = False
     active_task_ids = _active_pm_task_ids()
     actions: list[dict[str, Any]] = []
     now = _now()
 
+    def write_reconcile_task_record(task_id: str, record: dict[str, Any]) -> bool:
+        nonlocal writes_applied, writes_skipped
+        if max_writes and writes_applied >= max_writes:
+            writes_skipped += 1
+            return False
+        write_pm_task_record(task_id, record)
+        writes_applied += 1
+        return True
+
     for path in _pm_record_files(include_probe_records=False):
+        if max_scan_records and scanned_records >= max_scan_records:
+            scan_limited = True
+            break
+        if max_writes and apply_changes and writes_applied >= max_writes:
+            scan_limited = True
+            break
+        scanned_records += 1
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:
@@ -4405,13 +6112,13 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                     record.setdefault("reconcile_history", []).append(
                         {"ts": now, "action": "complete", "reason": "failed_contract_closeout_recovered", **closeout}
                     )
-                    write_pm_task_record(task_id, record)
+                    write_reconcile_task_record(task_id, record)
                 continue
         if status == "completed":
             closeout = _pm_closeout_status(record)
             if closeout.get("ok"):
                 dirty_failure_projection = any(key in record for key in ("failed_at", "failure_reason", "blocked_at"))
-                graph_reviewing = _mark_graph_node_reviewing_on_builder_complete(record)
+                graph_reviewing = _mark_graph_node_reviewing_on_builder_complete(record, apply_changes=apply_changes)
                 if dirty_failure_projection or graph_reviewing.get("marked"):
                     actions.append({
                         "task_id": task_id,
@@ -4435,7 +6142,7 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                                 "graph_reviewing": graph_reviewing,
                             }
                         )
-                        write_pm_task_record(task_id, record)
+                        write_reconcile_task_record(task_id, record)
                 continue
             actions.append({
                 "task_id": task_id,
@@ -4452,13 +6159,17 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 record.setdefault("reconcile_history", []).append(
                     {"ts": now, "action": "fail_contract_closeout", "reason": "completed_without_required_artifacts", **closeout}
                 )
-                graph_eval_requeue = _release_graph_eval_on_transient_operator_failure(record)
+                graph_eval_requeue = (
+                    {"released": False, "reason": "bounded_reconcile_skip_graph_eval_requeue"}
+                    if bounded_reconcile
+                    else _release_graph_eval_on_transient_operator_failure(record)
+                )
                 if graph_eval_requeue.get("released"):
                     record["graph_eval_requeue"] = graph_eval_requeue
                     record.setdefault("reconcile_history", []).append(
                         {"ts": now, "action": "graph_eval_requeue", **graph_eval_requeue}
                     )
-                write_pm_task_record(task_id, record)
+                write_reconcile_task_record(task_id, record)
             continue
         synthetic_cancel = _synthetic_builder_handoff_cancel(record)
         if synthetic_cancel.get("ok"):
@@ -4472,10 +6183,12 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 record.setdefault("reconcile_history", []).append(
                     {"ts": now, "action": "cancel", **synthetic_cancel}
                 )
-                write_pm_task_record(task_id, record)
+                write_reconcile_task_record(task_id, record)
             continue
 
-        if _pm_status_is_terminal(status):
+        terminal_status = _pm_status_is_terminal(status)
+        terminal_recoverable = status.startswith("failed") or status in {"blocked_by_verifier"}
+        if terminal_status and not terminal_recoverable:
             continue
 
         graph_closeout = _pm_graph_node_closed_closeout(record)
@@ -4490,7 +6203,13 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 record.setdefault("reconcile_history", []).append(
                     {"ts": now, "action": "complete", "reason": "graph_node_already_closed", **graph_closeout}
                 )
-                write_pm_task_record(task_id, record)
+                write_reconcile_task_record(task_id, record)
+            continue
+
+        terminal_result_path_raw = str(record.get("result_path") or "").strip()
+        terminal_result_path = Path(terminal_result_path_raw).expanduser() if terminal_result_path_raw else Path()
+        terminal_result_exists = bool(terminal_result_path_raw) and terminal_result_path.exists()
+        if terminal_status and not terminal_result_exists:
             continue
 
         closeout = _pm_closeout_status(record)
@@ -4505,7 +6224,7 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 record.setdefault("reconcile_history", []).append(
                     {"ts": now, "action": "complete", "reason": "expected_artifacts_exist", **closeout}
                 )
-                write_pm_task_record(task_id, record)
+                write_reconcile_task_record(task_id, record)
             continue
 
         result_path_raw = str(record.get("result_path") or "").strip()
@@ -4529,13 +6248,17 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                     record.setdefault("reconcile_history", []).append(
                         {"ts": now, "action": "fail_contract_closeout", "reason": "result_path_exists_but_required_artifacts_missing", **closeout}
                     )
-                    graph_eval_requeue = _release_graph_eval_on_transient_operator_failure(record)
+                    graph_eval_requeue = (
+                        {"released": False, "reason": "bounded_reconcile_skip_graph_eval_requeue"}
+                        if bounded_reconcile
+                        else _release_graph_eval_on_transient_operator_failure(record)
+                    )
                     if graph_eval_requeue.get("released"):
                         record["graph_eval_requeue"] = graph_eval_requeue
                         record.setdefault("reconcile_history", []).append(
                             {"ts": now, "action": "graph_eval_requeue", **graph_eval_requeue}
                         )
-                    write_pm_task_record(task_id, record)
+                    write_reconcile_task_record(task_id, record)
                 continue
             actions.append({"task_id": task_id, "action": "complete", "reason": "result_path_exists", **closeout})
             if apply_changes:
@@ -4558,7 +6281,10 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 record.setdefault("reconcile_history", []).append(
                     {"ts": now, "action": action, "reason": reason, **closeout}
                 )
-                write_pm_task_record(task_id, record)
+                write_reconcile_task_record(task_id, record)
+            continue
+
+        if terminal_status:
             continue
 
         age = _record_age_minutes(record, path)
@@ -4582,20 +6308,44 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 record.setdefault("reconcile_history", []).append(
                     {"ts": now, "action": "fail_missing_pm_result", "age_min": round(age, 1)}
                 )
-                write_pm_task_record(task_id, record)
+                write_reconcile_task_record(task_id, record)
 
     summary: dict[str, int] = {}
     for item in actions:
         action = str(item.get("action") or "unknown")
         summary[action] = summary.get(action, 0) + 1
-    payload = {"ok": True, "applied": apply_changes, "max_age_minutes": max_age_minutes, "summary": summary, "actions": actions}
+    action_limit = max(0, int(getattr(args, "limit", 40) or 40))
+    visible_actions = actions[:action_limit]
+    payload = {
+        "ok": True,
+        "applied": apply_changes,
+        "max_age_minutes": max_age_minutes,
+        "max_writes": max_writes,
+        "max_scan_records": max_scan_records,
+        "scanned_records": scanned_records,
+        "scan_limited": scan_limited,
+        "writes_applied": writes_applied,
+        "writes_skipped": writes_skipped,
+        "summary": summary,
+        "actions_total": len(actions),
+        "actions_truncated": len(actions) > len(visible_actions),
+        "actions": visible_actions,
+    }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
     print(f"pm_reconcile applied={apply_changes} max_age_minutes={max_age_minutes}")
+    if max_writes:
+        print(f"  writes_applied: {writes_applied}")
+        print(f"  writes_skipped: {writes_skipped}")
+    if max_scan_records:
+        print(f"  scanned_records: {scanned_records}")
+        print(f"  scan_limited: {scan_limited}")
     for key in sorted(summary):
         print(f"  {key}: {summary[key]}")
-    for item in actions[: int(args.limit or 40)]:
+    if len(actions) > len(visible_actions):
+        print(f"  ... truncated actions: showing {len(visible_actions)} of {len(actions)}")
+    for item in visible_actions:
         print(f"  - {item.get('action')}: {item.get('task_id')} ({item.get('reason', 'N/A')})")
     return 0
 
@@ -4646,6 +6396,12 @@ def main() -> int:
     drain.add_argument("--dry-run", action="store_true", help="只列出将提交的 builder-ready 节点")
     drain.add_argument("--json", action="store_true", help="输出 JSON")
 
+    drain_planner = sub.add_parser("drain-planner-ready", help="把 prd_ready planner handoff 提交到 PM planner pool")
+    drain_planner.add_argument("--sprint", default="", help="只 drain 指定 sprint")
+    drain_planner.add_argument("--max-items", type=int, default=0, help="最多提交的 sprint；0 表示不限制")
+    drain_planner.add_argument("--dry-run", action="store_true", help="只列出将提交的 planner-ready sprint")
+    drain_planner.add_argument("--json", action="store_true", help="输出 JSON")
+
     cs = sub.add_parser("concurrency-status", help="查看统一并发旋钮状态")
     cs.add_argument("--json", action="store_true", help="输出 JSON")
 
@@ -4683,6 +6439,8 @@ def main() -> int:
     rec.add_argument("--apply", action="store_true", help="实际写入；默认只预览")
     rec.add_argument("--json", action="store_true", help="输出 JSON")
     rec.add_argument("--limit", type=int, default=40, help="非 JSON 输出显示前 N 条动作")
+    rec.add_argument("--max-writes", type=int, default=0, help="本轮最多写回 N 条；0 表示不限")
+    rec.add_argument("--max-scan-records", type=int, default=0, help="本轮最多扫描 N 条 PM 记录；0 表示不限")
 
     args = p.parse_args()
     dispatch = {
@@ -4691,6 +6449,7 @@ def main() -> int:
         "fleet-status": cmd_fleet_status,
         "builder-pool-status": cmd_builder_pool_status,
         "drain-builder-ready": cmd_drain_builder_ready,
+        "drain-planner-ready": cmd_drain_planner_ready,
         "concurrency-status": cmd_concurrency_status,
         "concurrency-set": cmd_concurrency_set,
         "quota-refresh": cmd_quota_refresh,

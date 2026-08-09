@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+import json
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "lib" / "graph_node_dispatcher.py"
@@ -40,6 +41,68 @@ def test_pane_runtime_unavailable_reason_ignores_plain_rate_limit_prose(monkeypa
     monkeypatch.setattr(mod, "_pane_prompt_residue_is_stale_scrollback", lambda pane, tail: False)
     monkeypatch.setattr(mod, "_clear_stale_prompt_residue", lambda pane: False)
     assert mod._pane_runtime_unavailable_reason("solar-harness-lab:0.1", "Builder 2 | 模型:GLM-5.1") == ""
+
+
+def test_pane_rate_limit_model_fallback_is_scoped_by_role(monkeypatch, tmp_path) -> None:
+    harness_dir = tmp_path / "harness"
+    (harness_dir / "config").mkdir(parents=True)
+    (harness_dir / "config" / "physical-operators.json").write_text(
+        json.dumps(
+            {
+                "operators": {
+                    "mini-claude-opus-planner": {
+                        "enabled": True,
+                        "available": True,
+                        "provider": "anthropic",
+                        "model": "opus",
+                        "roles": ["planner"],
+                    },
+                    "mini-claude-opus-evaluator": {
+                        "enabled": True,
+                        "available": True,
+                        "provider": "anthropic",
+                        "model": "opus",
+                        "roles": ["evaluator"],
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+
+    class FlowControl:
+        @staticmethod
+        def parse_rate_limit_reset_at(_text):
+            import datetime as dt
+
+            return dt.datetime(2026, 6, 19, 16, 50, tzinfo=dt.timezone.utc)
+
+        @staticmethod
+        def persist_operator_block(operator_id, *_args, **_kwargs):
+            calls.append(operator_id)
+            return {"ok": True, "operator_id": operator_id}
+
+        @staticmethod
+        def _seconds_until(*_args, **_kwargs):
+            return 3600
+
+        @staticmethod
+        def set_operator_state(*_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(mod, "HARNESS_DIR", harness_dir)
+    monkeypatch.setitem(sys.modules, "operator_flow_control", FlowControl)
+
+    updates = mod._persist_pane_rate_limit_block(
+        "solar-harness:0.3",
+        "Evaluator 审判官 | 模型:Opus",
+        "You've hit your limit · resets 12:50pm (America/Toronto)",
+        ["opus"],
+    )
+
+    assert calls == ["mini-claude-opus-evaluator"]
+    assert [item["operator_id"] for item in updates] == ["mini-claude-opus-evaluator"]
 
 
 def test_pane_cooldown_reason_clears_missing_runtime_context(monkeypatch, tmp_path) -> None:

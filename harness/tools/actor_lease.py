@@ -64,7 +64,8 @@ class LeaseState:
     __slots__ = (
         "actor_id", "lease_id", "task_id", "sprint_id", "node_id",
         "acquired_at", "expires_at", "renewable", "preemptible",
-        "heartbeat_timeout_sec", "evidence_path", "state",
+        "heartbeat_timeout_sec", "last_heartbeat_at", "evidence_path", "state",
+        "transition_reason",
     )
 
     def __init__(
@@ -79,8 +80,10 @@ class LeaseState:
         renewable: bool = True,
         preemptible: bool = False,
         heartbeat_timeout_sec: int = 120,
+        last_heartbeat_at: Optional[str] = None,
         evidence_path: Optional[str] = None,
         state: str = READY,
+        transition_reason: Optional[str] = None,
     ):
         self.actor_id = actor_id
         self.lease_id = lease_id
@@ -92,8 +95,10 @@ class LeaseState:
         self.renewable = renewable
         self.preemptible = preemptible
         self.heartbeat_timeout_sec = heartbeat_timeout_sec
+        self.last_heartbeat_at = last_heartbeat_at
         self.evidence_path = evidence_path
         self.state = state
+        self.transition_reason = transition_reason
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -107,8 +112,10 @@ class LeaseState:
             "renewable": self.renewable,
             "preemptible": self.preemptible,
             "heartbeat_timeout_sec": self.heartbeat_timeout_sec,
+            "last_heartbeat_at": self.last_heartbeat_at,
             "evidence_path": self.evidence_path,
             "state": self.state,
+            "transition_reason": self.transition_reason,
         }
 
     @classmethod
@@ -175,16 +182,23 @@ class LeaseBroker:
                 renewable=renewable,
                 preemptible=preemptible,
                 heartbeat_timeout_sec=heartbeat_timeout_sec,
+                last_heartbeat_at=now,
                 evidence_path=evidence_path,
                 state=LEASED,
+                transition_reason="acquired",
             )
-            path.write_text(json.dumps(lease.to_dict(), indent=2), encoding="utf-8")
+            self._atomic_write(path, lease.to_dict())
             return lease
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             lock_fd.close()
 
-    def transition(self, actor_id: str, new_state: str) -> Optional[LeaseState]:
+    def transition(
+        self,
+        actor_id: str,
+        new_state: str,
+        reason: Optional[str] = None,
+    ) -> Optional[LeaseState]:
         """Transition actor to new_state. Returns updated LeaseState or None."""
         path = self._lease_path(actor_id)
         lock_path = path.with_suffix(".lock")
@@ -203,6 +217,7 @@ class LeaseBroker:
             if new_state not in allowed:
                 return None
             current.state = new_state
+            current.transition_reason = reason
             if new_state == READY:
                 current.lease_id = None
                 current.task_id = None
@@ -210,7 +225,8 @@ class LeaseBroker:
                 current.node_id = None
                 current.acquired_at = None
                 current.expires_at = None
-            path.write_text(json.dumps(current.to_dict(), indent=2), encoding="utf-8")
+                current.last_heartbeat_at = None
+            self._atomic_write(path, current.to_dict())
             return current
         finally:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
@@ -220,9 +236,36 @@ class LeaseBroker:
         """Check if lease has expired (stale)."""
         path = self._lease_path(actor_id)
         lease = self._read(path)
-        if not lease or lease.state != LEASED:
+        if not lease or lease.state not in {LEASED, RUNNING, FINALIZING}:
             return False
-        return self._is_expired(lease)
+        return self._is_expired(lease) or self._is_heartbeat_stale(lease)
+
+    def reap(self, actor_id: Optional[str] = None) -> list[str]:
+        """Mark expired or heartbeat-stale active leases as STALE."""
+        actor_ids = [actor_id] if actor_id else [path.stem for path in self.lease_dir.glob("*.json")]
+        reaped: list[str] = []
+        for candidate in actor_ids:
+            lease = self.get(candidate)
+            if not lease or lease.state not in {LEASED, RUNNING, FINALIZING}:
+                continue
+            if not (self._is_expired(lease) or self._is_heartbeat_stale(lease)):
+                continue
+            lease.state = STALE
+            lease.transition_reason = (
+                "lease_expired" if self._is_expired(lease) else "heartbeat_timeout"
+            )
+            self._atomic_write(self._lease_path(candidate), lease.to_dict())
+            reaped.append(candidate)
+        return reaped
+
+    def release(self, actor_id: str, reason: str = "released") -> Optional[LeaseState]:
+        """Release a terminal or exceptional lease while preserving closeout evidence."""
+        current = self.get(actor_id)
+        if current is None:
+            return None
+        if READY not in TRANSITIONS.get(current.state, set()):
+            return None
+        return self.transition(actor_id, READY, reason=reason)
 
     def get(self, actor_id: str) -> Optional[LeaseState]:
         return self._read(self._lease_path(actor_id))
@@ -237,6 +280,26 @@ class LeaseBroker:
             return now > exp
         except ValueError:
             return False
+
+    @staticmethod
+    def _is_heartbeat_stale(lease: LeaseState) -> bool:
+        if not lease.last_heartbeat_at or lease.heartbeat_timeout_sec <= 0:
+            return False
+        try:
+            heartbeat = datetime.datetime.fromisoformat(
+                lease.last_heartbeat_at.replace("Z", "+00:00")
+            )
+            now = datetime.datetime.now(datetime.timezone.utc)
+            return (now - heartbeat).total_seconds() > lease.heartbeat_timeout_sec
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _atomic_write(path: Path, data: Dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
 
     def _read(self, path: Path) -> Optional[LeaseState]:
         if not path.exists():

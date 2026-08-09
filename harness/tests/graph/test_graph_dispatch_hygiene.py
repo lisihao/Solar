@@ -99,6 +99,24 @@ def test_wrapped_prompt_residue_blocks_before_stale_tool_output(monkeypatch):
     assert gnd._pane_unavailable_reason(pane) == "unsubmitted_prompt_residue"
 
 
+def test_interrupt_prompt_blocks_dispatch(monkeypatch):
+    pane = "solar-harness-lab:0.2"
+    tail = """
+⏺ ReaInterrupt· What should Claude do
+
+────────────────────────────────────────────────────────
+❯\u00a0
+────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+"""
+    monkeypatch.setattr(gnd, "_pane_health", lambda _pane: {})
+    monkeypatch.setattr(gnd, "_pane_tail", lambda _pane: tail)
+    monkeypatch.setattr(gnd, "_pane_current_command", lambda _pane: "bash")
+
+    assert gnd._pane_dispatch_prompt_reason(tail) == "interrupt_prompt_blocked"
+    assert gnd._pane_unavailable_reason(pane) == "interrupt_prompt_blocked"
+
+
 def test_discover_workers_marks_hygiene_bad_pane_unavailable(tmp_path, monkeypatch):
     hygiene = tmp_path / "pane-hygiene.json"
     pane = "solar-harness-lab:0.2"
@@ -121,10 +139,10 @@ def test_discover_workers_marks_hygiene_bad_pane_unavailable(tmp_path, monkeypat
     monkeypatch.setattr(gnd, "_evaluator_operator_pool_workers", lambda: [])
 
     workers = gnd._discover_workers(dry_run=False)
+    worker = next(item for item in workers if item["pane"] == pane)
 
-    assert len(workers) == 1
-    assert workers[0]["busy"] is True
-    assert workers[0]["unavailable_reason"] == "pane_hygiene_needs_respawn"
+    assert worker["busy"] is True
+    assert worker["unavailable_reason"] == "pane_hygiene_needs_respawn"
 
 
 def test_evaluator_operator_pool_unblocks_ready_evaluator_node(tmp_path, monkeypatch):
@@ -189,11 +207,11 @@ def test_discover_workers_marks_dead_pane_unavailable(monkeypatch):
     monkeypatch.setattr(gnd, "_evaluator_operator_pool_workers", lambda: [])
 
     workers = gnd._discover_workers(dry_run=False)
+    worker = next(item for item in workers if item["pane"] == pane)
 
-    assert len(workers) == 1
-    assert workers[0]["busy"] is True
-    assert workers[0]["unavailable_reason"] == "pane_dead"
-    assert workers[0]["pane_dead"] is True
+    assert worker["busy"] is True
+    assert worker["unavailable_reason"] == "pane_dead"
+    assert worker["pane_dead"] is True
 
 
 def test_feedback_survey_prompt_is_recoverable_dispatch_prompt():
@@ -237,6 +255,7 @@ def test_builder_operator_pool_available_count_is_cached(monkeypatch):
 
     def _fake_run(*args, **kwargs):
         calls["count"] += 1
+        assert kwargs.get("timeout", 0) >= 12
         return subprocess.CompletedProcess(args[0], 0, stdout='{"total_available": 3}', stderr="")
 
     monkeypatch.setenv("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "30")
@@ -246,6 +265,35 @@ def test_builder_operator_pool_available_count_is_cached(monkeypatch):
     assert gnd._builder_operator_pool_available_count() == 3
     assert gnd._builder_operator_pool_available_count() == 3
     assert calls["count"] == 1
+
+
+def test_builder_operator_pool_available_count_prefers_fresh_autoscale_snapshot(monkeypatch, tmp_path):
+    snapshot = tmp_path / "run" / "backlog-autoscale" / "latest.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text(
+        json.dumps(
+            {
+                "builder_pool": {
+                    "group_capacity": {
+                        "codex-gpt-5.5-medium": {"available": 2},
+                        "codex-gpt-5.3-spark": {"available": 1},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _unexpected_run(*args, **kwargs):
+        raise AssertionError("slow builder-pool-status probe should not run when snapshot is fresh")
+
+    monkeypatch.setenv("SOLAR_GRAPH_BUILDER_OPERATOR_POOL", "1")
+    monkeypatch.setenv("SOLAR_GRAPH_BUILDER_POOL_STATUS_CACHE_SEC", "0")
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "_BUILDER_OPERATOR_POOL_AVAILABLE_CACHE", {"checked_at": 0.0, "available": 0})
+    monkeypatch.setattr(gnd.subprocess, "run", _unexpected_run)
+
+    assert gnd._builder_operator_pool_available_count() == 3
 
 
 def test_builder_operator_pool_available_count_timeout_uses_stale_cache(monkeypatch):
@@ -295,3 +343,61 @@ def test_dispatch_ready_marks_graph_active_panes_busy(tmp_path, monkeypatch):
     assert workers_by_pane["pane-a"]["busy"] is True
     assert workers_by_pane["pane-a"]["unavailable_reason"] == "graph_active_assignment"
     assert workers_by_pane["pane-b"]["busy"] is False
+
+
+def test_dispatch_ready_dry_run_does_not_submit_operator_pool_subprocess(tmp_path, monkeypatch):
+    graph_path = tmp_path / "graph.json"
+    graph = {
+        "sprint_id": "sid",
+        "nodes": [
+            {"id": "A1", "status": "pending"},
+        ],
+        "node_results": {},
+    }
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    monkeypatch.setattr(gnd, "_no_dispatch_enabled", lambda: False)
+    monkeypatch.setattr(gnd, "_discover_workers", lambda dry_run=False: [{"pane": "operator-pool:builder.0", "busy": False}])
+    monkeypatch.setattr(gnd, "load_graph", lambda path: json.loads(graph_path.read_text(encoding="utf-8")))
+    monkeypatch.setattr(gnd, "save_graph", lambda path, graph: None)
+
+    def fake_enqueue_ready(graph, graph_path_arg, workers, **kwargs):
+        assert kwargs["dry_run"] is True
+        return {
+            "ok": True,
+            "enqueued": [
+                {
+                    "node": "A1",
+                    "pane": "operator-pool:builder.0",
+                    "dispatch_id": "dispatch-A1",
+                    "payload": {"node_id": "A1", "dispatch_id": "dispatch-A1"},
+                }
+            ],
+            "queued": [],
+        }
+
+    def fail_dispatch_queue_item(*args, **kwargs):
+        raise AssertionError("dry-run dispatch_ready must not call PM submit subprocess")
+
+    monkeypatch.setattr(gnd, "enqueue_ready", fake_enqueue_ready)
+    monkeypatch.setattr(gnd, "dispatch_queue_item", fail_dispatch_queue_item)
+
+    result = gnd.dispatch_ready(str(graph_path), dry_run=True)
+
+    assert result["ok"] is True
+    assert result["drain"]["processed"] == 1
+    assert result["drain"]["results"][0]["reason"] == "dry_run_operator_pool_submit_skipped"
+    assert result["drain"]["results"][0]["node"] == "A1"
+
+
+def test_broker_env_forwards_harness_roots(monkeypatch, tmp_path):
+    monkeypatch.delenv("HARNESS_DIR", raising=False)
+    monkeypatch.delenv("SOLAR_HARNESS_SPRINTS_DIR", raising=False)
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path / "harness")
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", tmp_path / "harness" / "sprints")
+
+    env = gnd._broker_env("sprint-a")
+
+    assert env["HARNESS_DIR"] == str(tmp_path / "harness")
+    assert env["SOLAR_HARNESS_SPRINTS_DIR"] == str(tmp_path / "harness" / "sprints")
+    assert env["SOLAR_BROKER_SPRINT_ID"] == "sprint-a"

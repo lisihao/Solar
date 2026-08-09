@@ -174,8 +174,9 @@ def enrich_graph(graph: dict[str, Any], source_text: str = "",
                  overwrite: bool = False) -> dict[str, Any]:
     """Add missing `required_capabilities` to graph nodes.
 
-    Existing planner-declared capabilities are preserved by default and unioned
-    with inferred capabilities. Set `overwrite=True` only for controlled tests.
+    Existing planner-declared capabilities are authoritative by default.
+    Inference only fills a missing field; set ``overwrite=True`` for a
+    controlled regeneration.
     """
     nodes = graph.get("nodes")
     if not isinstance(nodes, list):
@@ -196,7 +197,10 @@ def enrich_graph(graph: dict[str, Any], source_text: str = "",
         else:
             existing_caps = []
 
-        final_caps = inferred_caps if overwrite else _dedupe(existing_caps + inferred_caps)
+        if overwrite or not had_required_capabilities:
+            final_caps = inferred_caps
+        else:
+            final_caps = existing_caps
         # P1 生产点校验 (2026-06-11 架构根治 R2): 需求能力必须在供给词表内。
         # 此前 enrichment 自由发明能力名 → 175 种需求 0% 匹配, 2193 节点-需求对
         # 全堵成 no_matching_worker。词表外按策略 drop + warn 事件 (显式不静默);

@@ -28,6 +28,9 @@ def test_fake_worker_catalog_includes_spec_and_codex_bridge(monkeypatch) -> None
     assert "structured-results" in worker["capabilities"]
     assert "codex.bridge" in worker["capabilities"]
     assert "pane3.bridge" in worker["capabilities"]
+    assert "analysis.causal_inference" in worker["capabilities"]
+    assert "research.empirical_pipeline" in worker["capabilities"]
+    assert "research.literature_review" in worker["capabilities"]
 
 
 def test_worker_discovery_keeps_planner_panes_for_role_aware_dispatch(monkeypatch) -> None:

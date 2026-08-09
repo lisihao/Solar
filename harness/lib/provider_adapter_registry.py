@@ -23,6 +23,7 @@ PROVIDER_ALIASES = {
     "openai": "openai",
     "chatgpt": "openai",
     "browser_agent_chatgpt": "openai",
+    "browser": "browser",
     "local": "local",
 }
 
@@ -98,6 +99,15 @@ ADAPTERS: dict[str, ProviderAdapter] = {
         doctor_kind="local_proxy",
         probe_base_url_key="thunderomlx_base_url",
         default_base_url="http://127.0.0.1:8002",
+    ),
+    "browser": ProviderAdapter(
+        provider="browser",
+        aliases=("browser", "browser-agent", "browser_use"),
+        model_aliases=("browser", "webapp", "notebooklm"),
+        backend_aliases=("desktop_bridge", "browser-agent"),
+        supported_backends=("desktop_bridge", "browser-agent", "command"),
+        default_route_model="browser-agent",
+        doctor_kind="browser_wrapper",
     ),
 }
 
@@ -277,6 +287,19 @@ def validate_physical_operator_registry(
     for operator_id, operator_cfg in operators.items():
         if not isinstance(operator_cfg, dict):
             errors.append(f"{operator_id}: operator spec must be an object")
+            continue
+        if bool(operator_cfg.get("deprecated")):
+            provider = canonical_provider(str(operator_cfg.get("provider") or "unknown"))
+            provider_counts[provider] = provider_counts.get(provider, 0) + 1
+            by_operator[operator_id] = {
+                "operator_id": operator_id,
+                "provider": provider,
+                "ok": True,
+                "skipped": "deprecated",
+                "errors": [],
+                "warnings": ["deprecated operator excluded from active adapter validation"],
+            }
+            warnings.append(f"{operator_id}: deprecated operator excluded from active adapter validation")
             continue
         result = validate_operator_spec(operator_id, operator_cfg, registry_path=registry_path)
         by_operator[operator_id] = result

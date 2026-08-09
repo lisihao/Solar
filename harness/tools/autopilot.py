@@ -500,6 +500,8 @@ def _record_activation_history(status_path: Path, decision: dict, *, dry_run: bo
         "blocked_reason": decision.get("blocked_reason") or "",
         "ready_nodes": decision.get("ready_nodes") or [],
         "can_dispatch": bool(decision.get("can_dispatch")),
+        "context_audit": decision.get("context_audit") or {},
+        "context_blockers": decision.get("context_blockers") or [],
         "dry_run": bool(dry_run),
     }
     if dry_run:
@@ -539,17 +541,40 @@ def activate_graph(
     )
     history = _record_activation_history(status_path, decision, dry_run=dry_run)
     enqueue_result: dict = {"ok": True, "skipped": True, "reason": decision.get("blocked_reason") or "dry_run_or_no_workers"}
-    if decision.get("can_dispatch") and workers_path and not dry_run:
-        workers = _load_json_if_exists(workers_path)
-        worker_list = workers.get("workers") if isinstance(workers.get("workers"), list) else []
-        enqueue_result = graph_scheduler.enqueue_ready(graph, str(graph_path), worker_list, max_parallel=max_parallel)
-        graph_scheduler.save_graph(graph_path, graph)
+    mailbox_results: list[dict] = []
+    if decision.get("can_dispatch") and not dry_run:
+        use_mailbox = hasattr(graph_scheduler, "activate_node_to_mailbox")
+        if use_mailbox:
+            for node_id in decision.get("ready_nodes") or []:
+                result = graph_scheduler.activate_node_to_mailbox(
+                    str(graph_path),
+                    str(node_id),
+                    target_role=str(decision.get("target_role") or "builder_main"),
+                    dry_run=False,
+                    scheduler_decision=decision,
+                    context_audit=decision.get("context_audit") or {},
+                )
+                mailbox_results.append(result)
+            activated = [item for item in mailbox_results if item.get("ok")]
+            enqueue_result = {
+                "ok": bool(activated) and len(activated) == len(mailbox_results),
+                "skipped": False,
+                "dispatch_path": "mailbox_activation",
+                "activated": len(activated),
+                "results": mailbox_results,
+            }
+        elif workers_path:
+            workers = _load_json_if_exists(workers_path)
+            worker_list = workers.get("workers") if isinstance(workers.get("workers"), list) else []
+            enqueue_result = graph_scheduler.enqueue_ready(graph, str(graph_path), worker_list, max_parallel=max_parallel)
+            graph_scheduler.save_graph(graph_path, graph)
     return {
         "ok": bool(decision.get("ok")),
         "sprint_id": sprint_id,
         "decision": decision,
         "history": history,
         "enqueue": enqueue_result,
+        "mailbox_results": mailbox_results,
     }
 
 

@@ -28,12 +28,12 @@ def test_physical_operator_registry_passes_provider_adapter_validation():
     assert result["summary"]["operator_count"] >= 1
 
 
-def test_provider_probe_hints_cover_google_glm_and_local_command_operators():
+def test_provider_probe_hints_cover_browser_glm_and_local_command_operators():
     physical = json.loads(PHYSICAL_OPERATORS_FILE.read_text(encoding="utf-8"))["operators"]
-    notebooklm = par.probe_hints(
-        provider=str(physical["mini-browser-notebooklm"].get("provider") or ""),
-        model=str(physical["mini-browser-notebooklm"].get("model") or ""),
-        backend=str(physical["mini-browser-notebooklm"].get("backend") or ""),
+    browser = par.probe_hints(
+        provider=str(physical["mini-chatgpt-project-knowledge-extractor"].get("provider") or ""),
+        model=str(physical["mini-chatgpt-project-knowledge-extractor"].get("model") or ""),
+        backend=str(physical["mini-chatgpt-project-knowledge-extractor"].get("backend") or ""),
     )
     glm = par.probe_hints(
         provider=str(physical["mini-glm51-knowledge"].get("provider") or ""),
@@ -45,9 +45,9 @@ def test_provider_probe_hints_cover_google_glm_and_local_command_operators():
         model=str(physical["mini-thunderomlx-qwen36-knowledge"].get("model") or ""),
         backend=str(physical["mini-thunderomlx-qwen36-knowledge"].get("backend") or ""),
     )
-    assert notebooklm["provider"] == "gemini"
-    assert notebooklm["doctor_kind"] == "gemini_adapter"
-    assert "command" in notebooklm["supported_backends"]
+    assert browser["provider"] == "browser"
+    assert browser["doctor_kind"] == "browser_wrapper"
+    assert "desktop_bridge" in browser["supported_backends"]
     assert glm["provider"] == "zhipu"
     assert glm["doctor_kind"] == "env_proxy"
     assert glm["probe_auth_key"] == "zhipu_auth"

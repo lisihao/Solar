@@ -22,6 +22,7 @@ import os
 import shutil
 import sqlite3
 import sys
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,8 @@ PASS_STATUSES = {"passed"}
 CLOSED_NON_PASS_STATUSES = {"skipped", "cancelled", "skipped_parent_passed"}
 SPRINTS_DIR = Path(os.environ.get("HARNESS_SPRINTS_DIR", HARNESS_DIR / "sprints"))
 COMPLETION_OUTCOME_STATUSES = {"passed", "completed", "finalized"}
+TRANSIENT_FAILURE_BLOCK_TTL_SEC = int(os.environ.get("SOLAR_GRAPH_TRANSIENT_FAILURE_BLOCK_TTL_SEC", "7200"))
+DISPATCH_LEDGER = HARNESS_DIR / "run" / "dispatch-ledger.jsonl"
 
 
 def _effective_graph_max_parallel(default: int | None = None) -> int | None:
@@ -233,9 +236,19 @@ def _now() -> str:
 
 def load_graph(path: str | Path) -> dict[str, Any]:
     graph_path = Path(path)
-    graph = json.loads(graph_path.read_text())
-    state = _load_graph_state_for_path(graph_path, graph)
-    _attach_runtime_planes(graph, graph_path=graph_path, state=state)
+    source_path = graph_path
+    if graph_path.name.endswith(".task_graph.json"):
+        spec_path = graph_path.with_name(
+            graph_path.name.removesuffix(".task_graph.json") + ".task_graph.spec.json"
+        )
+        if spec_path.exists():
+            source_path = spec_path
+    graph = json.loads(source_path.read_text())
+    state = _load_graph_state_for_path(source_path, graph)
+    if not state:
+        state = _initial_graph_state(graph, source_path)
+        _save_graph_state(_state_path_for_graph(graph, source_path), state)
+    _attach_runtime_planes(graph, graph_path=source_path, state=state)
     return graph
 
 
@@ -246,9 +259,49 @@ def save_graph(path: str | Path, graph: dict[str, Any]) -> None:
     _save_graph_state(_state_path_for_graph(graph, p), state)
     _save_closure_projection(_closure_path_for_graph(graph, p), graph, state)
     spec_graph = _graph_spec_payload(graph)
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(json.dumps(spec_graph, indent=2, ensure_ascii=False) + "\n")
-    os.replace(tmp, p)
+    sid = _sprint_id_for_graph(graph, p)
+    spec_path = p.parent / f"{sid}.task_graph.spec.json"
+    _write_graph_spec(spec_path, spec_graph)
+    if p != spec_path:
+        _write_graph_spec(p, spec_graph)
+
+
+def _write_graph_spec(path: Path, graph: dict[str, Any]) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(graph, indent=2, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
+
+
+def _initial_graph_state(graph: dict[str, Any], graph_path: Path) -> dict[str, Any]:
+    sid = _sprint_id_for_graph(graph, graph_path)
+    now = _now()
+    node_status = {
+        str(node.get("id")): {
+            "status": str(node.get("status") or "pending").strip().lower(),
+            "updated_at": now,
+        }
+        for node in graph.get("nodes", [])
+        if str(node.get("id") or "").strip()
+    }
+    gate_status = {
+        str(gate): {"status": "pending", "updated_at": now}
+        for gate in graph.get("required_gates", []) or []
+        if str(gate).strip()
+    }
+    return {
+        "schema_version": "solar.task_graph_state.v1",
+        "sprint_id": sid,
+        "graph_ref": f"{sid}.task_graph.json",
+        "node_status": node_status,
+        "gate_status": gate_status,
+        "node_results": deepcopy(node_status),
+        "gate_results": {},
+        "node_repairs": {},
+        "leases": {},
+        "dispatch_ids": {},
+        "events": [],
+        "updated_at": now,
+    }
 
 
 def _state_path_for_graph(graph: dict[str, Any], graph_path: str | Path | None = None) -> Path:
@@ -463,6 +516,82 @@ def _status_path_for_graph(graph: dict[str, Any], graph_path: str | Path | None 
     if graph_path:
         return Path(graph_path).expanduser().parent / f"{sid}.status.json"
     return SPRINTS_DIR / f"{sid}.status.json"
+
+
+CHILD_SPRINT_PASSED_STATUSES = {"passed", "completed", "finalized", "eval_passed"}
+
+
+def _child_sprint_status_payload(child_sprint_id: str, graph_path: str | Path | None = None) -> dict[str, Any]:
+    if not child_sprint_id:
+        return {}
+    base_dir = Path(graph_path).expanduser().parent if graph_path else SPRINTS_DIR
+    status_path = base_dir / f"{child_sprint_id}.status.json"
+    if not status_path.exists():
+        return {}
+    try:
+        payload = json.loads(status_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def sync_child_sprint_status_projection(
+    graph: dict[str, Any],
+    graph_path: str | Path | None = None,
+    *,
+    persist: bool = False,
+) -> dict[str, Any]:
+    """Project terminal child sprint status onto parent graph dependency nodes.
+
+    Child sprint status caches are compatibility projections, but they are also
+    the existing cross-graph dependency signal. Without this sync, a parent
+    graph can keep S03/S04 at stale ``active`` while their child sprints are
+    already passed, preventing S05 from ever becoming builder-ready.
+    """
+    ids = _node_map(graph)
+    changed: list[dict[str, Any]] = []
+    now = _now()
+    graph.setdefault("node_results", {})
+    graph.setdefault("gate_results", {})
+    for node_id, node in ids.items():
+        child_sprint_id = str(node.get("child_sprint_id") or "").strip()
+        if not child_sprint_id:
+            continue
+        payload = _child_sprint_status_payload(child_sprint_id, graph_path)
+        child_status = str(payload.get("status") or payload.get("task_graph_status") or "").strip().lower()
+        child_graph_status = str(payload.get("task_graph_status") or "").strip().lower()
+        if child_status not in CHILD_SPRINT_PASSED_STATUSES and child_graph_status not in CHILD_SPRINT_PASSED_STATUSES:
+            continue
+        if node_status(graph, node_id) in PASS_STATUSES:
+            continue
+        node["status"] = "passed"
+        node["updated_at"] = now
+        result_entry = graph["node_results"].setdefault(node_id, {})
+        if not isinstance(result_entry, dict):
+            result_entry = {}
+            graph["node_results"][node_id] = result_entry
+        result_entry.update(
+            {
+                "status": "passed",
+                "updated_at": now,
+                "child_sprint_id": child_sprint_id,
+                "child_status": child_status or child_graph_status,
+                "projection_source": "child_sprint_status",
+            }
+        )
+        gate = str(node.get("gate") or "").strip()
+        if gate:
+            graph["gate_results"][gate] = {
+                "status": "passed",
+                "node": node_id,
+                "reason": "child_sprint_status_projection",
+                "child_sprint_id": child_sprint_id,
+                "updated_at": now,
+            }
+        changed.append({"node_id": node_id, "child_sprint_id": child_sprint_id, "status": child_status or child_graph_status})
+    if changed and persist and graph_path:
+        save_graph(graph_path, graph)
+    return {"ok": True, "changed": changed, "changed_count": len(changed)}
 
 
 def _acceptance_verdict_block_for_parent_pass(
@@ -799,6 +928,42 @@ def sync_status_cache_from_graph(
             )
             result.update({"updated": True, "status": current, "reason": "terminal_projection_reopened"})
             return result
+        reviewing_nodes = [
+            node_id
+            for node_id in _node_map(graph)
+            if node_status(graph, node_id) in {"reviewing", "ready_for_review", "needs_human_review"}
+        ]
+        stale_reviewing_projection = (
+            current_status in {"reviewing", "ready_for_review", "needs_human_review"}
+            and graph_inflight_hint
+            and not reviewing_nodes
+            and bool(open_nodes or failed_nodes)
+        )
+        if stale_reviewing_projection:
+            current = _project_status_via_runtime(
+                status_path,
+                new_status="active",
+                actor=actor,
+                event="graph_parent_projection_reopened_stale_reviewing",
+                graph_path=graph_path,
+                allow_reopen=True,
+                status_fields={
+                    "phase": "graph_in_progress",
+                    "stage": "graph_in_progress",
+                    "handoff_to": "builder_main",
+                    "target_role": "builder_main",
+                    "active_node": desired_active_node,
+                    "open_nodes": open_nodes,
+                    "failed_nodes": failed_nodes,
+                    "graph_parent_ready": parent,
+                    "task_graph_status": "active",
+                },
+                extra={
+                    "note": "task_graph has no reviewing node; reopening stale evaluator legacy status projection"
+                },
+            )
+            result.update({"updated": True, "status": current, "reason": "stale_reviewing_projection_reopened"})
+            return result
         projection_changed = any([
             current.get("active_node") != desired_active_node,
             list(current.get("open_nodes") or []) != list(open_nodes),
@@ -1016,18 +1181,33 @@ def _blocked_by_missing_required_inputs(graph: dict[str, Any], node_id: str) -> 
 
 def _blocked_by_repeated_transient_failure(graph: dict[str, Any], node_id: str) -> bool:
     node = _node_map(graph).get(node_id)
-    if isinstance(node, dict) and str(node.get("blocking_reason") or "").strip() in {
-        "repeated_transient_operator_failure",
-        "compatibility_fallback_capability_mismatch",
-    }:
-        return True
     result = _node_results(graph).get(node_id)
+    if isinstance(node, dict) and _node_blocker_active(node):
+        return True
     if not isinstance(result, dict):
         return False
-    return str(result.get("blocking_reason") or "").strip() in {
-        "repeated_transient_operator_failure",
-        "compatibility_fallback_capability_mismatch",
-    }
+    return _node_blocker_active(result)
+
+
+def _node_blocker_active(payload: dict[str, Any]) -> bool:
+    reason = str(payload.get("blocking_reason") or "").strip()
+    if reason == "compatibility_fallback_capability_mismatch":
+        return str(payload.get("status") or "pending").strip().lower() != "worker_blocked"
+    if reason != "repeated_transient_operator_failure":
+        return False
+    if TRANSIENT_FAILURE_BLOCK_TTL_SEC <= 0:
+        return True
+    raw_ts = (
+        payload.get("transient_failure_blocked_at")
+        or payload.get("blocked_at")
+        or payload.get("updated_at")
+    )
+    blocked_at = _parse_ts(raw_ts)
+    if blocked_at is None:
+        return True
+    now = datetime.datetime.utcnow()
+    age = (now - blocked_at).total_seconds()
+    return age <= TRANSIENT_FAILURE_BLOCK_TTL_SEC
 
 
 def _parse_ts(value: Any) -> datetime.datetime | None:
@@ -1932,6 +2112,7 @@ def summarize_blocked_prerequisites(blocked: list[dict[str, Any]]) -> list[dict[
 
 
 def ready_nodes(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    sync_child_sprint_status_projection(graph)
     validation = validate_graph(graph)
     if not validation["ok"]:
         raise ValueError("; ".join(validation["errors"]))
@@ -2361,7 +2542,7 @@ def _skills_match(worker: dict[str, Any], required_skills: list[str],
     matched = _skill_match_count(worker, required_skills)
     if matched >= len(required_skills):
         return True
-    if required_capabilities:
+    if _capability_match_mode() != "hard":
         threshold = max(1, (len(required_skills) + 1) // 2)
         return matched >= threshold
     return False
@@ -2478,6 +2659,35 @@ def _missing_capabilities(worker: dict[str, Any], required_capabilities: list[st
     return missing
 
 
+def _actorhost_missing_capabilities(worker: dict[str, Any], required_capabilities: list[str]) -> list[str]:
+    """Return authoritative actorhost misses for the requested node capabilities.
+
+    Some compatibility panes advertise broad static capabilities for historical
+    scheduler matching, but actorhost resolution can still prove that the pane
+    cannot satisfy the current node. Treat that evidence as hard so enqueue does
+    not select a pane that dispatch_queue_item will immediately reject.
+    """
+
+    match: dict[str, Any] = {}
+    actorhost = worker.get("actorhost")
+    if isinstance(actorhost, dict) and isinstance(actorhost.get("capability_match"), dict):
+        match = actorhost["capability_match"]
+    elif isinstance(worker.get("capability_match"), dict):
+        match = worker["capability_match"]
+    if not match or not required_capabilities:
+        return []
+    missing_aliases: set[str] = set()
+    for item in match.get("missing") or []:
+        missing_aliases.update(_label_aliases(item))
+    if not missing_aliases:
+        return []
+    missing: list[str] = []
+    for required in required_capabilities:
+        if _label_aliases(required) & missing_aliases:
+            missing.append(str(required))
+    return missing
+
+
 def _capability_score(worker: dict[str, Any], required_capabilities: list[str],
                       scores: dict[str, float]) -> float:
     if not required_capabilities:
@@ -2564,6 +2774,7 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
         blocked_by_capacity = False
         blocked_by_runtime = False
         blocked_by_write_policy = False
+        blocked_by_actorhost_capability = False
         runtime_unavailable_reasons: set[str] = set()
         any_worker_seen = False
         missing_skill_union: set[str] = set()
@@ -2582,17 +2793,20 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
             for item in _missing_skills(worker, required_skills):
                 missing_skill_union.add(item)
             worker_missing_caps = _missing_capabilities(worker, required_capabilities)
+            actorhost_missing_caps = _actorhost_missing_capabilities(worker, required_capabilities)
             for item in worker_missing_caps:
                 missing_cap_union.add(item)
+            for item in actorhost_missing_caps:
+                missing_cap_union.add(item)
+            if actorhost_missing_caps:
+                blocked_by_actorhost_capability = True
+                continue
             if not _skills_match(worker, required_skills, required_capabilities):
-                # P1.5 修复 (2026-06-17): 之前 skills 不匹配硬淘汰 worker, 但软约束
-                # (task #18) 只对 capabilities 生效, skills 仍是硬门 → 纯 required_skills
-                # 节点 (无 required_capabilities) 差一个 skill 就 no_matching_worker
-                # → 98% enqueue 失败 → operator 无活 → pool=0 → 吞吐归零。
-                # soft 模式: skills 不满足也不淘汰, 降级匹配 (排序仍偏好 skill_match_count
-                # 高者, 见下方 cap_score/missing_count 排序键)。hard 模式保持硬淘汰。
-                if _capability_match_mode() == "hard":
-                    continue
+                # Soft mode permits a bounded majority match, not an arbitrary
+                # skill miss. This keeps enriched nodes dispatchable while
+                # preventing a worker with only 1/3 requested skills from
+                # being selected merely because capability labels happen to match.
+                continue
             if not _capabilities_match(worker, required_capabilities):
                 # P0 软约束: soft 模式不淘汰, 降级为 role+skills 匹配 (排序仍偏好
                 # cap_score 高者); hard 模式保持原行为。见 _capability_match_mode()。
@@ -2637,6 +2851,8 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
                 reason = "worker_capacity_exhausted"
             elif blocked_by_write_policy:
                 reason = "worker_write_policy_insufficient"
+            elif blocked_by_actorhost_capability:
+                reason = "verified_worker_unavailable"
             else:
                 reason = "no_matching_worker"
             details: dict[str, Any] = {
@@ -2648,6 +2864,8 @@ def assign_workers(batch_nodes: list[dict[str, Any]], workers: list[dict[str, An
                 details["unavailable_reasons"] = sorted(runtime_unavailable_reasons)
             if blocked_by_write_policy:
                 details["write_policy_required"] = "non_eval_closeout_artifacts"
+            if blocked_by_actorhost_capability:
+                details["actorhost_capability_missing"] = sorted(missing_cap_union)
             if reason == "no_matching_worker":
                 details["any_worker_seen"] = any_worker_seen
                 details["role_candidates_seen"] = role_candidates_seen
@@ -2885,6 +3103,7 @@ def mark_node_result(graph: dict[str, Any], node_id: str, status: str,
 
 
 ACTIVE_OCCUPYING_STATUSES = {"assigned", "dispatched", "in_progress", "running", "reviewing"}
+RETRYABLE_BLOCKING_REASONS = {"compatibility_fallback_capability_mismatch"}
 
 
 def set_node_status(graph: dict[str, Any], node_id: str, status: str,
@@ -2928,6 +3147,10 @@ def set_node_status(graph: dict[str, Any], node_id: str, status: str,
         ids[node_id].pop("occupied_since", None)
     ids[node_id]["status"] = status
     ids[node_id]["updated_at"] = updated_at
+    if (
+        status in ACTIVE_OCCUPYING_STATUSES or status in {"pending", "queued", "passed"}
+    ) and str(ids[node_id].get("blocking_reason") or "").strip() in RETRYABLE_BLOCKING_REASONS:
+        ids[node_id].pop("blocking_reason", None)
     if pane:
         ids[node_id]["assigned_to"] = pane
     if dispatch_id:
@@ -3008,6 +3231,7 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
             plan_artifacts["skill_plan"] = compiled_plan.get("skill_plan") or {}
             plan_artifacts["mcp_plan"] = compiled_plan.get("mcp_plan") or {}
             plan_artifacts["capsule_plan_artifact"] = compiled_plan.get("capsule_plan_artifact") or {}
+            plan_artifacts["physical_plan_artifact"] = compiled_plan.get("physical_plan_artifact") or {}
             plan_artifacts["selection_rationale"] = compiled_plan.get("selection_rationale") or {}
             plan_artifacts["evidence_policy"] = compiled_plan.get("evidence_policy") or {}
         except Exception:
@@ -3122,10 +3346,15 @@ def enqueue_ready(graph: dict[str, Any], graph_path: str, workers: list[dict[str
 
     blocked_workers: list[dict[str, Any]] = []
     for item in queued:
-        if item.get("reason") != "no_matching_worker":
-            continue
         node_id = str(item.get("node") or "")
         if not node_id or node_id not in nodes_by_id:
+            continue
+        if item.get("reason") != "no_matching_worker":
+            set_node_status(graph, node_id, "queued")
+            graph.setdefault("node_results", {}).setdefault(node_id, {})
+            graph["node_results"][node_id]["blocking_reason"] = str(item.get("reason") or "queued")
+            graph["node_results"][node_id]["worker_match_details"] = item.get("details", {})
+            graph["node_results"][node_id]["updated_at"] = _now()
             continue
         set_node_status(graph, node_id, "worker_blocked")
         graph.setdefault("node_results", {}).setdefault(node_id, {})
@@ -3214,6 +3443,11 @@ def parent_ready_check(graph: dict[str, Any]) -> dict[str, Any]:
 
     graph.setdefault("gate_results", {})
     gate_results = graph.get("gate_results") or {}
+    all_nodes_passed_with_evidence = bool(ids) and all(
+        node_status(graph, node_id) in PASS_STATUSES
+        and (_accepted_repair(graph, node_id) is not None or (_node_has_handoff(graph, node_id) and _node_has_eval_json(graph, node_id)))
+        for node_id in ids
+    )
     for gate in required_gates:
         gate_nodes = [node_id for node_id, node in ids.items() if str(node.get("gate") or "") == gate]
         if gate_nodes and all(node_status(graph, node_id) in PASS_STATUSES for node_id in gate_nodes):
@@ -3224,6 +3458,15 @@ def parent_ready_check(graph: dict[str, Any]) -> dict[str, Any]:
                     "node": gate_nodes[-1],
                     "updated_at": _now(),
                     "reason": "parent_ready_self_heal",
+                }
+        elif not gate_nodes and all_nodes_passed_with_evidence:
+            current_gate = gate_results.get(gate)
+            if not isinstance(current_gate, dict) or current_gate.get("status") != "passed":
+                graph["gate_results"][gate] = {
+                    "status": "passed",
+                    "node": node_ids[-1],
+                    "updated_at": _now(),
+                    "reason": "parent_ready_ownerless_gate_self_heal",
                 }
     gate_results = graph.get("gate_results") or {}
     missing_gates = [
@@ -3406,6 +3649,401 @@ def _node_dispatch_evidence(
     return evidence
 
 
+def _safe_node_id(node_id: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"_", "-"} else "-" for ch in str(node_id or "")).strip("-") or "node"
+
+
+def _node_by_id(graph: dict[str, Any], node_id: str) -> dict[str, Any] | None:
+    return _node_map(graph).get(str(node_id or ""))
+
+
+def _graph_node_task_type(node: dict[str, Any]) -> str:
+    for key in ("task_type", "logical_operator", "gate"):
+        value = str(node.get(key) or "").strip()
+        if value:
+            return value
+    return "task_graph_node"
+
+
+def _append_dispatch_ledger(event: str, sprint_id: str, target: str, dispatch_id: str, payload: dict[str, Any]) -> None:
+    DISPATCH_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "ts": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "event": event,
+        "sprint_id": sprint_id,
+        "target": target,
+        "dispatch_id": dispatch_id,
+        "payload": payload,
+    }
+    with DISPATCH_LEDGER.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _resolve_actor_for_role(node: dict[str, Any], target_role: str, envelope: dict[str, Any]) -> str:
+    for key in ("actor_id", "operator_id", "assigned_actor_id"):
+        value = str(node.get(key) or envelope.get(key) or "").strip()
+        if value:
+            return value
+    role = str(target_role or node.get("target_role") or node.get("handoff_to") or "").strip().lower()
+    if role in {"evaluator", "verifier", "reviewer", "qa", "quality_assurance"}:
+        return "op.evaluator.generic.01"
+    return "op.builder.generic.01"
+
+
+def _mailbox_task_exists(actor_id: str, task_prefix: str) -> bool:
+    actor_dir = HARNESS_DIR / "actors" / actor_id
+    for mailbox in ("inbox", "processing", "outbox"):
+        box = actor_dir / mailbox
+        if not box.exists():
+            continue
+        for path in box.glob("*.json"):
+            if task_prefix in path.name:
+                return True
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            task_id = str(payload.get("task_id") or payload.get("id") or "")
+            if task_id.startswith(task_prefix):
+                return True
+    return False
+
+
+def _load_actor_dispatch_bridge():
+    lib_dir = HARNESS_DIR / "lib"
+    if str(lib_dir) not in sys.path:
+        sys.path.insert(0, str(lib_dir))
+    import actor_dispatch_bridge  # type: ignore
+
+    return actor_dispatch_bridge
+
+
+def _emit_activation_trace(
+    *,
+    sprint_id: str,
+    node: dict[str, Any],
+    node_id: str,
+    dispatch_id: str,
+    target_role: str,
+    actor_id: str,
+    result: dict[str, Any],
+    blocked_reason: str = "",
+    context_audit: dict[str, Any] | None = None,
+    scheduler_decision: dict[str, Any] | None = None,
+) -> str:
+    from packages.orchestration_ui.dispatch_trace import emit_blocked_trace, emit_dispatch_trace
+
+    decision = dict(scheduler_decision or {})
+    decision.setdefault("route_role", "builder_main" if target_role in {"builder", "builder_main"} else target_role)
+    decision.setdefault("target_role", "builder_main" if target_role in {"builder", "builder_main"} else target_role)
+    decision.setdefault("ready_nodes", [node_id])
+    decision.setdefault("blocked_reason", blocked_reason)
+    decision["mailbox_activation"] = result
+    audit = context_audit if isinstance(context_audit, dict) else {}
+    if not audit and isinstance(node.get("context_audit"), dict):
+        audit = node["context_audit"]
+
+    if blocked_reason:
+        trace = emit_blocked_trace(
+            dispatch_id=dispatch_id,
+            sprint_id=sprint_id,
+            node_id=node_id,
+            blocked_reason=blocked_reason,
+            task_type=_graph_node_task_type(node),
+            logical_op=str(node.get("logical_operator") or ""),
+            context_audit=audit,
+            scheduler_decision=decision,
+            harness_dir=HARNESS_DIR,
+        )
+    else:
+        trace = emit_dispatch_trace(
+            dispatch_id=dispatch_id,
+            sprint_id=sprint_id,
+            node_id=node_id,
+            task_type=_graph_node_task_type(node),
+            logical_op=str(node.get("logical_operator") or ""),
+            operator_id=actor_id,
+            target_role=decision["target_role"],
+            required_capabilities=[str(item) for item in node.get("required_capabilities") or []],
+            preferred_model=str(node.get("preferred_model") or "") or None,
+            write_scope=[str(item) for item in node.get("write_scope") or []],
+            context_audit=audit,
+            scheduler_decision=decision,
+            harness_dir=HARNESS_DIR,
+        )
+    return str(getattr(trace, "trace_id", "") or "")
+
+
+def activate_node_to_mailbox(
+    graph_path: str | Path,
+    node_id: str,
+    *,
+    target_role: str = "builder_main",
+    dry_run: bool = False,
+    dispatch_id: str | None = None,
+    scheduler_decision: dict[str, Any] | None = None,
+    context_audit: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Activate a ready graph node through ActorRuntime mailbox dispatch."""
+    graph = load_graph(graph_path)
+    sprint_id = str(graph.get("sprint_id") or Path(graph_path).name.removesuffix(".task_graph.json"))
+    node = _node_by_id(graph, node_id)
+    effective_dispatch_id = dispatch_id or f"mailbox-{sprint_id}-{_safe_node_id(node_id)}-{int(time.time())}"
+    if node is None:
+        return {
+            "ok": False,
+            "reason": "node_not_found",
+            "node": node_id,
+            "dispatch_id": effective_dispatch_id,
+            "dispatch_path": "mailbox_activation",
+            "dry_run": dry_run,
+        }
+
+    try:
+        bridge = _load_actor_dispatch_bridge()
+    except Exception as exc:
+        result = {
+            "ok": False,
+            "reason": "actor_dispatch_bridge_unavailable",
+            "node": node_id,
+            "dispatch_id": effective_dispatch_id,
+            "dispatch_path": "mailbox_activation",
+            "dry_run": dry_run,
+            "error": str(exc),
+        }
+        _emit_activation_trace(
+            sprint_id=sprint_id,
+            node=node,
+            node_id=node_id,
+            dispatch_id=effective_dispatch_id,
+            target_role=target_role,
+            actor_id="",
+            result=result,
+            blocked_reason="actor_dispatch_bridge_unavailable",
+            context_audit=context_audit,
+            scheduler_decision=scheduler_decision,
+        )
+        return result
+
+    envelope = bridge.build_envelope(sprint_id, node, fallback_allowed=False)
+    actor_id = _resolve_actor_for_role(node, target_role, envelope if isinstance(envelope, dict) else {})
+    task_seed = hashlib.sha256(f"{sprint_id}:{node_id}:{effective_dispatch_id}".encode("utf-8")).hexdigest()[:8]
+    task_id = f"{sprint_id}--{_safe_node_id(node_id)}--{task_seed}"
+    if isinstance(envelope, dict):
+        envelope.setdefault("task_id", task_id)
+        envelope.setdefault("target_role", target_role)
+        envelope.setdefault("dispatch_id", effective_dispatch_id)
+        envelope.setdefault("dispatch_path", "mailbox_activation")
+
+    if dry_run:
+        return {
+            "ok": True,
+            "node": node_id,
+            "task_id": task_id,
+            "dispatch_id": effective_dispatch_id,
+            "dispatch_path": "mailbox_activation",
+            "dispatch_mode": "actor_runtime",
+            "dry_run": True,
+            "actor_id": actor_id,
+            "envelope_keys": sorted(envelope.keys()) if isinstance(envelope, dict) else [],
+        }
+
+    task_prefix = f"{sprint_id}--{_safe_node_id(node_id)}--"
+    if _mailbox_task_exists(actor_id, task_prefix):
+        result = {
+            "ok": True,
+            "node": node_id,
+            "task_id": task_id,
+            "dispatch_id": effective_dispatch_id,
+            "dispatch_path": "mailbox_activation",
+            "dispatch_mode": "actor_runtime",
+            "dry_run": False,
+            "actor_id": actor_id,
+            "dedup": True,
+            "reason": "duplicate_task_in_mailbox",
+        }
+        _append_dispatch_ledger("mailbox_activation_dedup", sprint_id, f"actor:{actor_id}", effective_dispatch_id, result)
+        trace_id = _emit_activation_trace(
+            sprint_id=sprint_id,
+            node=node,
+            node_id=node_id,
+            dispatch_id=effective_dispatch_id,
+            target_role=target_role,
+            actor_id=actor_id,
+            result=result,
+            context_audit=context_audit,
+            scheduler_decision=scheduler_decision,
+        )
+        if trace_id:
+            result["trace_id"] = trace_id
+        return result
+
+    submit_result = bridge.dispatch_node(sprint_id, node, fallback_allowed=False)
+    result_dict = submit_result.to_dict() if hasattr(submit_result, "to_dict") else dict(getattr(submit_result, "__dict__", {}))
+    if not getattr(submit_result, "success", False):
+        result = {
+            "ok": False,
+            "reason": "actor_runtime_submit_failed",
+            "node": node_id,
+            "task_id": task_id,
+            "dispatch_id": effective_dispatch_id,
+            "dispatch_path": "mailbox_activation",
+            "dispatch_mode": "actor_runtime",
+            "dry_run": False,
+            "actor_id": actor_id,
+            "error": getattr(submit_result, "error", None),
+            "result": result_dict,
+        }
+        _append_dispatch_ledger("mailbox_activation_failed", sprint_id, f"actor:{actor_id}", effective_dispatch_id, result)
+        _emit_activation_trace(
+            sprint_id=sprint_id,
+            node=node,
+            node_id=node_id,
+            dispatch_id=effective_dispatch_id,
+            target_role=target_role,
+            actor_id=actor_id,
+            result=result,
+            blocked_reason="actor_runtime_submit_failed",
+            context_audit=context_audit,
+            scheduler_decision=scheduler_decision,
+        )
+        return result
+
+    graph = load_graph(graph_path)
+    target = _node_by_id(graph, node_id)
+    if target is not None:
+        target["status"] = "dispatched"
+        target["assigned_to"] = f"actor:{actor_id}"
+        target["dispatch_id"] = effective_dispatch_id
+        target["updated_at"] = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        save_graph(graph_path, graph)
+    result = {
+        "ok": True,
+        "node": node_id,
+        "task_id": task_id,
+        "dispatch_id": effective_dispatch_id,
+        "dispatch_path": "mailbox_activation",
+        "dispatch_mode": "actor_runtime",
+        "dry_run": False,
+        "actor_id": actor_id,
+        "dedup": False,
+        "graph_updated": target is not None,
+        "result": result_dict,
+    }
+    _append_dispatch_ledger("mailbox_activation_dispatched", sprint_id, f"actor:{actor_id}", effective_dispatch_id, result)
+    trace_id = _emit_activation_trace(
+        sprint_id=sprint_id,
+        node=node,
+        node_id=node_id,
+        dispatch_id=effective_dispatch_id,
+        target_role=target_role,
+        actor_id=actor_id,
+        result=result,
+        context_audit=context_audit,
+        scheduler_decision=scheduler_decision,
+    )
+    if trace_id:
+        result["trace_id"] = trace_id
+    return result
+
+
+CONTEXT_AUDIT_FIELDS = [
+    "context_packet_id",
+    "context_packet_path",
+    "context_packet_type",
+    "context_packet_hash",
+    "context_packet_expires_at",
+    "context_policy_class",
+    "legacy_memory_fallback",
+    "fallback_reason",
+    "contamination_signals",
+]
+
+
+def _context_audit_payload(graph: dict[str, Any], child_status: dict[str, Any]) -> dict[str, Any]:
+    """Collect context audit fields from the scheduler inputs."""
+    payload: dict[str, Any] = {}
+    for source in (
+        graph.get("context_audit"),
+        graph.get("context"),
+        child_status.get("context_audit"),
+        child_status.get("context"),
+    ):
+        if isinstance(source, dict):
+            payload.update({k: v for k, v in source.items() if v is not None and v != ""})
+    for key in CONTEXT_AUDIT_FIELDS:
+        if key in graph and graph[key] is not None and graph[key] != "":
+            payload[key] = graph[key]
+        if key in child_status and child_status[key] is not None and child_status[key] != "":
+            payload[key] = child_status[key]
+    return payload
+
+
+def _context_audit_required(graph: dict[str, Any], child_status: dict[str, Any], audit: dict[str, Any]) -> bool:
+    policy = str(
+        audit.get("context_policy_class")
+        or graph.get("context_policy_class")
+        or child_status.get("context_policy_class")
+        or ""
+    ).strip().lower()
+    if policy in {"critical", "standard"}:
+        return True
+    for source in (graph, child_status):
+        for key in ("context_audit_required", "context_required", "requires_context_audit"):
+            if bool(source.get(key)):
+                return True
+    return False
+
+
+def _truthy_context_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "off", "no", "none", "null", "n/a"}
+    return bool(value)
+
+
+def _context_audit_summary(graph: dict[str, Any], child_status: dict[str, Any]) -> dict[str, Any]:
+    audit = _context_audit_payload(graph, child_status)
+    required = _context_audit_required(graph, child_status, audit)
+    missing: list[str] = []
+    if required:
+        for key in CONTEXT_AUDIT_FIELDS:
+            if key not in audit or audit.get(key) is None or audit.get(key) == "":
+                missing.append(key)
+    contamination = audit.get("contamination_signals")
+    if isinstance(contamination, str):
+        contamination_signals = [contamination]
+    elif isinstance(contamination, list):
+        contamination_signals = [str(item) for item in contamination if str(item)]
+    else:
+        contamination_signals = []
+    legacy_fallback = _truthy_context_value(audit.get("legacy_memory_fallback"))
+    if legacy_fallback and "legacy_memory_fallback" not in contamination_signals:
+        contamination_signals.append("legacy_memory_fallback")
+    blockers: list[dict[str, Any]] = []
+    if missing:
+        blockers.append({
+            "reason": "missing_context_audit_fields",
+            "missing_fields": missing,
+            "required": required,
+        })
+    if contamination_signals:
+        blockers.append({
+            "reason": "context_contamination_signals",
+            "signals": sorted(set(contamination_signals)),
+            "required": required,
+        })
+    return {
+        "required": required,
+        "ok": required is False or not blockers,
+        "fields": {key: audit.get(key, "N/A") for key in CONTEXT_AUDIT_FIELDS},
+        "missing_fields": missing,
+        "contamination_signals": sorted(set(contamination_signals)),
+        "blockers": blockers,
+    }
+
+
 def activation_route_decision(
     graph: dict[str, Any],
     *,
@@ -3422,7 +4060,9 @@ def activation_route_decision(
         validation = {"ok": False, "errors": [str(exc)], "warnings": []}
     parent_blockers = [] if not validation.get("ok") else child_sprint_dependency_blockers(sprint_id, epic_graph)
     external_blockers = [] if not validation.get("ok") else blocked_external_prerequisites(graph)
-    if not validation.get("ok") or parent_blockers or external_blockers:
+    context_audit = _context_audit_summary(graph, child_status)
+    context_blockers = context_audit.get("blockers", [])
+    if not validation.get("ok") or parent_blockers or external_blockers or context_blockers:
         ready = []
         ready_decision = {
             "source": "state",
@@ -3448,6 +4088,8 @@ def activation_route_decision(
         blocked_reason = "parent_dependency_blocked"
     elif external_blockers:
         blocked_reason = "external_prerequisite_blocked"
+    elif context_blockers:
+        blocked_reason = str(context_blockers[0].get("reason") or "context_audit_blocked")
     elif not ready:
         blocked_reason = "no_ready_nodes"
 
@@ -3477,6 +4119,8 @@ def activation_route_decision(
         },
         "parent_blockers": parent_blockers,
         "external_blockers": external_blockers,
+        "context_audit": context_audit,
+        "context_blockers": context_blockers,
         "node_dispatch_evidence": _node_dispatch_evidence(ready, route_role, blocked_reason),
     }
 
@@ -3651,6 +4295,22 @@ def _normalize_worker_entry(worker: dict[str, Any]) -> dict[str, Any]:
             "reporting",
             "model.routing",
             "harness.model_routing",
+        ]
+    if role == "planner" and not normalized.get("skills"):
+        normalized["skills"] = [
+            "workflow.planning",
+            "browser.qa",
+            "debug.systematic",
+            "skill.methodology",
+        ]
+    if role == "planner" and not normalized.get("capabilities"):
+        normalized["capabilities"] = [
+            "harness.context_preflight",
+            "harness.dispatch_visibility",
+            "harness.dag",
+            "browser.browse",
+            "code.review",
+            "test.tdd",
         ]
     if not normalized.get("models"):
         if "lab" in pane or role in {"lab", "lab-builder"}:

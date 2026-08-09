@@ -38,6 +38,8 @@ HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
 PERSONAS_DIR = HARNESS_DIR / "personas"
 OPERATOR_DAEMON_DIR = HARNESS_DIR / "run" / "operator-daemons"
+# Compatibility registry for legacy operatord bootstrap; actor-first routing
+# and policy selection use the actor/profile registries in actor_runtime.
 PHYSICAL_OPERATORS_PATH = Path(
     os.environ.get(
         "SOLAR_MULTI_TASK_OPERATORS",

@@ -327,7 +327,7 @@ def test_acknowledged_dispatch_idle_pane_requeues_after_grace(monkeypatch, tmp_p
     assert released == [(pane, dispatch_id, "graph_dispatch_reconcile_ack_idle_no_worker_activity")]
 
 
-def test_worker_discovery_marks_claude_monthly_limit_as_anthropic_quota(monkeypatch) -> None:
+def test_worker_discovery_scopes_claude_monthly_limit_to_named_model(monkeypatch) -> None:
     monkeypatch.setattr(gnd, "SESSION", "solar-harness")
     monkeypatch.setattr(
         gnd.subprocess,
@@ -349,11 +349,39 @@ def test_worker_discovery_marks_claude_monthly_limit_as_anthropic_quota(monkeypa
     workers = gnd._discover_workers(dry_run=False)
 
     assert len(workers) == 1
-    assert "anthropic" in workers[0]["quota_exhausted"]
-    assert "claude" in workers[0]["quota_exhausted"]
     assert "opus" in workers[0]["quota_exhausted"]
+    assert "sonnet" not in workers[0]["quota_exhausted"]
+    assert "anthropic" not in workers[0]["quota_exhausted"]
     assert workers[0]["busy"] is True
     assert workers[0]["unavailable_reason"] == "rate_limit_or_api_error"
+
+
+def test_claude_opus_quota_does_not_match_sonnet_operator() -> None:
+    quota_models = gnd._quota_exhausted_models(
+        "Evaluator | 模型:Opus",
+        "You've hit your limit · resets 8pm (America/Toronto)",
+        {},
+        ["anthropic-sonnet", "claude-sonnet", "sonnet"],
+    )
+
+    assert "opus" in quota_models
+    assert "sonnet" not in quota_models
+    assert gnd._operator_models_match(
+        {
+            "operator_id": "mini-claude-opus-evaluator",
+            "provider": "anthropic",
+            "model": "opus",
+        },
+        quota_models,
+    )
+    assert not gnd._operator_models_match(
+        {
+            "operator_id": "mini-claude-sonnet-builder",
+            "provider": "anthropic",
+            "model": "sonnet",
+        },
+        quota_models,
+    )
 
 
 def test_worker_discovery_marks_edit_confirmation_as_busy(monkeypatch) -> None:
@@ -761,6 +789,23 @@ def test_dismiss_plan_mode_cycles_shift_tab(monkeypatch) -> None:
     assert sent and "BTab" in sent[0]
 
 
+def test_dismiss_interrupt_prompt_sends_escape(monkeypatch) -> None:
+    sent: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        sent.append(list(args))
+
+        class Result:
+            stdout = ""
+
+        return Result()
+
+    monkeypatch.setattr(gnd.subprocess, "run", fake_run)
+
+    assert gnd._dismiss_dispatch_prompt("solar-harness-lab:0.3", "interrupt_prompt_blocked") is True
+    assert sent == [["tmux", "send-keys", "-t", "solar-harness-lab:0.3", "Escape"]]
+
+
 def test_assigned_multi_task_shell_is_not_direct_worker(monkeypatch) -> None:
     monkeypatch.setattr(gnd, "_pane_title", lambda pane: "MT builder | 状态:running | 能力:能力:N/A")
     monkeypatch.setattr(gnd, "_pane_health", lambda pane: {})
@@ -994,6 +1039,24 @@ def test_watchdog_eval_retry_signal_allows_failed_node_without_force(monkeypatch
     monkeypatch.setattr(gnd, "_existing_node_handoff", lambda sid, node, graph: handoff)
 
     assert gnd._node_eval_needed(graph, "sid-watchdog-retry", node, force=False) is True
+
+
+def test_tail_has_idle_prompt_footer_accepts_truncated_token_footer():
+    tail = """
+⏺ I read the dispatch file.
+
+────────────────────────────────────────
+❯\u00a0
+────────────────────────────────────────
+   ⏵ bypass permissions on (shift+tab…
+  28642 tokens
+  ⏵⏵ bypass permissions on (shift+tab…
+  28642 tok ns
+"""
+
+    assert gnd._tail_has_idle_prompt_footer(tail) is True
+    assert gnd._pane_current_prompt_has_residue(tail) is False
+    assert gnd._pane_dispatch_prompt_reason(tail) == ""
 
 
 def test_node_verdict_rejects_stale_eval_dispatched_before_pm_repair(tmp_path) -> None:

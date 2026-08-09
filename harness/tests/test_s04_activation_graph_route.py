@@ -12,6 +12,7 @@ TOOLS = ROOT / "tools"
 sys.path.insert(0, str(LIB))
 
 import graph_scheduler  # noqa: E402
+from packages.orchestration_ui.dispatch_trace import emit_blocked_trace, emit_dispatch_trace  # noqa: E402
 
 
 def _load_autopilot():
@@ -98,6 +99,50 @@ def test_activation_decision_blocks_invalid_task_graph():
     assert decision["validation"]["errors"]
 
 
+def test_activation_decision_blocks_when_required_context_audit_missing():
+    graph = _child_graph()
+    graph["context_policy_class"] = "critical"
+
+    decision = graph_scheduler.activation_route_decision(
+        graph,
+        child_status={"phase": "planning_complete", "target_role": "builder_main"},
+        epic_graph=_epic_graph("passed"),
+    )
+
+    assert decision["can_dispatch"] is False
+    assert decision["ready_nodes"] == []
+    assert decision["blocked_reason"] == "missing_context_audit_fields"
+    assert decision["context_audit"]["required"] is True
+    assert decision["context_blockers"][0]["reason"] == "missing_context_audit_fields"
+    assert "context_packet_id" in decision["context_blockers"][0]["missing_fields"]
+
+
+def test_activation_decision_routes_when_required_context_audit_present():
+    graph = _child_graph()
+    graph["context_audit"] = {
+        "context_policy_class": "critical",
+        "context_packet_id": "ctx-123",
+        "context_packet_path": "context-store/ctx-123.json",
+        "context_packet_type": "task",
+        "context_packet_hash": "sha256:abc",
+        "context_packet_expires_at": "2026-07-01T00:00:00Z",
+        "legacy_memory_fallback": False,
+        "fallback_reason": "N/A",
+        "contamination_signals": [],
+    }
+
+    decision = graph_scheduler.activation_route_decision(
+        graph,
+        child_status={"phase": "planning_complete", "target_role": "builder_main"},
+        epic_graph=_epic_graph("passed"),
+    )
+
+    assert decision["can_dispatch"] is True
+    assert decision["blocked_reason"] == ""
+    assert decision["context_audit"]["fields"]["context_packet_id"] == "ctx-123"
+    assert decision["context_blockers"] == []
+
+
 def test_autopilot_records_activation_history_without_workers(tmp_path, monkeypatch):
     harness = tmp_path / "harness"
     sprints = harness / "sprints"
@@ -124,18 +169,20 @@ def test_autopilot_records_activation_history_without_workers(tmp_path, monkeypa
     autopilot = _load_autopilot()
     monkeypatch.setattr(autopilot, "HARNESS_DIR", harness)
 
-    result = autopilot.activate_graph(sprint_id)
+    result = autopilot.activate_graph(sprint_id, dry_run=True)
 
     assert result["decision"]["can_dispatch"] is True
     assert result["enqueue"]["skipped"] is True
-    status = json.loads(status_path.read_text(encoding="utf-8"))
-    event = status["history"][-1]
+    event = result["history"]["event"]
     assert event["event"] == "autopilot_graph_activation_decision"
     assert event["route_role"] == "builder_main"
     assert event["target_role"] == "builder_main"
     assert event["phase"] == "planning_complete"
     assert event["blocked_reason"] == ""
     assert event["ready_nodes"] == ["N1_activation_graph_route"]
+    assert "context_audit" in event
+    assert "context_blockers" in event
+    assert event["dry_run"] is True
 
 
 def test_autopilot_does_not_dispatch_when_dependency_blocked(tmp_path, monkeypatch):
@@ -168,6 +215,101 @@ def test_autopilot_does_not_dispatch_when_dependency_blocked(tmp_path, monkeypat
     assert result["decision"]["can_dispatch"] is False
     assert result["decision"]["blocked_reason"] == "parent_dependency_blocked"
     assert result["enqueue"]["skipped"] is True
+
+
+def test_autopilot_records_missing_context_audit_blocker(tmp_path, monkeypatch):
+    harness = tmp_path / "harness"
+    sprints = harness / "sprints"
+    sprints.mkdir(parents=True)
+    sprint_id = "sprint-s04"
+    graph = _child_graph()
+    graph["context_policy_class"] = "critical"
+    (sprints / f"{sprint_id}.task_graph.json").write_text(json.dumps(graph) + "\n", encoding="utf-8")
+    (sprints / "epic-s04.task_graph.json").write_text(json.dumps(_epic_graph("passed")) + "\n", encoding="utf-8")
+    status_path = sprints / f"{sprint_id}.status.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": sprint_id,
+                "epic_id": "epic-s04",
+                "phase": "planning_complete",
+                "target_role": "builder_main",
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(graph_scheduler, "HARNESS_DIR", harness)
+    monkeypatch.setattr(graph_scheduler, "SPRINTS_DIR", sprints)
+    autopilot = _load_autopilot()
+    monkeypatch.setattr(autopilot, "HARNESS_DIR", harness)
+
+    result = autopilot.activate_graph(sprint_id)
+
+    assert result["decision"]["can_dispatch"] is False
+    assert result["decision"]["blocked_reason"] == "missing_context_audit_fields"
+    assert result["enqueue"]["skipped"] is True
+    event = json.loads(status_path.read_text(encoding="utf-8"))["history"][-1]
+    assert event["blocked_reason"] == "missing_context_audit_fields"
+    assert event["context_blockers"][0]["reason"] == "missing_context_audit_fields"
+
+
+def test_dispatch_trace_persists_context_audit_summary(tmp_path):
+    context_audit = {
+        "required": True,
+        "fields": {"context_packet_id": "ctx-123"},
+        "missing_fields": [],
+        "contamination_signals": [],
+        "blockers": [],
+    }
+    scheduler_decision = {
+        "route_role": "builder_main",
+        "target_role": "builder_main",
+        "ready_nodes": ["N1_activation_graph_route"],
+        "blocked_reason": "",
+    }
+
+    trace = emit_dispatch_trace(
+        dispatch_id="graph-s04-N1-context-ok",
+        sprint_id="sprint-s04",
+        node_id="N1_activation_graph_route",
+        task_type="graph_dispatch_integrate",
+        logical_op="graph_dispatch_integrate",
+        operator_id="op.builder.generic.01",
+        target_role="builder_main",
+        context_audit=context_audit,
+        scheduler_decision=scheduler_decision,
+        harness_dir=tmp_path,
+    )
+
+    payload = trace.to_dict()
+    assert payload["legacy"]["context_audit"]["fields"]["context_packet_id"] == "ctx-123"
+    assert payload["legacy"]["scheduler_decision"]["route_role"] == "builder_main"
+
+
+def test_blocked_trace_persists_context_blocker_summary(tmp_path):
+    context_audit = {
+        "required": True,
+        "fields": {"context_packet_id": "N/A"},
+        "missing_fields": ["context_packet_id"],
+        "contamination_signals": [],
+        "blockers": [{"reason": "missing_context_audit_fields"}],
+    }
+
+    trace = emit_blocked_trace(
+        dispatch_id="graph-s04-N1-context-blocked",
+        sprint_id="sprint-s04",
+        node_id="N1_activation_graph_route",
+        blocked_reason="missing_context_audit_fields",
+        context_audit=context_audit,
+        scheduler_decision={"blocked_reason": "missing_context_audit_fields"},
+        harness_dir=tmp_path,
+    )
+
+    payload = trace.to_dict()
+    assert payload["dispatch"]["blocked_reason"] == "missing_context_audit_fields"
+    assert payload["legacy"]["context_audit"]["blockers"][0]["reason"] == "missing_context_audit_fields"
 
 
 def test_assign_ready_uses_state_plane_when_inline_status_is_stale(tmp_path, monkeypatch):

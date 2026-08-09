@@ -367,6 +367,58 @@ def test_reconcile_actor_runtime_dead_daemon_without_artifact_returns_to_pending
     assert "S4" not in graph["node_results"]
 
 
+def test_reconcile_actor_runtime_auth_expired_returns_to_pending_without_age_wait(tmp_path, monkeypatch) -> None:
+    import graph_node_dispatcher as gnd
+
+    sprints = tmp_path / "sprints"
+    outbox = tmp_path / "actors" / "mini-antigravity" / "outbox"
+    status_dir = tmp_path / "run" / "operator-status"
+    sprints.mkdir(parents=True)
+    outbox.mkdir(parents=True)
+    status_dir.mkdir(parents=True)
+    monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(gnd, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(gnd, "DISPATCH_LEDGER", tmp_path / "run" / "dispatch-ledger.jsonl")
+
+    sid = "sprint-test-actor-runtime-auth"
+    (status_dir / "mini-antigravity.json").write_text(
+        json.dumps({"operator_id": "mini-antigravity", "runtime_state": "auth_expired"}),
+        encoding="utf-8",
+    )
+    node = {
+        "id": "S3",
+        "status": "dispatched",
+        "assigned_to": "actor:mini-antigravity",
+        "dispatch_id": f"graph-{sid}-S3-20260617T131030Z",
+        "updated_at": gnd._utc_now(),
+        "actor_runtime_result": {
+            "lease": {"task_id": "task-auth"},
+            "outbox_path": str(outbox),
+            "artifact_refs": {"operator_runtime_daemon_pid": "12345"},
+        },
+    }
+    graph = {"sprint_id": sid, "nodes": [node], "node_results": {"S3": {"status": "dispatched"}}, "gate_results": {}}
+    graph_path = sprints / f"{sid}.task_graph.json"
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    repaired = gnd._reconcile_existing_dispatches(graph, graph_path)
+
+    assert repaired == [
+        {
+            "node": "S3",
+            "pane": "actor:mini-antigravity",
+            "dispatch_id": f"graph-{sid}-S3-20260617T131030Z",
+            "status": "pending",
+            "reason": "actor_runtime_unavailable:auth_expired",
+        }
+    ]
+    assert node["status"] == "pending"
+    assert node["dispatch_retry_reason"] == "actor_runtime_unavailable:auth_expired"
+    assert "assigned_to" not in node
+    assert "dispatch_id" not in node
+    assert "S3" not in graph["node_results"]
+
+
 def test_reconcile_actor_runtime_dead_daemon_keeps_node_when_outbox_has_result(tmp_path, monkeypatch) -> None:
     import graph_node_dispatcher as gnd
 

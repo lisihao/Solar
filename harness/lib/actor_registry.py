@@ -59,6 +59,15 @@ def _infer_host_id(operator_id: str, operator_cfg: dict[str, Any], hosts: dict[s
     pane = str(operator_cfg.get("pane") or "").strip()
     owner = str(operator_cfg.get("owner_host") or "").strip()
     display_name = str(operator_cfg.get("display_name") or "").strip().lower()
+    provider = str(operator_cfg.get("provider") or "").strip().lower()
+    plane = str(operator_cfg.get("plane") or "").strip().lower()
+    backend = str(operator_cfg.get("backend") or "").strip().lower()
+    if (
+        provider == "browser"
+        or plane == "interactive_browser"
+        or backend in {"browser-agent", "desktop_bridge"}
+    ) and "browser_profile_host" in hosts:
+        return "browser_profile_host"
     if "mini" in operator_id or "mac mini" in display_name or "mac-mini" in owner or pane.startswith("solar-harness-multi-task:"):
         if "mini" in hosts:
             return "mini"
@@ -226,6 +235,11 @@ def derive_actor_from_operator(
         "operator_alias": operator_id,
         "aliases": [operator_id],
         "role": role,
+        "deprecated": bool(operator_cfg.get("deprecated")),
+        "deprecated_reason": str(operator_cfg.get("deprecated_reason") or operator_cfg.get("disabled_reason") or ""),
+        "enabled": bool(operator_cfg.get("enabled", True)),
+        "available": bool(operator_cfg.get("available", False)),
+        "health_status": str(operator_cfg.get("health_status") or "unknown"),
         "display_meta": _derive_display_meta(operator_cfg),
         "lease": {
             "acquired_at": None,
@@ -343,10 +357,17 @@ def validate_actor_registry(
         if actor.get("actor_id") != actor_id:
             errors.append(f"{actor_id}: actor_id mismatch")
         operator_alias = str(actor.get("operator_alias") or "").strip()
+        binding_mode = str(actor.get("binding_mode") or "physical_operator").strip().lower()
         if not operator_alias:
             errors.append(f"{actor_id}: missing operator_alias")
-        elif operator_alias not in physical_ops:
+        elif operator_alias not in physical_ops and binding_mode != "logical_advisor":
             errors.append(f"{actor_id}: operator_alias={operator_alias} missing from physical operators")
+        elif operator_alias not in physical_ops:
+            warnings.append(f"{actor_id}: logical advisor has no physical operator binding")
+        operator_cfg = physical_ops.get(operator_alias) if isinstance(physical_ops.get(operator_alias), dict) else {}
+        if bool(actor.get("deprecated")) or bool(operator_cfg.get("deprecated")):
+            warnings.append(f"{actor_id}: deprecated actor excluded from active host validation")
+            continue
         host_id = str(actor.get("host_id") or "").strip()
         if not host_id:
             errors.append(f"{actor_id}: missing host_id")

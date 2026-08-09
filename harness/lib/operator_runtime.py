@@ -25,6 +25,7 @@ OPERATOR_LEASE_DIR = HARNESS_DIR / "run" / "operator-leases"
 OPERATOR_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
 OPERATOR_INBOX_DIR = HARNESS_DIR / "run" / "operator-inbox"
 OPERATOR_RESULTS_DIR = HARNESS_DIR / "run" / "operator-results"
+OPERATOR_QUOTA_DIR = HARNESS_DIR / "run" / "operator-quota"
 OPERATOR_PERSONAS_DIR = HARNESS_DIR / "personas"
 PHYSICAL_OPERATORS_PATH = Path(os.environ.get("SOLAR_MULTI_TASK_OPERATORS", HARNESS_DIR / "config" / "physical-operators.json"))
 
@@ -57,6 +58,7 @@ def _parse_utc(value: str) -> Optional[datetime.datetime]:
 def _ensure_dirs() -> None:
     OPERATOR_LEASE_DIR.mkdir(parents=True, exist_ok=True)
     OPERATOR_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+    OPERATOR_QUOTA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _ensure_inbox_dir(operator_id: str) -> Path:
@@ -814,6 +816,125 @@ def write_result(
         json.dump(result, f, indent=2)
     os.replace(tmp_path, str(result_path))
     return result_path
+
+
+# ── Queryable Runtime Entity ──────────────────────────────────────────────────
+
+def _quota_path(operator_id: str) -> Path:
+    return OPERATOR_QUOTA_DIR / f"{operator_id}.jsonl"
+
+
+def record_quota_event(
+    operator_id: str,
+    event: str,
+    units: float = 0.0,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Append one process-safe quota event for an operator."""
+    _ensure_dirs()
+    path = _quota_path(operator_id)
+    lock_path = path.with_suffix(".lock")
+    entry: Dict[str, Any] = {
+        "operator_id": operator_id,
+        "event": event,
+        "units": float(units),
+        "recorded_at": _now(),
+    }
+    if metadata is not None:
+        entry["metadata"] = dict(metadata)
+    with open(lock_path, "a", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            with open(path, "a", encoding="utf-8") as quota_file:
+                quota_file.write(json.dumps(entry, sort_keys=True) + "\n")
+                quota_file.flush()
+                os.fsync(quota_file.fileno())
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+    return entry
+
+
+def get_quota_status(operator_id: str, last_n: Optional[int] = None) -> Dict[str, Any]:
+    """Return quota events and aggregate units without mutating runtime state."""
+    path = _quota_path(operator_id)
+    events: List[Dict[str, Any]] = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                events.append(event)
+    total_units = sum(float(event.get("units", 0.0) or 0.0) for event in events)
+    visible = events[-last_n:] if last_n is not None and last_n >= 0 else events
+    return {
+        "operator_id": operator_id,
+        "event_count": len(events),
+        "total_units": total_units,
+        "events": visible,
+    }
+
+
+class OperatorRuntimeEntity:
+    """Read/write facade for one physical operator's runtime evidence."""
+
+    def __init__(self, operator_id: str):
+        self.operator_id = operator_id
+
+    def physical_host_meta(self) -> Optional[Dict[str, Any]]:
+        config = get_operator_config(self.operator_id) or {}
+        physical = config.get("physical")
+        return dict(physical) if isinstance(physical, dict) and physical else None
+
+    def ack(self, task_id: str, node_id: str) -> Dict[str, Any]:
+        return update_operator_lease_metadata(
+            self.operator_id,
+            ack_at=_now(),
+            ack_task_id=task_id,
+            ack_node_id=node_id,
+        )
+
+    def record_quota_event(
+        self,
+        event: str,
+        units: float = 0.0,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return record_quota_event(self.operator_id, event, units, metadata)
+
+    def quota_status(self, last_n: Optional[int] = None) -> Dict[str, Any]:
+        return get_quota_status(self.operator_id, last_n=last_n)
+
+    def hygiene_check(self) -> Dict[str, Any]:
+        config = get_operator_config(self.operator_id)
+        lease = get_operator_lease(self.operator_id)
+        issues: List[str] = []
+        if config is None or not config.get("enabled", True):
+            issues.append("operator_disabled")
+        has_ack = bool(lease and lease.get("ack_at"))
+        inbox = OPERATOR_INBOX_DIR / self.operator_id
+        inbox_depth = len(list(inbox.glob("*.json"))) if inbox.exists() else 0
+        return {
+            "operator_id": self.operator_id,
+            "lease_state": lease.get("state") if lease else None,
+            "has_ack": has_ack,
+            "inbox_depth": inbox_depth,
+            "issues": issues,
+            "hygiene_ok": not issues,
+            "checked_at": _now(),
+        }
+
+    def runtime_summary(self) -> Dict[str, Any]:
+        return {
+            "operator_id": self.operator_id,
+            "runtime_state": get_operator_runtime_state(self.operator_id),
+            "lease": get_operator_lease(self.operator_id),
+            "hygiene": self.hygiene_check(),
+            "quota_summary": self.quota_status(),
+            "physical_host": self.physical_host_meta(),
+            "queried_at": _now(),
+        }
 
 
 # ── CLI Interface ─────────────────────────────────────────────────────────────
