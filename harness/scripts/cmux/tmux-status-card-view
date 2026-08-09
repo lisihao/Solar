@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Render tmux panes as compact CMUX status cards instead of raw terminal mirrors."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+
+
+SECRET_RE = re.compile(
+    r"(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{12,}|Bearer\s+[A-Za-z0-9._-]{12,}|"
+    r"(api[_-]?key|token|secret)\s*[:=]\s*['\"]?[^'\"\s]+)",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class PaneCard:
+    target: str
+    title: str
+    size: str
+    command: str
+    active: str
+    state: str
+    state_style: str
+    tail: list[str]
+    error: str = ""
+
+
+def run_tmux(args: list[str], timeout: int = 4) -> tuple[int, str, str]:
+    try:
+        proc = subprocess.run(
+            ["tmux", *args],
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+    except FileNotFoundError:
+        return 127, "", "tmux not found"
+    except subprocess.TimeoutExpired:
+        return 124, "", "tmux timeout"
+
+
+def scrub(text: str) -> str:
+    return SECRET_RE.sub("[REDACTED]", text)
+
+
+def pane_meta(target: str) -> dict[str, str]:
+    fmt = "#{pane_title}\t#{pane_width}x#{pane_height}\t#{pane_current_command}\t#{pane_active}"
+    code, out, err = run_tmux(["display-message", "-p", "-t", target, fmt])
+    if code != 0:
+        raise RuntimeError(err.strip() or out.strip() or "tmux target not found")
+    title, size, command, active = (out.rstrip("\n").split("\t") + ["", "", "", ""])[:4]
+    return {"title": title or target, "size": size, "command": command, "active": active}
+
+
+def capture_tail(target: str, lines: int) -> list[str]:
+    code, out, err = run_tmux(["capture-pane", "-p", "-t", target, "-S", f"-{lines}"])
+    if code != 0:
+        raise RuntimeError(err.strip() or out.strip() or "capture failed")
+    cleaned = [scrub(line.rstrip()) for line in out.splitlines()]
+    return [line for line in cleaned if line.strip()][-lines:]
+
+
+def classify(tail: list[str]) -> tuple[str, str]:
+    text = "\n".join(tail[-12:])
+    lower = text.lower()
+    if re.search(r"hit (your )?(usage )?limit|rate limit|resource_exhausted|\b429\b|resets? in", lower):
+        return "quota/rate-limit", "error"
+    if re.search(r"login required|not logged in|auth|authentication|permission denied", lower):
+        return "auth blocked", "error"
+    if re.search(r"interrupt|what should .* do instead|queued messages|press up to edit", lower):
+        return "prompt blocked", "warn"
+    if re.search(r"thinking|cogitat|crafting|compacting|bash\(|read\(|edit\(|write\(|tokens", lower):
+        return "working", "ok"
+    if re.search(r"❯|>\s*$|\$\s*$", text):
+        return "idle/prompt", "ok"
+    return "unknown", "warn"
+
+
+def build_card(target: str, tail_lines: int) -> PaneCard:
+    try:
+        meta = pane_meta(target)
+        tail = capture_tail(target, tail_lines)
+        state, style = classify(tail)
+        return PaneCard(
+            target=target,
+            title=meta["title"],
+            size=meta["size"],
+            command=meta["command"],
+            active="yes" if meta["active"] == "1" else "no",
+            state=state,
+            state_style=style,
+            tail=useful_tail(tail),
+        )
+    except RuntimeError as exc:
+        return PaneCard(
+            target=target,
+            title=target,
+            size="N/A",
+            command="N/A",
+            active="N/A",
+            state="unavailable",
+            state_style="error",
+            tail=[],
+            error=str(exc),
+        )
+
+
+def color(style: str, text: str, enabled: bool) -> str:
+    if not enabled:
+        return text
+    codes = {"ok": "32", "warn": "33", "error": "31", "muted": "90", "title": "36;1"}
+    return f"\033[{codes.get(style, '0')}m{text}\033[0m"
+
+
+def trim(text: str, width: int) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= width:
+        return text
+    return text[: max(0, width - 1)] + "…"
+
+
+def line(label: str, value: str, width: int) -> str:
+    inner = width - 4
+    content = f"{label:<8} {value}"
+    return "│ " + trim(content, inner).ljust(inner) + " │"
+
+
+def display_name(target: str) -> str:
+    role_by_pane = {
+        "0": "PM",
+        "1": "Planner",
+        "2": "Builder",
+        "3": "Evaluator",
+    }
+    pane = target.rsplit(".", 1)[-1] if "." in target else ""
+    role = role_by_pane.get(pane, "Pane")
+    if target.startswith("solar-harness-lab:"):
+        role = f"Lab {role}"
+    return f"{role} / {target}"
+
+
+def useful_tail(lines: list[str]) -> list[str]:
+    useful: list[str] = []
+    for raw in lines:
+        line_text = raw.strip()
+        if not line_text:
+            continue
+        if re.fullmatch(r"[─━╭╮╰╯│┃┌┐└┘├┤┬┴┼\-= ]{8,}", line_text):
+            continue
+        useful.append(line_text)
+    return useful[-2:]
+
+
+def render_card(card: PaneCard, width: int, use_color: bool) -> list[str]:
+    inner = width - 4
+    title = trim(display_name(card.target), inner)
+    state_line = line("state", f"{card.state}  active={card.active}", width)
+    lines = [
+        "┌─" + title.ljust(inner) + "─┐",
+        line("title", card.title, width),
+        color(card.state_style, state_line, use_color),
+        line("runtime", f"{card.command}  {card.size}", width),
+    ]
+    if card.error:
+        lines.append(line("error", card.error, width))
+    elif useful_tail(card.tail):
+        for idx, tail in enumerate(useful_tail(card.tail), start=1):
+            lines.append(line(f"tail{idx}", tail, width))
+    else:
+        lines.append(line("tail", "N/A", width))
+    lines.append("└" + "─" * (width - 2) + "┘")
+    return lines
+
+
+def render(cards: list[PaneCard], *, use_color: bool) -> str:
+    term_width = shutil.get_terminal_size((132, 40)).columns
+    card_width = 64 if term_width >= 132 else max(56, min(term_width, 96))
+    columns = 2 if term_width >= (card_width * 2 + 3) else 1
+    rendered = [render_card(card, card_width, use_color) for card in cards]
+    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header = f"Solar CMUX Status Cards | updated {now} | panes={len(cards)}"
+    output = [color("title", header, use_color), ""]
+    if columns == 1:
+        for card_lines in rendered:
+            output.extend(card_lines)
+            output.append("")
+        return "\n".join(output).rstrip() + "\n"
+
+    for idx in range(0, len(rendered), 2):
+        left = rendered[idx]
+        right = rendered[idx + 1] if idx + 1 < len(rendered) else [""] * len(left)
+        max_len = max(len(left), len(right))
+        left += [" " * card_width] * (max_len - len(left))
+        right += [" " * card_width] * (max_len - len(right))
+        for l_line, r_line in zip(left, right):
+            output.append(f"{l_line}  {r_line}")
+        output.append("")
+    return "\n".join(output).rstrip() + "\n"
+
+
+def parse_targets(raw: str) -> list[str]:
+    targets = [part.strip() for part in raw.split(",") if part.strip()]
+    if not targets:
+        raise ValueError("--targets must include at least one tmux target")
+    return targets
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Render tmux panes as CMUX status cards")
+    parser.add_argument("--targets", required=True, help="Comma-separated tmux targets, e.g. solar-harness:0.0,solar-harness:0.1")
+    parser.add_argument("--interval", type=float, default=3.0, help="Refresh interval in seconds")
+    parser.add_argument("--tail-lines", type=int, default=14, help="Lines to inspect per pane")
+    parser.add_argument("--once", action="store_true", help="Render once and exit")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors")
+    args = parser.parse_args()
+
+    try:
+        targets = parse_targets(args.targets)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    use_color = not args.no_color and os.environ.get("NO_COLOR") is None
+    while True:
+        cards = [build_card(target, args.tail_lines) for target in targets]
+        if not args.once:
+            print("\033[H\033[J", end="")
+        print(render(cards, use_color=use_color), end="", flush=True)
+        if args.once:
+            return 0 if all(not card.error for card in cards) else 1
+        time.sleep(max(0.5, args.interval))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

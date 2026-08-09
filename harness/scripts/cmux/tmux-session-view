@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# tmux-session-view: native tmux session view for cmux.
+# Usage: tmux-session-view <session> [interactive|readonly] [focus_target]
+set -euo pipefail
+
+SESSION="${1:?usage: tmux-session-view <session> [interactive|readonly] [focus_target]}"
+MODE="${2:-interactive}"
+FOCUS_TARGET="${3:-}"
+TERM="${TERM:-xterm-256color}"
+export TERM
+
+focus_target() {
+  [[ -n "${FOCUS_TARGET}" ]] || return 0
+  # Zooming is window-scoped in tmux. This intentionally favors readability for
+  # the active cmux monitor tab; it does not restart or mutate pane processes.
+  if tmux display-message -p -t "${FOCUS_TARGET}" '#{window_zoomed_flag}' 2>/dev/null | grep -qx '1'; then
+    tmux resize-pane -Z -t "${FOCUS_TARGET}" 2>/dev/null || true
+  fi
+  tmux select-pane -t "${FOCUS_TARGET}"
+  tmux resize-pane -Z -t "${FOCUS_TARGET}"
+}
+
+case "${MODE}" in
+  interactive)
+    printf '\033[38;5;214mCMUX INTERACTIVE VIEW\033[0m: keyboard input goes to tmux session=%s; mouse scroll works. Use Ctrl-b d to detach.\n' "${SESSION}"
+    if [[ -n "${FOCUS_TARGET}" ]]; then
+      printf '\033[38;5;45mCMUX FOCUS\033[0m: zooming tmux target=%s for readable full-width text.\n' "${FOCUS_TARGET}"
+    fi
+    sleep "${CMUX_ATTACH_GUARD_DELAY:-1}"
+    focus_target
+    exec tmux attach-session -t "${SESSION}"
+    ;;
+  readonly)
+    printf '\033[38;5;214mCMUX READONLY VIEW\033[0m: tmux readonly mode disables mouse-wheel scroll in many terminals.\n' >&2
+    printf '\033[38;5;214mWARN\033[0m: use interactive mode when scroll is required.\n' >&2
+    sleep "${CMUX_ATTACH_GUARD_DELAY:-1}"
+    focus_target
+    exec tmux attach-session -r -t "${SESSION}"
+    ;;
+  *)
+    printf 'ERROR: invalid mode=%s; expected interactive or readonly\n' "${MODE}" >&2
+    exit 2
+    ;;
+esac
