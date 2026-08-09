@@ -1012,3 +1012,36 @@ def test_watchdog_indexes_large_skipped_lists(monkeypatch):
     assert phase["skipped_index"]["truncated"] is True
     assert phase["skipped_index"]["by_reason"][0]["count"] == 30
     assert phase["counters"]["skipped_total"] == 30
+
+
+def test_watchdog_backlog_prefers_bounded_cache(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    cache = tmp_path / "builder-pool-backlog-cache.json"
+    cache.write_text(json.dumps({"breakdown": {"pending_pm": 7}}), encoding="utf-8")
+
+    class FakePM:
+        BUILDER_POOL_BACKLOG_CACHE = cache
+
+        @staticmethod
+        def _active_pm_task_ids():
+            raise AssertionError("live fallback should not run while cache is fresh")
+
+    assert watchdog._read_pm_backlog(FakePM()) == 7
+
+
+def test_watchdog_pm_record_scan_is_newest_and_bounded(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir()
+    for index in range(6):
+        path = inbox / f"pm-{index}.json"
+        path.write_text(json.dumps({"task_id": f"pm-{index}", "status": "failed"}), encoding="utf-8")
+        os.utime(path, (100 + index, 100 + index))
+
+    class FakePM:
+        PM_INBOX_DIR = inbox
+
+    monkeypatch.setenv("SOLAR_OHW_PM_RECORD_SCAN_LIMIT", "2")
+    records = list(watchdog._iter_pm_records(FakePM(), load_full=False))
+
+    assert [path.name for path, _record in records] == ["pm-5.json", "pm-4.json"]

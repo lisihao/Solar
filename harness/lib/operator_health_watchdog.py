@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import fcntl
+import heapq
 import io
 import json
 import os
@@ -247,18 +248,47 @@ def _action(
 
 
 def _read_pm_backlog(pm_mod: Any) -> int:
-    inbox_dir = getattr(pm_mod, "PM_INBOX_DIR", HARNESS_DIR / "run" / "pm-inbox")
-    if not inbox_dir.exists():
-        return 0
-    terminal = {"completed", "cancelled"}
-    count = 0
-    for path in inbox_dir.glob("pm-*.json"):
-        data = _load_json(path, {})
-        status = str(data.get("status") or "").strip().lower()
-        if status in terminal or status.startswith("failed"):
-            continue
-        count += 1
-    return count
+    cache_path = Path(
+        getattr(
+            pm_mod,
+            "BUILDER_POOL_BACKLOG_CACHE",
+            HARNESS_DIR / "run" / "builder-pool-backlog-cache.json",
+        )
+    )
+    cache_max_age = _coerce_int(
+        os.environ.get("SOLAR_OHW_PM_BACKLOG_CACHE_MAX_AGE_SEC", "900"),
+        900,
+        min_value=1,
+    )
+    try:
+        if datetime.datetime.now().timestamp() - cache_path.stat().st_mtime <= cache_max_age:
+            payload = _load_json(cache_path, {})
+            breakdown = payload.get("breakdown") if isinstance(payload, dict) else {}
+            pending = int((breakdown or {}).get("pending_pm", 0))
+            if pending >= 0:
+                return pending
+    except Exception:
+        pass
+
+    active_ids = getattr(pm_mod, "_active_pm_task_ids", None)
+    if callable(active_ids):
+        try:
+            return len(set(active_ids()))
+        except Exception:
+            pass
+    active_inbox = getattr(pm_mod, "_iter_active_operator_inbox_projections", None)
+    if callable(active_inbox):
+        try:
+            return len(
+                {
+                    str(row.get("task_id") or "")
+                    for row in active_inbox()
+                    if isinstance(row, dict) and str(row.get("task_id") or "")
+                }
+            )
+        except Exception:
+            pass
+    return 0
 
 
 def _builder_drain_limit_from_capacity(capacity: dict[str, Any], *, default: int = 3) -> int:
@@ -756,8 +786,26 @@ def _iter_pm_records(
     inbox_dir = getattr(pm_mod, "PM_INBOX_DIR", HARNESS_DIR / "run" / "pm-inbox")
     if not inbox_dir.exists():
         return []
+    scan_limit = _coerce_int(
+        os.environ.get(
+            "SOLAR_OHW_PM_RECORD_SCAN_LIMIT",
+            os.environ.get("SOLAR_OHW_PM_RECONCILE_MAX_SCAN_RECORDS", "80"),
+        ),
+        80,
+        min_value=1,
+    )
+    if max_records:
+        scan_limit = max(scan_limit, max_records * 4)
+
+    def mtime_ns(path: Path) -> int:
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
+
+    paths = heapq.nlargest(scan_limit, inbox_dir.glob("pm-*.json"), key=mtime_ns)
     records: list[tuple[Path, dict[str, Any]]] = []
-    for path in sorted(inbox_dir.glob("pm-*.json")):
+    for path in paths:
         projection = _pm_record_projection(pm_mod, path)
         if not projection:
             continue

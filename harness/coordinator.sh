@@ -830,7 +830,12 @@ get_latest_sprint_file() {
 }
 
 get_field() {
-  python3 -c "import json; print(json.load(open('$1')).get('$2',''))" 2>/dev/null
+  PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 - "$1" "$2" <<'PY' 2>/dev/null
+import sys
+from status_metadata import read_status_projection_metadata
+
+print(read_status_projection_metadata(sys.argv[1], tail_read_limit=512 * 1024).get(sys.argv[2], ""))
+PY
 }
 
 repair_status_identity() {
@@ -1002,9 +1007,11 @@ state_fingerprint() {
   phase=$(get_field "$sf" "phase")
   handoff=$(get_field "$sf" "handoff_to")
   digest=$(python3 - "$sf" <<'PYF' 2>/dev/null
-import hashlib, json, sys
+import hashlib, json, os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(sys.argv[1])), "lib"))
+from status_metadata import read_status_projection_metadata
 try:
-    d = json.load(open(sys.argv[1]))
+    d = read_status_projection_metadata(sys.argv[1], tail_read_limit=512 * 1024)
     relevant = {
         "phase": d.get("phase"),
         "handoff_to": d.get("handoff_to"),
@@ -4980,7 +4987,9 @@ with open('$patches_file','w') as f:
       # 保留 "passed 但无 .finalized" 走 handle_passed 补偿的语义。损坏文件保留自愈。
       local _active_sfs
       mapfile -t _active_sfs < <(python3 - "$SPRINTS_DIR" <<'PYEOF' 2>/dev/null
-import json, os, sys, glob
+import os, sys, glob
+sys.path.insert(0, os.path.join(os.path.dirname(sys.argv[1]), "lib"))
+from status_metadata import read_status_metadata
 sd = sys.argv[1]
 TERMINAL_FINAL = {"failed", "cancelled", "superseded", "interrupted"}
 out = []
@@ -4990,7 +4999,7 @@ except Exception:
     files = []
 for sf in files:
     try:
-        st = json.load(open(sf)).get("status", "")
+        st = read_status_metadata(sf).get("status", "")
     except Exception:
         out.append(sf); continue  # 损坏 → 保留, 主循环走 repair_status_identity 自愈
     sid = os.path.basename(sf)[:-len(".status.json")]

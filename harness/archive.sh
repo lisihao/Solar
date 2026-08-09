@@ -216,15 +216,16 @@ do_auto() {
 
   # 策略: 只归档 passed 且 >24h 的 sprint，保留最近 3 个
   local candidates
-  candidates=$(python3 -c "
-import json, os, glob, time
+  candidates=$(PYTHONPATH="$HARNESS_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
+import os, glob, time
+from status_metadata import read_status_metadata
 
 cutoff = time.time() - 86400  # 24h 保护
 sprints = glob.glob('$SPRINTS_DIR/*.status.json')
 passed = []
 for f in sprints:
     try:
-        d = json.load(open(f))
+        d = read_status_metadata(f)
         if d.get('status') in ('passed', 'done', 'eval_pass'):
             mtime = os.path.getmtime(f)
             if mtime < cutoff:

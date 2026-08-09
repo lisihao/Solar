@@ -520,6 +520,8 @@ def _status_path_for_graph(graph: dict[str, Any], graph_path: str | Path | None 
 
 
 CHILD_SPRINT_PASSED_STATUSES = {"passed", "completed", "finalized", "eval_passed"}
+_CHILD_STATUS_PROJECTION_CACHE_MAX = 2048
+_CHILD_STATUS_PROJECTION_CACHE: dict[str, tuple[int, int, dict[str, Any]]] = {}
 
 
 def _child_sprint_status_payload(child_sprint_id: str, graph_path: str | Path | None = None) -> dict[str, Any]:
@@ -530,10 +532,21 @@ def _child_sprint_status_payload(child_sprint_id: str, graph_path: str | Path | 
     if not status_path.exists():
         return {}
     try:
-        payload = json.loads(status_path.read_text(encoding="utf-8"))
+        stat = status_path.stat()
+        cache_key = str(status_path)
+        cached = _CHILD_STATUS_PROJECTION_CACHE.get(cache_key)
+        if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+            return dict(cached[2])
+        payload = read_status_projection_metadata(status_path, tail_read_limit=512 * 1024)
     except Exception:
         return {}
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    if len(_CHILD_STATUS_PROJECTION_CACHE) >= _CHILD_STATUS_PROJECTION_CACHE_MAX:
+        _CHILD_STATUS_PROJECTION_CACHE.clear()
+    projection = dict(payload)
+    _CHILD_STATUS_PROJECTION_CACHE[cache_key] = (stat.st_mtime_ns, stat.st_size, projection)
+    return dict(projection)
 
 
 def sync_child_sprint_status_projection(

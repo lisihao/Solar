@@ -462,3 +462,51 @@ def test_ready_nodes_releases_expired_repeated_transient_block(monkeypatch):
     }
 
     assert [node["id"] for node in sched.ready_nodes(graph)] == ["S1"]
+
+
+def test_child_sprint_status_projection_is_bounded_and_cached(tmp_path, monkeypatch):
+    import graph_scheduler as sched
+    from status_metadata import read_status_projection_metadata as real_reader
+
+    status_path = tmp_path / "child-large.status.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "sprint_id": "child-large",
+                "status": "active",
+                "history": [{"event": "x" * 1024} for _ in range(2048)],
+                "task_graph_status": "passed",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    reads = 0
+
+    def counting_reader(path, *, tail_read_limit):
+        nonlocal reads
+        reads += 1
+        assert tail_read_limit == 512 * 1024
+        return real_reader(path, tail_read_limit=tail_read_limit)
+
+    sched._CHILD_STATUS_PROJECTION_CACHE.clear()
+    monkeypatch.setattr(sched, "read_status_projection_metadata", counting_reader)
+
+    first = sched._child_sprint_status_payload("child-large", tmp_path / "parent.task_graph.json")
+    second = sched._child_sprint_status_payload("child-large", tmp_path / "parent.task_graph.json")
+
+    assert first["status"] == "active"
+    assert first["task_graph_status"] == "passed"
+    assert "history" not in first
+    assert second == first
+    assert reads == 1
+
+    payload = json.loads(status_path.read_text(encoding="utf-8"))
+    payload["task_graph_status"] = "failed"
+    status_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    refreshed = sched._child_sprint_status_payload("child-large", tmp_path / "parent.task_graph.json")
+
+    assert refreshed["task_graph_status"] == "failed"
+    assert reads == 2

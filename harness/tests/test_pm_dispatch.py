@@ -124,6 +124,24 @@ def test_dispatchability_uses_canonical_store_without_legacy_log_scans(monkeypat
     assert reason == ""
 
 
+def test_operator_block_info_uses_canonical_store_without_legacy_log_scans(monkeypatch):
+    pm_dispatch = _load_pm_dispatch()
+    pm_dispatch.PM_LEGACY_EVIDENCE_SCAN = False
+
+    def fail(*args, **kwargs):
+        raise AssertionError("legacy evidence scan should be disabled")
+
+    monkeypatch.setattr(pm_dispatch, "_recent_pm_operator_flow_control_block", fail)
+    monkeypatch.setattr(pm_dispatch, "_recent_operator_result_log_quota_block_strict", fail)
+    monkeypatch.setattr(pm_dispatch, "_shared_recent_operator_quota_block", fail)
+    monkeypatch.setattr(pm_dispatch, "get_operator_status_data", lambda _operator_id: {})
+
+    info = pm_dispatch._operator_block_info("mini-test", {"quota_guard_state": "ok"}, "idle", "")
+
+    assert info["block_type"] == "none"
+    assert info["quota_guard_state"] == "ok"
+
+
 def test_legacy_tools_policy_modules_expose_runtime_policy_api():
     actor_profiles_path = ROOT / "tools" / "actor_profiles.py"
     router_path = ROOT / "tools" / "logical_operator_router.py"
@@ -871,6 +889,38 @@ def test_pm_operator_flow_control_blocks_dispatch_and_pool_status(monkeypatch, t
     assert info["block_type"] == "cooldown"
     assert info["quota_guard_state"] == "cooldown"
     assert info["cooldown_until"] == expires_at
+
+
+def test_pm_flow_control_legacy_scan_keeps_only_newest_bounded_records(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir()
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "PM_FLOW_CONTROL_SCAN_MAX_FILES", 2)
+    pm_dispatch._PM_FLOW_CONTROL_INDEX_LOADED = False
+    pm_dispatch._PM_FLOW_CONTROL_BLOCK_CACHE.clear()
+
+    for index in range(5):
+        path = inbox / f"pm-{index}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "task_id": f"pm-{index}",
+                    "operator_id": f"operator-{index}",
+                    "operator_flow_control": {
+                        "applied": True,
+                        "runtime_state": "cooldown",
+                        "expires_at": "2099-01-02T00:00:00Z",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        os.utime(path, ns=(1_000_000_000 + index, 1_000_000_000 + index))
+
+    pm_dispatch._load_recent_pm_flow_control_index()
+
+    assert set(pm_dispatch._PM_FLOW_CONTROL_BLOCK_CACHE) == {"operator-3", "operator-4"}
 
 
 def test_pm_operator_flow_control_yields_to_positive_quota_observation(monkeypatch, tmp_path):
@@ -2082,8 +2132,10 @@ def test_builder_pool_backlog_breakdown_scans_large_status_files(monkeypatch, tm
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"
     inbox = tmp_path / "pm-inbox"
+    operator_inbox = tmp_path / "operator-inbox"
     sprints.mkdir()
     inbox.mkdir()
+    (operator_inbox / "op-a").mkdir(parents=True)
 
     def write_status(name: str, status: str, phase: str, handoff_to: str) -> None:
         payload = {
@@ -2125,9 +2177,21 @@ def test_builder_pool_backlog_breakdown_scans_large_status_files(monkeypatch, tm
         ),
         encoding="utf-8",
     )
+    (operator_inbox / "op-a" / "pm-sprint-active-pm-N1-abc.json").write_text(
+        json.dumps(
+            {
+                "task_id": "pm-sprint-active-pm-N1-abc",
+                "sprint_id": "sprint-active-pm",
+                "status": "submitted",
+            }
+        ),
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", operator_inbox)
+    monkeypatch.setattr(pm_dispatch, "_active_pm_task_ids", lambda: set())
     monkeypatch.setattr(pm_dispatch, "STATUS_FULL_LOAD_MAX_BYTES", 128)
     monkeypatch.setattr(pm_dispatch, "STATUS_SCAN_BYTES", 4096)
     monkeypatch.setattr(pm_dispatch, "_latent_builder_ready_items", lambda: [])
@@ -2144,6 +2208,36 @@ def test_builder_pool_backlog_breakdown_scans_large_status_files(monkeypatch, tm
         "evaluator_handoff_ready": 1,
         "total": 3,
     }
+
+
+def test_planning_complete_scan_does_not_full_load_large_status(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    target = sprints / "sprint-large.status.json"
+    target.write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-large",
+                "status": "active",
+                "phase": "planning_complete",
+                "history": ["x" * 1024] * 512,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "STATUS_FULL_LOAD_MAX_BYTES", 128)
+    original_read_text = Path.read_text
+
+    def guarded_read_text(path, *args, **kwargs):
+        if path == target:
+            raise AssertionError("large status file was fully loaded")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    assert pm_dispatch._planning_complete_status_files() == [target]
 
 
 def test_builder_pool_breakdown_separates_graph_waiting_planning_complete(monkeypatch, tmp_path):
@@ -2767,17 +2861,13 @@ def test_cmd_submit_dry_run_surfaces_builder_pool_candidate_exclusions(monkeypat
 
 def test_pending_pm_backlog_count_ignores_failed_variants(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
-    inbox = tmp_path / "run" / "pm-inbox"
-    inbox.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
-    samples = {
-        "pm-a.json": {"status": "submitted"},
-        "pm-b.json": {"status": "failed_contract_closeout"},
-        "pm-c.json": {"status": "failed_missing_pm_result"},
-        "pm-d.json": {"status": "completed"},
-    }
-    for name, payload in samples.items():
-        (inbox / name).write_text(json.dumps(payload), encoding="utf-8")
+    samples = [
+        {"task_id": "pm-a", "status": "submitted"},
+        {"task_id": "pm-b", "status": "failed_contract_closeout"},
+        {"task_id": "pm-c", "status": "failed_missing_pm_result"},
+        {"task_id": "pm-d", "status": "completed"},
+    ]
+    monkeypatch.setattr(pm_dispatch, "_active_pm_runtime_projections", lambda: samples)
     assert pm_dispatch._pending_pm_backlog_count() == 1
 
 
@@ -3102,8 +3192,10 @@ def test_builder_pool_backlog_includes_latent_planning_complete(monkeypatch, tmp
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"
     inbox = tmp_path / "run" / "pm-inbox"
+    operator_inbox = tmp_path / "run" / "operator-inbox"
     sprints.mkdir(parents=True)
     inbox.mkdir(parents=True)
+    (operator_inbox / "op-a").mkdir(parents=True)
     _write_builder_ready_graph(sprints, "sprint-latent")
     (sprints / "sprint-planner.status.json").write_text(
         json.dumps({"status": "drafting", "phase": "prd_ready", "handoff_to": "planner"}),
@@ -3121,6 +3213,8 @@ def test_builder_pool_backlog_includes_latent_planning_complete(monkeypatch, tmp
 
     monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_INBOX_DIR", operator_inbox)
+    monkeypatch.setattr(pm_dispatch, "_active_pm_task_ids", lambda: set())
 
     assert pm_dispatch._builder_pool_backlog_breakdown() == {
         "pending_pm": 0,
@@ -3134,8 +3228,26 @@ def test_builder_pool_backlog_includes_latent_planning_complete(monkeypatch, tmp
         "total": 3,
     }
 
+    (operator_inbox / "op-a" / "pm-existing.json").write_text(
+        json.dumps(
+            {
+                "task_id": "pm-existing",
+                "status": "submitted",
+                "sprint_id": "sprint-latent",
+                "node_id": "B1",
+            }
+        ),
+        encoding="utf-8",
+    )
     (inbox / "pm-existing.json").write_text(
-        json.dumps({"status": "submitted", "sprint_id": "sprint-latent", "node_id": "B1"}),
+        json.dumps(
+            {
+                "task_id": "pm-existing",
+                "status": "submitted",
+                "sprint_id": "sprint-latent",
+                "node_id": "B1",
+            }
+        ),
         encoding="utf-8",
     )
     assert pm_dispatch._builder_pool_backlog_breakdown() == {
@@ -3151,7 +3263,11 @@ def test_builder_pool_backlog_includes_latent_planning_complete(monkeypatch, tmp
     }
 
     (inbox / "pm-planner.json").write_text(
-        json.dumps({"status": "submitted", "sprint_id": "sprint-planner", "node_id": "PLAN"}),
+        json.dumps({"task_id": "pm-planner", "status": "submitted", "sprint_id": "sprint-planner", "node_id": "PLAN"}),
+        encoding="utf-8",
+    )
+    (operator_inbox / "op-a" / "pm-planner.json").write_text(
+        json.dumps({"task_id": "pm-planner", "status": "submitted", "sprint_id": "sprint-planner", "node_id": "PLAN"}),
         encoding="utf-8",
     )
     assert pm_dispatch._builder_pool_backlog_breakdown() == {
@@ -3187,7 +3303,11 @@ def test_builder_pool_backlog_includes_latent_planning_complete(monkeypatch, tmp
     eval_payload["nodes"][0].pop("eval_assignments")
     eval_graph.write_text(json.dumps(eval_payload), encoding="utf-8")
     (inbox / "pm-eval.json").write_text(
-        json.dumps({"status": "submitted", "sprint_id": "sprint-eval", "node_id": "E1", "requested_role": "evaluator"}),
+        json.dumps({"task_id": "pm-eval", "status": "submitted", "sprint_id": "sprint-eval", "node_id": "E1", "requested_role": "evaluator"}),
+        encoding="utf-8",
+    )
+    (operator_inbox / "op-a" / "pm-eval.json").write_text(
+        json.dumps({"task_id": "pm-eval", "status": "submitted", "sprint_id": "sprint-eval", "node_id": "E1", "requested_role": "evaluator"}),
         encoding="utf-8",
     )
     assert pm_dispatch._builder_pool_backlog_breakdown() == {
@@ -3205,22 +3325,36 @@ def test_builder_pool_backlog_includes_latent_planning_complete(monkeypatch, tmp
 
 def test_pm_inbox_backlog_counts_only_active_statuses(monkeypatch, tmp_path):
     pm_dispatch = _load_pm_dispatch()
-    inbox = tmp_path / "run" / "pm-inbox"
-    inbox.mkdir(parents=True)
-    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
-    records = {
-        "pm-active.json": {"status": "submitted", "sprint_id": "sprint-active"},
-        "pm-failed.json": {"status": "failed_contract_closeout", "sprint_id": "sprint-failed"},
-        "pm-empty.json": {"status": "", "sprint_id": "sprint-empty"},
-        "pm-completed.json": {"status": "completed", "sprint_id": "sprint-completed"},
-    }
-    for name, payload in records.items():
-        (inbox / name).write_text(json.dumps(payload), encoding="utf-8")
+    records = [
+        {"task_id": "pm-active", "status": "submitted", "sprint_id": "sprint-active"},
+        {"task_id": "pm-failed", "status": "failed_contract_closeout", "sprint_id": "sprint-failed"},
+        {"task_id": "pm-empty", "status": "", "sprint_id": "sprint-empty"},
+        {"task_id": "pm-completed", "status": "completed", "sprint_id": "sprint-completed"},
+    ]
+    monkeypatch.setattr(pm_dispatch, "_active_pm_runtime_projections", lambda: records)
 
     pending, active_sprints = pm_dispatch._pm_inbox_backlog_summary()
 
     assert pending == 1
     assert active_sprints == {"sprint-active"}
+
+
+def test_active_pm_runtime_projections_ignore_historical_inbox(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    history = tmp_path / "pm-inbox"
+    history.mkdir()
+    (history / "pm-old.json").write_text("not-json", encoding="utf-8")
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", history)
+    monkeypatch.setattr(
+        pm_dispatch,
+        "_iter_active_operator_inbox_projections",
+        lambda: [{"task_id": "pm-live", "status": "running", "sprint_id": "sprint-live"}],
+    )
+    monkeypatch.setattr(pm_dispatch, "_active_pm_task_ids", lambda: {"pm-live"})
+
+    assert pm_dispatch._active_pm_runtime_projections() == [
+        {"task_id": "pm-live", "status": "running", "sprint_id": "sprint-live"}
+    ]
 
 
 def test_eval_backlog_ignores_failed_graphs_and_failed_sprint_eval(monkeypatch, tmp_path):

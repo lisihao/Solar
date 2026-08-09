@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import heapq
 import importlib.util
 import json
 import os
@@ -594,14 +595,18 @@ def _load_recent_pm_flow_control_index() -> None:
         return
     _PM_FLOW_CONTROL_INDEX_LOADED = True
     now = datetime.datetime.now(datetime.timezone.utc)
+    scan_limit = max(1, PM_FLOW_CONTROL_SCAN_MAX_FILES)
+
+    def mtime_ns(path: Path) -> int:
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
+
     try:
-        paths = sorted(
-            pm_inbox_dir().glob("pm-*.json"),
-            key=lambda item: item.stat().st_mtime if item.exists() else 0.0,
-            reverse=True,
-        )[: max(1, PM_FLOW_CONTROL_SCAN_MAX_FILES)]
+        paths = heapq.nlargest(scan_limit, pm_inbox_dir().glob("pm-*.json"), key=mtime_ns)
     except Exception:
-        paths = list(pm_inbox_dir().glob("pm-*.json"))[: max(1, PM_FLOW_CONTROL_SCAN_MAX_FILES)]
+        paths = []
     for path in paths:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -1013,10 +1018,12 @@ def _operator_health_watchdog_status() -> dict[str, Any]:
 def _operator_block_info(op_id: str, op: dict[str, Any], runtime_state: str, reason: str) -> dict[str, Any]:
     state = op.get("state") if isinstance(op.get("state"), dict) else {}
     status = get_operator_status_data(op_id)
-    pm_flow_block = _recent_pm_operator_flow_control_block(op_id)
-    strict_log_block = _recent_operator_result_log_quota_block_strict({"operator_id": op_id, **dict(op)})
-    shared_block = _shared_recent_operator_quota_block({"operator_id": op_id, **dict(op)})
-    evidence_block = pm_flow_block or strict_log_block or shared_block
+    evidence_block = None
+    if PM_LEGACY_EVIDENCE_SCAN:
+        pm_flow_block = _recent_pm_operator_flow_control_block(op_id)
+        strict_log_block = _recent_operator_result_log_quota_block_strict({"operator_id": op_id, **dict(op)})
+        shared_block = _shared_recent_operator_quota_block({"operator_id": op_id, **dict(op)})
+        evidence_block = pm_flow_block or strict_log_block or shared_block
     quota_state = str(op.get("quota_guard_state") or "").strip().lower()
     expires_at = str(
         ((evidence_block or {}).get("expires_at") if evidence_block else "")
@@ -2911,10 +2918,7 @@ def _sync_task_dag_state_node(
 def _planning_complete_status_files() -> list[Path]:
     files: list[Path] = []
     for path in sorted(SPRINTS_DIR.glob("*.status.json"), key=lambda item: item.stat().st_mtime):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+        payload = _status_projection_from_path(path)
         if str(payload.get("status") or "").strip().lower() != "active":
             continue
         if str(payload.get("phase") or "").strip().lower() != "planning_complete":
@@ -2928,12 +2932,20 @@ def _sprint_id_from_status_path(path: Path) -> str:
 
 
 def _active_pm_record_for_node(sprint_id: str, node_id: str) -> dict[str, Any] | None:
+    for payload in _active_pm_runtime_projections():
+        if str(payload.get("sprint_id") or "") != sprint_id:
+            continue
+        if str(payload.get("node_id") or "") != node_id:
+            continue
+        if _pm_status_is_terminal(str(payload.get("status") or "")):
+            continue
+        return dict(payload)
+
     newest: dict[str, Any] | None = None
     newest_mtime = -1.0
     if any(char in sprint_id + node_id for char in "*?[]"):
-        paths = pm_inbox_dir().glob("pm-*.json")
-    else:
-        paths = pm_inbox_dir().glob(f"pm-{sprint_id}-{node_id}-*.json")
+        return None
+    paths = pm_inbox_dir().glob(f"pm-{sprint_id}-{node_id}-*.json")
     for path in paths:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2951,14 +2963,6 @@ def _active_pm_record_for_node(sprint_id: str, node_id: str) -> dict[str, Any] |
             newest_mtime = mtime
     if newest is not None:
         return newest
-    for payload in _iter_pm_inbox_projections():
-        if str(payload.get("sprint_id") or "") != sprint_id:
-            continue
-        if str(payload.get("node_id") or "") != node_id:
-            continue
-        if _pm_status_is_terminal(str(payload.get("status") or "")):
-            continue
-        return dict(payload)
     return newest
 
 
@@ -4204,7 +4208,7 @@ def cmd_fleet_status(args: argparse.Namespace) -> int:
 
 def _pending_pm_backlog_count() -> int:
     count = 0
-    for payload in _iter_pm_inbox_projections():
+    for payload in _active_pm_runtime_projections():
         status = str(payload.get("status") or "").strip().lower()
         if not _pm_status_is_terminal(status):
             count += 1
@@ -4213,7 +4217,7 @@ def _pending_pm_backlog_count() -> int:
 
 def _active_pm_sprint_ids() -> set[str]:
     active: set[str] = set()
-    for payload in _iter_pm_inbox_projections():
+    for payload in _active_pm_runtime_projections():
         if _pm_status_is_terminal(str(payload.get("status") or "")):
             continue
         sid = str(payload.get("sprint_id") or "").strip()
@@ -4317,7 +4321,7 @@ def _iter_pm_inbox_projections() -> list[dict[str, str]]:
 def _pm_inbox_backlog_summary() -> tuple[int, set[str]]:
     pending = 0
     active_sprints: set[str] = set()
-    for payload in _iter_pm_inbox_projections():
+    for payload in _active_pm_runtime_projections():
         status = str(payload.get("status") or "").strip().lower()
         if status not in ACTIVE_PM_OPERATOR_STATUSES or _pm_status_is_terminal(status):
             continue
@@ -4326,6 +4330,22 @@ def _pm_inbox_backlog_summary() -> tuple[int, set[str]]:
         if sid:
             active_sprints.add(sid)
     return pending, active_sprints
+
+
+def _active_pm_runtime_projections() -> list[dict[str, str]]:
+    """Return current PM work without scanning the historical PM inbox."""
+    rows: dict[str, dict[str, str]] = {}
+    for payload in _iter_active_operator_inbox_projections():
+        task_id = str(payload.get("task_id") or "").strip()
+        if task_id:
+            rows[task_id] = dict(payload)
+    for task_id in _active_pm_task_ids():
+        if task_id in rows:
+            continue
+        payload = _pm_inbox_projection_from_path(PM_INBOX_DIR / f"{task_id}.json")
+        if payload:
+            rows[task_id] = payload
+    return list(rows.values())
 
 
 def _read_builder_pool_backlog_cache() -> dict[str, int] | None:
@@ -4343,7 +4363,11 @@ def _read_builder_pool_backlog_cache() -> dict[str, int] | None:
             return None
         if str(payload.get("pm_inbox_dir") or "") != str(PM_INBOX_DIR):
             return None
-        if int(payload.get("pm_inbox_mtime_ns", -1)) != _directory_mtime_ns(PM_INBOX_DIR):
+        if str(payload.get("operator_inbox_dir") or "") != str(OPERATOR_INBOX_DIR):
+            return None
+        if int(payload.get("pm_inbox_mtime_ns", -1)) != _directory_mtime_ns(PM_INBOX_DIR, shallow=True):
+            return None
+        if int(payload.get("operator_inbox_mtime_ns", -1)) != _directory_mtime_ns(OPERATOR_INBOX_DIR):
             return None
         if int(payload.get("sprints_mtime_ns", -1)) != _directory_mtime_ns(SPRINTS_DIR):
             return None
@@ -4376,7 +4400,9 @@ def _write_builder_pool_backlog_cache(breakdown: dict[str, int]) -> None:
             "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
             "sprints_dir": str(SPRINTS_DIR),
             "pm_inbox_dir": str(PM_INBOX_DIR),
-            "pm_inbox_mtime_ns": _directory_mtime_ns(PM_INBOX_DIR),
+            "pm_inbox_mtime_ns": _directory_mtime_ns(PM_INBOX_DIR, shallow=True),
+            "operator_inbox_dir": str(OPERATOR_INBOX_DIR),
+            "operator_inbox_mtime_ns": _directory_mtime_ns(OPERATOR_INBOX_DIR),
             "sprints_mtime_ns": _directory_mtime_ns(SPRINTS_DIR),
             "breakdown": breakdown,
         }
@@ -4386,9 +4412,11 @@ def _write_builder_pool_backlog_cache(breakdown: dict[str, int]) -> None:
         pass
 
 
-def _directory_mtime_ns(path: Path) -> int:
+def _directory_mtime_ns(path: Path, *, shallow: bool = False) -> int:
     try:
         latest = path.stat().st_mtime_ns
+        if shallow:
+            return latest
         for child in path.iterdir():
             try:
                 latest = max(latest, child.stat().st_mtime_ns)
