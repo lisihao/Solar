@@ -23,7 +23,10 @@ def _slug(value: str) -> str:
 
 
 def default_profile_id(service: str, account_label: str | None = None, profile_directory: str | None = None) -> str:
-    label = account_label or profile_directory or "default"
+    if account_label and profile_directory:
+        label = f"{account_label}-{profile_directory}"
+    else:
+        label = account_label or profile_directory or "default"
     return f"{_slug(service)}/{_slug(label)}"
 
 

@@ -217,6 +217,31 @@ def test_profile_policy_rejects_scratch_profile_mismatch(tmp_path, monkeypatch):
         raise AssertionError("expected profile mismatch")
 
 
+def test_keyboard_submit_retry_uses_meta_enter_when_enter_does_not_generate():
+    ns = _load_namespace()
+
+    class FakePage:
+        def __init__(self):
+            self.presses: list[str] = []
+
+        async def press(self, key: str):
+            self.presses.append(key)
+
+        async def evaluate(self, _script):
+            if self.presses == ["Enter"]:
+                return json.dumps({"message_count": 1, "is_generating": False})
+            if self.presses == ["Enter", "Meta+Enter"]:
+                return json.dumps({"message_count": 2, "is_generating": True})
+            return json.dumps({"message_count": 1, "is_generating": False})
+
+    page = FakePage()
+    result = asyncio.run(ns["_keyboard_submit_retry_after_no_generation"](page, baseline_message_count=1))
+
+    assert page.presses == ["Enter", "Meta+Enter"]
+    assert result["enter_state"]["message_count"] == 1
+    assert result["meta_enter_state"]["is_generating"] is True
+
+
 def test_json_short_answer_continuation_demands_plain_json(monkeypatch):
     ns = _load_namespace()
     prompts: list[str] = []
@@ -359,6 +384,9 @@ def test_submit_js_rejects_continue_button_for_long_prompt_submit():
     submit_js = ns["SUBMIT_JS"]
     assert "continue|继续|resume|next|下一步" in submit_js
     assert "candidate.strict && !sendLike(label)" in submit_js
+    assert "[data-testid='send-button']" in submit_js
+    assert "[role='button'][aria-label*='发送']" in submit_js
+    assert "composer.closest(form).requestSubmit()" in submit_js
 
 
 def test_long_prompt_submit_has_synthetic_paste_fallback():
@@ -367,6 +395,24 @@ def test_long_prompt_submit_has_synthetic_paste_fallback():
     submit_prompt = ns["_submit_prompt"]
     names = submit_prompt.__code__.co_names
     assert "PASTE_EVENT_PROMPT_JS" in names
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "enter_then_meta_enter_after_paste_event" in source
+
+
+def test_post_submit_started_generation_rejects_message_only_submit():
+    ns = _load_namespace()
+    assert ns["_post_submit_started_generation"](
+        {"message_count": 1, "assistant_count": 0, "is_generating": False},
+        0,
+    ) is False
+    assert ns["_post_submit_started_generation"](
+        {"message_count": 1, "assistant_count": 0, "is_generating": True},
+        0,
+    ) is True
+    assert ns["_post_submit_started_generation"](
+        {"message_count": 2, "assistant_count": 1, "is_generating": False},
+        0,
+    ) is True
 
 
 def test_chatgpt_wrapper_disables_extensions_by_default(monkeypatch):
@@ -469,6 +515,22 @@ def test_wait_for_answer_retries_submitted_without_generation_before_blocking():
     assert "submitted-no-generation-retries.jsonl" in source
     assert "submitted_without_generation" in source
     assert "submitted_no_generation_retries < submitted_no_generation_retry_limit" in source
+
+
+def test_prompt_visibility_threshold_requires_real_composer_text():
+    ns = _load_namespace()
+    assert ns["_minimum_visible_prompt_chars"]("short prompt") == 12
+    assert ns["_minimum_visible_prompt_chars"]("x" * 1000) == 80
+    assert ns["_composer_state_has_visible_prompt"]({"text_length": 0}, "x" * 1000) is False
+    assert ns["_composer_state_has_visible_prompt"]({"text_length": 80}, "x" * 1000) is True
+
+
+def test_clipboard_submit_repairs_empty_composer_before_submit():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "_repair_prompt_visibility(page, prompt, reason=\"clipboard_paste_empty\")" in source
+    assert "clipboard_paste_no_visible_text" in source
+    assert "submit_result = json.loads(await page.evaluate(SUBMIT_JS))" in source
+    assert source.index("clipboard_paste_no_visible_text") < source.index("submit_result = json.loads(await page.evaluate(SUBMIT_JS))", source.index("clipboard_paste_empty"))
 
 
 def test_runtime_finalize_has_fallback_profile_lease_release():

@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import hashlib
 from pathlib import Path
 
 
@@ -412,3 +413,43 @@ def test_wrapper_timeout_returns_controlled_error(tmp_path):
     proc = run_operator(tmp_path, kind="deep_writer", write_deep_proof=True, sleep_seconds=5, check=False)
     assert proc.returncode == 124
     assert "wrapper timed out after 1s" in proc.stderr
+
+
+def test_report_operator_recovers_from_completion_signal_while_wrapper_hangs(tmp_path):
+    request_dir = tmp_path / "request"
+    wrapper = tmp_path / "signal_wrapper.py"
+    final_text = "final report text " * 20
+    digest = hashlib.sha256(final_text.strip().encode("utf-8")).hexdigest()
+    wrapper.write_text(
+        "import json, os, sys, time\n"
+        "from pathlib import Path\n"
+        f"final_text={final_text!r}\n"
+        f"digest={digest!r}\n"
+        "request_dir=Path(os.environ['BROWSER_AGENT_REQUEST_DIR'])\n"
+        "request_dir.mkdir(parents=True, exist_ok=True)\n"
+        "(request_dir/'chatgpt-mode-state.json').write_text(json.dumps({'ok': True}), encoding='utf-8')\n"
+        "(request_dir/'assistant-response.txt').write_text(final_text, encoding='utf-8')\n"
+        "state={'login_wall': False, 'challenge_wall': False, 'is_generating': False, 'assistant_count': 1}\n"
+        "(request_dir/'page.json').write_text(json.dumps(state), encoding='utf-8')\n"
+        "(request_dir/'conversation.json').write_text(json.dumps(state), encoding='utf-8')\n"
+        "signal={'schema':'browser_agent_completion_signal.v1','status':'completed','login_wall':False,'challenge_wall':False,'is_generating':False,'latest_text_sha256':digest,'latest_text_chars':len(final_text)}\n"
+        "(request_dir/'completion-signal.json').write_text(json.dumps(signal), encoding='utf-8')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+
+    proc = run_operator(
+        tmp_path,
+        purpose="ai-influence-report-plan-2026-06-25",
+        expected="json",
+        env_extra={
+            "BROWSER_AGENT_CHATGPT_WRAPPER_CMD": f"{sys.executable} {wrapper}",
+            "BROWSER_AGENT_REQUEST_DIR": str(request_dir),
+            "BROWSER_AGENT_CHATGPT_TIMEOUT": "8",
+            "BROWSER_AGENT_CHATGPT_FINALIZE_GRACE_SECONDS": "0",
+        },
+        check=True,
+    )
+
+    assert proc.stdout.strip() == final_text.strip()

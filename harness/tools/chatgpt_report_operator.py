@@ -20,6 +20,7 @@ import signal
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -323,6 +324,78 @@ def build_prompt(user_prompt: str, *, kind: str, expected: str, purpose: str) ->
     )
 
 
+def _load_json_object(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _final_artifact_snapshot(request_dir: Path) -> dict[str, Any]:
+    signal = _load_json_object(request_dir / "completion-signal.json")
+    if signal and str(signal.get("status") or "") != "completed":
+        return {"ok": False, "reason": f"completion_signal_{signal.get('status') or 'unknown'}"}
+    if signal and (bool(signal.get("login_wall")) or bool(signal.get("challenge_wall")) or bool(signal.get("is_generating"))):
+        return {"ok": False, "reason": "completion_signal_not_final", "signal": signal.get("status")}
+
+    text_path = request_dir / "assistant-response.txt"
+    try:
+        text = text_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        text = ""
+    if not text:
+        return {"ok": False, "reason": "assistant_response_missing"}
+
+    states = []
+    for name in ("page.json", "conversation.json"):
+        payload = _load_json_object(request_dir / name)
+        if payload:
+            states.append({"name": name, "payload": payload})
+    if not states:
+        return {"ok": False, "reason": "missing_final_state", "chars": len(text)}
+    for state in states:
+        payload = state["payload"]
+        if bool(payload.get("login_wall")):
+            return {"ok": False, "reason": "login_wall", "state": state["name"], "chars": len(text)}
+        if bool(payload.get("challenge_wall")):
+            return {"ok": False, "reason": "challenge_wall", "state": state["name"], "chars": len(text)}
+    final_states = [
+        state
+        for state in states
+        if "is_generating" in state["payload"] and bool(state["payload"].get("is_generating")) is False
+    ]
+    if not final_states:
+        return {"ok": False, "reason": "still_generating_or_unknown", "chars": len(text)}
+    if signal and str(signal.get("latest_text_sha256") or ""):
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if digest != str(signal.get("latest_text_sha256") or ""):
+            return {"ok": False, "reason": "completion_signal_hash_mismatch", "chars": len(text)}
+    return {
+        "ok": True,
+        "reason": "completion_signal_ready" if signal else "final_artifact_ready",
+        "chars": len(text),
+        "text": text,
+        "states": [state["name"] for state in final_states],
+    }
+
+
+def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except Exception:
+        proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            proc.kill()
+
+
 def run_wrapper_process(cmd: list[str], *, prompt: str, env: dict[str, str], timeout: int) -> tuple[int, str]:
     proc = subprocess.Popen(
         cmd,
@@ -333,23 +406,58 @@ def run_wrapper_process(cmd: list[str], *, prompt: str, env: dict[str, str], tim
         env=env,
         start_new_session=True,
     )
-    try:
-        stdout, _ = proc.communicate(prompt, timeout=timeout)
-        return proc.returncode or 0, stdout or ""
-    except subprocess.TimeoutExpired:
+    request_dir_raw = str(env.get("BROWSER_AGENT_REQUEST_DIR") or "").strip()
+    request_dir = Path(request_dir_raw).expanduser() if request_dir_raw else None
+    first_final_artifact_at: float | None = None
+    finalize_grace_s = int(env.get("BROWSER_AGENT_CHATGPT_FINALIZE_GRACE_SECONDS") or "30")
+    started_at = time.monotonic()
+    sent_input = False
+    stdout = ""
+    while True:
+        remaining = max(1, int(timeout - (time.monotonic() - started_at)))
         try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except Exception:
-            proc.terminate()
-        try:
-            stdout, _ = proc.communicate(timeout=10)
+            if not sent_input:
+                stdout, _ = proc.communicate(prompt, timeout=min(5, remaining))
+                sent_input = True
+            else:
+                stdout, _ = proc.communicate(timeout=min(5, remaining))
+            return proc.returncode or 0, stdout or ""
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except Exception:
-                proc.kill()
-            stdout, _ = proc.communicate()
-        return 124, (stdout or "") + f"\nchatgpt_report_operator: wrapper timed out after {timeout}s"
+            sent_input = True
+            if request_dir is not None:
+                signal_payload = _load_json_object(request_dir / "completion-signal.json")
+                signal_status = str(signal_payload.get("status") or "")
+                if signal_status in {"blocked", "timed_out", "failed"} or bool(signal_payload.get("login_wall")) or bool(signal_payload.get("challenge_wall")):
+                    _terminate_process_group(proc)
+                    try:
+                        stdout, _ = proc.communicate(timeout=2)
+                    except Exception:
+                        stdout = stdout or ""
+                    reason = str(signal_payload.get("reason") or signal_status or "browser_agent_blocked_signal")
+                    rc = 124 if signal_status == "timed_out" else 1
+                    return rc, (stdout or "") + f"\nchatgpt_report_operator: browser-agent signal {signal_status or 'blocked'}: {reason}"
+                snapshot = _final_artifact_snapshot(request_dir)
+                if bool(snapshot.get("ok")):
+                    now = time.monotonic()
+                    if first_final_artifact_at is None:
+                        first_final_artifact_at = now
+                    if now - first_final_artifact_at >= max(0, finalize_grace_s):
+                        _terminate_process_group(proc)
+                        try:
+                            stdout, _ = proc.communicate(timeout=2)
+                        except Exception:
+                            stdout = stdout or ""
+                        text = str(snapshot.get("text") or "").strip()
+                        return 0, text or stdout or ""
+                else:
+                    first_final_artifact_at = None
+            if time.monotonic() - started_at >= timeout:
+                _terminate_process_group(proc)
+                try:
+                    stdout, _ = proc.communicate(timeout=2)
+                except Exception:
+                    stdout = stdout or ""
+                return 124, (stdout or "") + f"\nchatgpt_report_operator: wrapper timed out after {timeout}s"
 
 
 def main() -> int:

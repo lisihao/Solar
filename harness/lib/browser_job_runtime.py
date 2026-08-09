@@ -21,16 +21,21 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from capability_token import CapabilityToken
+from capability_token import CapabilityToken, PolicyDecision
 
 HOME = Path.home()
 HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
+HARNESS_STATE_DIR = Path(
+    os.environ.get("SOLAR_HARNESS_STATE_DIR")
+    or os.environ.get("BROWSER_AGENT_STATE_DIR")
+    or (HOME / ".solar" / "harness")
+)
 BROWSER_JOBS_DIR = HARNESS_DIR / "run" / "browser-jobs"
 OPERATOR_RESULTS_DIR = HARNESS_DIR / "run" / "operator-results"
 BROWSER_USE_ROOT = HOME / ".claude" / "mcp-servers" / "browser-use"
 BROWSER_USE_PYTHON = BROWSER_USE_ROOT / ".venv" / "bin" / "python"
-PROFILE_CACHE_ROOT = HARNESS_DIR / "state" / "browser-profile-cache"
-PROFILE_RUNTIME_ROOT = HARNESS_DIR / "state" / "browser-profile-runtime"
+PROFILE_CACHE_ROOT = HARNESS_STATE_DIR / "state" / "browser-profile-cache"
+PROFILE_RUNTIME_ROOT = HARNESS_STATE_DIR / "state" / "browser-profile-runtime"
 _CHATGPT_CAPTURE_MODULE = HARNESS_DIR / "lib" / "chatgpt-conversation-ingest.py"
 CHATGPT_MONTHLY_PROJECT_PREFIX = "需求研究"
 CHATGPT_FRONTDOOR_URL = "https://chatgpt.com/"
@@ -103,7 +108,64 @@ def scrub_dict(d: Any) -> Any:
     return d
 
 
-def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Optional[CapabilityToken] = None) -> None:
+def _write_capability_decision(
+    envelope: Dict[str, Any],
+    *,
+    actor: str,
+    decision: PolicyDecision,
+    event_type: str = "capability_decision",
+    kind: str = "",
+) -> None:
+    """Best-effort policy decision event without leaking raw secrets."""
+    try:
+        from event_ledger import EventLedger
+
+        EventLedger(str(HARNESS_DIR / "run")).append(
+            {
+                "event_type": event_type,
+                "sprint_id": str(envelope.get("sprint_id") or envelope.get("task_id") or "browser_job"),
+                "node_id": str(envelope.get("node_id") or ""),
+                "actor": actor,
+                "payload": {
+                    "task_id": str(envelope.get("task_id") or ""),
+                    "kind": kind,
+                    "allowed": bool(decision.allowed),
+                    "reason": decision.reason,
+                    "detail": decision.detail,
+                    "rule": decision.rule,
+                    "audit": decision.audit,
+                },
+            }
+        )
+    except Exception:
+        return
+
+
+def _deny_browser_job(
+    envelope: Dict[str, Any],
+    *,
+    actor: str,
+    decision: PolicyDecision,
+    message: str,
+    kind: str,
+    event_type: str = "capability_decision",
+) -> None:
+    _write_capability_decision(
+        envelope,
+        actor=actor,
+        decision=decision,
+        event_type=event_type,
+        kind=kind,
+    )
+    raise PermissionError(message)
+
+
+def validate_browser_job_policy(
+    envelope: Dict[str, Any],
+    capability_token: Optional[CapabilityToken] = None,
+    *,
+    actor_id: str = "browser_job_runtime",
+) -> None:
     """Enforces capability-token policy checks for browser jobs.
 
     Denies payment, secrets form fill, and destructive actions.
@@ -114,7 +176,13 @@ def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Opti
     payment_keywords = ["payment", "checkout", "buy ", "purchase", "billing", "subscribe", "pay ", "credit card"]
     for kw in payment_keywords:
         if kw in objective:
-            raise PermissionError(f"Denying browser job submission: objective requests prohibited payment action '{kw}'")
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=PolicyDecision(False, "payment_denied", rule=f"payment_keywords:{kw}"),
+                message=f"Denying browser job submission: objective requests prohibited payment action '{kw}'",
+                kind="payment",
+            )
 
     # 2. Deny secrets form fill / secrets access unless explicitly allowed by token
     secrets_keywords = ["password", "secret", "private key", "api_key", "api-key", "credentials"]
@@ -129,12 +197,24 @@ def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Opti
 
     if secrets_requested:
         if not capability_token:
-            raise PermissionError("Denying browser job submission: secrets/credentials access requested but no capability token provided")
-        token_dict = capability_token.to_dict()
-        secrets_allowed = token_dict.get("secrets", {}).get("allowed", False) or \
-                          token_dict.get("file_scope", {}).get("secret_paths_allowed", False)
-        if not secrets_allowed:
-            raise PermissionError("Denying browser job submission: secrets/credentials access requested but capability token denies it")
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=PolicyDecision(False, "missing_token"),
+                message="Denying browser job submission: secrets/credentials access requested but no capability token provided",
+                kind="secrets",
+                event_type="capability_decision_missing_token",
+            )
+        secret_ref = str(envelope.get("secret_ref") or envelope.get("secret_form") or "*")
+        decision = capability_token.check_secrets(secret_ref)
+        if not decision.allowed:
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=decision,
+                message="Denying browser job submission: secrets/credentials access requested but capability token denies it",
+                kind="secrets",
+            )
 
     # 3. Deny destructive actions unless explicitly allowed by token
     destructive_keywords = ["delete", "rm -rf", "drop database", "destructive", "uninstall", "format "]
@@ -147,12 +227,29 @@ def validate_browser_job_policy(envelope: Dict[str, Any], capability_token: Opti
 
     if destructive_requested:
         if not capability_token:
-            raise PermissionError("Denying browser job submission: destructive action requested but no capability token provided")
-        token_dict = capability_token.to_dict()
-        destructive_allowed = token_dict.get("file_scope", {}).get("destructive_allowed", False) or \
-                              token_dict.get("shell_scope", {}).get("destructive_commands_allowed", False)
-        if not destructive_allowed:
-            raise PermissionError("Denying browser job submission: destructive action requested but capability token denies it")
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=PolicyDecision(False, "missing_token"),
+                message="Denying browser job submission: destructive action requested but no capability token provided",
+                kind="file",
+                event_type="capability_decision_missing_token",
+            )
+        target_path = str(
+            envelope.get("destructive_path")
+            or envelope.get("path")
+            or envelope.get("target_path")
+            or "/"
+        )
+        decision = capability_token.check_file("destructive", target_path)
+        if not decision.allowed:
+            _deny_browser_job(
+                envelope,
+                actor=actor_id,
+                decision=decision,
+                message="Denying browser job submission: destructive action requested but capability token denies it",
+                kind="file",
+            )
 
 
 class BrowserSessionBroker:
@@ -909,7 +1006,7 @@ def submit_browser_job(
     Enforces capability-token policy checks and scrubs secrets.
     """
     # Enforce policy checks
-    validate_browser_job_policy(envelope, capability_token)
+    validate_browser_job_policy(envelope, capability_token, actor_id=actor_id)
 
     _ensure_jobs_dir()
     job_id = f"job-{uuid.uuid4()}"

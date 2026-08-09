@@ -61,6 +61,7 @@ def test_runtime_control_initializes_and_finalizes_contract(tmp_path: Path, monk
         },
         task_id="task-123",
     )
+    assert ctx["profile_id"] == "chatgpt/alice-profile-7"
     assert (request_dir / "browser-profile-ref.json").exists()
     assert (request_dir / "browser-session-contract.json").exists()
     runtime_control.update_runtime_endpoint(

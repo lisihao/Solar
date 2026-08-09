@@ -729,9 +729,14 @@ SUBMIT_JS = r"""() => {
   const candidates = [
     { selector: "button[data-testid='send-button']", strict: false },
     { selector: "button[data-testid='composer-send-button']", strict: false },
+    { selector: "[data-testid='send-button']", strict: false },
+    { selector: "[data-testid='composer-send-button']", strict: false },
     { selector: "button[aria-label*='Send']", strict: false },
     { selector: "button[aria-label*='send']", strict: false },
     { selector: "button[aria-label*='发送']", strict: false },
+    { selector: "[role='button'][aria-label*='Send']", strict: false },
+    { selector: "[role='button'][aria-label*='send']", strict: false },
+    { selector: "[role='button'][aria-label*='发送']", strict: false },
     { selector: "button.composer-submit-button-color[type='button']", strict: false },
     { selector: "button.composer-submit-button-color", strict: false },
     { selector: "form button[type='submit']", strict: true },
@@ -754,6 +759,16 @@ SUBMIT_JS = r"""() => {
     }
   }
   const composer = document.querySelector("#prompt-textarea, div[contenteditable='true'][role='textbox'], textarea[name='prompt-textarea']");
+  const form = composer && composer.closest && composer.closest("form");
+  if (form && typeof form.requestSubmit === "function") {
+    form.requestSubmit();
+    return JSON.stringify({ ok: true, selector: "composer.closest(form).requestSubmit()", label: "" });
+  }
+  if (form) {
+    const event = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(event);
+    return JSON.stringify({ ok: true, selector: "composer.closest(form).dispatchEvent(submit)", label: "" });
+  }
   return JSON.stringify({ ok: false, error: "submit_button_not_found" });
 }"""
 
@@ -1565,10 +1580,42 @@ async def _force_new_blank_chat(page, *, request_dir: Path | None = None, timeou
     return result
 
 
+def _minimum_visible_prompt_chars(prompt: str) -> int:
+    return max(10, min(len(str(prompt or "").strip()), 80))
+
+
+def _composer_state_has_visible_prompt(state: dict, prompt: str) -> bool:
+    return int((state or {}).get("text_length") or 0) >= _minimum_visible_prompt_chars(prompt)
+
+
+async def _repair_prompt_visibility(page, prompt: str, *, reason: str) -> dict:
+    """Recover from browser paste paths that report success but leave composer empty."""
+    attempts: list[dict] = []
+    state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
+    if _composer_state_has_visible_prompt(state, prompt):
+        return {"ok": True, "reason": reason, "state": state, "attempts": attempts}
+
+    set_note = json.loads(await page.evaluate(SET_PROMPT_JS, prompt))
+    await asyncio.sleep(1.0)
+    state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
+    attempts.append({"mode": "native_setter", "note": set_note, "state": state})
+    if set_note.get("ok") and _composer_state_has_visible_prompt(state, prompt):
+        return {"ok": True, "reason": reason, "state": state, "attempts": attempts}
+
+    keyboard_note = await _keyboard_insert_prompt(page, prompt)
+    state = keyboard_note.get("composer_state") or json.loads(await page.evaluate(COMPOSER_STATE_JS))
+    attempts.append({"mode": "keyboard_insert", "note": keyboard_note, "state": state})
+    return {
+        "ok": _composer_state_has_visible_prompt(state, prompt),
+        "reason": reason,
+        "state": state,
+        "attempts": attempts,
+    }
+
+
 async def _ensure_prompt_visible(page, prompt: str) -> dict:
     composer_state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
-    minimum_visible_chars = max(10, min(len(prompt.strip()), 80))
-    if int(composer_state.get("text_length") or 0) >= minimum_visible_chars:
+    if _composer_state_has_visible_prompt(composer_state, prompt):
         return composer_state
     try:
         focused = json.loads(await page.evaluate(FOCUS_COMPOSER_JS))
@@ -1580,7 +1627,11 @@ async def _ensure_prompt_visible(page, prompt: str) -> dict:
             await asyncio.sleep(0.8)
     except Exception:
         pass
-    return json.loads(await page.evaluate(COMPOSER_STATE_JS))
+    composer_state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
+    if _composer_state_has_visible_prompt(composer_state, prompt):
+        return composer_state
+    repaired = await _repair_prompt_visibility(page, prompt, reason="ensure_prompt_visible")
+    return repaired.get("state") or composer_state
 
 
 async def _wait_for_prompt_submission(page, baseline_message_count: int, *, timeout_s: float = 12.0) -> dict:
@@ -1595,10 +1646,30 @@ async def _wait_for_prompt_submission(page, baseline_message_count: int, *, time
     return last_data
 
 
+def _post_submit_started_generation(post_submit: dict, baseline_assistant_count: int) -> bool:
+    return bool(post_submit.get("is_generating")) or int(post_submit.get("assistant_count") or 0) > baseline_assistant_count
+
+
+async def _keyboard_submit_retry_after_no_generation(page, baseline_message_count: int) -> dict:
+    """Use real key events when ChatGPT accepts a JS submit but does not generate."""
+    note: dict = {"mode": "keyboard_submit_after_no_generation"}
+    await page.press("Enter")
+    await asyncio.sleep(0.8)
+    enter_state = json.loads(await page.evaluate(CAPTURE_JS))
+    note["enter_state"] = enter_state
+    if int(enter_state.get("message_count") or 0) > baseline_message_count or enter_state.get("is_generating"):
+        return note
+    await page.press("Meta+Enter")
+    await asyncio.sleep(0.8)
+    note["meta_enter_state"] = json.loads(await page.evaluate(CAPTURE_JS))
+    return note
+
+
 async def _submit_prompt(page, prompt: str) -> dict:
     await _dismiss_blocking_modals(page)
     baseline = json.loads(await page.evaluate(CAPTURE_JS))
     baseline_message_count = int(baseline.get("message_count") or 0)
+    baseline_assistant_count = int(baseline.get("assistant_count") or 0)
     if len(prompt) > 1000 or "\n" in prompt:
         try:
             keyboard_note = await _keyboard_insert_prompt(page, prompt)
@@ -1616,7 +1687,7 @@ async def _submit_prompt(page, prompt: str) -> dict:
                     "submit": submit_note,
                 }
                 post_submit["_composer_state_before_submit"] = composer_state
-                if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
+                if _post_submit_has_current_prompt(post_submit, prompt) and _post_submit_started_generation(post_submit, baseline_assistant_count):
                     return post_submit
             set_note = json.loads(await page.evaluate(SET_PROMPT_JS, prompt))
             if not set_note.get("ok"):
@@ -1638,13 +1709,13 @@ async def _submit_prompt(page, prompt: str) -> dict:
                     "submit": submit_note,
                 }
                 post_submit["_composer_state_before_submit"] = composer_state
-                if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
+                if _post_submit_has_current_prompt(post_submit, prompt) and _post_submit_started_generation(post_submit, baseline_assistant_count):
                     return post_submit
             clipboard_note = await _clipboard_paste_and_submit(page, prompt)
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
             post_submit["_submit_note"] = {"mode": "clipboard_paste_enter", "clipboard": clipboard_note}
             post_submit["_composer_state_before_submit"] = clipboard_note.get("composer_state_after_paste") or {}
-            if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
+            if _post_submit_has_current_prompt(post_submit, prompt) and _post_submit_started_generation(post_submit, baseline_assistant_count):
                 return post_submit
             await page.press("Enter")
             await asyncio.sleep(0.8)
@@ -1653,7 +1724,7 @@ async def _submit_prompt(page, prompt: str) -> dict:
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
             post_submit["_submit_note"] = {"mode": "clipboard_paste_meta_enter_retry", "clipboard": clipboard_note}
             post_submit["_composer_state_before_submit"] = clipboard_note.get("composer_state_after_paste") or {}
-            if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
+            if _post_submit_has_current_prompt(post_submit, prompt) and _post_submit_started_generation(post_submit, baseline_assistant_count):
                 return post_submit
             submit_retry = json.loads(await page.evaluate(SUBMIT_JS))
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
@@ -1663,15 +1734,41 @@ async def _submit_prompt(page, prompt: str) -> dict:
                 "submit_retry": submit_retry,
             }
             post_submit["_composer_state_before_submit"] = clipboard_note.get("composer_state_after_paste") or {}
-            if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
+            if _post_submit_has_current_prompt(post_submit, prompt) and _post_submit_started_generation(post_submit, baseline_assistant_count):
                 return post_submit
             paste_event_note = json.loads(await page.evaluate(PASTE_EVENT_PROMPT_JS, prompt))
             await asyncio.sleep(1.0)
             paste_event_composer_state = await _ensure_prompt_visible(page, prompt)
             paste_event_submit = json.loads(await page.evaluate(SUBMIT_JS))
             if not paste_event_submit.get("ok") and int(paste_event_composer_state.get("text_length") or 0) > 0:
-                await page.press("Meta+Enter")
-                paste_event_submit = {"mode": "meta_enter_after_paste_event", "js_error": paste_event_submit.get("error")}
+                await page.press("Enter")
+                await asyncio.sleep(0.8)
+                paste_event_enter_state = json.loads(await page.evaluate(CAPTURE_JS))
+                if int(paste_event_enter_state.get("message_count") or 0) == baseline_message_count:
+                    await page.press("Meta+Enter")
+                    paste_event_submit = {
+                        "mode": "enter_then_meta_enter_after_paste_event",
+                        "js_error": paste_event_submit.get("error"),
+                        "enter_state": paste_event_enter_state,
+                    }
+                else:
+                    paste_event_submit = {
+                        "mode": "enter_after_paste_event",
+                        "js_error": paste_event_submit.get("error"),
+                        "enter_state": paste_event_enter_state,
+                    }
+            elif paste_event_submit.get("ok") and int(paste_event_composer_state.get("text_length") or 0) > 0:
+                first_post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
+                if not (
+                    _post_submit_has_current_prompt(first_post_submit, prompt)
+                    and _post_submit_started_generation(first_post_submit, baseline_assistant_count)
+                ):
+                    keyboard_retry = await _keyboard_submit_retry_after_no_generation(page, baseline_message_count)
+                    paste_event_submit = {
+                        **paste_event_submit,
+                        "keyboard_retry_after_no_generation": keyboard_retry,
+                        "first_post_submit": first_post_submit,
+                    }
             post_submit = await _wait_for_prompt_submission(page, baseline_message_count)
             post_submit["_submit_note"] = {
                 "mode": "synthetic_paste_event_submit_retry",
@@ -1680,7 +1777,7 @@ async def _submit_prompt(page, prompt: str) -> dict:
                 "submit": paste_event_submit,
             }
             post_submit["_composer_state_before_submit"] = paste_event_composer_state
-            if _post_submit_has_current_prompt(post_submit, prompt) and (int(post_submit.get("message_count") or 0) > baseline_message_count or post_submit.get("is_generating")):
+            if _post_submit_has_current_prompt(post_submit, prompt) and _post_submit_started_generation(post_submit, baseline_assistant_count):
                 return post_submit
             raise RuntimeError(f"clipboard_prompt_submit_no_message:{post_submit.get('_submit_note')}")
         except Exception as exc:
@@ -1810,6 +1907,18 @@ async def _clipboard_paste_and_submit(page, prompt: str) -> dict:
         await page.press("Meta+V")
         await asyncio.sleep(0.8)
         state = json.loads(await page.evaluate(COMPOSER_STATE_JS))
+        repair_note = None
+        if not _composer_state_has_visible_prompt(state, prompt):
+            repair_note = await _repair_prompt_visibility(page, prompt, reason="clipboard_paste_empty")
+            state = repair_note.get("state") or state
+        if not _composer_state_has_visible_prompt(state, prompt):
+            return {
+                "ok": False,
+                "error": "clipboard_paste_no_visible_text",
+                "composer_state_after_paste": state,
+                "clear": clear_note,
+                "repair": repair_note,
+            }
         submit_result = json.loads(await page.evaluate(SUBMIT_JS))
         if not submit_result.get("ok") and int(state.get("text_length") or 0) > 0:
             await page.press("Enter")
@@ -1819,7 +1928,7 @@ async def _clipboard_paste_and_submit(page, prompt: str) -> dict:
                 await page.press("Meta+Enter")
         elif not submit_result.get("ok"):
             await page.press("Meta+Enter")
-        return {"ok": True, "composer_state_after_paste": state, "submit_result": submit_result, "clear": clear_note}
+        return {"ok": True, "composer_state_after_paste": state, "submit_result": submit_result, "clear": clear_note, "repair": repair_note}
     finally:
         try:
             subprocess.run(["pbcopy"], input=old_clip, text=True, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
