@@ -67,15 +67,7 @@ def _load_graph_scheduler() -> Any | None:
 
 
 def _load_graph_with_runtime_state(path: Path) -> dict[str, Any]:
-    """Load graph through graph_scheduler when available so durable state wins."""
-    scheduler = _load_graph_scheduler()
-    load_graph = getattr(scheduler, "load_graph", None) if scheduler is not None else None
-    if callable(load_graph):
-        try:
-            graph = load_graph(path)
-            return graph if isinstance(graph, dict) else {}
-        except Exception:
-            pass
+    """Load graph for priority sorting without mutating graph state on disk."""
     try:
         graph = json.loads(path.read_text(encoding="utf-8"))
         return graph if isinstance(graph, dict) else {}
@@ -114,7 +106,7 @@ def _graph_builder_ready_hint(graph: dict[str, Any]) -> int:
         return 0
     by_id = {str(node.get("id") or ""): node for node in nodes if str(node.get("id") or "")}
     passed = {node_id for node_id, node in by_id.items() if _priority_node_status(graph, node) == "passed"}
-    ready_statuses = {"pending", "worker_blocked", "assigned"}
+    ready_statuses = {"pending", "worker_blocked"}
     for node_id, node in by_id.items():
         if _priority_node_status(graph, node) not in ready_statuses:
             continue
@@ -122,13 +114,15 @@ def _graph_builder_ready_hint(graph: dict[str, Any]) -> int:
         if not isinstance(deps, list):
             continue
         internal_deps = [str(dep) for dep in deps if str(dep) in by_id]
+        if not internal_deps:
+            continue
         if all(dep in passed for dep in internal_deps):
             return 1
     return 0
 
 
 def _graph_path_priority(path: Path) -> tuple[int, int, int, float]:
-    """Prefer eval-closeout/reconcile graphs, then builder-ready graphs, then recency."""
+    """Prefer eval dispatch, then builder-ready graphs, then sidecar reconcile."""
     mtime = path.stat().st_mtime if path.exists() else 0
     graph = _load_graph_with_runtime_state(path)
     if not graph:
@@ -159,7 +153,7 @@ def _graph_path_priority(path: Path) -> tuple[int, int, int, float]:
             if str(result.get("status") or "").lower() != status:
                 hot_sidecar_reconcile += 1
     builder_ready = _graph_builder_ready_hint(graph if isinstance(graph, dict) else {})
-    return (hot_eval, hot_sidecar_reconcile, builder_ready, mtime)
+    return (hot_eval, builder_ready, hot_sidecar_reconcile, mtime)
 
 
 def _iter_graph_paths(max_graphs: int) -> list[Path]:
@@ -393,7 +387,18 @@ def _pending_graph_queue_count(gnd: Any, sprint_id: str) -> int | None:
     is_graph_queue_item = getattr(gnd, "_is_graph_queue_item", None)
     count = 0
     try:
-        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        max_bytes = max(4096, int(os.environ.get("SOLAR_GRAPH_DRAIN_QUEUE_SCAN_MAX_BYTES", "1048576") or "1048576"))
+        max_lines = max(1, int(os.environ.get("SOLAR_GRAPH_DRAIN_QUEUE_SCAN_MAX_LINES", "1000") or "1000"))
+        size = path.stat().st_size
+        with path.open("rb") as handle:
+            if size > max_bytes:
+                handle.seek(-max_bytes, os.SEEK_END)
+                handle.readline()
+            data = handle.read(max_bytes)
+        lines = data.decode("utf-8", errors="ignore").splitlines()
+        if len(lines) > max_lines:
+            lines = lines[-max_lines:]
+        for line in lines:
             try:
                 item = json.loads(line)
             except Exception:
@@ -698,14 +703,28 @@ def run_graph_drain(
                             "payload": reconcile_result,
                         }
                     )
-                elif not reconcile_result.get("ok", True):
+                else:
                     counters["skipped"] += 1
+                    reason = "sidecar_reconcile_no_mutation"
                     skipped.append(
                         {
                             "graph": str(graph_path),
                             "sprint_id": sid,
-                            "reason": "sidecar_reconcile_no_mutation",
-                            "ok": False,
+                            "reason": reason,
+                            "ok": bool(reconcile_result.get("ok", True)),
+                        }
+                    )
+                    actions.append(
+                        {
+                            "action_type": "graph_eval_sidecar_reconcile",
+                            "target": sid,
+                            "status": "skipped",
+                            "graph": str(graph_path),
+                            "submitted": 0,
+                            "would_submit": 0,
+                            "reconciled": 0,
+                            "reason": reason,
+                            "payload": reconcile_result,
                         }
                     )
 

@@ -984,6 +984,116 @@ def test_graph_drain_prioritizes_terminal_sidecar_drift_inside_scan_window(monke
     assert payload["candidates"][0]["sprint_id"] == hot_sid
 
 
+def test_graph_drain_reports_sidecar_reconcile_no_mutation(monkeypatch, tmp_path):
+    controller = _load_controller()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    sid = "sprint-sidecar-noop"
+    graph_path = _write_graph_with_nodes(sprints, sid, [{"id": "E1", "status": "reviewing"}])
+    (sprints / f"{sid}.E1-handoff.md").write_text("# handoff\n", encoding="utf-8")
+    (sprints / f"{sid}.E1-eval.json").write_text('{"verdict":"PASS"}\n', encoding="utf-8")
+
+    class FakeDispatcher:
+        @staticmethod
+        def load_graph(path):
+            return json.loads(Path(path).read_text(encoding="utf-8"))
+
+        @staticmethod
+        def _existing_node_handoff(sprint_id, node, graph):
+            path = sprints / f"{sprint_id}.{node['id']}-handoff.md"
+            return path if path.exists() else None
+
+        @staticmethod
+        def _node_eval_needed(graph, sprint_id, node, force=False):
+            return False
+
+        @staticmethod
+        def _reconcile_existing_dispatches(graph, path):
+            assert Path(path) == graph_path
+            return []
+
+        @staticmethod
+        def save_graph(path, graph):
+            Path(path).write_text(json.dumps(graph), encoding="utf-8")
+
+    monkeypatch.setattr(controller, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(controller, "_load_graph_dispatcher", lambda: FakeDispatcher)
+
+    payload = controller.run_graph_drain(apply=True, max_graphs=1, max_evals=0, max_builders=0)
+
+    assert payload["counters"]["sidecar_reconcile_candidates"] == 1
+    assert payload["counters"]["reconciled"] == 0
+    assert payload["counters"]["skipped"] == 1
+    assert payload["actions"][0]["action_type"] == "graph_eval_sidecar_reconcile"
+    assert payload["actions"][0]["reason"] == "sidecar_reconcile_no_mutation"
+    assert payload["skipped"][0]["reason"] == "sidecar_reconcile_no_mutation"
+
+
+def test_graph_drain_prioritizes_builder_ready_over_sidecar_only_inside_scan_window(monkeypatch, tmp_path):
+    controller = _load_controller()
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    builder_sid = "sprint-hot-builder"
+    sidecar_sid = "sprint-sidecar-only"
+    builder_path = _write_graph_with_nodes(
+        sprints,
+        builder_sid,
+        [
+            {"id": "B1", "status": "passed"},
+            {"id": "B2", "status": "pending", "depends_on": ["B1"]},
+        ],
+    )
+    sidecar_path = _write_graph_with_nodes(
+        sprints,
+        sidecar_sid,
+        [{"id": "E1", "status": "passed", "artifacts": {"handoff_md": f"{sidecar_sid}.E1-handoff.md", "eval_json": f"{sidecar_sid}.E1-eval.json"}}],
+    )
+    (sprints / f"{sidecar_sid}.E1-handoff.md").write_text("# handoff\n", encoding="utf-8")
+    (sprints / f"{sidecar_sid}.E1-eval.json").write_text('{"verdict":"PASS"}\n', encoding="utf-8")
+    sidecar_path.touch()
+
+    class FakeDispatcher:
+        @staticmethod
+        def load_graph(path):
+            return json.loads(Path(path).read_text(encoding="utf-8"))
+
+        @staticmethod
+        def _existing_node_handoff(sprint_id, node, graph):
+            path = sprints / f"{sprint_id}.{node['id']}-handoff.md"
+            return path if path.exists() else None
+
+        @staticmethod
+        def _node_eval_needed(graph, sprint_id, node, force=False):
+            return False
+
+        @staticmethod
+        def ready_nodes(graph):
+            return [node for node in graph["nodes"] if node["id"] == "B2" and graph.get("sprint_id") == builder_sid]
+
+        @staticmethod
+        def dispatch_ready(path, dry_run=False, ttl=900, max_parallel=None):
+            assert Path(path) == builder_path
+            return {
+                "ok": True,
+                "enqueue": {"enqueued": [{"node": "B2"}]},
+                "drain": {"ok": True, "processed": 1, "results": [{"ok": True, "instruction_file": "/tmp/B2-dispatch.md"}]},
+            }
+
+        @staticmethod
+        def _reconcile_existing_dispatches(graph, path):
+            raise AssertionError("sidecar-only graph must not displace builder-ready graph")
+
+    monkeypatch.setattr(controller, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(controller, "_load_graph_dispatcher", lambda: FakeDispatcher)
+
+    payload = controller.run_graph_drain(apply=False, max_graphs=1, max_evals=0, max_builders=1)
+
+    assert payload["counters"]["graphs_scanned"] == 1
+    assert payload["counters"]["builder_candidates"] == 1
+    assert payload["counters"].get("sidecar_reconcile_candidates", 0) == 0
+    assert payload["candidates"][0]["sprint_id"] == builder_sid
+
+
 def test_graph_drain_prioritizes_builder_ready_graphs_inside_scan_window(monkeypatch, tmp_path):
     controller = _load_controller()
     sprints = tmp_path / "sprints"
