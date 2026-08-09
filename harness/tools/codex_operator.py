@@ -254,14 +254,42 @@ def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
             return
 
 
-def _build_codex_exec_cmd(model: str, effort: str, cwd: str, output_file: Path) -> list[str]:
-    return [
+def _codex_service_tier(model: str, override: str | None = None) -> str:
+    raw = (
+        override
+        or os.environ.get("CODEX_SERVICE_TIER")
+        or os.environ.get("SOLAR_CODEX_SERVICE_TIER")
+        or ""
+    ).strip().lower()
+    if not raw and "gpt-5.3-codex-spark" in str(model or "").lower():
+        raw = os.environ.get("SOLAR_CODEX_SPARK_SERVICE_TIER", "fast").strip().lower()
+    if not raw:
+        raw = "fast"
+    if raw in {"default", "auto", "none", "unset", "off", "0"}:
+        return ""
+    if raw not in {"fast", "flex"}:
+        return ""
+    return raw
+
+
+def _build_codex_exec_cmd(
+    model: str,
+    effort: str,
+    cwd: str,
+    output_file: Path,
+    *,
+    service_tier: str | None = None,
+) -> list[str]:
+    cmd = [
         "codex",
         "exec",
         "--ignore-user-config",
         "--skip-git-repo-check",
-        "--config",
-        "service_tier=fast",
+    ]
+    tier = _codex_service_tier(model, service_tier)
+    if tier:
+        cmd.extend(["--config", f"service_tier={tier}"])
+    cmd.extend([
         "--model",
         model,
         "--config",
@@ -272,7 +300,8 @@ def _build_codex_exec_cmd(model: str, effort: str, cwd: str, output_file: Path) 
         "--output-last-message",
         str(output_file),
         "-",
-    ]
+    ])
+    return cmd
 
 
 def main() -> int:

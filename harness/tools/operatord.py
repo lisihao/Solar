@@ -532,6 +532,36 @@ def _claude_print_command(config: dict[str, Any]) -> list[str]:
     return ["bash", "-lc", command]
 
 
+def _claude_interactive_requires_tmux_command(config: dict[str, Any]) -> list[str] | None:
+    provider = str(config.get("provider") or "").strip().lower()
+    if provider in {"glm", "zhipu", "zhipuai"}:
+        return None
+    surface = config.get("surface") if isinstance(config.get("surface"), dict) else {}
+    launch_cmd_kind = str(config.get("launch_cmd_kind") or "").strip().lower()
+    surface_type = str(surface.get("type") or "").strip().lower()
+    billing_surface = str(config.get("billing_surface") or "").strip().lower()
+    billing_pool = str(config.get("billing_pool") or "").strip().lower()
+    key_ref = str(config.get("key_ref") or "").strip().lower()
+    interactive_surface = (
+        launch_cmd_kind == "interactive_repl"
+        or surface_type == "claude_code_interactive"
+        or "subscription_interactive" in billing_surface
+        or "subscription_interactive" in billing_pool
+    )
+    subscription_bound = "subscription" in key_ref or "subscription_interactive" in billing_surface or "subscription_interactive" in billing_pool
+    if not (interactive_surface and subscription_bound):
+        return None
+    return [
+        "sh",
+        "-c",
+        (
+            "echo '[surface-policy] claude_subscription_interactive_requires_tmux_repl'; "
+            "echo '[surface-policy] operatord will not run Claude Code subscription as a one-shot API process'; "
+            "exit 78"
+        ),
+    ]
+
+
 def _build_command(config: dict, envelope: dict) -> list[str]:
     """Return the shell command list to execute for this task.
 
@@ -559,6 +589,9 @@ def _build_command(config: dict, envelope: dict) -> list[str]:
             return ["bash", "-lc", configured_command]
 
     if backend == "claude-cli":
+        tmux_required = _claude_interactive_requires_tmux_command(config)
+        if tmux_required:
+            return tmux_required
         return _claude_print_command(config)
 
     task_id: str = str(envelope.get("task_id", "unknown"))

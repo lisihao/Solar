@@ -103,3 +103,24 @@ def test_codex_exec_cmd_ignores_incompatible_user_config(tmp_path):
     assert "service_tier=fast" in cmd
     assert f"model_reasoning_effort=medium" in cmd
     assert str(output_file) in cmd
+
+
+def test_codex_exec_cmd_uses_fast_for_spark_by_default(tmp_path, monkeypatch):
+    output_file = tmp_path / "last.md"
+    monkeypatch.delenv("CODEX_SERVICE_TIER", raising=False)
+    monkeypatch.delenv("SOLAR_CODEX_SERVICE_TIER", raising=False)
+    monkeypatch.delenv("SOLAR_CODEX_SPARK_SERVICE_TIER", raising=False)
+
+    cmd = co._build_codex_exec_cmd("gpt-5.3-codex-spark", "medium", "/work", output_file)
+
+    assert "service_tier=fast" in cmd
+    assert "service_tier=flex" not in cmd
+
+
+def test_codex_exec_cmd_omits_invalid_service_tier(tmp_path, monkeypatch):
+    output_file = tmp_path / "last.md"
+    monkeypatch.setenv("CODEX_SERVICE_TIER", "default")
+
+    cmd = co._build_codex_exec_cmd("gpt-5.3-codex-spark", "medium", "/work", output_file)
+
+    assert not any(str(item).startswith("service_tier=") for item in cmd)

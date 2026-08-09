@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,7 @@ sys.path.insert(0, str(TOOLS_DIR))
 import operator_runtime as _rt  # noqa: E402 — after path setup
 import operatord as _od  # noqa: E402 — after path setup
 from actor_lease import LeaseBroker  # noqa: E402 — after path setup
+from capability_token import CapabilityToken  # noqa: E402 — after path setup
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +77,17 @@ _TASK_ENVELOPE = {
     "task_type": "dummy",
     "objective": "Verify operatord daemon end-to-end lifecycle.",
 }
+
+
+def _read_event_jsonl(base: Path) -> list[dict]:
+    path = base / "run" / "events.jsonl"
+    if not path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def _setup_harness(tmp_path: Path) -> dict:
@@ -150,6 +163,22 @@ if len(sys.argv) >= 4 and sys.argv[1] == "complete" and sys.argv[2] == "--task-i
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text(json.dumps({"task_id": task_id}, ensure_ascii=False), encoding="utf-8")
     print(f"✅ 任务 {task_id} 已标记为 completed")
+    raise SystemExit(0)
+if len(sys.argv) >= 4 and sys.argv[1] == "fail" and sys.argv[2] == "--task-id":
+    task_id = sys.argv[3]
+    status = ""
+    reason = ""
+    if "--status" in sys.argv:
+        status = sys.argv[sys.argv.index("--status") + 1]
+    if "--reason" in sys.argv:
+        reason = sys.argv[sys.argv.index("--reason") + 1]
+    log = Path(__file__).resolve().parent.parent / "run" / "pm-fail.json"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(
+        json.dumps({"task_id": task_id, "status": status, "reason": reason}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    print(f"❌ 任务 {task_id} 已标记为 {status}")
     raise SystemExit(0)
 raise SystemExit(2)
 """,
@@ -243,6 +272,188 @@ class TestWriteHeartbeat:
         hb_path = tmp_path / "run" / "operator-status" / "op1.json"
         hb = json.loads(hb_path.read_text())
         assert hb["current_task_id"] == "T-abc"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: capability pre-dispatch
+# ---------------------------------------------------------------------------
+
+class TestCapabilityPreDispatch:
+    def test_missing_token_ref_writes_event_without_abort(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_od, "HARNESS_DIR", tmp_path)
+        envelope = {
+            "task_id": "T-missing-token",
+            "sprint_id": "sprint-cap",
+            "node_id": "N1",
+            "policy_requests": [{"kind": "file", "op": "read", "path": "/tmp/a"}],
+        }
+
+        decision = _od._capability_pre_dispatch(envelope, "op-cap", "T-missing-token")
+
+        assert decision is None
+        events = _read_event_jsonl(tmp_path)
+        assert len(events) == 1
+        assert events[0]["event_type"] == "capability_decision_missing_token"
+        assert events[0]["payload"]["reason"] == "missing_token"
+
+    def test_denied_policy_request_writes_event_and_aborts(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_od, "HARNESS_DIR", tmp_path)
+        token_path = tmp_path / "token.json"
+        CapabilityToken(
+            token_id="tok-deny",
+            scopes=["file:write"],
+            expires_at="2099-01-01T00:00:00Z",
+            actor_id="op-cap",
+            file_scope={"read_paths": ["/tmp/allowed"]},
+        ).to_dict()
+        token_path.write_text(
+            json.dumps(
+                CapabilityToken(
+                    token_id="tok-deny",
+                    scopes=["file:write"],
+                    expires_at="2099-01-01T00:00:00Z",
+                    actor_id="op-cap",
+                    file_scope={"read_paths": ["/tmp/allowed"]},
+                ).to_dict()
+            ),
+            encoding="utf-8",
+        )
+        envelope = {
+            "task_id": "T-deny",
+            "sprint_id": "sprint-cap",
+            "node_id": "N2",
+            "capability_token_ref": {"path": str(token_path)},
+            "policy_requests": [{"kind": "file", "op": "read", "path": "/etc/passwd"}],
+        }
+
+        decision = _od._capability_pre_dispatch(envelope, "op-cap", "T-deny")
+
+        assert decision is not None
+        assert decision.reason == "out_of_scope"
+        events = _read_event_jsonl(tmp_path)
+        assert len(events) == 1
+        assert events[0]["event_type"] == "capability_decision"
+        assert events[0]["payload"]["kind"] == "file"
+        assert events[0]["payload"]["reason"] == "out_of_scope"
+
+    def test_enforcement_off_writes_event_without_abort(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_od, "HARNESS_DIR", tmp_path)
+        monkeypatch.setenv("SOLAR_CAPABILITY_ENFORCEMENT", "off")
+        token_path = tmp_path / "token.json"
+        token_path.write_text(
+            json.dumps(
+                CapabilityToken(
+                    token_id="tok-deny",
+                    scopes=["file:write"],
+                    expires_at="2099-01-01T00:00:00Z",
+                    actor_id="op-cap",
+                    file_scope={"read_paths": ["/tmp/allowed"]},
+                ).to_dict()
+            ),
+            encoding="utf-8",
+        )
+        envelope = {
+            "task_id": "T-off",
+            "sprint_id": "sprint-cap",
+            "node_id": "N3",
+            "capability_token_ref": {"path": str(token_path)},
+            "policy_requests": [{"kind": "file", "op": "read", "path": "/etc/passwd"}],
+        }
+
+        decision = _od._capability_pre_dispatch(envelope, "op-cap", "T-off")
+
+        assert decision is None
+        events = _read_event_jsonl(tmp_path)
+        assert len(events) == 1
+        assert events[0]["payload"]["reason"] == "out_of_scope"
+
+    def test_audit_only_writes_event_without_abort(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_od, "HARNESS_DIR", tmp_path)
+        monkeypatch.setenv("SOLAR_CAPABILITY_AUDIT_ONLY", "1")
+        token_path = tmp_path / "token.json"
+        token_path.write_text(
+            json.dumps(
+                CapabilityToken(
+                    token_id="tok-deny",
+                    scopes=["file:write"],
+                    expires_at="2099-01-01T00:00:00Z",
+                    actor_id="op-cap",
+                    file_scope={"read_paths": ["/tmp/allowed"]},
+                ).to_dict()
+            ),
+            encoding="utf-8",
+        )
+        envelope = {
+            "task_id": "T-audit",
+            "sprint_id": "sprint-cap",
+            "node_id": "N4",
+            "capability_token_ref": {"path": str(token_path)},
+            "policy_requests": [{"kind": "file", "op": "read", "path": "/etc/passwd"}],
+        }
+
+        decision = _od._capability_pre_dispatch(envelope, "op-cap", "T-audit")
+
+        assert decision is None
+        events = _read_event_jsonl(tmp_path)
+        assert len(events) == 1
+        assert events[0]["payload"]["reason"] == "out_of_scope"
+
+    def test_cmd_run_envelope_denial_aborts_before_ready(self, tmp_path):
+        env = _setup_harness(tmp_path)
+        token_path = tmp_path / "token.json"
+        token_path.write_text(
+            json.dumps(
+                CapabilityToken(
+                    token_id="tok-run-deny",
+                    scopes=["file:read"],
+                    expires_at="2099-01-01T00:00:00Z",
+                    actor_id="test-local-builder",
+                    file_scope={"read_paths": ["/tmp/allowed"]},
+                ).to_dict()
+            ),
+            encoding="utf-8",
+        )
+        envelope_path = tmp_path / "run-envelope.json"
+        envelope_path.write_text(
+            json.dumps(
+                {
+                    "task_id": "T-run-deny",
+                    "sprint_id": "sprint-cap",
+                    "node_id": "N-run",
+                    "capability_token_ref": {"path": str(token_path)},
+                    "policy_requests": [
+                        {"kind": "file", "op": "read", "path": "/etc/passwd"}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "operatord.py"),
+                "run",
+                "--operator",
+                "test-local-builder",
+                "--harness-dir",
+                env["HARNESS_DIR"],
+                "--envelope",
+                str(envelope_path),
+                "--json",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        assert result.returncode == 126
+        assert '"status": "ready"' not in result.stdout
+        events = _read_event_jsonl(tmp_path)
+        assert len(events) == 1
+        assert events[0]["event_type"] == "capability_decision"
+        assert events[0]["payload"]["reason"] == "out_of_scope"
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +676,89 @@ class TestDaemonOnce:
         assert actor_lease.state == "READY"
         assert actor_lease.task_id is None
 
+    def test_capability_denied_task_writes_terminal_result_without_backend(self, tmp_path):
+        env = _setup_command_harness(tmp_path)
+        token_path = tmp_path / "deny-token.json"
+        token_path.write_text(
+            json.dumps(
+                CapabilityToken(
+                    token_id="tok-daemon-deny",
+                    scopes=["file:read"],
+                    expires_at="2099-01-01T00:00:00Z",
+                    actor_id="test-command-builder",
+                    file_scope={"read_paths": ["/tmp/allowed"]},
+                ).to_dict()
+            ),
+            encoding="utf-8",
+        )
+        marker = tmp_path / "backend-ran.txt"
+        envelope = {
+            "task_id": "T-capability-deny-001",
+            "sprint_id": "sprint-command",
+            "node_id": "N-deny",
+            "operator_id": "test-command-builder",
+            "task_type": "dummy",
+            "objective": "deny before backend launch",
+            "capability_token_ref": {"path": str(token_path)},
+            "policy_requests": [
+                {"kind": "file", "op": "read", "path": "/etc/passwd"}
+            ],
+            "command": (
+                "python3 -c "
+                + shlex.quote(
+                    "from pathlib import Path; "
+                    f"Path({str(marker)!r}).write_text('ran', encoding='utf-8')"
+                )
+            ),
+        }
+        envelope_path = tmp_path / "deny-envelope.json"
+        envelope_path.write_text(json.dumps(envelope), encoding="utf-8")
+
+        submit_out = self._run_submit(env, envelope_path)
+        assert submit_out["status"] == "submitted"
+
+        daemon_proc = subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "operatord.py"),
+                "daemon",
+                "--operator",
+                "test-command-builder",
+                "--once",
+                "--poll-interval",
+                "0.2",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        assert daemon_proc.returncode == 0, daemon_proc.stderr
+        assert not marker.exists()
+        result_json = (
+            tmp_path
+            / "run"
+            / "operator-results"
+            / "test-command-builder"
+            / "T-capability-deny-001"
+            / "result.json"
+        )
+        assert result_json.exists()
+        result = json.loads(result_json.read_text(encoding="utf-8"))
+        assert result["status"] == "capability_denied"
+        assert result["exit_code"] == 126
+        assert "capability_denied" in result["log_tail"]
+        lease_file = tmp_path / "run" / "operator-leases" / "test-command-builder.json"
+        assert not lease_file.exists()
+        events = _read_event_jsonl(tmp_path)
+        assert any(
+            event["event_type"] == "capability_decision"
+            and event["payload"]["task_id"] == "T-capability-deny-001"
+            and event["payload"]["reason"] == "out_of_scope"
+            for event in events
+        )
+
     def test_output_log_written(self, tmp_path):
         env = _setup_harness(tmp_path)
         envelope_path = tmp_path / "envelope2.json"
@@ -657,6 +951,80 @@ class TestDaemonOnce:
         assert complete_log.exists()
         assert json.loads(complete_log.read_text(encoding="utf-8"))["task_id"] == "pm-T-command-002"
 
+    def test_graph_eval_pm_task_requires_eval_sidecars_before_completed_result(self, tmp_path):
+        env = _setup_command_harness(tmp_path)
+        dispatch_dir = tmp_path / "run" / "pm-dispatch-files"
+        dispatch_dir.mkdir(parents=True, exist_ok=True)
+        dispatch_file = dispatch_dir / "pm-T-graph-eval-001.md"
+        dispatch_file.write_text("# Solar PM Dispatch\n\nwrite eval sidecars\n", encoding="utf-8")
+
+        envelope = {
+            "task_id": "pm-T-graph-eval-001",
+            "sprint_id": "sprint-command",
+            "node_id": "V3",
+            "operator_id": "test-command-builder",
+            "task_type": "graph_eval",
+            "requested_role": "evaluator",
+            "objective": "Verify graph eval sidecar contract",
+            "dispatch_file": str(dispatch_file),
+            "result_path": str(tmp_path / "sprints" / "sprint-command.V3.pm-result.md"),
+            "command": (
+                "python3 -c "
+                + shlex.quote(
+                    "import os; "
+                    "from pathlib import Path; "
+                    "p=Path(os.environ['PM_RESULT_PATH']); "
+                    "p.parent.mkdir(parents=True, exist_ok=True); "
+                    "p.write_text('# PM Task Result\\n\\noperator wrote pm result only\\n', encoding='utf-8'); "
+                    "print('pm_result_written=' + str(p))"
+                )
+            ),
+        }
+        envelope_path = tmp_path / "pm-graph-eval-envelope.json"
+        envelope_path.write_text(json.dumps(envelope), encoding="utf-8")
+
+        submit_out = self._run_submit(env, envelope_path)
+        assert submit_out["status"] == "submitted"
+
+        daemon_proc = subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS_DIR / "operatord.py"),
+                "daemon",
+                "--operator",
+                "test-command-builder",
+                "--once",
+                "--poll-interval",
+                "0.2",
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert daemon_proc.returncode == 0, daemon_proc.stderr
+
+        result_json = (
+            tmp_path
+            / "run"
+            / "operator-results"
+            / "test-command-builder"
+            / "pm-T-graph-eval-001"
+            / "result.json"
+        )
+        result = json.loads(result_json.read_text(encoding="utf-8"))
+        assert result["status"] == "failed_contract_closeout"
+        assert result["exit_code"] == 68
+        assert "missing required graph_eval artifacts" in result["log_tail"]
+        assert "sprint-command.V3-eval.md" in result["log_tail"]
+        assert "sprint-command.V3-eval.json" in result["log_tail"]
+
+        fail_log = tmp_path / "run" / "pm-fail.json"
+        assert fail_log.exists()
+        failed = json.loads(fail_log.read_text(encoding="utf-8"))
+        assert failed["task_id"] == "pm-T-graph-eval-001"
+        assert failed["status"] == "failed_contract_closeout"
+
     def test_signal_leaves_final_status(self, tmp_path):
         """SIGTERM while idle should leave a final idle status file."""
         import signal as _signal
@@ -719,6 +1087,24 @@ class TestBuildCommand:
         assert "claude --dangerously-skip-permissions" in joined
         assert "local-stub" not in joined
         assert 'cat "$DISPATCH_FILE"' in joined
+
+    def test_claude_subscription_interactive_backend_requires_tmux(self):
+        cmd = _od._build_command(
+            {
+                "backend": "claude-cli",
+                "provider": "anthropic",
+                "model": "sonnet",
+                "key_ref": "claude_subscription",
+                "launch_cmd_kind": "interactive_repl",
+                "billing_surface": "subscription_interactive",
+                "surface": {"type": "claude_code_interactive"},
+            },
+            {"task_id": "pm-sample", "dispatch_file": "/tmp/dispatch.md"},
+        )
+        joined = " ".join(cmd)
+        assert cmd[:2] == ["sh", "-c"]
+        assert "claude_subscription_interactive_requires_tmux_repl" in joined
+        assert 'cat "$DISPATCH_FILE"' not in joined
 
     def test_glm_claude_cli_backend_uses_zhipu_opus_route(self):
         cmd = _od._build_command(
