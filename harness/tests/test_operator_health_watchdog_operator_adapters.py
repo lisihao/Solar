@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -91,6 +92,144 @@ def test_refresh_snapshot_failure_is_degraded_and_has_reason():
     assert "RuntimeError" in hard_payload["reason"]
 
     assert module.summarize_quota_refresh_failure(payload) == "quota_refresh_degraded:provider unavailable"
+
+
+def test_refresh_snapshot_marks_control_plane_drift_degraded(monkeypatch, tmp_path):
+    module = _adapter_module()
+    config_dir = tmp_path / "config"
+    status_dir = tmp_path / "run" / "operator-status"
+    config_dir.mkdir(parents=True)
+    status_dir.mkdir(parents=True)
+    (config_dir / "physical-operators.json").write_text(
+        """
+        {
+          "operators": {
+            "op-drift": {
+              "enabled": true,
+              "available": true,
+              "quota_guard_state": "cooldown",
+              "quota_refresh_at": "2099-01-01T00:00:00Z"
+            }
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "_harness_dir", lambda: tmp_path)
+    monkeypatch.setattr(module, "_active_cooldown_db_state", lambda operator_id: "")
+    fake_refresh = SimpleNamespace(
+        refresh_snapshot=lambda apply=False: {
+            "ok": True,
+            "operators": [{"operator_id": "op-drift", "state": "idle", "usable": True}],
+        }
+    )
+
+    payload = module.refresh_snapshot(apply=False, quota_refresh_module=fake_refresh)
+
+    assert payload["ok"] is False
+    assert payload["reason"] == "control_plane_drift"
+    assert payload["degradation_summary"]["blocker"] == "control_plane_drift"
+    assert payload["control_plane_drifts"][0]["operator_id"] == "op-drift"
+    assert payload["control_plane_drifts"][0]["active_sources"]["registry"] == "cooldown"
+
+
+def test_refresh_snapshot_apply_repairs_quota_idle_status_drift(monkeypatch, tmp_path):
+    module = _adapter_module()
+    config_dir = tmp_path / "config"
+    status_dir = tmp_path / "run" / "operator-status"
+    config_dir.mkdir(parents=True)
+    status_dir.mkdir(parents=True)
+    (config_dir / "physical-operators.json").write_text(
+        '{"operators": {"op-drift": {"enabled": true, "available": true}}}',
+        encoding="utf-8",
+    )
+    status_path = status_dir / "op-drift.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "operator_id": "op-drift",
+                "runtime_state": "auth_expired",
+                "expires_at": "2099-01-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "_harness_dir", lambda: tmp_path)
+    monkeypatch.setattr(module, "_active_cooldown_db_state", lambda operator_id: "")
+    fake_refresh = SimpleNamespace(
+        refresh_snapshot=lambda apply=False: {
+            "ok": True,
+            "operators": [{"operator_id": "op-drift", "state": "idle", "usable": True}],
+        }
+    )
+
+    payload = module.refresh_snapshot(apply=True, quota_refresh_module=fake_refresh)
+
+    assert payload["ok"] is True
+    assert payload["control_plane_drifts"] == []
+    assert payload["control_plane_repair"]["summary"] == {"repaired": 1, "failed": 0}
+    assert not status_path.exists()
+
+
+def test_refresh_snapshot_does_not_repair_recent_auth_failure(monkeypatch, tmp_path):
+    module = _adapter_module()
+    config_dir = tmp_path / "config"
+    status_dir = tmp_path / "run" / "operator-status"
+    config_dir.mkdir(parents=True)
+    status_dir.mkdir(parents=True)
+    (config_dir / "physical-operators.json").write_text(
+        json.dumps(
+            {
+                "operators": {
+                    "op-auth": {
+                        "enabled": True,
+                        "available": True,
+                        "flow_control": {
+                            "last_block_state": "auth_expired",
+                            "last_block_reason": "auth_expired",
+                            "last_block_detected_at": "2026-06-25T13:13:37Z",
+                            "last_block_excerpt": "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    status_path = status_dir / "op-auth.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "operator_id": "op-auth",
+                "runtime_state": "auth_expired",
+                "expires_at": "2099-01-01T00:00:00Z",
+                "updated_at": "2026-06-25T13:13:37Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "_harness_dir", lambda: tmp_path)
+    monkeypatch.setattr(module, "_active_cooldown_db_state", lambda operator_id: "")
+    monkeypatch.setattr(
+        module,
+        "_now",
+        lambda: dt.datetime(2026, 6, 25, 13, 14, 0, tzinfo=dt.timezone.utc),
+    )
+    fake_refresh = SimpleNamespace(
+        refresh_snapshot=lambda apply=False: {
+            "ok": True,
+            "operators": [{"operator_id": "op-auth", "state": "idle", "usable": True}],
+        }
+    )
+
+    payload = module.refresh_snapshot(apply=True, quota_refresh_module=fake_refresh)
+
+    assert payload["ok"] is True
+    assert "control_plane_repair" not in payload
+    assert status_path.exists()
 
 
 def test_run_watchdog_writes_report_when_quota_snapshot_fails(monkeypatch, tmp_path):

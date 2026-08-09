@@ -20,6 +20,8 @@ HARNESS_DIR = Path(os.environ.get("HARNESS_DIR", HOME / ".solar" / "harness"))
 DEFAULT_LEASE_DIR = HARNESS_DIR / "run" / "operator-leases"
 DEFAULT_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
 DEFAULT_PANE_LEASE_DIR = HARNESS_DIR / "run" / "pane-leases"
+_EVAL_SIDECAR_INDEX_TTL_SECONDS = 30.0
+_EVAL_SIDECAR_INDEX_CACHE: dict[Path, tuple[float, dict[str, Path]]] = {}
 
 
 def _resolve_sprints_dir() -> Path:
@@ -229,12 +231,37 @@ def _eval_sidecar_path(sprint_id: str, node_id: str) -> Path | None:
     if direct.exists() and direct.stat().st_size > 0:
         return direct
 
-    glob_match = sorted(base.glob(f"{sprint_id}.{node_id}-eval*.md"))
-    if glob_match:
-        existing = [path for path in glob_match if path.exists()]
-        if existing:
-            return existing[0]
-    return None
+    prefix = f"{sprint_id}.{node_id}"
+    return _eval_sidecar_index(base).get(prefix)
+
+
+def _eval_sidecar_index(base: Path) -> dict[str, Path]:
+    now = dt.datetime.now(dt.timezone.utc).timestamp()
+    cached = _EVAL_SIDECAR_INDEX_CACHE.get(base)
+    if cached and now - cached[0] <= _EVAL_SIDECAR_INDEX_TTL_SECONDS:
+        return cached[1]
+
+    index: dict[str, Path] = {}
+    try:
+        entries = sorted(base.iterdir(), key=lambda path: path.name)
+    except Exception:
+        _EVAL_SIDECAR_INDEX_CACHE[base] = (now, index)
+        return index
+
+    for path in entries:
+        name = path.name
+        if not name.endswith(".md") or "-eval" not in name:
+            continue
+        prefix = name.split("-eval", 1)[0]
+        if prefix in index:
+            continue
+        try:
+            if path.is_file() and path.stat().st_size > 0:
+                index[prefix] = path
+        except Exception:
+            continue
+    _EVAL_SIDECAR_INDEX_CACHE[base] = (now, index)
+    return index
 
 
 def _clear_fields(target: dict[str, Any], keys: tuple[str, ...]) -> None:

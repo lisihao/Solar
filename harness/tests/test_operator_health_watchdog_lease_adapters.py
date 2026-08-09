@@ -339,6 +339,43 @@ def test_repair_status_projection_clears_eval_assignment_exact_identity_and_side
     assert assignments[0]["task_id"] == "other"
 
 
+def test_repair_status_projection_finds_dispatch_eval_sidecar_via_index(tmp_path):
+    sprints = tmp_path / "sprints"
+    sprints.mkdir()
+    sprint_id = "sprint-health-index"
+    task_id = "pm-task-eval-index"
+    graph_path = sprints / f"{sprint_id}.task_graph.json"
+    _write_json(
+        graph_path,
+        {
+            "sprint_id": sprint_id,
+            "nodes": [
+                {
+                    "id": "B7",
+                    "status": "dispatched",
+                    "eval_dispatch_id": task_id,
+                    "eval_assignments": [{"task_id": task_id, "operator_id": "mini-codex-eval"}],
+                }
+            ],
+            "node_results": {"B7": {"status": "dispatched"}},
+        },
+    )
+    (sprints / f"{sprint_id}.B7-eval-dispatch-q1.md").write_text("eval", encoding="utf-8")
+    for idx in range(50):
+        (sprints / f"unrelated-{idx}.txt").write_text("noise", encoding="utf-8")
+
+    adapter = _load_adapter(sprints)
+    adapter._EVAL_SIDECAR_INDEX_CACHE.clear()
+    result = adapter.repair_status_projection(
+        {"sprint_id": sprint_id, "node_id": "B7", "task_id": task_id},
+        graph_dir=sprints,
+        apply=True,
+    )
+
+    assert result["summary"]["applied"] == 1
+    assert result["actions"][0]["action_type"] == "clear_evaluator_assignment"
+
+
 def test_repair_status_projection_respects_dispatch_mismatch(tmp_path):
     sprints = tmp_path / "sprints"
     sprints.mkdir()

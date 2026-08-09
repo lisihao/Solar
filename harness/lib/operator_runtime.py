@@ -86,6 +86,21 @@ def get_operator_config(operator_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _active_cooldown_db_state(operator_id: str) -> Optional[str]:
+    try:
+        if str(HARNESS_DIR / "lib") not in sys.path:
+            sys.path.insert(0, str(HARNESS_DIR / "lib"))
+        import operator_cooldown_db  # type: ignore
+
+        block = operator_cooldown_db.current_cooldown_block(operator_id)
+    except Exception:
+        return None
+    if not block:
+        return None
+    state = str(block.get("runtime_state") or "").strip()
+    return state if state in VALID_STATES else None
+
+
 # ── Dynamic Status/Override Management ────────────────────────────────────────
 
 def get_operator_status(operator_id: str) -> Optional[Dict[str, Any]]:
@@ -327,7 +342,7 @@ def get_operator_runtime_state(operator_id: str) -> str:
     config = get_operator_config(operator_id)
     if not config:
         return "disabled"
-        
+
     # Standard check: check registry level enabled/disabled status
     if not config.get("enabled", True):
         return "disabled"
@@ -337,17 +352,32 @@ def get_operator_runtime_state(operator_id: str) -> str:
     if isinstance(reg_state, dict):
         if reg_state.get("availability") == "disabled" or reg_state.get("runtime_state") == "disabled":
             return "disabled"
-            
-    # Check active lease (highest precedence for active state)
+
+    # SQLite cooldown ledger is the authority for time-derived blocks. A row is
+    # considered active only when current_cooldown_block() recomputes it as not
+    # expired, so stale cooldowns do not survive past their rule window.
+    db_state = _active_cooldown_db_state(operator_id)
+    if db_state:
+        return db_state
+
+    # Hard dynamic status overrides must win over active leases.  A tmux actor
+    # can hold a lease precisely because it is stuck on auth/quota; reporting
+    # only "leased" hides the real recovery action from dispatch and status UI.
+    status = get_operator_status(operator_id)
+    if status:
+        r_state = status.get("runtime_state")
+        if r_state in {"cooldown", "quota_exhausted", "auth_expired", "disabled"}:
+            return r_state
+
+    # Check active lease after hard blocks.
     lease = get_operator_lease(operator_id)
     if lease:
         state = lease.get("state")
         if state in VALID_STATES:
             return state
         return "leased"
-        
-    # Check dynamic status override
-    status = get_operator_status(operator_id)
+
+    # Check non-hard dynamic status override.
     if status:
         r_state = status.get("runtime_state")
         if r_state in VALID_STATES:

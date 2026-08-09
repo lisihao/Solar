@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 LABEL="${SOLAR_OPERATOR_HEALTH_WATCHDOG_LABEL:-com.solar.harness.operator-health-watchdog}"
-INTERVAL="${SOLAR_OPERATOR_HEALTH_WATCHDOG_INTERVAL:-120}"
+INTERVAL="${SOLAR_OPERATOR_HEALTH_WATCHDOG_INTERVAL:-600}"
 PLIST_PATH="${HOME}/Library/LaunchAgents/${LABEL}.plist"
 LOG_DIR="${HARNESS_DIR}/logs"
 STDOUT_LOG="${LOG_DIR}/operator-health-watchdog.out.log"
@@ -26,7 +26,7 @@ Usage:
   $0 run-once
 
 Environment:
-  SOLAR_OPERATOR_HEALTH_WATCHDOG_INTERVAL  Default: 120
+  SOLAR_OPERATOR_HEALTH_WATCHDOG_INTERVAL  Default: 600
   SOLAR_OPERATOR_HEALTH_WATCHDOG_LABEL     Default: ${LABEL}
 EOF
 }
@@ -92,7 +92,27 @@ write_plist() {
     <string>utf-8</string>
     <key>HARNESS_DIR</key>
     <string>${HARNESS_DIR}</string>
-  </dict>
+    <key>SOLAR_OHW_ENABLE_DRAIN_APPLY</key>
+    <string>${SOLAR_OHW_ENABLE_DRAIN_APPLY:-1}</string>
+    <key>SOLAR_OHW_BUILDER_DRAIN_CAP</key>
+    <string>${SOLAR_OHW_BUILDER_DRAIN_CAP:-6}</string>
+    <key>SOLAR_OHW_GRAPH_DRAIN_MAX_BUILDERS</key>
+    <string>${SOLAR_OHW_GRAPH_DRAIN_MAX_BUILDERS:-3}</string>
+	    <key>SOLAR_OHW_GRAPH_DRAIN_MAX_EVALS</key>
+	    <string>${SOLAR_OHW_GRAPH_DRAIN_MAX_EVALS:-0}</string>
+	    <key>SOLAR_OHW_GRAPH_DRAIN_MAX_GRAPHS</key>
+	    <string>${SOLAR_OHW_GRAPH_DRAIN_MAX_GRAPHS:-80}</string>
+	    <key>SOLAR_OHW_PM_RECONCILE_MAX_WRITES</key>
+	    <string>${SOLAR_OHW_PM_RECONCILE_MAX_WRITES:-5}</string>
+	    <key>SOLAR_OHW_PM_RECONCILE_MAX_SCAN_RECORDS</key>
+	    <string>${SOLAR_OHW_PM_RECONCILE_MAX_SCAN_RECORDS:-80}</string>
+	    <key>SOLAR_OHW_RUN_TIMEOUT_SECONDS</key>
+	    <string>${SOLAR_OHW_RUN_TIMEOUT_SECONDS:-120}</string>
+	    <key>SOLAR_OHW_STATUS_PROJECTION_MAX_RECORDS</key>
+	    <string>${SOLAR_OHW_STATUS_PROJECTION_MAX_RECORDS:-40}</string>
+	    <key>SOLAR_OHW_ENABLE_LEGACY_SAFE_DRAIN</key>
+	    <string>${SOLAR_OHW_ENABLE_LEGACY_SAFE_DRAIN:-0}</string>
+	  </dict>
   <key>StandardOutPath</key>
   <string>${STDOUT_LOG}</string>
   <key>StandardErrorPath</key>
@@ -103,11 +123,29 @@ PLIST_EOF
 }
 
 run_once() {
-  mkdir -p "$LOG_DIR"
-  printf '[%s] operator-health-watchdog start\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  python3 "${HARNESS_DIR}/tools/operator_health_watchdog.py" run --once --json --apply
-  printf '[%s] operator-health-watchdog end\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
+	  mkdir -p "$LOG_DIR"
+	  printf '[%s] operator-health-watchdog start\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	  local timeout_seconds="${SOLAR_OHW_RUN_TIMEOUT_SECONDS:-120}"
+	  if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || [[ "$timeout_seconds" -lt 30 ]]; then
+	    timeout_seconds=120
+	  fi
+	  python3 "${HARNESS_DIR}/tools/operator_health_watchdog.py" run --once --json --apply &
+	  local child_pid=$!
+	  local deadline=$((SECONDS + timeout_seconds))
+	  while kill -0 "$child_pid" 2>/dev/null; do
+	    if [[ "$SECONDS" -ge "$deadline" ]]; then
+	      printf '[%s] operator-health-watchdog timeout pid=%s timeout=%ss\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$child_pid" "$timeout_seconds" >&2
+	      kill -TERM "$child_pid" 2>/dev/null || true
+	      sleep 5
+	      kill -KILL "$child_pid" 2>/dev/null || true
+	      wait "$child_pid" 2>/dev/null || true
+	      return 124
+	    fi
+	    sleep 1
+	  done
+	  wait "$child_pid"
+	  printf '[%s] operator-health-watchdog end\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	}
 
 install_job() {
   parse_common_args "$@"

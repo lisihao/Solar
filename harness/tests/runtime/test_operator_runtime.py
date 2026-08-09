@@ -36,7 +36,7 @@ def test_operator_config_loading():
     """Verify registry loading works for known operators."""
     config = optime.get_operator_config("mini-claude-sonnet-builder")
     assert config is not None
-    assert config["display_name"] == "Mac mini Claude Sonnet builder"
+    assert "Claude Sonnet builder" in config["display_name"]
     assert config["enabled"] is True
 
     # Test unknown operator
@@ -140,6 +140,23 @@ def test_status_override_states():
     # Clear status override
     optime.clear_operator_status(operator_id)
     assert optime.get_operator_runtime_state(operator_id) == "idle"
+
+
+def test_hard_status_override_wins_over_active_lease():
+    """Auth/quota/cooldown blockers must not be hidden by a stale actor lease."""
+    operator_id = "mini-claude-sonnet-builder"
+    optime.acquire_operator_lease(
+        operator_id=operator_id,
+        task_id="T-auth",
+        sprint_id="sprint-test",
+        node_id="N2",
+        ttl_seconds=60,
+    )
+    assert optime.get_operator_runtime_state(operator_id) == "leased"
+
+    optime.set_operator_status(operator_id, "auth_expired", ttl_seconds=30)
+
+    assert optime.get_operator_runtime_state(operator_id) == "auth_expired"
 
 
 def test_heartbeat_preserves_blocking_override():

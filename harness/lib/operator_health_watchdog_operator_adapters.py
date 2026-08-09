@@ -8,9 +8,19 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib
+import json
+import os
+from pathlib import Path
 from typing import Any
 
 BLOCKED_RUNTIME_STATES = {"cooldown", "quota_exhausted", "auth_expired"}
+HARD_BLOCKED_RUNTIME_STATES = {"cooldown", "quota_exhausted", "auth_expired", "disabled", "no_subscription", "needs_human_review"}
+AUTH_FAILURE_MARKERS = (
+    "invalid authentication credentials",
+    "authentication_error",
+    "api error: 401",
+    "failed to authenticate",
+)
 
 
 def _load_flow_control_module():
@@ -44,6 +54,282 @@ def _parse_iso(value: Any) -> dt.datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return parsed.astimezone(dt.timezone.utc)
+
+
+def _harness_dir() -> Path:
+    return Path(os.environ.get("HARNESS_DIR", Path.home() / ".solar" / "harness"))
+
+
+def _load_json(path: Path, default: Any) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def _active_status_state(data: dict[str, Any], *, now: dt.datetime) -> str:
+    state = str(data.get("runtime_state") or data.get("state") or "").strip().lower()
+    if state not in HARD_BLOCKED_RUNTIME_STATES:
+        return ""
+    expires = _parse_iso(data.get("expires_at") or data.get("cooldown_until") or data.get("quota_refresh_at"))
+    if expires is not None and expires <= now:
+        return ""
+    return state
+
+
+def _active_registry_state(spec: dict[str, Any], *, now: dt.datetime) -> str:
+    quota_state = str(spec.get("quota_guard_state") or "").strip().lower()
+    if quota_state in HARD_BLOCKED_RUNTIME_STATES:
+        expires = _parse_iso(spec.get("quota_refresh_at") or (spec.get("state") or {}).get("cooldown_until"))
+        if expires is None or expires > now:
+            return quota_state
+    state = spec.get("state") if isinstance(spec.get("state"), dict) else {}
+    return _active_status_state(state, now=now)
+
+
+def _active_cooldown_db_state(operator_id: str) -> str:
+    try:
+        mod = importlib.import_module("operator_cooldown_db")
+    except Exception:
+        return ""
+    if not hasattr(mod, "current_cooldown_block"):
+        return ""
+    try:
+        block = mod.current_cooldown_block(operator_id)
+    except Exception:
+        return ""
+    if not isinstance(block, dict):
+        return ""
+    state = str(block.get("runtime_state") or "").strip().lower()
+    return state if state in HARD_BLOCKED_RUNTIME_STATES else ""
+
+
+def _text_has_auth_failure_evidence(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return bool(text and any(marker in text for marker in AUTH_FAILURE_MARKERS))
+
+
+def _recent_enough(value: Any, *, now: dt.datetime, max_age_seconds: int = 86400) -> bool:
+    parsed = _parse_iso(value)
+    if parsed is None:
+        return False
+    return 0 <= (now - parsed).total_seconds() <= max_age_seconds
+
+
+def _has_recent_auth_failure_evidence(operator_id: str, spec: dict[str, Any], *, now: dt.datetime) -> bool:
+    """Return true when live auth failure evidence should beat quota estimation."""
+    flow = spec.get("flow_control") if isinstance(spec.get("flow_control"), dict) else {}
+    state = spec.get("state") if isinstance(spec.get("state"), dict) else {}
+    flow_text = " ".join(
+        str(flow.get(key) or "")
+        for key in ("last_block_state", "last_block_reason", "last_block_excerpt")
+    )
+    if _text_has_auth_failure_evidence(flow_text) and _recent_enough(
+        flow.get("last_block_detected_at") or state.get("last_error_at"),
+        now=now,
+    ):
+        return True
+
+    status = _load_json(_harness_dir() / "run" / "operator-status" / f"{operator_id}.json", {})
+    status_text = " ".join(
+        str(status.get(key) or "")
+        for key in ("runtime_state", "reason", "last_error", "evidence", "last_output_excerpt")
+    )
+    if _text_has_auth_failure_evidence(status_text) and _recent_enough(
+        status.get("updated_at") or status.get("last_error_at") or status.get("created_at"),
+        now=now,
+    ):
+        return True
+
+    try:
+        cooldown_db = importlib.import_module("operator_cooldown_db")
+        block = cooldown_db.current_cooldown_block(operator_id) if hasattr(cooldown_db, "current_cooldown_block") else None
+    except Exception:
+        block = None
+    if isinstance(block, dict):
+        block_text = " ".join(
+            str(block.get(key) or "")
+            for key in ("runtime_state", "reason", "evidence_excerpt")
+        )
+        if _text_has_auth_failure_evidence(block_text) and _recent_enough(
+            block.get("triggered_at") or block.get("updated_at"),
+            now=now,
+        ):
+            return True
+    return False
+
+
+def detect_control_plane_drift(payload: dict[str, Any], *, now: dt.datetime | None = None) -> list[dict[str, Any]]:
+    """Detect inconsistent active-block state across quota, registry, status and DB."""
+    now_dt = now or _now()
+    harness_dir = _harness_dir()
+    registry = _load_json(harness_dir / "config" / "physical-operators.json", {"operators": {}})
+    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
+    rows = payload.get("operators") if isinstance(payload.get("operators"), list) else []
+    drifts: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        operator_id = str(row.get("operator_id") or "").strip()
+        if not operator_id:
+            continue
+        quota_state = str(row.get("state") or row.get("runtime_state") or "").strip().lower()
+        quota_usable = bool(row.get("usable")) or quota_state in {"", "idle", "ready", "ok", "running"}
+        spec = operators.get(operator_id, {}) if isinstance(operators.get(operator_id), dict) else {}
+        registry_state = _active_registry_state(spec, now=now_dt)
+        status_state = _active_status_state(
+            _load_json(harness_dir / "run" / "operator-status" / f"{operator_id}.json", {}),
+            now=now_dt,
+        )
+        db_state = _active_cooldown_db_state(operator_id)
+        active_sources = {
+            name: state
+            for name, state in {
+                "registry": registry_state,
+                "status": status_state,
+                "cooldown_db": db_state,
+            }.items()
+            if state
+        }
+        if (
+            quota_usable
+            and active_sources
+            and "auth_expired" in set(active_sources.values())
+            and _has_recent_auth_failure_evidence(operator_id, spec, now=now_dt)
+        ):
+            continue
+        if quota_usable and active_sources:
+            drifts.append(
+                {
+                    "operator_id": operator_id,
+                    "type": "registry_block_but_quota_idle",
+                    "quota_state": quota_state or "idle",
+                    "active_sources": active_sources,
+                }
+            )
+    return drifts[:50]
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _clear_status_block(operator_id: str, *, harness_dir: Path) -> bool:
+    status_path = harness_dir / "run" / "operator-status" / f"{operator_id}.json"
+    try:
+        runtime = importlib.import_module("operator_runtime")
+        runtime_status_dir = getattr(runtime, "OPERATOR_STATUS_DIR", None)
+        if (
+            hasattr(runtime, "clear_operator_status")
+            and runtime_status_dir is not None
+            and Path(runtime_status_dir).resolve() == status_path.parent.resolve()
+        ):
+            runtime.clear_operator_status(operator_id)
+            return not status_path.exists()
+    except Exception:
+        pass
+    try:
+        if status_path.exists():
+            status_path.unlink()
+        return True
+    except Exception:
+        return False
+
+
+def _clear_cooldown_db_block(operator_id: str, *, reason: str) -> bool:
+    try:
+        cooldown_db = importlib.import_module("operator_cooldown_db")
+    except Exception:
+        return False
+    if not hasattr(cooldown_db, "clear_operator_cooldown"):
+        return False
+    try:
+        result = cooldown_db.clear_operator_cooldown(
+            operator_id,
+            reason=reason,
+            source="operator_health_watchdog.control_plane_drift",
+        )
+        return bool(result.get("ok", True)) if isinstance(result, dict) else True
+    except Exception:
+        return False
+
+
+def _clear_registry_block(operator_id: str, *, harness_dir: Path, registry: dict[str, Any]) -> bool:
+    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
+    op = operators.get(operator_id) if isinstance(operators.get(operator_id), dict) else None
+    if not isinstance(op, dict):
+        return False
+    state = op.get("state") if isinstance(op.get("state"), dict) else {}
+    op["quota_guard_state"] = "ok"
+    op["quota_refresh_at"] = None
+    state["runtime_state"] = "idle"
+    state["cooldown_until"] = None
+    state["last_error"] = None
+    state["last_pruned_at"] = _now().isoformat().replace("+00:00", "Z")
+    op["state"] = state
+    flow = op.get("flow_control") if isinstance(op.get("flow_control"), dict) else {}
+    flow["last_pruned_at"] = state["last_pruned_at"]
+    flow["last_prune_reason"] = "quota_idle_control_plane_drift"
+    op["flow_control"] = flow
+    return True
+
+
+def repair_control_plane_drifts(drifts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Clear stale block projections when quota snapshot proves the operator idle.
+
+    This intentionally only repairs drifts produced by detect_control_plane_drift:
+    quota_refresh must have reported the operator as usable/idle while registry,
+    status, or cooldown DB still shows a blocking state.
+    """
+    harness_dir = _harness_dir()
+    registry_path = harness_dir / "config" / "physical-operators.json"
+    registry = _load_json(registry_path, {"operators": {}})
+    registry_changed = False
+    repaired: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    for drift in drifts:
+        if not isinstance(drift, dict) or drift.get("type") != "registry_block_but_quota_idle":
+            continue
+        operator_id = str(drift.get("operator_id") or "").strip()
+        sources = drift.get("active_sources") if isinstance(drift.get("active_sources"), dict) else {}
+        if not operator_id:
+            continue
+        actions: list[str] = []
+        ok = True
+        if "registry" in sources:
+            if _clear_registry_block(operator_id, harness_dir=harness_dir, registry=registry):
+                registry_changed = True
+                actions.append("registry")
+            else:
+                ok = False
+        if "status" in sources:
+            if _clear_status_block(operator_id, harness_dir=harness_dir):
+                actions.append("status")
+            else:
+                ok = False
+        if "cooldown_db" in sources:
+            if _clear_cooldown_db_block(operator_id, reason="quota_idle_control_plane_drift"):
+                actions.append("cooldown_db")
+            else:
+                ok = False
+        entry = {"operator_id": operator_id, "cleared": actions, "active_sources": sources}
+        if ok:
+            repaired.append(entry)
+        else:
+            failed.append(entry)
+
+    if registry_changed:
+        try:
+            _write_json_atomic(registry_path, registry)
+        except Exception:
+            failed.extend({"operator_id": item["operator_id"], "cleared": item["cleared"], "active_sources": item["active_sources"], "reason": "registry_write_failed"} for item in repaired)
+            repaired = []
+
+    return {"ok": not failed, "repaired": repaired, "failed": failed, "summary": {"repaired": len(repaired), "failed": len(failed)}}
 
 
 def _sanitize_entry(entry: dict[str, Any], *, now: dt.datetime) -> dict[str, Any]:
@@ -240,10 +526,26 @@ def refresh_snapshot(
 
     payload.setdefault("ok", False)
     payload.setdefault("generated_at", _now().isoformat().replace("+00:00", "Z"))
+    control_plane_drifts = detect_control_plane_drift(payload)
+    repair_payload: dict[str, Any] | None = None
+    if control_plane_drifts and apply:
+        repair_payload = repair_control_plane_drifts(control_plane_drifts)
+        payload["control_plane_repair"] = repair_payload
+        if bool(repair_payload.get("ok")):
+            control_plane_drifts = detect_control_plane_drift(payload)
+    if control_plane_drifts:
+        payload["ok"] = False
+        payload["reason"] = "control_plane_drift"
+        payload["control_plane_drifts"] = control_plane_drifts
+    elif repair_payload and bool(repair_payload.get("ok")):
+        payload["ok"] = bool(payload.get("ok", True))
+        if payload.get("reason") == "control_plane_drift":
+            payload.pop("reason", None)
+        payload["control_plane_drifts"] = []
     payload["degradation_summary"] = _degradation_summary(
         ok=bool(payload.get("ok")),
         reason=str(payload.get("reason", "")),
-        blocker=("quota_refresh failed; proceeding with existing block states" if not bool(payload.get("ok")) else None),
+        blocker=("control_plane_drift" if control_plane_drifts else ("quota_refresh failed; proceeding with existing block states" if not bool(payload.get("ok")) else None)),
     )
     payload["degraded"] = not bool(payload.get("ok"))
     payload["apply_requested"] = bool(apply)

@@ -23,7 +23,7 @@ TASK_CONTROL_FILENAME = "operator-task-control.json"
 BLOCKING_STATES = {"cooldown", "quota_exhausted", "auth_expired"}
 ANTIGRAVITY_PROBE_PROMPT = "Reply with exactly: SOLAR_AGY_OK"
 RATE_LIMIT_RE = re.compile(
-    r"RESOURCE_EXHAUSTED|\bquota(?:\s+exhausted)?\b|monthly usage limit|"
+    r"RESOURCE_EXHAUSTED|\bquota\s+(?:exhausted|exceeded|limit|reached)\b|monthly usage limit|"
     r"usage limit|rate[- ]?limit|\b429\b|too many requests|resets?\s+in|"
     r"Upgrade your plan|You've hit .*limit|Individual quota reached|"
     r"请求过于频繁|暂时限制你访问对话记录|请稍等几分钟后再重试",
@@ -36,7 +36,8 @@ BROWSER_HISTORY_THROTTLE_RE = re.compile(
 # NOTE: \bquota\b requires a word boundary after "quota", so "quotaProject=" is
 # NOT matched — the word continues with "P" which is a word character.
 AUTH_RE = re.compile(
-    r"not logged in|you are not logged|auth(?:entication)? failed|oauth token|permission denied|"
+    r"not logged in|you are not logged|auth(?:entication)? failed|failed to authenticate|"
+    r"invalid authentication credentials|oauth token|permission denied|"
     r"sign in|login wall|login required|logged out|auth expired",
     re.I,
 )
@@ -45,7 +46,7 @@ AUTH_SUCCESS_RE = re.compile(
     re.I,
 )
 EXPLICIT_QUOTA_EVIDENCE_RE = re.compile(
-    r"RESOURCE_EXHAUSTED|\bquota(?:\s+exhausted)?\b|monthly usage limit|"
+    r"RESOURCE_EXHAUSTED|\bquota\s+(?:exhausted|exceeded|limit|reached)\b|monthly usage limit|"
     r"usage limit|rate[- ]?limit|\b429\b|too many requests|resets?\s+(?:in|at|on)|"
     r"Upgrade your plan|You've hit .*limit|Individual quota reached|"
     r"usage pattern|fair usage policy|request frequency has been limited|"
@@ -129,6 +130,17 @@ def _operator_runtime_module():
     import operator_runtime  # type: ignore
 
     return operator_runtime
+
+
+def _cooldown_db_module():
+    if str(HARNESS_DIR / "lib") not in sys.path:
+        sys.path.insert(0, str(HARNESS_DIR / "lib"))
+    try:
+        import operator_cooldown_db  # type: ignore
+
+        return operator_cooldown_db
+    except Exception:
+        return None
 
 
 def _now() -> dt.datetime:
@@ -316,10 +328,26 @@ def _claude_operator_models(operator_id: str, op: dict[str, Any]) -> set[str]:
     return _claude_models_named_in_text(text_l)
 
 
+NON_CLAUDE_API_QUOTA_RE = re.compile(
+    r"insufficient\s+balance|no\s+resource\s+package|please\s+recharge|"
+    r"\bcode[\"']?\s*:\s*[\"']?1113\b|zhipu|z\.ai|glm[-_ ]?\d|"
+    r"api\s+error\s*:\s*429|rate_limit_error",
+    re.I,
+)
+CLAUDE_CODE_QUOTA_MARKER_RE = re.compile(
+    r"claude\s+(?:code|max)|anthropic|you['’]ve\s+hit\s+.*limit|"
+    r"try\s+again\s+(?:at|on)|resets?\s+(?:in|at|on)",
+    re.I,
+)
+
+
 def _claude_quota_evidence_matches_operator(operator_id: str, op: dict[str, Any], evidence_text: str) -> bool:
+    text = str(evidence_text or "")
+    if NON_CLAUDE_API_QUOTA_RE.search(text):
+        return False
     named = _claude_models_named_in_text(evidence_text)
     if not named:
-        return True
+        return bool(CLAUDE_CODE_QUOTA_MARKER_RE.search(text))
     operator_models = _claude_operator_models(operator_id, op)
     return bool(named & operator_models)
 
@@ -413,6 +441,52 @@ def has_explicit_quota_evidence(text: str) -> bool:
     return bool(EXPLICIT_QUOTA_EVIDENCE_RE.search(text or ""))
 
 
+def _quota_window_from_text(text: str) -> str:
+    material = str(text or "").strip().lower()
+    if "weekly" in material or "每周" in material:
+        return "weekly"
+    if "monthly" in material or "每月" in material:
+        return "monthly"
+    if (
+        "5h" in material
+        or "5 hour" in material
+        or "5 小时" in material
+        or ("usage limit" in material and "try again at" in material)
+    ):
+        return "5h"
+    if "daily" in material or "每日" in material:
+        return "daily"
+    return ""
+
+
+def _latest_positive_quota_observation_is_newer(
+    operator_id: str,
+    *,
+    quota_window: str,
+    since: dt.datetime,
+) -> bool:
+    cooldown_db = _cooldown_db_module()
+    if cooldown_db is None:
+        return False
+    try:
+        observation = cooldown_db.latest_quota_observation(operator_id, quota_window=quota_window)
+    except Exception:
+        return False
+    if not isinstance(observation, dict):
+        return False
+    try:
+        remaining = float(observation.get("remaining_percent"))
+    except Exception:
+        return False
+    if remaining <= 0:
+        return False
+    try:
+        observed = cooldown_db.parse_time(observation.get("observed_at"))
+    except Exception:
+        observed = None
+    return observed is not None and observed >= since
+
+
 def _read_tail(path: Path, max_bytes: int) -> str:
     try:
         with path.open("rb") as handle:
@@ -476,13 +550,35 @@ def recent_operator_quota_block(
             continue
         if reset_at <= now_dt:
             continue
-        return {
+        quota_window = _quota_window_from_text(text)
+        if quota_window and _latest_positive_quota_observation_is_newer(op_id, quota_window=quota_window, since=mtime):
+            continue
+        result = {
             "operator_id": op_id,
             "runtime_state": "cooldown",
             "expires_at": _iso_z(reset_at),
             "source": "operator_result_log",
             "path": str(path),
         }
+        cooldown_db = _cooldown_db_module()
+        if cooldown_db is not None:
+            try:
+                cooldown_db.record_cooldown_event(
+                    op_id,
+                    "cooldown",
+                    reason="result_log_quota_block",
+                    source="operator_result_log",
+                    scope="operator_id",
+                    rule_name="recent_operator_quota_block",
+                    triggered_at=mtime,
+                    expires_at=reset_at,
+                    evidence_ref=str(path),
+                    evidence_path=str(path),
+                    evidence_excerpt=text[-1200:],
+                )
+            except Exception:
+                pass
+        return result
     return None
 
 
@@ -548,6 +644,20 @@ def current_block_state(
     blocking_states: set[str] | None = None,
 ) -> dict[str, Any] | None:
     states = set(blocking_states or BLOCKING_STATES)
+    cooldown_db = _cooldown_db_module()
+    if cooldown_db is not None:
+        try:
+            block = cooldown_db.current_cooldown_block(operator_id)
+        except Exception:
+            block = None
+        if block and str(block.get("runtime_state") or "") in states:
+            return {
+                "operator_id": operator_id,
+                "runtime_state": str(block.get("runtime_state") or "cooldown"),
+                "expires_at": str(block.get("expires_at") or ""),
+                "source": str(block.get("source") or "operator_cooldown_db"),
+                "reason": str(block.get("reason") or ""),
+            }
     runtime = _operator_runtime_module()
     status = runtime.get_operator_status(operator_id) or {}
     runtime_state = str(status.get("runtime_state") or "").strip()
@@ -654,6 +764,7 @@ def clear_expired_operator_config_block(operator_id: str) -> bool:
 def _clear_registry_block(
     op: dict[str, Any],
     *,
+    operator_id: str = "",
     now: dt.datetime,
     reason: str,
 ) -> None:
@@ -669,6 +780,18 @@ def _clear_registry_block(
     flow["last_pruned_at"] = _iso_z(now)
     flow["last_prune_reason"] = reason
     op["flow_control"] = flow
+    op_id = str(operator_id or op.get("operator_id") or "").strip()
+    if op_id:
+        cooldown_db = _cooldown_db_module()
+        if cooldown_db is not None:
+            try:
+                cooldown_db.clear_operator_cooldown(
+                    op_id,
+                    reason=reason,
+                    source="operator_flow_control.prune",
+                )
+            except Exception:
+                pass
 
 
 def _live_heartbeat_clears_claude_block(status: dict[str, Any], *, block_started_at: str = "") -> bool:
@@ -735,7 +858,7 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
         expires_raw = str(op.get("quota_refresh_at") or state.get("cooldown_until") or "").strip()
         if runtime_state == "auth_expired" and _is_antigravity_operator(str(operator_id), op):
             if antigravity_auth_ok:
-                _clear_registry_block(op, now=now, reason="antigravity_auth_probe_success")
+                _clear_registry_block(op, operator_id=str(operator_id), now=now, reason="antigravity_auth_probe_success")
                 pruned.append({
                     "operator_id": str(operator_id),
                     "runtime_state": runtime_state,
@@ -774,7 +897,7 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
             and not _claude_quota_evidence_matches_operator(str(operator_id), op, excerpt)
         )
         if mis_scoped_claude_pane_cooldown:
-            _clear_registry_block(op, now=now, reason="claude_pane_quota_model_mismatch")
+            _clear_registry_block(op, operator_id=str(operator_id), now=now, reason="claude_pane_quota_model_mismatch")
             pruned.append({
                 "operator_id": str(operator_id),
                 "runtime_state": runtime_state,
@@ -796,8 +919,38 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
                     )
                 except Exception:
                     recent = None
+                if (
+                    not recent
+                    and source.startswith("tmux_pane:")
+                    and explicit_quota_evidence
+                    and _claude_quota_evidence_matches_operator(str(operator_id), op, excerpt)
+                ):
+                    cooldown_db = _cooldown_db_module()
+                    if cooldown_db is not None:
+                        try:
+                            cooldown_db.record_cooldown_event(
+                                str(operator_id),
+                                runtime_state,
+                                reason=reason or "pane_tui_rate_limit",
+                                source=source or "tmux_pane",
+                                scope="operator_id",
+                                rule_name="claude_matching_pane_quota_evidence",
+                                triggered_at=str(flow.get("last_block_detected_at") or state.get("last_error_at") or now.isoformat()),
+                                expires_at=expires_raw or None,
+                                evidence_ref=f"{operator_id}:pane_quota:{expires_raw}",
+                                evidence_path=str(PHYSICAL_OPERATORS_PATH),
+                                evidence_excerpt=excerpt,
+                            )
+                        except Exception:
+                            pass
+                    kept.append({
+                        "operator_id": str(operator_id),
+                        "runtime_state": runtime_state,
+                        "expires_at": expires_raw,
+                    })
+                    continue
                 if not recent:
-                    _clear_registry_block(op, now=now, reason="claude_registry_cooldown_no_live_quota_evidence")
+                    _clear_registry_block(op, operator_id=str(operator_id), now=now, reason="claude_registry_cooldown_no_live_quota_evidence")
                     pruned.append({
                         "operator_id": str(operator_id),
                         "runtime_state": runtime_state,
@@ -819,7 +972,7 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
                         or ""
                     ),
                 ):
-                    _clear_registry_block(op, now=now, reason="claude_live_heartbeat_after_block")
+                    _clear_registry_block(op, operator_id=str(operator_id), now=now, reason="claude_live_heartbeat_after_block")
                     pruned.append({
                         "operator_id": str(operator_id),
                         "runtime_state": runtime_state,
@@ -836,6 +989,7 @@ def prune_expired_operator_config_blocks() -> dict[str, Any]:
             continue
         _clear_registry_block(
             op,
+            operator_id=str(operator_id),
             now=now,
             reason=(
                 "weak_pane_rate_limit_evidence"
@@ -919,7 +1073,7 @@ def _prune_dynamic_operator_status_blocks(
         registry_cleared_after_status = (
             registry_pruned_at is not None
             and status_updated_at is not None
-            and registry_pruned_at > status_updated_at
+            and registry_pruned_at >= status_updated_at
             and str(op.get("quota_guard_state") or "").strip().lower() in {"", "ok", "ready"}
             and str(registry_state.get("runtime_state") or "").strip().lower() in {"", "idle", "ok", "ready", "unknown"}
         )
@@ -968,6 +1122,19 @@ def persist_operator_block(
     reason_l = str(reason or "").strip().lower()
     source_l = str(source or "").strip().lower()
     evidence_l = str(evidence_text or "").lower()
+    registry = _load_operator_registry()
+    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
+    op = operators.get(operator_id) if isinstance(operators.get(operator_id), dict) else {}
+    if (
+        source_l.startswith("tmux_pane:")
+        and _is_claude_code_operator(operator_id, op)
+        and not _claude_quota_evidence_matches_operator(operator_id, op, evidence_text)
+    ):
+        return {
+            "ok": False,
+            "reason": "claude_pane_quota_model_mismatch",
+            "operator_id": operator_id,
+        }
     if (
         (reason_l in {"pane_tui_rate_limit_fallback_ttl", "pane_tui_rate_limit"} and source_l.startswith("tmux_pane:"))
         or (reason_l in {"rate_limit", "cooldown"} and source_l == "failure_flow_control")
@@ -989,9 +1156,6 @@ def persist_operator_block(
     else:
         expires_iso = str(expires_at or "").strip()
 
-    registry = _load_operator_registry()
-    operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
-    op = operators.get(operator_id)
     if not isinstance(op, dict):
         return {"ok": False, "reason": "operator_not_found", "operator_id": operator_id}
 
@@ -1025,13 +1189,46 @@ def persist_operator_block(
     flow.pop("last_prune_reason", None)
     op["flow_control"] = flow
     _write_operator_registry(registry)
+    cooldown_db = _cooldown_db_module()
+    if cooldown_db is not None:
+        try:
+            cooldown_db.record_cooldown_event(
+                operator_id,
+                runtime_state,
+                reason=reason or runtime_state,
+                source=source or "operator_flow_control",
+                scope="operator_id",
+                rule_name=reason or runtime_state,
+                expires_at=expires_iso or None,
+                evidence_ref=f"{operator_id}:{source}:{expires_iso or runtime_state}",
+                evidence_excerpt=evidence_text,
+            )
+        except Exception:
+            pass
     return {"ok": True, "operator_id": operator_id, "runtime_state": runtime_state, "expires_at": expires_iso}
 
 
 def apply_success_cooldown(operator_id: str, *, success_cooldown_seconds: int) -> dict[str, Any] | None:
     if int(success_cooldown_seconds or 0) <= 0:
         return None
-    return set_operator_state(operator_id, "cooldown", ttl_seconds=int(success_cooldown_seconds))
+    result = set_operator_state(operator_id, "cooldown", ttl_seconds=int(success_cooldown_seconds))
+    cooldown_db = _cooldown_db_module()
+    if cooldown_db is not None:
+        try:
+            cooldown_db.record_cooldown_event(
+                operator_id,
+                "cooldown",
+                reason="success_cooldown",
+                source="operator_flow_control",
+                scope="operator_id",
+                rule_name="success_cooldown_seconds",
+                cooldown_seconds=int(success_cooldown_seconds),
+                evidence_ref=f"{operator_id}:success_cooldown:{int(success_cooldown_seconds)}",
+                evidence_excerpt=f"success cooldown {int(success_cooldown_seconds)} seconds",
+            )
+        except Exception:
+            pass
+    return result
 
 
 # 连续失败熔断 (2026-06-17): 根治"坏算子持续接活拖垮全队"。
@@ -1072,6 +1269,16 @@ def record_operator_outcome(operator_id: str, *, success: bool) -> dict[str, Any
         if data.get("consecutive_failures"):
             data["consecutive_failures"] = 0
             _persist()
+        cooldown_db = _cooldown_db_module()
+        if cooldown_db is not None:
+            try:
+                cooldown_db.clear_operator_cooldown(
+                    operator_id,
+                    reason="successful_operator_outcome",
+                    source="record_operator_outcome",
+                )
+            except Exception:
+                pass
         return None
     n = int(data.get("consecutive_failures") or 0) + 1
     data["consecutive_failures"] = n

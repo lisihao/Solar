@@ -10,6 +10,10 @@ PLIST_PATH="${HOME}/Library/LaunchAgents/${LABEL}.plist"
 LOG_DIR="${HARNESS_DIR}/logs"
 STDOUT_LOG="${LOG_DIR}/operator-rate-limit-pruner.out.log"
 STDERR_LOG="${LOG_DIR}/operator-rate-limit-pruner.err.log"
+LOG_WARN_BYTES="${SOLAR_LOG_WARN_BYTES:-52428800}"
+EVENT_LOG_WARN_BYTES="${SOLAR_EVENT_LOG_WARN_BYTES:-268435456}"
+WATERMARK_REPEAT_SECONDS="${SOLAR_LOG_WATERMARK_REPEAT_SECONDS:-86400}"
+WATERMARK_STATE_DIR="${HARNESS_DIR}/run/log-watermarks"
 
 launchd_domain() {
   printf 'gui/%s\n' "$(id -u)"
@@ -28,6 +32,9 @@ Usage:
 Environment:
   SOLAR_RATE_LIMIT_PRUNER_INTERVAL  Default: 300
   SOLAR_RATE_LIMIT_PRUNER_LABEL     Default: ${LABEL}
+  SOLAR_LOG_WARN_BYTES              Default: ${LOG_WARN_BYTES}
+  SOLAR_EVENT_LOG_WARN_BYTES        Default: ${EVENT_LOG_WARN_BYTES}
+  SOLAR_LOG_WATERMARK_REPEAT_SECONDS Default: ${WATERMARK_REPEAT_SECONDS}
 EOF
 }
 
@@ -95,10 +102,57 @@ write_plist() {
 PLIST_EOF
 }
 
+warn_if_log_large() {
+  local path="$1" threshold="$2" kind="$3"
+  [[ -f "$path" ]] || return 0
+
+  local bytes owner open_state="closed" state_key state_path last_notified=0 now
+  bytes="$(stat -f '%z' "$path" 2>/dev/null || printf '0')"
+  [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+  state_key="$(printf '%s' "$path" | cksum | awk '{print $1}')"
+  state_path="${WATERMARK_STATE_DIR}/${state_key}.state"
+  if (( bytes < threshold )); then
+    rm -f "$state_path"
+    return 0
+  fi
+
+  [[ "$WATERMARK_REPEAT_SECONDS" =~ ^[0-9]+$ ]] || WATERMARK_REPEAT_SECONDS=86400
+  if [[ -f "$state_path" ]]; then
+    read -r last_notified _ < "$state_path" || last_notified=0
+  fi
+  [[ "$last_notified" =~ ^[0-9]+$ ]] || last_notified=0
+  now="$(date +%s)"
+  (( now - last_notified >= WATERMARK_REPEAT_SECONDS )) || return 0
+
+  owner="$(stat -f '%Su:%Sg' "$path" 2>/dev/null || printf 'unknown')"
+  if command -v lsof >/dev/null 2>&1 && lsof "$path" >/dev/null 2>&1; then
+    open_state="open"
+  fi
+  printf '[%s] log-watermark warn kind=%s bytes=%s threshold=%s owner=%s fd=%s path=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$kind" "$bytes" "$threshold" "$owner" "$open_state" "$path" >&2
+  mkdir -p "$WATERMARK_STATE_DIR"
+  local state_tmp="${state_path}.tmp.$$"
+  printf '%s %s %s %s\n' "$now" "$bytes" "$threshold" "$path" > "$state_tmp"
+  mv "$state_tmp" "$state_path"
+}
+
+audit_log_watermarks() {
+  warn_if_log_large "${HARNESS_DIR}/.autopilot-launchd.log" "$LOG_WARN_BYTES" "service-log"
+  warn_if_log_large "${HARNESS_DIR}/.watchdog-launchd.log" "$LOG_WARN_BYTES" "service-log"
+  warn_if_log_large "${HARNESS_DIR}/logs/coordinator.log" "$LOG_WARN_BYTES" "service-log"
+  warn_if_log_large "${HARNESS_DIR}/logs/operator-health-watchdog.out.log" "$LOG_WARN_BYTES" "service-log"
+  warn_if_log_large "$STDOUT_LOG" "$LOG_WARN_BYTES" "service-log"
+  warn_if_log_large "${HARNESS_DIR}/events/all.jsonl" "$EVENT_LOG_WARN_BYTES" "evidence-log"
+  warn_if_log_large "${HARNESS_DIR}/run/operator-health-watchdog/history.jsonl" "$EVENT_LOG_WARN_BYTES" "evidence-log"
+  warn_if_log_large "${HARNESS_DIR}/run/operator-availability/quota-ledger.jsonl" "$EVENT_LOG_WARN_BYTES" "evidence-log"
+  warn_if_log_large "${HARNESS_DIR}/run/dispatch-ledger.jsonl" "$EVENT_LOG_WARN_BYTES" "evidence-log"
+}
+
 run_once() {
   mkdir -p "$LOG_DIR"
   printf '[%s] prune-rate-limits start\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  "${HARNESS_DIR}/solar-harness.sh" pm-fleet prune-rate-limits --json
+  "${HARNESS_DIR}/solar-harness.sh" pm-fleet prune-rate-limits
+  audit_log_watermarks
   printf '[%s] prune-rate-limits end\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 

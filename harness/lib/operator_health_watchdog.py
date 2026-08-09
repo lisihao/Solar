@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from typing import Any, Iterable
@@ -123,6 +124,10 @@ def _load_tool(name: str):
         spec = importlib.util.spec_from_file_location(f"operator_health_watchdog_{name}", path)
         if not spec or not spec.loader:
             continue
+        for import_dir in (HARNESS_DIR / "lib", HARNESS_DIR / "tools", path.parent):
+            import_dir_s = str(import_dir)
+            if import_dir_s not in sys.path:
+                sys.path.insert(0, import_dir_s)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)  # type: ignore[union-attr]
         return module
@@ -256,7 +261,47 @@ def _read_pm_backlog(pm_mod: Any) -> int:
     return count
 
 
+def _builder_drain_limit_from_capacity(capacity: dict[str, Any], *, default: int = 3) -> int:
+    cap = _coerce_int(os.environ.get("SOLAR_OHW_BUILDER_DRAIN_CAP", "6"), 6, min_value=1)
+    groups = capacity.get("groups") if isinstance(capacity.get("groups"), dict) else {}
+    spark = groups.get("codex-gpt-5.3-spark") if isinstance(groups.get("codex-gpt-5.3-spark"), dict) else {}
+    spark_usable = _coerce_int(spark.get("usable"), 0, min_value=0)
+    if spark_usable > 0:
+        return min(cap, max(default, spark_usable))
+    return min(cap, default)
+
+
+def _graph_drain_scan_limit_from_capacity(
+    capacity: dict[str, Any],
+    max_builders: int,
+    *,
+    default: int = 30,
+) -> int:
+    if max_builders <= 0:
+        return default
+    cap = _coerce_int(os.environ.get("SOLAR_OHW_GRAPH_DRAIN_SCAN_CAP", "300"), 300, min_value=default)
+    base = max(default, max_builders * 10)
+    breakdown = capacity.get("backlog_breakdown") if isinstance(capacity.get("backlog_breakdown"), dict) else {}
+    planning_complete = _coerce_int(breakdown.get("builder_planning_complete"), 0, min_value=0)
+    if planning_complete > 0:
+        base = max(base, planning_complete * 5)
+    return min(cap, base)
+
+
+def _graph_drain_scan_limit_from_builders(max_builders: int, *, default: int = 30) -> int:
+    return _graph_drain_scan_limit_from_capacity({}, max_builders, default=default)
+
+
 def _run_safe_drain_phase(pm_mod: Any, *, apply: bool, capacity: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    if os.environ.get("SOLAR_OHW_ENABLE_LEGACY_SAFE_DRAIN", "1").strip().lower() not in {"1", "true", "yes", "on"}:
+        return (
+            _phase_entry(
+                "drain_if_capacity_available",
+                "skipped",
+                skipped=[{"reason": "legacy_safe_drain_disabled"}],
+            ),
+            0,
+        )
     if not bool(capacity.get("ok", True)):
         return (
             _phase_entry(
@@ -287,7 +332,7 @@ def _run_safe_drain_phase(pm_mod: Any, *, apply: bool, capacity: dict[str, Any])
 
     allow_apply = os.environ.get("SOLAR_OHW_ENABLE_DRAIN_APPLY", "").strip() == "1"
     dry_run = not (apply and allow_apply)
-    args = argparse.Namespace(sprint="", max_items=3, dry_run=dry_run, json=True)
+    args = argparse.Namespace(sprint="", max_items=_builder_drain_limit_from_capacity(capacity), dry_run=dry_run, json=True)
     stdout = io.StringIO()
     stderr = io.StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
@@ -354,9 +399,18 @@ def _run_graph_drain_phase(controller_mod: Any, *, apply: bool, capacity: dict[s
             0,
         )
 
-    max_graphs = _coerce_int(os.environ.get("SOLAR_OHW_GRAPH_DRAIN_MAX_GRAPHS", "30"), 30, min_value=0)
-    max_evals = _coerce_int(os.environ.get("SOLAR_OHW_GRAPH_DRAIN_MAX_EVALS", "2"), 2, min_value=0)
-    max_builders = _coerce_int(os.environ.get("SOLAR_OHW_GRAPH_DRAIN_MAX_BUILDERS", "1"), 1, min_value=0)
+    max_builders = _coerce_int(
+        os.environ.get("SOLAR_OHW_GRAPH_DRAIN_MAX_BUILDERS", str(_builder_drain_limit_from_capacity(capacity))),
+        3,
+        min_value=0,
+    )
+    default_max_graphs = _graph_drain_scan_limit_from_capacity(capacity, max_builders)
+    max_graphs = _coerce_int(
+        os.environ.get("SOLAR_OHW_GRAPH_DRAIN_MAX_GRAPHS", str(default_max_graphs)),
+        default_max_graphs,
+        min_value=0,
+    )
+    max_evals = _coerce_int(os.environ.get("SOLAR_OHW_GRAPH_DRAIN_MAX_EVALS", "0"), 0, min_value=0)
     ttl = _coerce_int(os.environ.get("SOLAR_OHW_GRAPH_DRAIN_TTL", "900"), 900, min_value=60)
     try:
         payload = controller_mod.run_graph_drain(
@@ -508,7 +562,13 @@ def _run_evaluator_closeout_control_plane_phase(
     }
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    for path, record in _iter_pm_records(pm_mod, include_probe_records=False):
+    for path, record in _iter_pm_records(
+        pm_mod,
+        include_probe_records=False,
+        role_filter={"evaluator"},
+        status_values={"completed", "failed_contract_closeout"},
+        status_prefixes=("failed",),
+    ):
         if not isinstance(record, dict):
             continue
         task_id = str(record.get("task_id") or path.stem)
@@ -636,18 +696,88 @@ def _is_capacity_probe_record(pm_mod: Any, record: dict[str, Any], path: Path) -
     return task_id.startswith("pm-graph-dispatch-capacity-probe-") or task_id.startswith("pm-eval-capacity-probe-") or sprint_id in {"graph-dispatch-capacity-probe", "eval-capacity-probe"}
 
 
-def _iter_pm_records(pm_mod: Any, *, include_probe_records: bool = True) -> Iterable[tuple[Path, dict[str, Any]]]:
+def _scan_json_string_field(text: str, key: str) -> str:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*"((?:\\.|[^"\\])*)"', text)
+    if not match:
+        return ""
+    try:
+        return json.loads(f'"{match.group(1)}"')
+    except Exception:
+        return match.group(1)
+
+
+def _pm_record_projection(pm_mod: Any, path: Path) -> dict[str, str]:
+    helper = getattr(pm_mod, "_pm_inbox_projection_from_path", None)
+    if callable(helper):
+        try:
+            row = helper(path)
+            if isinstance(row, dict):
+                return {str(k): str(v or "") for k, v in row.items()}
+        except Exception:
+            pass
+    try:
+        with path.open("rb") as handle:
+            text = handle.read(65536).decode("utf-8", errors="replace")
+    except Exception:
+        return {}
+    task_id = (_scan_json_string_field(text, "task_id") or path.stem).strip()
+    return {
+        "task_id": task_id,
+        "sprint_id": _scan_json_string_field(text, "sprint_id").strip(),
+        "node_id": _scan_json_string_field(text, "node_id").strip(),
+        "status": _scan_json_string_field(text, "status").strip().lower(),
+        "operator_id": _scan_json_string_field(text, "operator_id").strip(),
+        "requested_role": (
+            _scan_json_string_field(text, "requested_role") or _scan_json_string_field(text, "role")
+        ).strip().lower(),
+        "borrowed_for_role": _scan_json_string_field(text, "borrowed_for_role").strip().lower(),
+        "path": str(path),
+    }
+
+
+def _status_matches(status: str, values: set[str] | None, prefixes: tuple[str, ...]) -> bool:
+    if values is None and not prefixes:
+        return True
+    if values is not None and status in values:
+        return True
+    return any(status.startswith(prefix) for prefix in prefixes)
+
+
+def _iter_pm_records(
+    pm_mod: Any,
+    *,
+    include_probe_records: bool = True,
+    load_full: bool = True,
+    role_filter: set[str] | None = None,
+    status_values: set[str] | None = None,
+    status_prefixes: tuple[str, ...] = (),
+    max_records: int = 0,
+) -> Iterable[tuple[Path, dict[str, Any]]]:
     inbox_dir = getattr(pm_mod, "PM_INBOX_DIR", HARNESS_DIR / "run" / "pm-inbox")
     if not inbox_dir.exists():
         return []
     records: list[tuple[Path, dict[str, Any]]] = []
     for path in sorted(inbox_dir.glob("pm-*.json")):
-        record = _load_json(path, None)
-        if not isinstance(record, dict):
+        projection = _pm_record_projection(pm_mod, path)
+        if not projection:
             continue
-        if not include_probe_records and _is_capacity_probe_record(pm_mod, record, path):
+        if not include_probe_records and _is_capacity_probe_record(pm_mod, projection, path):
             continue
+        role = str(projection.get("requested_role") or "").strip().lower()
+        if role_filter is not None and role not in role_filter:
+            continue
+        status = str(projection.get("status") or "").strip().lower()
+        if not _status_matches(status, status_values, status_prefixes):
+            continue
+        record: dict[str, Any] = dict(projection)
+        if load_full:
+            loaded = _load_json(path, None)
+            if not isinstance(loaded, dict):
+                continue
+            record = loaded
         records.append((path, record))
+        if max_records and len(records) >= max_records:
+            break
     return records
 
 
@@ -829,7 +959,6 @@ def run_watchdog(
                 "lock_file": str(lock_path),
             },
         }
-        _atomic_write_text(latest_path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         _append_jsonl(history_path, payload)
         return payload
 
@@ -903,7 +1032,24 @@ def run_watchdog(
             capacity = {"ok": False, "reason": f"quota_refresh_failed:{type(exc).__name__}", "run_id": run_id}
             phases.append(_phase_entry("refresh_capacity_snapshot", "error", blockers=[str(exc)]))
 
-        pm_ns = argparse.Namespace(apply=apply, max_age_minutes=max_age_minutes, json=True, limit=0)
+        reconcile_max_writes = _coerce_int(
+            os.environ.get("SOLAR_OHW_PM_RECONCILE_MAX_WRITES", "5"),
+            5,
+            min_value=0,
+        )
+        reconcile_max_scan_records = _coerce_int(
+            os.environ.get("SOLAR_OHW_PM_RECONCILE_MAX_SCAN_RECORDS", "80"),
+            80,
+            min_value=0,
+        )
+        pm_ns = argparse.Namespace(
+            apply=apply,
+            max_age_minutes=max_age_minutes,
+            json=True,
+            limit=0,
+            max_writes=reconcile_max_writes,
+            max_scan_records=reconcile_max_scan_records,
+        )
         try:
             reconcile_payload = _capture_cmd_output(getattr(pm_mod, "cmd_reconcile", None), pm_ns)
             reconcile_ok = bool(reconcile_payload.get("ok", reconcile_payload.get("returncode", 1) == 0))
@@ -988,7 +1134,11 @@ def run_watchdog(
                 "_release_graph_eval_on_transient_operator_failure",
                 lambda *_: {"ok": False, "released": False},
             )
-        for path, record in _iter_pm_records(pm_mod, include_probe_records=False):
+        for path, record in _iter_pm_records(
+            pm_mod,
+            include_probe_records=False,
+            status_prefixes=("failed",),
+        ):
             if not isinstance(record, dict):
                 continue
             task_id = str(record.get("task_id") or path.stem)
@@ -1035,7 +1185,12 @@ def run_watchdog(
                         "target": task_id,
                     }
                 )
-            if apply:
+            released_any = (
+                isinstance(node_release, dict) and bool(node_release.get("released"))
+            ) or (
+                isinstance(eval_release, dict) and bool(eval_release.get("released"))
+            )
+            if apply and released_any:
                 write_pm_task_record = getattr(pm_mod, "write_pm_task_record", None)
                 if callable(write_pm_task_record):
                     try:
@@ -1132,9 +1287,21 @@ def run_watchdog(
         projection_actions: list[dict[str, Any]] = []
         projection_skips: list[dict[str, Any]] = []
         if lease_adapter_mod is not None and hasattr(lease_adapter_mod, "repair_status_projection"):
-            for _path, record in _iter_pm_records(pm_mod, include_probe_records=False):
+            projection_max_records = _coerce_int(
+                os.environ.get("SOLAR_OHW_STATUS_PROJECTION_MAX_RECORDS", "40"),
+                40,
+                min_value=0,
+            )
+            projection_checked = 0
+            for _path, record in _iter_pm_records(
+                pm_mod,
+                include_probe_records=False,
+                load_full=False,
+                max_records=projection_max_records,
+            ):
                 if not isinstance(record, dict):
                     continue
+                projection_checked += 1
                 projection_payload = lease_adapter_mod.repair_status_projection(record, apply=apply)
                 if not isinstance(projection_payload, dict):
                     projection_skips.append({"reason": "invalid_projection_adapter_response"})
@@ -1151,7 +1318,12 @@ def run_watchdog(
                 "ok" if projection_actions else "skipped",
                 actions=projection_actions,
                 skipped=projection_skips,
-                counters={"applied": len(projection_actions)},
+                counters={
+                    "applied": len(projection_actions),
+                    "checked": projection_checked,
+                    "limited": int(bool(projection_max_records and projection_checked >= projection_max_records)),
+                    "max_records": projection_max_records,
+                },
             )
             phases.append(_attach_skipped_index(projection_phase, projection_skips))
         else:
