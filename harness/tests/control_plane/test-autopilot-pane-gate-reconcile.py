@@ -7,6 +7,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 
 MODULE_PATH = Path(__file__).resolve().parents[2] / "tools" / "solar-autopilot-monitor.py"

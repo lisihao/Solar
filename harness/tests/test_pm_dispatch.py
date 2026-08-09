@@ -4214,6 +4214,11 @@ def test_cmd_fail_requeues_transient_operator_failure_graph_node(monkeypatch, tm
     monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
     monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
+    monkeypatch.setattr(
+        pm_dispatch,
+        "_apply_transient_operator_flow_control",
+        lambda record: {"applied": False},
+    )
 
     task_id = "pm-sprint-requeue-B1-test"
     graph_path = sprints / "sprint-requeue.task_graph.json"
@@ -4291,6 +4296,11 @@ def test_cmd_fail_blocks_repeated_transient_operator_failure(monkeypatch, tmp_pa
     monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
     monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
     monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path / "harness")
+    monkeypatch.setattr(
+        pm_dispatch,
+        "_apply_transient_operator_flow_control",
+        lambda record: {"applied": False},
+    )
 
     task_id = "pm-sprint-requeue-B1-third"
     graph_path = sprints / "sprint-requeue.task_graph.json"

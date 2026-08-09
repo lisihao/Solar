@@ -37,8 +37,8 @@ def test_sync_status_cache_creates_missing_inflight_status(tmp_path, monkeypatch
     status_path = sprints / f"{sid}.status.json"
     assert result["ok"] is True
     assert result["created"] is True
-    assert result["updated"] is False
-    assert result["reason"] == "parent_not_ready"
+    assert result["updated"] is True
+    assert result["reason"] == "parent_projection_refreshed"
     assert status_path.exists()
 
     status = json.loads(status_path.read_text(encoding="utf-8"))
