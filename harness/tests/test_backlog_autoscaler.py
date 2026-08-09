@@ -164,6 +164,40 @@ def test_build_snapshot_scales_from_backlog(monkeypatch, tmp_path):
     assert snapshot["global_limits"]["max_workers"] == 11
 
 
+def test_scaled_target_can_jump_to_trigger_target_then_ramp():
+    spec = {
+        "base": 1,
+        "min": 1,
+        "max": 6,
+        "trigger_backlog": 10,
+        "trigger_target": 3,
+        "backlog_per_step": 15,
+        "step": 1,
+    }
+
+    assert ba._scaled_target(0, spec) == 1
+    assert ba._scaled_target(9, spec) == 1
+    assert ba._scaled_target(10, spec) == 3
+    assert ba._scaled_target(24, spec) == 3
+    assert ba._scaled_target(25, spec) == 4
+    assert ba._scaled_target(40, spec) == 5
+    assert ba._scaled_target(55, spec) == 6
+    assert ba._scaled_target(90, spec) == 6
+
+
+def test_repo_spark_policy_scales_to_three_through_six():
+    policy = json.loads((ROOT / "config" / "concurrency-policy.json").read_text(encoding="utf-8"))
+    targets = policy["backlog_autoscaling"]["builder_pool_targets"]
+    spark = targets["groups"]["codex-gpt-5.3-spark"]
+
+    assert ba._scaled_target(0, spark) == 3
+    assert ba._scaled_target(10, spark) == 3
+    assert ba._scaled_target(25, spark) == 5
+    assert ba._scaled_target(40, spark) == 6
+    assert ba._scaled_target(55, spark) == 6
+    assert ba._scaled_target(80, targets["desired_total"]) >= 8
+
+
 def test_builder_pool_targets_drop_cooldown_group_but_keep_requested(monkeypatch, tmp_path):
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -221,6 +255,108 @@ def test_builder_pool_targets_drop_cooldown_group_but_keep_requested(monkeypatch
     assert targets["reasoning"]["codex-gpt-5.3-spark"]["quota_capped"] is True
 
 
+def test_builder_pool_targets_backfill_spare_capacity_when_preferred_group_is_quota_capped():
+    targets = ba._builder_pool_targets(
+        {
+            "builder_pool_targets": {
+                "desired_total": {
+                    "metric": "active_planning_complete",
+                    "base": 5,
+                    "min": 3,
+                    "max": 8,
+                    "trigger_backlog": 8,
+                    "trigger_target": 6,
+                    "backlog_per_step": 12,
+                    "step": 1,
+                },
+                "groups": {
+                    "codex-gpt-5.3-spark": {
+                        "metric": "active_planning_complete",
+                        "base": 3,
+                        "min": 2,
+                        "max": 6,
+                        "trigger_backlog": 6,
+                        "trigger_target": 3,
+                        "backlog_per_step": 8,
+                        "step": 1,
+                    },
+                    "sonnet": {
+                        "metric": "active_planning_complete",
+                        "base": 3,
+                        "min": 2,
+                        "max": 5,
+                        "trigger_backlog": 10,
+                        "backlog_per_step": 8,
+                        "step": 1,
+                    },
+                    "codex-gpt-5.5-medium": {
+                        "metric": "active_planning_complete",
+                        "base": 0,
+                        "min": 0,
+                        "max": 1,
+                        "trigger_backlog": 10,
+                        "backlog_per_step": 20,
+                        "step": 1,
+                    },
+                },
+            }
+        },
+        {"active_planning_complete": 67},
+        group_capacity={
+            "codex-gpt-5.3-spark": {"configured": 6, "enabled": 6, "available": 0},
+            "sonnet": {"configured": 1, "enabled": 1, "available": 1},
+            "codex-gpt-5.5-medium": {"configured": 2, "enabled": 2, "available": 2},
+        },
+    )
+
+    assert targets["requested_desired_total"] == 8
+    assert targets["desired_total"] == 3
+    assert targets["requested_groups"]["codex-gpt-5.3-spark"] == 6
+    assert targets["groups"]["codex-gpt-5.3-spark"] == 0
+    assert targets["groups"]["sonnet"] == 1
+    assert targets["groups"]["codex-gpt-5.5-medium"] == 2
+    assert targets["reasoning"]["desired_total"]["backfill_groups"] == {"codex-gpt-5.5-medium": 1}
+    assert targets["reasoning"]["desired_total"]["quota_capped"] is False
+
+
+def test_operator_capacity_counts_roles_array_without_duplicate_primary_role(monkeypatch, tmp_path):
+    registry_path = tmp_path / "physical-operators.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    "gpt55-builder": {
+                        "role": "builder",
+                        "roles": ["builder", "evaluator"],
+                        "enabled": True,
+                        "available": True,
+                    },
+                    "deepseek-advisor": {
+                        "role": "advisor",
+                        "roles": ["advisor", "evaluator"],
+                        "enabled": True,
+                        "available": True,
+                    },
+                    "opus-evaluator": {
+                        "roles": ["evaluator"],
+                        "enabled": True,
+                        "available": True,
+                        "quota_guard_state": "cooldown",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ba, "PHYSICAL_OPERATORS_PATH", registry_path)
+
+    capacity = ba.operator_capacity_by_role()
+
+    assert capacity["builder"] == {"configured": 1, "enabled": 1, "available": 1}
+    assert capacity["advisor"] == {"configured": 1, "enabled": 1, "available": 1}
+    assert capacity["evaluator"] == {"configured": 3, "enabled": 3, "available": 2}
+
+
 def test_builder_pool_capacity_honors_dynamic_operator_status(monkeypatch, tmp_path):
     config_dir = tmp_path / "config"
     status_dir = tmp_path / "run" / "operator-status"
@@ -265,10 +401,9 @@ def test_builder_pool_capacity_honors_dynamic_operator_status(monkeypatch, tmp_p
     }
 
 
-def test_builder_pool_capacity_honors_recent_quota_result_log(monkeypatch, tmp_path):
+def test_builder_pool_capacity_honors_cooldown_db(monkeypatch, tmp_path):
     config_dir = tmp_path / "config"
     status_dir = tmp_path / "run" / "operator-status"
-    results_dir = tmp_path / "run" / "operator-results"
     config_dir.mkdir(parents=True, exist_ok=True)
     status_dir.mkdir(parents=True, exist_ok=True)
     operator_id = "mini-codex-gpt53-spark-builder-1"
@@ -285,10 +420,104 @@ def test_builder_pool_capacity_honors_recent_quota_result_log(monkeypatch, tmp_p
                         "state": {"runtime_state": "idle"},
                         "builder_pool": {"enabled": True, "group": "codex-gpt-5.3-spark"},
                     },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ba, "PHYSICAL_OPERATORS_PATH", registry_path)
+    monkeypatch.setattr(ba, "OPERATOR_STATUS_DIR", status_dir)
+    monkeypatch.setattr(
+        ba,
+        "_operator_cooldown_db_block",
+        lambda op_id: {
+            "runtime_state": "quota_exhausted",
+            "reason": "weekly_quota_exhausted",
+            "source": "quota_evidence_inbox",
+            "scope": "model_key",
+            "expires_at": "2099-01-01T00:00:00Z",
+        }
+        if op_id == operator_id
+        else None,
+    )
+
+    assert ba.builder_pool_capacity_by_group()["codex-gpt-5.3-spark"] == {
+        "configured": 1,
+        "enabled": 1,
+        "available": 0,
+    }
+
+
+def test_builder_pool_capacity_counts_running_as_usable_capacity(monkeypatch, tmp_path):
+    config_dir = tmp_path / "config"
+    status_dir = tmp_path / "run" / "operator-status"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    status_dir.mkdir(parents=True, exist_ok=True)
+    operator_id = "unit-codex-gpt55-medium-builder-capacity"
+    registry_path = config_dir / "physical-operators.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    operator_id: {
+                        "role": "builder",
+                        "enabled": True,
+                        "available": True,
+                        "quota_guard_state": "ok",
+                        "state": {"runtime_state": "idle"},
+                        "builder_pool": {"enabled": True, "group": "codex-gpt-5.5-medium"},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (status_dir / f"{operator_id}.json").write_text(
+        json.dumps(
+            {
+                "operator_id": operator_id,
+                "runtime_state": "running",
+                "expires_at": "2099-01-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ba, "PHYSICAL_OPERATORS_PATH", registry_path)
+    monkeypatch.setattr(ba, "OPERATOR_STATUS_DIR", status_dir)
+
+    assert ba.builder_pool_capacity_by_group()["codex-gpt-5.5-medium"] == {
+        "configured": 1,
+        "enabled": 1,
+        "available": 1,
+    }
+
+
+def test_builder_pool_capacity_honors_recent_quota_result_log(monkeypatch, tmp_path):
+    config_dir = tmp_path / "config"
+    status_dir = tmp_path / "run" / "operator-status"
+    results_dir = tmp_path / "run" / "operator-results"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    status_dir.mkdir(parents=True, exist_ok=True)
+    operator_id = "mini-codex-gpt53-spark-builder-1"
+    registry_path = config_dir / "physical-operators.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    operator_id: {
+                        "role": "builder",
+                        "enabled": True,
+                        "available": True,
+                        "billing_pool": "codex-gpt-5.3-spark",
+                        "quota_guard_state": "ok",
+                        "state": {"runtime_state": "idle"},
+                        "builder_pool": {"enabled": True, "group": "codex-gpt-5.3-spark"},
+                    },
                     "mini-codex-gpt53-spark-builder-2": {
                         "role": "builder",
                         "enabled": True,
                         "available": True,
+                        "billing_pool": "codex-gpt-5.3-spark",
                         "quota_guard_state": "ok",
                         "state": {"runtime_state": "idle"},
                         "builder_pool": {"enabled": True, "group": "codex-gpt-5.3-spark"},
@@ -302,7 +531,7 @@ def test_builder_pool_capacity_honors_recent_quota_result_log(monkeypatch, tmp_p
     log_path.parent.mkdir(parents=True)
     log_path.write_text(
         "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. "
-        "Switch to another model now, or try again at Jun 18th, 2026 12:20 AM.\n",
+        "Switch to another model now, or try again at Jan 1st, 2099 12:20 AM.\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(ba, "PHYSICAL_OPERATORS_PATH", registry_path)
@@ -311,6 +540,95 @@ def test_builder_pool_capacity_honors_recent_quota_result_log(monkeypatch, tmp_p
 
     assert ba.builder_pool_capacity_by_group()["codex-gpt-5.3-spark"]["configured"] == 2
     assert ba.builder_pool_capacity_by_group()["codex-gpt-5.3-spark"]["available"] == 0
+
+
+def test_builder_pool_capacity_excludes_claude_subscription_print_once(monkeypatch, tmp_path):
+    config_dir = tmp_path / "config"
+    status_dir = tmp_path / "run" / "operator-status"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    status_dir.mkdir(parents=True, exist_ok=True)
+    operator_id = "mini-claude-sonnet-builder-2"
+    registry_path = config_dir / "physical-operators.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    operator_id: {
+                        "role": "builder",
+                        "provider": "anthropic",
+                        "backend": "claude-cli",
+                        "model": "sonnet",
+                        "key_ref": "claude_subscription",
+                        "launch_cmd_kind": "print_once",
+                        "enabled": True,
+                        "available": True,
+                        "quota_guard_state": "ok",
+                        "state": {"runtime_state": "idle"},
+                        "surface": {
+                            "type": "claude_print",
+                            "launch_cmd": "claude --print --model sonnet",
+                        },
+                        "builder_pool": {"enabled": True, "group": "sonnet"},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ba, "PHYSICAL_OPERATORS_PATH", registry_path)
+    monkeypatch.setattr(ba, "OPERATOR_STATUS_DIR", status_dir)
+
+    assert ba.builder_pool_capacity_by_group()["sonnet"] == {
+        "configured": 1,
+        "enabled": 1,
+        "available": 0,
+    }
+
+
+def test_builder_pool_capacity_includes_claude_subscription_interactive_mailbox(monkeypatch, tmp_path):
+    config_dir = tmp_path / "config"
+    status_dir = tmp_path / "run" / "operator-status"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    status_dir.mkdir(parents=True, exist_ok=True)
+    operator_id = "mini-claude-sonnet-builder"
+    registry_path = config_dir / "physical-operators.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    operator_id: {
+                        "role": "builder",
+                        "provider": "anthropic",
+                        "backend": "claude-cli",
+                        "model": "sonnet",
+                        "auth_mode": "subscription",
+                        "key_ref": "claude_subscription",
+                        "billing_surface": "subscription_interactive",
+                        "billing_pool": "anthropic_subscription_interactive",
+                        "launch_cmd_kind": "interactive_repl",
+                        "enabled": True,
+                        "available": True,
+                        "quota_guard_state": "ok",
+                        "state": {"runtime_state": "idle"},
+                        "surface": {
+                            "type": "claude_code_interactive",
+                            "launch_cmd": "claude --dangerously-skip-permissions --model sonnet",
+                        },
+                        "builder_pool": {"enabled": True, "group": "sonnet"},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ba, "PHYSICAL_OPERATORS_PATH", registry_path)
+    monkeypatch.setattr(ba, "OPERATOR_STATUS_DIR", status_dir)
+
+    assert ba.builder_pool_capacity_by_group()["sonnet"] == {
+        "configured": 1,
+        "enabled": 1,
+        "available": 1,
+    }
 
 
 def test_backlog_metrics_scans_large_status_files(monkeypatch, tmp_path):

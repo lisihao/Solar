@@ -18,7 +18,7 @@ OPERATOR_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
 STATUS_FULL_LOAD_MAX_BYTES = int(os.environ.get("SOLAR_BACKLOG_STATUS_JSON_FULL_LOAD_MAX_BYTES", str(1024 * 1024)))
 STATUS_SCAN_BYTES = int(os.environ.get("SOLAR_BACKLOG_STATUS_JSON_SCAN_BYTES", str(256 * 1024)))
 STATUS_FIELD_RE = re.compile(r'"(status|phase|handoff_to)"\s*:\s*("(?:\\.|[^"\\])*")')
-BLOCKED_OPERATOR_STATES = {"cooldown", "quota_exhausted", "auth_expired", "disabled", "draining", "leased", "running"}
+BLOCKED_OPERATOR_STATES = {"cooldown", "quota_exhausted", "auth_expired", "disabled", "draining"}
 
 
 def _candidate_policy_paths() -> list[Path]:
@@ -89,7 +89,74 @@ def _load_status_fields(path: Path) -> dict[str, Any]:
     return _scan_status_fields(path)
 
 
+def _operator_cooldown_db_block(operator_id: str) -> dict[str, Any] | None:
+    try:
+        import operator_cooldown_db  # type: ignore
+
+        block = operator_cooldown_db.current_cooldown_block(operator_id)
+    except Exception:
+        return None
+    return block if isinstance(block, dict) else None
+
+
 def _operator_dynamic_block_state(operator_id: str, op: dict[str, Any] | None = None) -> str:
+    try:
+        if not isinstance(op, dict):
+            raise RuntimeError("operator_spec_missing")
+        import importlib.util
+
+        availability_path = THIS_HARNESS_DIR / "lib" / "operator_availability.py"
+        if not availability_path.exists():
+            raise RuntimeError("operator_availability_missing")
+        spec = importlib.util.spec_from_file_location("_solar_operator_availability_resolver", availability_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("operator_availability_loader_missing")
+        operator_availability = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(operator_availability)
+
+        op_data = {"operator_id": operator_id, **op}
+
+        def _status(op_key: str) -> dict[str, Any]:
+            path = OPERATOR_STATUS_DIR / f"{op_key}.json"
+            return _load_json(path, {}) if path.exists() else {}
+
+        def _recent(op_payload: dict[str, Any]) -> dict[str, Any] | None:
+            try:
+                import operator_flow_control as ofc  # type: ignore
+
+                block = ofc.recent_operator_quota_block(
+                    str(op_payload.get("operator_id") or ""),
+                    model_hint=str(op_payload.get("model") or op_payload.get("model_config") or ""),
+                )
+                return block if isinstance(block, dict) else None
+            except Exception:
+                return None
+
+        def _registry() -> dict[str, Any]:
+            return _load_json(PHYSICAL_OPERATORS_PATH, {"operators": {}})
+
+        decision = operator_availability.resolve_operator_availability(
+            op_data,
+            cooldown_block_fn=_operator_cooldown_db_block,
+            recent_quota_block_fn=_recent,
+            status_data_fn=_status,
+            registry_fn=_registry,
+            runtime_state_fn=lambda op_key: str(_status(op_key).get("runtime_state") or _status(op_key).get("state") or ""),
+            check_shared_quota=True,
+            dispatch_surface="mailbox",
+        )
+        state = str(decision.get("state") or "").strip().lower()
+        if state:
+            return state
+    except Exception:
+        pass
+
+    block = _operator_cooldown_db_block(operator_id)
+    if isinstance(block, dict):
+        state = str(block.get("runtime_state") or "").strip().lower()
+        if state in BLOCKED_OPERATOR_STATES:
+            return state
+
     path = OPERATOR_STATUS_DIR / f"{operator_id}.json"
     data = _load_json(path, {}) if path.exists() else {}
     if isinstance(data, dict):
@@ -196,13 +263,21 @@ def operator_capacity_by_role() -> dict[str, dict[str, int]]:
     for op_id, spec in operators.items():
         if not isinstance(spec, dict):
             continue
-        role = str(spec.get("role") or "").strip().lower()
-        if not role:
+        roles: list[str] = []
+        primary_role = str(spec.get("role") or "").strip().lower()
+        if primary_role:
+            roles.append(primary_role)
+        raw_roles = spec.get("roles") if isinstance(spec.get("roles"), list) else []
+        for item in raw_roles:
+            role_name = str(item or "").strip().lower()
+            if role_name and role_name not in roles:
+                roles.append(role_name)
+        if not roles:
             continue
-        bucket = result.setdefault(role, {"configured": 0, "enabled": 0, "available": 0})
-        bucket["configured"] += 1
+        enabled = bool(spec.get("enabled", False))
+        available = bool(spec.get("available", False))
         if bool(spec.get("enabled", False)):
-            bucket["enabled"] += 1
+            enabled = True
         state = spec.get("state") if isinstance(spec.get("state"), dict) else {}
         block_state = str(
             _operator_dynamic_block_state(str(op_id), spec)
@@ -211,8 +286,14 @@ def operator_capacity_by_role() -> dict[str, dict[str, int]]:
             or state.get("runtime_state")
             or ""
         ).strip().lower()
-        if bool(spec.get("enabled", False)) and bool(spec.get("available", False)) and block_state not in BLOCKED_OPERATOR_STATES:
-            bucket["available"] += 1
+        is_available = enabled and available and block_state not in BLOCKED_OPERATOR_STATES
+        for role in roles:
+            bucket = result.setdefault(role, {"configured": 0, "enabled": 0, "available": 0})
+            bucket["configured"] += 1
+            if enabled:
+                bucket["enabled"] += 1
+            if is_available:
+                bucket["available"] += 1
     return result
 
 
@@ -247,11 +328,6 @@ def builder_pool_capacity_by_group() -> dict[str, dict[str, int]]:
     registry = _load_json(PHYSICAL_OPERATORS_PATH, {"operators": {}})
     operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
     result: dict[str, dict[str, int]] = {}
-    blocked_groups: set[str] = set()
-    try:
-        import operator_flow_control as ofc  # type: ignore
-    except Exception:
-        ofc = None  # type: ignore
     for op_id, spec in operators.items():
         if not isinstance(spec, dict):
             continue
@@ -260,18 +336,6 @@ def builder_pool_capacity_by_group() -> dict[str, dict[str, int]]:
             continue
         op = {"operator_id": op_id, **spec}
         group = _infer_builder_group(op) or "unknown"
-        if ofc is not None and hasattr(ofc, "recent_operator_quota_block"):
-            try:
-                if isinstance(
-                    ofc.recent_operator_quota_block(
-                        str(op_id),
-                        model_hint=str(spec.get("model") or spec.get("model_config") or ""),
-                    ),
-                    dict,
-                ):
-                    blocked_groups.add(group)
-            except Exception:
-                pass
         bucket = result.setdefault(group, {"configured": 0, "enabled": 0, "available": 0})
         bucket["configured"] += 1
         if bool(spec.get("enabled", False)):
@@ -286,9 +350,6 @@ def builder_pool_capacity_by_group() -> dict[str, dict[str, int]]:
         ).strip().lower()
         if bool(spec.get("enabled", False)) and bool(spec.get("available", False)) and block_state not in BLOCKED_OPERATOR_STATES:
             bucket["available"] += 1
-    for group in blocked_groups:
-        if group in result:
-            result[group]["available"] = 0
     return result
 
 
@@ -317,11 +378,21 @@ def _scaled_target(metric_value: int, spec: dict[str, Any]) -> int:
         trigger = int(spec.get("trigger_backlog", 1))
     except Exception:
         trigger = 1
+    trigger_target: int | None = None
+    if "trigger_target" in spec:
+        try:
+            trigger_target = int(spec.get("trigger_target"))
+        except Exception:
+            trigger_target = None
 
     value = base
     if backlog_per_step > 0 and metric_value >= trigger:
-        increments = ((metric_value - trigger) // backlog_per_step) + 1
-        value = base + increments * step
+        if trigger_target is not None:
+            increments = (metric_value - trigger) // backlog_per_step
+            value = trigger_target + increments * step
+        else:
+            increments = ((metric_value - trigger) // backlog_per_step) + 1
+            value = base + increments * step
     value = max(minimum, value)
     value = min(maximum, value)
     return value
@@ -423,6 +494,50 @@ def _builder_pool_targets(config: dict[str, Any], metrics: dict[str, int], group
             "effective_target": effective_target,
             "quota_capped": capacity_known and effective_target < target,
         }
+    if result["desired_total"] is not None and result["groups"]:
+        group_effective_total = sum(int(value or 0) for value in result["groups"].values())
+        desired_total_int = int(result["desired_total"] or 0)
+        if group_effective_total > desired_total_int:
+            overflow = group_effective_total - desired_total_int
+            for group_name in reversed(list(result["groups"].keys())):
+                if overflow <= 0:
+                    break
+                current = int(result["groups"].get(group_name) or 0)
+                if current <= 0:
+                    continue
+                reduction = min(current, overflow)
+                result["groups"][group_name] = current - reduction
+                overflow -= reduction
+            result["reasoning"].setdefault("desired_total", {})["group_effective_total_before_cap"] = group_effective_total
+            result["reasoning"].setdefault("desired_total", {})["group_total_cap_applied"] = True
+        elif group_effective_total < desired_total_int:
+            # If preferred groups are quota-capped, keep the pool at the
+            # requested total by borrowing spare capacity from configured
+            # fallback groups instead of silently lowering desired_total.
+            backfilled: dict[str, int] = {}
+            remaining = desired_total_int - group_effective_total
+            for group_name in reversed(list(result["groups"].keys())):
+                if remaining <= 0:
+                    break
+                current = int(result["groups"].get(group_name) or 0)
+                available = int((capacity.get(group_name) or {}).get("available", 0) or 0)
+                spare = max(0, available - current)
+                if spare <= 0:
+                    continue
+                add = min(spare, remaining)
+                result["groups"][group_name] = current + add
+                backfilled[group_name] = add
+                remaining -= add
+            result["reasoning"].setdefault("desired_total", {})["group_effective_total"] = group_effective_total
+            if backfilled:
+                result["reasoning"].setdefault("desired_total", {})["backfill_groups"] = backfilled
+                result["reasoning"].setdefault("desired_total", {})["backfill_remaining"] = remaining
+                result["reasoning"].setdefault("desired_total", {})["quota_capped"] = remaining > 0
+                if remaining > 0:
+                    result["desired_total"] = desired_total_int - remaining
+            else:
+                result["reasoning"].setdefault("desired_total", {})["quota_capped"] = True
+                result["desired_total"] = group_effective_total
     return result
 
 
