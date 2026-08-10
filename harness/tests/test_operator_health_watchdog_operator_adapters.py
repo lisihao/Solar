@@ -173,6 +173,52 @@ def test_refresh_snapshot_apply_repairs_quota_idle_status_drift(monkeypatch, tmp
     assert not status_path.exists()
 
 
+def test_refresh_snapshot_preserves_fresh_actor_mailbox_auth_block(monkeypatch, tmp_path):
+    module = _adapter_module()
+    config_dir = tmp_path / "config"
+    status_dir = tmp_path / "run" / "operator-status"
+    config_dir.mkdir(parents=True)
+    status_dir.mkdir(parents=True)
+    (config_dir / "physical-operators.json").write_text(
+        '{"operators": {"op-auth": {"enabled": true, "available": true}}}',
+        encoding="utf-8",
+    )
+    status_path = status_dir / "op-auth.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "operator_id": "op-auth",
+                "runtime_state": "auth_expired",
+                "reason": "pane_tail_auth_blocker",
+                "source": "actor_mailbox_wake",
+                "updated_at": "2026-06-25T13:13:37Z",
+                "expires_at": "2026-06-25T14:13:37Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "_harness_dir", lambda: tmp_path)
+    monkeypatch.setattr(module, "_active_cooldown_db_state", lambda operator_id: "")
+    monkeypatch.setattr(
+        module,
+        "_now",
+        lambda: dt.datetime(2026, 6, 25, 13, 14, 0, tzinfo=dt.timezone.utc),
+    )
+    fake_refresh = SimpleNamespace(
+        refresh_snapshot=lambda apply=False: {
+            "ok": True,
+            "operators": [{"operator_id": "op-auth", "state": "idle", "usable": True}],
+        }
+    )
+
+    payload = module.refresh_snapshot(apply=True, quota_refresh_module=fake_refresh)
+
+    assert payload["ok"] is True
+    assert "control_plane_repair" not in payload
+    assert status_path.exists()
+
+
 def test_refresh_snapshot_does_not_repair_recent_auth_failure(monkeypatch, tmp_path):
     module = _adapter_module()
     config_dir = tmp_path / "config"

@@ -21,6 +21,7 @@ AUTH_FAILURE_MARKERS = (
     "api error: 401",
     "failed to authenticate",
 )
+AUTHORITATIVE_AUTH_STATUS_SOURCES = {"actor_mailbox_wake"}
 
 
 def _load_flow_control_module():
@@ -131,12 +132,28 @@ def _has_recent_auth_failure_evidence(operator_id: str, spec: dict[str, Any], *,
         return True
 
     status = _load_json(_harness_dir() / "run" / "operator-status" / f"{operator_id}.json", {})
+    status_state = _active_status_state(status, now=now)
+    status_source = str(status.get("source") or "").strip()
+    status_updated_at = status.get("updated_at") or status.get("last_error_at") or status.get("created_at")
+    if (
+        status_state == "auth_expired"
+        and status_source in AUTHORITATIVE_AUTH_STATUS_SOURCES
+        and _recent_enough(status_updated_at, now=now)
+    ):
+        return True
     status_text = " ".join(
         str(status.get(key) or "")
-        for key in ("runtime_state", "reason", "last_error", "evidence", "last_output_excerpt")
+        for key in (
+            "runtime_state",
+            "reason",
+            "last_error",
+            "evidence",
+            "last_block_excerpt",
+            "last_output_excerpt",
+        )
     )
     if _text_has_auth_failure_evidence(status_text) and _recent_enough(
-        status.get("updated_at") or status.get("last_error_at") or status.get("created_at"),
+        status_updated_at,
         now=now,
     ):
         return True
