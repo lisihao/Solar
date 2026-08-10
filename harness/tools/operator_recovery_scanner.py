@@ -760,13 +760,15 @@ def _write_auth_repair_request(operator_id: str, block: dict[str, Any], spec: di
         "runtime_state": str(block.get("runtime_state") or ""),
         "reason": str(block.get("reason") or ""),
         "evidence_excerpt": str(block.get("evidence_excerpt") or "")[-1200:],
-        "requested_at": _iso(),
+        "requested_at": str(previous.get("requested_at") or _iso()) if isinstance(previous, dict) else _iso(),
         "recovery": {
             "kind": "claude_code_subscription_login",
             "scope": "shared_claude_subscription",
             "note": "Do not login per shadow operator; repair the shared Claude Code tmux subscription session.",
         },
     }
+    if isinstance(previous, dict) and isinstance(previous.get("login_flow"), dict):
+        payload["login_flow"] = dict(previous["login_flow"])
     _write_json(path, payload)
 
 
@@ -1150,6 +1152,91 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
     shared_login_completion = _consume_completed_shared_claude_login(actor_mailbox_wake, apply=apply)
     if isinstance(shared_login_completion.get("auth_status"), dict):
         shared_auth_status = dict(shared_login_completion["auth_status"])
+    claude_targets: dict[str, tuple[str, dict[str, Any]]] = {}
+    for actor_id, pane in targets.items():
+        spec = _operator_spec(registry, actor_id)
+        if _is_active_claude_interactive_operator(spec) or _configured_claude_interactive_target(actor_id):
+            claude_targets[actor_id] = (pane, spec)
+    auth_attention_required = bool(_shared_claude_login_pending()) or any(
+        _runtime_status_state(actor_id) == "auth_expired"
+        or _actor_inbox_task_count(actor_id) > 0
+        or _actor_processing_task_count(actor_id) > 0
+        for actor_id in claude_targets
+    )
+    if auth_attention_required and shared_auth_status is None:
+        shared_auth_status = _shared_claude_auth_status()
+    blocked_claude_targets: set[str] = set()
+    shared_auth_gate: dict[str, Any] = {
+        "checked": auth_attention_required,
+        "verified_usable": bool((shared_auth_status or {}).get("verified_usable")),
+        "auth_status": shared_auth_status or {},
+    }
+    if auth_attention_required and not bool((shared_auth_status or {}).get("verified_usable")):
+        blocked_claude_targets = set(claude_targets)
+        block = {
+            "runtime_state": "auth_expired",
+            "reason": str((shared_auth_status or {}).get("reason") or "shared_auth_live_probe_failed"),
+            "evidence_excerpt": "Claude Code shared subscription live probe did not produce the success marker.",
+        }
+        if apply:
+            expires_at = _now() + dt.timedelta(hours=1)
+            for actor_id, (_pane, spec) in claude_targets.items():
+                effective_spec = spec or {
+                    "provider": "anthropic",
+                    "backend": "claude-cli",
+                    "model": "opus" if "opus" in actor_id else "sonnet",
+                    "auth_mode": "subscription",
+                }
+                _write_auth_repair_request(actor_id, block, effective_spec)
+                if hasattr(actor_mailbox_wake, "write_operator_status"):
+                    actor_mailbox_wake.write_operator_status(
+                        actor_id,
+                        "auth_expired",
+                        reason=block["reason"],
+                        excerpt=block["evidence_excerpt"],
+                        ttl_seconds=3600,
+                    )
+                operator_cooldown_db.record_cooldown_event(
+                    actor_id,
+                    "auth_expired",
+                    reason=block["reason"],
+                    source="shared_claude_live_auth_probe",
+                    scope="provider",
+                    rule_name="shared_claude_live_auth_probe",
+                    triggered_at=_now(),
+                    expires_at=expires_at,
+                    evidence_excerpt=block["evidence_excerpt"],
+                )
+            pending_login = _shared_claude_login_pending()
+            if pending_login:
+                login_flow = {"ok": True, "triggered": False, "reason": "shared_login_already_pending", **pending_login}
+            else:
+                trigger_actor_id = next(iter(claude_targets), "")
+                for actor_id, (pane, _spec) in claude_targets.items():
+                    try:
+                        tail = actor_mailbox_wake.capture_pane_tail(pane)
+                        tail_state, _tail_reason = actor_mailbox_wake.classify_tail(tail)
+                    except Exception:
+                        tail_state = ""
+                    if tail_state == "auth_expired":
+                        trigger_actor_id = actor_id
+                        break
+                if trigger_actor_id:
+                    trigger_pane, trigger_spec = claude_targets[trigger_actor_id]
+                    login_flow = _trigger_shared_claude_login(
+                        trigger_actor_id,
+                        trigger_pane,
+                        block,
+                        trigger_spec or {
+                            "provider": "anthropic",
+                            "backend": "claude-cli",
+                            "model": "opus" if "opus" in trigger_actor_id else "sonnet",
+                            "auth_mode": "subscription",
+                        },
+                    )
+                else:
+                    login_flow = {"ok": False, "triggered": False, "reason": "shared_login_target_missing"}
+            shared_auth_gate["login_flow"] = login_flow
     rerouted = _reroute_unmapped_inbox(targets, apply=apply)
     dead_lettered = _dead_letter_unmapped_inbox(apply=apply)
     rebalanced = _rebalance_mapped_inbox(targets, apply=apply)
@@ -1167,6 +1254,25 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
         state = _runtime_status_state(actor_id)
         inbox_count = _actor_inbox_task_count(actor_id)
         processing_count = _actor_processing_task_count(actor_id)
+        if actor_id in blocked_claude_targets:
+            blocked += 1
+            items.append(
+                {
+                    "operator_id": actor_id,
+                    "pane": pane,
+                    "ok": False,
+                    "status": "auth_expired",
+                    "reason": str((shared_auth_status or {}).get("reason") or "shared_auth_live_probe_failed"),
+                    "claimed": False,
+                    "rewoken": False,
+                    "operator_status_cleared": False,
+                    "inbox_count": inbox_count,
+                    "processing_count": processing_count,
+                    "runtime_state": state,
+                    "auth_recovery": shared_auth_gate.get("login_flow") or {},
+                }
+            )
+            continue
         if state not in BLOCKING_STATES and inbox_count <= 0 and processing_count <= 0:
             skipped.append({"operator_id": actor_id, "pane": pane, "reason": "no_block_or_inbox"})
             continue
@@ -1341,6 +1447,7 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
         "blocked": blocked,
         "status_cleared": cleared,
         "shared_login_completion": shared_login_completion,
+        "shared_auth_gate": shared_auth_gate,
         "rerouted": rerouted,
         "dead_lettered": dead_lettered,
         "rebalanced": rebalanced,

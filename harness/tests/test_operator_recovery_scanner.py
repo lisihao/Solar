@@ -225,6 +225,22 @@ def test_auth_repair_request_aggregates_shared_claude_subscription(tmp_path: Pat
     assert request["affected_operator_ids"] == ["claude-evaluator", "claude-planner"]
 
 
+def test_auth_repair_request_preserves_pending_login_flow(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    spec = {"provider": "anthropic", "backend": "claude-cli", "model": "opus"}
+    scanner._write_auth_repair_request("claude-planner", {"runtime_state": "auth_expired"}, spec)
+    path = tmp_path / "run" / "auth-repair-requests" / "shared-claude-subscription.json"
+    request = json.loads(path.read_text(encoding="utf-8"))
+    request["login_flow"] = {"status": "pending", "triggered_at": scanner._iso(), "pane": "session:0.1"}
+    path.write_text(json.dumps(request), encoding="utf-8")
+
+    scanner._write_auth_repair_request("claude-evaluator", {"runtime_state": "auth_expired"}, spec)
+
+    updated = json.loads(path.read_text(encoding="utf-8"))
+    assert updated["login_flow"] == request["login_flow"]
+    assert updated["affected_operator_ids"] == ["claude-evaluator", "claude-planner"]
+
+
 def test_recovery_scanner_wakes_actor_mailbox_when_blocked_status_recovers(tmp_path: Path, monkeypatch):
     _patch_paths(monkeypatch, tmp_path)
     monkeypatch.setattr(scanner, "_actor_mailbox_wake_targets", lambda: {"op-auth": "session:0.3"})
@@ -627,12 +643,71 @@ def test_recovery_scanner_scans_actor_with_processing_backlog(tmp_path: Path, mo
     assert payload["mailbox_wake"]["items"][0]["processing_count"] == 2
 
 
+def test_shared_claude_live_auth_gate_blocks_wake_and_triggers_single_login(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    actor_id = "mini-claude-sonnet-builder"
+    monkeypatch.setattr(scanner, "_actor_mailbox_wake_targets", lambda: {actor_id: "session:0.3"})
+    monkeypatch.setattr(scanner, "_configured_claude_interactive_target", lambda operator_id: True)
+    monkeypatch.setattr(scanner, "_runtime_status_state", lambda operator_id: "")
+    monkeypatch.setattr(scanner, "_actor_inbox_task_count", lambda operator_id: 1)
+    monkeypatch.setattr(scanner, "_actor_processing_task_count", lambda operator_id: 0)
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {
+            "ok": False,
+            "logged_in": False,
+            "credential_present": True,
+            "verified_usable": False,
+            "reason": "shared_auth_live_probe_401",
+        },
+    )
+    monkeypatch.setattr(scanner, "_shared_claude_login_pending", lambda: None)
+    login_calls = []
+    monkeypatch.setattr(
+        scanner,
+        "_trigger_shared_claude_login",
+        lambda operator_id, pane, block, spec: login_calls.append((operator_id, pane)) or {
+            "ok": True,
+            "triggered": True,
+            "reason": "shared_login_triggered",
+        },
+    )
+    monkeypatch.setattr(scanner, "_write_auth_repair_request", lambda *args, **kwargs: None)
+    monkeypatch.setattr(scanner.operator_cooldown_db, "record_cooldown_event", lambda *args, **kwargs: {"ok": True})
+    status_calls = []
+
+    def forbidden_wake(*args, **kwargs):
+        raise AssertionError("wake_actor must not run while shared auth probe is failing")
+
+    actor_wake = types.SimpleNamespace(
+        wake_actor=forbidden_wake,
+        write_operator_status=lambda *args, **kwargs: status_calls.append((args, kwargs)),
+        capture_pane_tail=lambda pane: "Please run /login · API Error: 401",
+        classify_tail=lambda tail: ("auth_expired", "pane_tail_auth_blocker"),
+    )
+    monkeypatch.setitem(sys.modules, "actor_mailbox_wake", actor_wake)
+
+    payload = scanner._scan_actor_mailbox_wake(apply=True)
+
+    assert payload["shared_auth_gate"]["verified_usable"] is False
+    assert payload["blocked"] == 1
+    assert payload["items"][0]["status"] == "auth_expired"
+    assert login_calls == [(actor_id, "session:0.3")]
+    assert len(status_calls) == 1
+
+
 def test_recovery_scanner_respawns_dead_actor_pane_before_wake(tmp_path: Path, monkeypatch):
     _patch_paths(monkeypatch, tmp_path)
     monkeypatch.setattr(scanner, "_actor_mailbox_wake_targets", lambda: {"mini-claude-sonnet-builder": "session:0.3"})
     monkeypatch.setattr(scanner, "_runtime_status_state", lambda operator_id: "")
     monkeypatch.setattr(scanner, "_actor_inbox_task_count", lambda operator_id: 1)
     monkeypatch.setattr(scanner, "_actor_processing_task_count", lambda operator_id: 0)
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {"ok": True, "logged_in": True, "verified_usable": True},
+    )
     monkeypatch.setattr(scanner, "_tmux_pane_dead", lambda pane: (True, "target pane has exited"))
     monkeypatch.setattr(scanner, "_capture_pane_excerpt", lambda pane: "Claude Code v2\n❯ ")
     run_calls = []
@@ -664,6 +739,11 @@ def test_recovery_scanner_dry_run_reports_respawn_without_wake(tmp_path: Path, m
     monkeypatch.setattr(scanner, "_runtime_status_state", lambda operator_id: "")
     monkeypatch.setattr(scanner, "_actor_inbox_task_count", lambda operator_id: 1)
     monkeypatch.setattr(scanner, "_actor_processing_task_count", lambda operator_id: 0)
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {"ok": True, "logged_in": True, "verified_usable": True},
+    )
     monkeypatch.setattr(scanner, "_tmux_pane_dead", lambda pane: (True, "target pane has exited"))
     wake_calls = []
 
