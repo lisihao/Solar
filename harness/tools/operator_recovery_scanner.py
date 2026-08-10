@@ -6,6 +6,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -48,6 +49,9 @@ DEFAULT_ACTOR_RESPAWN_COMMANDS = {
 DEFAULT_ACTOR_RESPAWN_CWD = {
     "mini-claude-sonnet-builder": str(Path.home() / "Solar"),
 }
+SHARED_CLAUDE_LOGIN_PENDING_TTL_SECONDS = int(
+    os.environ.get("SOLAR_SHARED_CLAUDE_LOGIN_PENDING_TTL_SECONDS", "3600") or "3600"
+)
 
 
 def _now() -> dt.datetime:
@@ -771,6 +775,83 @@ def _clear_shared_claude_auth_repair_request() -> bool:
         return False
 
 
+def _shared_claude_login_pending() -> dict[str, Any] | None:
+    path = AUTH_REPAIR_REQUESTS_DIR / "shared-claude-subscription.json"
+    payload = _load_json(path, {}) if path.exists() else {}
+    login_flow = payload.get("login_flow") if isinstance(payload, dict) else {}
+    if not isinstance(login_flow, dict) or str(login_flow.get("status") or "") != "pending":
+        return None
+    raw = str(login_flow.get("triggered_at") or "").strip()
+    try:
+        triggered_at = dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(dt.timezone.utc)
+    except Exception:
+        return None
+    age_seconds = (_now() - triggered_at).total_seconds()
+    if age_seconds < 0 or age_seconds > SHARED_CLAUDE_LOGIN_PENDING_TTL_SECONDS:
+        return None
+    return {**login_flow, "age_seconds": round(age_seconds, 1), "request_path": str(path)}
+
+
+def _trigger_shared_claude_login(
+    operator_id: str,
+    pane: str,
+    block: dict[str, Any],
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    pending = _shared_claude_login_pending()
+    if pending:
+        return {"ok": True, "triggered": False, "reason": "shared_login_already_pending", **pending}
+
+    _write_auth_repair_request(operator_id, block, spec)
+    buffer_name = f"solar_shared_claude_login_{os.getpid()}"
+    commands = [
+        ["tmux", "send-keys", "-t", pane, "C-u"],
+        ["tmux", "set-buffer", "-b", buffer_name, "/login"],
+        ["tmux", "paste-buffer", "-b", buffer_name, "-t", pane],
+        ["tmux", "delete-buffer", "-b", buffer_name],
+        ["tmux", "send-keys", "-t", pane, "Enter"],
+    ]
+    for command in commands:
+        proc = subprocess.run(command, text=True, capture_output=True, check=False, timeout=10)
+        if proc.returncode != 0:
+            return {"ok": False, "triggered": False, "reason": "shared_login_tmux_failed", "pane": pane}
+    time.sleep(1.0)
+    subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], check=False, timeout=10)
+    time.sleep(2.0)
+
+    excerpt = _capture_pane_excerpt(pane)
+    match = re.search(
+        r"https://claude\.com/cai/oauth/authorize\?[\s\S]*?(?=\n\s*\n\s*Paste code here)",
+        excerpt,
+    )
+    oauth_url = re.sub(r"\s+", "", match.group(0)) if match else ""
+    browser_opened = False
+    if oauth_url:
+        opened = subprocess.run(["open", oauth_url], text=True, capture_output=True, check=False, timeout=10)
+        browser_opened = opened.returncode == 0
+
+    request_path = AUTH_REPAIR_REQUESTS_DIR / "shared-claude-subscription.json"
+    payload = _load_json(request_path, {})
+    payload["login_flow"] = {
+        "status": "pending",
+        "triggered_at": _iso(),
+        "triggered_by": operator_id,
+        "pane": pane,
+        "browser_opened": browser_opened,
+        "oauth_url_detected": bool(oauth_url),
+    }
+    _write_json(request_path, payload)
+    return {
+        "ok": True,
+        "triggered": True,
+        "reason": "shared_login_triggered",
+        "pane": pane,
+        "browser_opened": browser_opened,
+        "oauth_url_detected": bool(oauth_url),
+        "request_path": str(request_path),
+    }
+
+
 def _shared_claude_auth_status() -> dict[str, Any]:
     executable = shutil.which("claude")
     if not executable:
@@ -793,9 +874,11 @@ def _shared_claude_auth_status() -> dict[str, Any]:
     return {
         "ok": proc.returncode == 0,
         "logged_in": logged_in,
+        "credential_present": logged_in,
+        "verified_usable": False,
         "auth_method": str(payload.get("authMethod") or ""),
         "subscription_type": str(payload.get("subscriptionType") or ""),
-        "reason": "shared_auth_ready" if logged_in else "shared_auth_login_required",
+        "reason": "shared_credential_present_unverified" if logged_in else "shared_auth_login_required",
     }
 
 
@@ -819,6 +902,7 @@ def _respawn_actor_pane_for_shared_auth(actor_id: str, pane: str) -> dict[str, A
             "pane": pane,
             "stderr": proc.stderr[-1000:],
         }
+    subprocess.run(["tmux", "clear-history", "-t", pane], check=False, timeout=10)
     return {
         "ok": True,
         "reason": "shared_auth_session_respawned",
@@ -826,6 +910,11 @@ def _respawn_actor_pane_for_shared_auth(actor_id: str, pane: str) -> dict[str, A
         "pane": pane,
         "cwd": cwd,
     }
+
+
+def _configured_claude_interactive_target(actor_id: str) -> bool:
+    command = str(_actor_respawn_commands().get(actor_id) or "").lower()
+    return actor_id in _actor_mailbox_wake_targets() and "claude" in command
 
 
 def _quota_window_for_block(block: dict[str, Any]) -> str:
@@ -1035,11 +1124,34 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
         auth_recovery: dict[str, Any] = {}
         if status == "auth_expired" and apply:
             spec = _operator_spec(registry, actor_id)
-            if _is_active_claude_interactive_operator(spec):
+            is_claude_target = _is_active_claude_interactive_operator(spec) or _configured_claude_interactive_target(actor_id)
+            if is_claude_target:
+                block = {
+                    "runtime_state": "auth_expired",
+                    "reason": str(result.get("reason") or "pane_tail_auth_blocker"),
+                    "evidence_excerpt": str(result.get("operator_status_path") or ""),
+                }
+                pending_login = _shared_claude_login_pending()
+                if pending_login:
+                    auth_recovery = {
+                        "ok": True,
+                        "triggered": False,
+                        "reason": "shared_login_already_pending",
+                        **pending_login,
+                    }
+                    result["auth_recovery"] = auth_recovery
+                else:
+                    if not spec:
+                        model = "opus" if "opus" in actor_id else "sonnet"
+                        spec = {
+                            "provider": "anthropic",
+                            "backend": "claude-cli",
+                            "model": model,
+                            "auth_mode": "subscription",
+                        }
                 if shared_auth_status is None:
                     shared_auth_status = _shared_claude_auth_status()
-                if bool(shared_auth_status.get("logged_in")):
-                    _clear_shared_claude_auth_repair_request()
+                if not pending_login and bool(shared_auth_status.get("logged_in")):
                     auth_recovery = _respawn_actor_pane_for_shared_auth(actor_id, pane)
                     if auth_recovery.get("ok"):
                         time.sleep(2.0)
@@ -1059,19 +1171,37 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
                                 "status": "auth_expired",
                                 "reason": f"post_respawn_wake_failed:{type(exc).__name__}",
                             }
+                        if bool(recovered_result.get("ok")):
+                            time.sleep(2.0)
+                            try:
+                                verified_tail = actor_mailbox_wake.capture_pane_tail(pane)
+                                verified_state, verified_reason = actor_mailbox_wake.classify_tail(verified_tail)
+                            except Exception as exc:
+                                verified_state = "auth_expired"
+                                verified_reason = f"post_respawn_verify_failed:{type(exc).__name__}"
+                            if verified_state != "ok":
+                                recovered_result = {
+                                    "ok": False,
+                                    "status": verified_state,
+                                    "reason": verified_reason,
+                                    "claimed": False,
+                                    "rewoken": False,
+                                }
+                        if str(recovered_result.get("status") or "") == "auth_expired":
+                            auth_recovery["login_flow"] = _trigger_shared_claude_login(
+                                actor_id,
+                                pane,
+                                block,
+                                spec,
+                            )
+                        elif bool(recovered_result.get("ok")):
+                            _clear_shared_claude_auth_repair_request()
                         recovered_result["auth_recovery"] = auth_recovery
                         result = recovered_result
                         status = str(result.get("status") or "")
-                else:
-                    _write_auth_repair_request(
-                        actor_id,
-                        {
-                            "runtime_state": "auth_expired",
-                            "reason": str(result.get("reason") or "pane_tail_auth_blocker"),
-                            "evidence_excerpt": str(result.get("operator_status_path") or ""),
-                        },
-                        spec,
-                    )
+                elif not pending_login:
+                    auth_recovery = _trigger_shared_claude_login(actor_id, pane, block, spec)
+                    result["auth_recovery"] = auth_recovery
         if bool(result.get("ok")):
             if bool(result.get("claimed")):
                 woken += 1

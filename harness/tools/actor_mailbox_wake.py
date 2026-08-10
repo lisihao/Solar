@@ -34,8 +34,7 @@ AUTH_BLOCK_RE = re.compile(
     re.I,
 )
 AUTH_RECOVERY_RE = re.compile(
-    r"Login successful|Authentication successful|Successfully (?:logged|signed) in|"
-    r"Claude Code v\d",
+    r"Login successful|Authentication successful|Successfully (?:logged|signed) in",
     re.I,
 )
 QUOTA_BLOCK_RE = re.compile(
@@ -115,7 +114,7 @@ def tail_has_ready_prompt_after_last_blocker(tail: str, blocker_re: re.Pattern[s
         # An expired Claude session returns to the normal-looking prompt and
         # still renders the "bypass permissions" footer.  Neither proves that
         # the shared OAuth credential was reloaded.  Require positive login or
-        # a fresh Claude session banner after the last auth failure.
+        # an explicit successful login marker after the last auth failure.
         return bool(AUTH_RECOVERY_RE.search(suffix))
     return "Claude Code v" in suffix or "bypass permissions" in suffix
 

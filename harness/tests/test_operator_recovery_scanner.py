@@ -245,7 +245,15 @@ def test_recovery_scanner_wakes_actor_mailbox_when_blocked_status_recovers(tmp_p
             "wake_prompt_path": "/tmp/logs/wake.md",
         }
 
-    monkeypatch.setitem(sys.modules, "actor_mailbox_wake", types.SimpleNamespace(wake_actor=fake_wake))
+    monkeypatch.setitem(
+        sys.modules,
+        "actor_mailbox_wake",
+        types.SimpleNamespace(
+            wake_actor=fake_wake,
+            capture_pane_tail=lambda pane: "Claude Code v2.1.119\n❯ ",
+            classify_tail=lambda tail: ("ok", ""),
+        ),
+    )
 
     payload = scanner.run_scan(apply=True, refresh_snapshot=False)
 
@@ -286,7 +294,15 @@ def test_recovery_scanner_dry_run_does_not_apply_mailbox_wake(tmp_path: Path, mo
             "claimed": False,
         }
 
-    monkeypatch.setitem(sys.modules, "actor_mailbox_wake", types.SimpleNamespace(wake_actor=fake_wake))
+    monkeypatch.setitem(
+        sys.modules,
+        "actor_mailbox_wake",
+        types.SimpleNamespace(
+            wake_actor=fake_wake,
+            capture_pane_tail=lambda pane: "Claude Code v2.1.119\n❯ ",
+            classify_tail=lambda tail: ("ok", ""),
+        ),
+    )
 
     payload = scanner.run_scan(apply=False, refresh_snapshot=False)
 
@@ -337,7 +353,15 @@ def test_recovery_scanner_respawns_stale_claude_pane_when_shared_auth_is_ready(t
             return {"ok": False, "status": "auth_expired", "reason": "pane_tail_auth_blocker"}
         return {"ok": True, "status": "processing", "reason": "rewake_processing", "rewoken": True}
 
-    monkeypatch.setitem(sys.modules, "actor_mailbox_wake", types.SimpleNamespace(wake_actor=fake_wake))
+    monkeypatch.setitem(
+        sys.modules,
+        "actor_mailbox_wake",
+        types.SimpleNamespace(
+            wake_actor=fake_wake,
+            capture_pane_tail=lambda pane: "Claude Code v2.1.119\n❯ ",
+            classify_tail=lambda tail: ("ok", ""),
+        ),
+    )
 
     payload = scanner.run_scan(apply=True, refresh_snapshot=False)
 
@@ -347,6 +371,87 @@ def test_recovery_scanner_respawns_stale_claude_pane_when_shared_auth_is_ready(t
     assert item["status"] == "processing"
     assert item["auth_recovery"]["reason"] == "shared_auth_session_respawned"
     assert not repair_request.exists()
+
+
+def test_recovery_scanner_triggers_shared_login_when_respawn_still_gets_401(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    actor_id = "mini-claude-opus-builder"
+    monkeypatch.setattr(scanner, "_actor_mailbox_wake_targets", lambda: {actor_id: "session:0.2"})
+    monkeypatch.setattr(scanner, "_configured_claude_interactive_target", lambda operator_id: True)
+    monkeypatch.setattr(scanner, "_runtime_status_state", lambda operator_id: "auth_expired")
+    monkeypatch.setattr(scanner, "_actor_inbox_task_count", lambda operator_id: 1)
+    monkeypatch.setattr(scanner, "_actor_processing_task_count", lambda operator_id: 0)
+    monkeypatch.setattr(scanner, "_ensure_actor_pane_available", lambda actor_id, pane, apply: {"ok": True, "pane_dead": False, "respawned": False})
+    monkeypatch.setattr(scanner, "_shared_claude_auth_status", lambda: {"ok": True, "logged_in": True})
+    monkeypatch.setattr(
+        scanner,
+        "_respawn_actor_pane_for_shared_auth",
+        lambda actor_id, pane: {"ok": True, "reason": "shared_auth_session_respawned", "pane": pane},
+    )
+    monkeypatch.setattr(scanner, "_accept_claude_trust_prompt", lambda pane: False)
+    monkeypatch.setattr(scanner.time, "sleep", lambda seconds: None)
+    login_calls = []
+    monkeypatch.setattr(
+        scanner,
+        "_trigger_shared_claude_login",
+        lambda actor_id, pane, block, spec: login_calls.append((actor_id, pane)) or {
+            "ok": True,
+            "triggered": True,
+            "reason": "shared_login_triggered",
+        },
+    )
+    wake_calls = []
+
+    def fake_wake(actor_id, pane, *, dry_run=False, **kwargs):
+        wake_calls.append(actor_id)
+        if len(wake_calls) == 1:
+            return {"ok": False, "status": "auth_expired", "reason": "pane_tail_auth_blocker"}
+        return {"ok": True, "status": "processing", "reason": "rewake_processing", "rewoken": True}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "actor_mailbox_wake",
+        types.SimpleNamespace(
+            wake_actor=fake_wake,
+            capture_pane_tail=lambda pane: "Please run /login · API Error: 401",
+            classify_tail=lambda tail: ("auth_expired", "pane_tail_auth_blocker"),
+        ),
+    )
+
+    payload = scanner.run_scan(apply=True, refresh_snapshot=False)
+
+    item = payload["mailbox_wake"]["items"][0]
+    assert item["status"] == "auth_expired"
+    assert item["auth_recovery"]["login_flow"]["reason"] == "shared_login_triggered"
+    assert login_calls == [(actor_id, "session:0.2")]
+
+
+def test_shared_claude_login_trigger_is_singleton_with_ttl(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(scanner.subprocess, "run", fake_run)
+    monkeypatch.setattr(scanner.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        scanner,
+        "_capture_pane_excerpt",
+        lambda pane: "https://claude.com/cai/oauth/authorize?code=true&state=test\n\nPaste code here",
+    )
+    block = {"runtime_state": "auth_expired", "reason": "pane_tail_auth_blocker"}
+    spec = {"provider": "anthropic", "backend": "claude-cli", "model": "opus"}
+
+    first = scanner._trigger_shared_claude_login("claude-a", "session:0.1", block, spec)
+    second = scanner._trigger_shared_claude_login("claude-b", "session:0.2", block, spec)
+
+    assert first["triggered"] is True
+    assert first["browser_opened"] is True
+    assert second["triggered"] is False
+    assert second["reason"] == "shared_login_already_pending"
+    assert sum(1 for command in calls if command[:2] == ["open", "https://claude.com/cai/oauth/authorize?code=true&state=test"]) == 1
 
 
 def test_recovery_scanner_scans_actor_with_processing_backlog(tmp_path: Path, monkeypatch):

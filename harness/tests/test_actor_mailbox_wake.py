@@ -43,6 +43,19 @@ def test_classify_tail_ignores_auth_error_after_positive_login_recovery():
     assert wake.classify_tail(tail) == ("ok", "")
 
 
+def test_classify_tail_does_not_treat_fresh_banner_as_auth_recovery():
+    tail = """
+      Please run /login · API Error: 401 Invalid authentication credentials
+      ▐▛███▜▌   Claude Code v2.1.119
+    ───────────────────────────────────────
+    ❯
+    ───────────────────────────────────────
+      ⏵⏵ bypass permissions on
+    """
+
+    assert wake.classify_tail(tail) == ("auth_expired", "pane_tail_auth_blocker")
+
+
 def test_classify_tail_keeps_auth_error_without_ready_prompt():
     tail = "Please run /login · API Error: 401 Invalid authentication credentials"
 
