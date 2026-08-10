@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,6 +13,14 @@ SPEC = importlib.util.spec_from_file_location("operator_cooldown_db_under_test",
 cooldown_db = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(cooldown_db)
+
+
+def test_connection_context_closes_sqlite_handle(tmp_path: Path):
+    with cooldown_db._connect(tmp_path / "closed.sqlite") as conn:
+        conn.execute("SELECT 1").fetchone()
+
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        conn.execute("SELECT 1")
 
 
 def test_record_cooldown_event_creates_active_computable_state(tmp_path: Path):

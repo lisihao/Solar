@@ -34,6 +34,7 @@ LATEST_REPORT_PATH = RUN_DIR / "latest.json"
 HISTORY_PATH = RUN_DIR / "history.jsonl"
 LIBRARY_LAUNCH_AGENT_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
 RUN_LAUNCH_AGENT_PATH = RUN_DIR / f"{LAUNCH_AGENT_LABEL}.plist"
+_PM_RECORD_PATH_CACHE: tuple[str, int, int, list[Path]] | None = None
 
 
 def _iso_now() -> str:
@@ -797,13 +798,36 @@ def _iter_pm_records(
     if max_records:
         scan_limit = max(scan_limit, max_records * 4)
 
-    def mtime_ns(path: Path) -> int:
+    global _PM_RECORD_PATH_CACHE
+    try:
+        directory_mtime_ns = inbox_dir.stat().st_mtime_ns
+    except OSError:
+        directory_mtime_ns = 0
+    cache_key = str(inbox_dir.resolve())
+    paths: list[Path]
+    if (
+        _PM_RECORD_PATH_CACHE is not None
+        and _PM_RECORD_PATH_CACHE[0] == cache_key
+        and _PM_RECORD_PATH_CACHE[1] == directory_mtime_ns
+        and _PM_RECORD_PATH_CACHE[2] >= scan_limit
+    ):
+        paths = _PM_RECORD_PATH_CACHE[3][:scan_limit]
+    else:
         try:
-            return path.stat().st_mtime_ns
+            with os.scandir(inbox_dir) as entries:
+                newest = heapq.nlargest(
+                    scan_limit,
+                    (
+                        entry
+                        for entry in entries
+                        if entry.name.startswith("pm-") and entry.name.endswith(".json") and entry.is_file()
+                    ),
+                    key=lambda entry: entry.stat(follow_symlinks=False).st_mtime_ns,
+                )
+            paths = [Path(entry.path) for entry in newest]
         except OSError:
-            return 0
-
-    paths = heapq.nlargest(scan_limit, inbox_dir.glob("pm-*.json"), key=mtime_ns)
+            paths = []
+        _PM_RECORD_PATH_CACHE = (cache_key, directory_mtime_ns, scan_limit, list(paths))
     records: list[tuple[Path, dict[str, Any]]] = []
     for path in paths:
         projection = _pm_record_projection(pm_mod, path)

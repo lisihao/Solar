@@ -13,6 +13,7 @@ import json
 import os
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -148,14 +149,18 @@ def _observation_supersedes_block(observation: dict[str, Any], block: dict[str, 
     return True
 
 
-def _connect(db_path: Path | None = None) -> sqlite3.Connection:
+@contextmanager
+def _connect(db_path: Path | None = None):
     path = Path(db_path or DEFAULT_DB_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=float(os.environ.get("SOLAR_OPERATOR_COOLDOWN_DB_TIMEOUT", "1.0")))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=1000")
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:

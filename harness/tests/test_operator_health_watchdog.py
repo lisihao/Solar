@@ -269,6 +269,46 @@ def test_watchdog_prefers_operator_and_lease_adapters(monkeypatch, tmp_path):
     assert payload["counters"]["stale_leases_released"] == 1
 
 
+def test_pm_record_scan_reuses_scandir_cache_until_directory_changes(monkeypatch, tmp_path):
+    watchdog = _load_core_watchdog()
+    inbox = tmp_path / "pm-inbox"
+    inbox.mkdir()
+    for index in range(3):
+        path = inbox / f"pm-{index}.json"
+        path.write_text(json.dumps({"task_id": f"pm-{index}", "status": "submitted"}), encoding="utf-8")
+        os.utime(path, (100 + index, 100 + index))
+
+    class FakePM:
+        PM_INBOX_DIR = inbox
+
+        @staticmethod
+        def _pm_inbox_projection_from_path(path):
+            return json.loads(path.read_text(encoding="utf-8")) | {"path": str(path)}
+
+    real_scandir = os.scandir
+    scandir_calls: list[Path] = []
+
+    def counting_scandir(path):
+        scandir_calls.append(Path(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(watchdog.os, "scandir", counting_scandir)
+    monkeypatch.setenv("SOLAR_OHW_PM_RECORD_SCAN_LIMIT", "4")
+
+    first = list(watchdog._iter_pm_records(FakePM(), load_full=False, max_records=1))
+    second = list(watchdog._iter_pm_records(FakePM(), load_full=False, max_records=1))
+    assert first[0][1]["task_id"] == "pm-2"
+    assert second[0][1]["task_id"] == "pm-2"
+    assert scandir_calls == [inbox]
+
+    added = inbox / "pm-3.json"
+    added.write_text(json.dumps({"task_id": "pm-3", "status": "submitted"}), encoding="utf-8")
+    os.utime(added, (200, 200))
+    refreshed = list(watchdog._iter_pm_records(FakePM(), load_full=False, max_records=1))
+    assert refreshed[0][1]["task_id"] == "pm-3"
+    assert scandir_calls == [inbox, inbox]
+
+
 def test_watchdog_safe_drain_uses_pm_drain_dry_run_by_default(monkeypatch, tmp_path):
     watchdog = _load_core_watchdog()
     monkeypatch.setattr(watchdog, "LOCK_PATH", tmp_path / "lock")
