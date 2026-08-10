@@ -3710,6 +3710,90 @@ def test_pm_reconcile_keeps_active_actor_task_despite_stale_shared_result(monkey
     assert json.loads(record_path.read_text(encoding="utf-8"))["status"] == "submitted"
 
 
+def test_pm_reconcile_requeues_authoritatively_blocked_actor_inbox_task(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    actors = tmp_path / "actors"
+    statuses = tmp_path / "operator-status"
+    leases = tmp_path / "actor-leases"
+    for directory in (sprints, inbox, actors, statuses, leases):
+        directory.mkdir(parents=True)
+    operator_id = "mini-claude-sonnet-builder"
+    task_id = "pm-sprint-one-B4-auth"
+    actor_inbox = actors / operator_id / "inbox"
+    actor_inbox.mkdir(parents=True)
+    actor_task = actor_inbox / f"task-{task_id}-2026-06-13.json"
+    actor_task.write_text(json.dumps({"task_id": task_id}), encoding="utf-8")
+    (statuses / f"{operator_id}.json").write_text(
+        json.dumps(
+            {
+                "operator_id": operator_id,
+                "runtime_state": "auth_expired",
+                "reason": "pane_tail_auth_blocker",
+                "source": "actor_mailbox_wake",
+                "updated_at": "2026-06-13T22:30:00Z",
+                "expires_at": "2099-01-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (sprints / "sprint-one.task_graph.json").write_text(
+        json.dumps(
+            {
+                "sprint_id": "sprint-one",
+                "nodes": [
+                    {
+                        "id": "B4",
+                        "status": "dispatched",
+                        "operator_id": operator_id,
+                        "pm_task_id": task_id,
+                    }
+                ],
+                "node_results": {"B4": {"status": "dispatched", "pm_task_id": task_id}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    record_path = inbox / f"{task_id}.json"
+    record_path.write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "sprint_id": "sprint-one",
+                "node_id": "B4",
+                "operator_id": operator_id,
+                "requested_role": "builder",
+                "status": "submitted",
+                "submitted_at": "2026-06-13T22:29:31Z",
+                "inbox_path": str(actor_task),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "ACTORS_DIR", actors)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_STATUS_DIR", statuses)
+    monkeypatch.setattr(pm_dispatch, "ACTOR_LEASE_DIR", leases)
+    monkeypatch.setattr(pm_dispatch, "_active_pm_task_ids", lambda: {task_id})
+    monkeypatch.setenv("SOLAR_PM_BLOCKED_ACTOR_REQUEUE_MIN_AGE_MINUTES", "0")
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=1, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"requeue_blocked_actor_task": 1}
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["status"] == "failed_auth_expired"
+    assert not actor_task.exists()
+    assert Path(record["blocked_actor_requeue"]["quarantine"]["dead_letter_path"]).exists()
+    graph = json.loads((sprints / "sprint-one.task_graph.json").read_text(encoding="utf-8"))
+    assert graph["nodes"][0]["status"] == "pending"
+    assert "pm_task_id" not in graph["nodes"][0]
+
+
 def test_pm_reconcile_preserves_incomplete_terminal_failure(monkeypatch, tmp_path, capsys):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"

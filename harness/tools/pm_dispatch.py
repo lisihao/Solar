@@ -6138,6 +6138,102 @@ def _clear_pm_failure_projection(record: dict[str, Any]) -> None:
         record.pop(key, None)
 
 
+def _blocked_actor_inbox_task(record: dict[str, Any], *, age_minutes: float) -> dict[str, Any]:
+    """Identify a queued ActorRuntime task that cannot progress on its actor."""
+    status = str(record.get("status") or "").strip().lower()
+    if status not in ACTIVE_PM_OPERATOR_STATUSES:
+        return {}
+    operator_id = str(record.get("operator_id") or "").strip()
+    inbox_raw = str(record.get("inbox_path") or "").strip()
+    if not operator_id or not inbox_raw:
+        return {}
+    try:
+        min_age = max(0.0, float(os.environ.get("SOLAR_PM_BLOCKED_ACTOR_REQUEUE_MIN_AGE_MINUTES", "2")))
+    except (TypeError, ValueError):
+        min_age = 2.0
+    if age_minutes < min_age:
+        return {}
+
+    inbox_path = Path(inbox_raw).expanduser()
+    expected_parent = (ACTORS_DIR / operator_id / "inbox").resolve()
+    try:
+        inbox_path.resolve().relative_to(expected_parent)
+    except (OSError, ValueError):
+        return {}
+    if not inbox_path.is_file():
+        return {}
+
+    status_data = get_operator_status_data(operator_id)
+    runtime_state = str(status_data.get("runtime_state") or status_data.get("state") or "").strip().lower()
+    source = str(status_data.get("source") or "").strip()
+    if runtime_state not in {"auth_expired", "cooldown", "quota_exhausted"}:
+        return {}
+    if source != "actor_mailbox_wake":
+        return {}
+    expires_at = _parse_utc(str(status_data.get("expires_at") or status_data.get("cooldown_until") or ""))
+    if expires_at is not None and expires_at <= datetime.datetime.now(datetime.timezone.utc):
+        return {}
+    return {
+        "operator_id": operator_id,
+        "runtime_state": runtime_state,
+        "reason": str(status_data.get("reason") or runtime_state),
+        "source": source,
+        "inbox_path": str(inbox_path),
+        "age_min": round(age_minutes, 1),
+    }
+
+
+def _release_blocked_actor_task_lease(operator_id: str, task_id: str) -> dict[str, Any]:
+    try:
+        _ensure_runtime_import_path()
+        from actor_lease import LeaseBroker  # type: ignore
+
+        broker = LeaseBroker(ACTOR_LEASE_DIR)
+        lease = broker.get(operator_id)
+        if lease is None:
+            return {"ok": True, "released": False, "reason": "lease_missing"}
+        if str(getattr(lease, "task_id", "") or "") != task_id:
+            return {"ok": True, "released": False, "reason": "lease_task_mismatch"}
+        released = broker.release(operator_id, reason="blocked_actor_task_requeued")
+        return {
+            "ok": released is not None,
+            "released": released is not None,
+            "reason": "released" if released is not None else "lease_transition_rejected",
+        }
+    except Exception as exc:
+        return {"ok": False, "released": False, "reason": f"lease_release_failed:{type(exc).__name__}"}
+
+
+def _quarantine_blocked_actor_task(record: dict[str, Any], block: dict[str, Any]) -> dict[str, Any]:
+    task_id = str(record.get("task_id") or "").strip()
+    operator_id = str(block.get("operator_id") or "").strip()
+    inbox_path = Path(str(block.get("inbox_path") or "")).expanduser()
+    try:
+        envelope = json.loads(inbox_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"ok": False, "reason": f"inbox_read_failed:{type(exc).__name__}"}
+    if not isinstance(envelope, dict) or str(envelope.get("task_id") or "").strip() != task_id:
+        return {"ok": False, "reason": "inbox_task_identity_mismatch"}
+
+    dead_letter_dir = ACTORS_DIR / operator_id / "dead-letter"
+    dead_letter_dir.mkdir(parents=True, exist_ok=True)
+    dead_letter_path = dead_letter_dir / inbox_path.name
+    if dead_letter_path.exists():
+        stamp = _now().replace(":", "-")
+        dead_letter_path = dead_letter_dir / f"{inbox_path.stem}-{stamp}{inbox_path.suffix}"
+    try:
+        os.replace(inbox_path, dead_letter_path)
+    except OSError as exc:
+        return {"ok": False, "reason": f"inbox_quarantine_failed:{type(exc).__name__}"}
+    lease_release = _release_blocked_actor_task_lease(operator_id, task_id)
+    return {
+        "ok": True,
+        "reason": "blocked_actor_task_quarantined",
+        "dead_letter_path": str(dead_letter_path),
+        "lease_release": lease_release,
+    }
+
+
 def cmd_reconcile(args: argparse.Namespace) -> int:
     """Repair PM inbox projection drift without bypassing operator evidence."""
     max_age_minutes = max(1, int(args.max_age_minutes or 60))
@@ -6295,6 +6391,52 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 write_reconcile_task_record(task_id, record)
             continue
 
+        age = _record_age_minutes(record, path)
+        blocked_actor_task = _blocked_actor_inbox_task(record, age_minutes=age)
+        if blocked_actor_task:
+            blocked_closeout = _pm_closeout_status(record)
+            result_path_raw = str(record.get("result_path") or "").strip()
+            result_exists = bool(result_path_raw) and Path(result_path_raw).expanduser().is_file()
+            if blocked_closeout.get("ok") and (blocked_closeout.get("expected_artifacts") or result_exists):
+                blocked_actor_task = {}
+        if blocked_actor_task:
+            action = {
+                "task_id": task_id,
+                "action": "requeue_blocked_actor_task",
+                **blocked_actor_task,
+            }
+            if apply_changes:
+                quarantine = _quarantine_blocked_actor_task(record, blocked_actor_task)
+                action["quarantine"] = quarantine
+                if not quarantine.get("ok"):
+                    action["action"] = "keep_active_blocked_actor_quarantine_failed"
+                    actions.append(action)
+                    continue
+                runtime_state = str(blocked_actor_task.get("runtime_state") or "unavailable")
+                record["task_id"] = task_id
+                record["status"] = f"failed_{runtime_state}"
+                record["failed_at"] = now
+                record["failure_reason"] = f"operator_became_unavailable:{runtime_state}"
+                record["blocked_actor_requeue"] = {**blocked_actor_task, "quarantine": quarantine}
+                graph_requeue = _release_graph_node_on_transient_operator_failure(record)
+                if graph_requeue.get("released"):
+                    record["graph_requeue"] = graph_requeue
+                graph_eval_requeue = _release_graph_eval_on_transient_operator_failure(record)
+                if graph_eval_requeue.get("released"):
+                    record["graph_eval_requeue"] = graph_eval_requeue
+                record.setdefault("reconcile_history", []).append(
+                    {
+                        "ts": now,
+                        "action": "requeue_blocked_actor_task",
+                        "runtime_state": runtime_state,
+                        "operator_id": blocked_actor_task.get("operator_id"),
+                        "dead_letter_path": quarantine.get("dead_letter_path"),
+                    }
+                )
+                write_reconcile_task_record(task_id, record)
+            actions.append(action)
+            continue
+
         if terminal_status and terminal_recoverable:
             terminal_closeout = _pm_closeout_status(record)
             if not terminal_closeout.get("ok"):
@@ -6387,7 +6529,6 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
         if terminal_status:
             continue
 
-        age = _record_age_minutes(record, path)
         if task_id in active_task_ids:
             actions.append({"task_id": task_id, "action": "keep_active", "age_min": round(age, 1)})
             continue
