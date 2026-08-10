@@ -653,6 +653,67 @@ def test_backlog_metrics_scans_large_status_files(monkeypatch, tmp_path):
     assert metrics == {"active_planning_complete": 1, "reviewing_handoff_ready": 1}
 
 
+def test_backlog_metrics_reads_each_status_once_for_multiple_metrics(monkeypatch, tmp_path):
+    sprints_dir = tmp_path / "sprints"
+    sprints_dir.mkdir(parents=True)
+    for idx in range(12):
+        _write_status(sprints_dir, f"build-{idx}", "active", "planning_complete", "builder_main")
+    monkeypatch.setattr(ba, "SPRINTS_DIR", sprints_dir)
+    original_load = ba._load_status_fields
+    reads = []
+
+    def counted_load(path):
+        reads.append(path)
+        return original_load(path)
+
+    monkeypatch.setattr(ba, "_load_status_fields", counted_load)
+    metrics = ba.backlog_metrics(
+        {
+            "metrics": {
+                "active": {"status": "active"},
+                "planning": {"phase": "planning_complete"},
+                "builder": {"status": "active", "handoff_to": "builder_main"},
+            }
+        }
+    )
+
+    assert metrics == {"active": 12, "planning": 12, "builder": 12}
+    assert len(reads) == 12
+
+
+def test_build_snapshot_resolves_each_operator_dynamic_state_once(monkeypatch, tmp_path):
+    registry = tmp_path / "physical-operators.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "operators": {
+                    "builder-1": {
+                        "role": "builder",
+                        "enabled": True,
+                        "available": True,
+                        "builder_pool": {"enabled": True, "group": "sonnet"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ba, "PHYSICAL_OPERATORS_PATH", registry)
+    monkeypatch.setattr(ba, "SPRINTS_DIR", tmp_path / "missing-sprints")
+    calls = []
+    monkeypatch.setattr(
+        ba,
+        "_operator_dynamic_block_state",
+        lambda operator_id, spec: calls.append(operator_id) or "",
+    )
+
+    snapshot = ba.build_snapshot({"backlog_autoscaling": {"metrics": {}}})
+
+    assert snapshot["role_capacity"]["builder"]["available"] == 1
+    assert snapshot["builder_pool"]["group_capacity"]["sonnet"]["available"] == 1
+    assert calls == ["builder-1"]
+
+
 def test_concurrency_policy_reads_backlog_snapshot(monkeypatch, tmp_path):
     snapshot_path = tmp_path / "backlog.json"
     snapshot_path.write_text(

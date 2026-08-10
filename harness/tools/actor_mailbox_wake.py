@@ -33,6 +33,11 @@ AUTH_BLOCK_RE = re.compile(
     r"authentication_error|login required|no active conversation",
     re.I,
 )
+AUTH_RECOVERY_RE = re.compile(
+    r"Login successful|Authentication successful|Successfully (?:logged|signed) in|"
+    r"Claude Code v\d",
+    re.I,
+)
 QUOTA_BLOCK_RE = re.compile(
     r"You(?:'|’)ve hit (?:your|the org(?:anization)?(?:'s)?) .*limit|"
     r"rate[- ]limit|quota exhausted|RESOURCE_EXHAUSTED|429",
@@ -106,7 +111,13 @@ def tail_has_ready_prompt_after_last_blocker(tail: str, blocker_re: re.Pattern[s
     suffix = tail[matches[-1].end():]
     if not READY_PROMPT_RE.search(suffix):
         return False
-    return "Claude" in (tail or "") or "bypass permissions" in suffix
+    if blocker_re is AUTH_BLOCK_RE:
+        # An expired Claude session returns to the normal-looking prompt and
+        # still renders the "bypass permissions" footer.  Neither proves that
+        # the shared OAuth credential was reloaded.  Require positive login or
+        # a fresh Claude session banner after the last auth failure.
+        return bool(AUTH_RECOVERY_RE.search(suffix))
+    return "Claude Code v" in suffix or "bypass permissions" in suffix
 
 
 def classify_tail(tail: str) -> tuple[str, str]:

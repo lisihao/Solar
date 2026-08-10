@@ -6,8 +6,10 @@ import argparse
 import datetime as dt
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -729,9 +731,19 @@ def _clear_runtime_status_if_blocked(operator_id: str) -> bool:
 
 
 def _write_auth_repair_request(operator_id: str, block: dict[str, Any], spec: dict[str, Any]) -> None:
+    path = AUTH_REPAIR_REQUESTS_DIR / "shared-claude-subscription.json"
+    previous = _load_json(path, {}) if path.exists() else {}
+    affected = {
+        str(item).strip()
+        for item in previous.get("affected_operator_ids", [])
+        if str(item).strip()
+    } if isinstance(previous, dict) else set()
+    affected.add(operator_id)
     payload = {
         "schema_version": "operator_auth_repair_request.v1",
-        "operator_id": operator_id,
+        "scope_id": "shared-claude-subscription",
+        "trigger_operator_id": operator_id,
+        "affected_operator_ids": sorted(affected),
         "provider": str(spec.get("provider") or ""),
         "backend": str(spec.get("backend") or ""),
         "model": str(spec.get("model") or ""),
@@ -745,7 +757,75 @@ def _write_auth_repair_request(operator_id: str, block: dict[str, Any], spec: di
             "note": "Do not login per shadow operator; repair the shared Claude Code tmux subscription session.",
         },
     }
-    _write_json(AUTH_REPAIR_REQUESTS_DIR / f"{operator_id}.json", payload)
+    _write_json(path, payload)
+
+
+def _clear_shared_claude_auth_repair_request() -> bool:
+    path = AUTH_REPAIR_REQUESTS_DIR / "shared-claude-subscription.json"
+    try:
+        path.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+
+
+def _shared_claude_auth_status() -> dict[str, Any]:
+    executable = shutil.which("claude")
+    if not executable:
+        return {"ok": False, "logged_in": False, "reason": "claude_cli_missing"}
+    try:
+        proc = subprocess.run(
+            [executable, "auth", "status"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+    except Exception as exc:
+        return {"ok": False, "logged_in": False, "reason": f"claude_auth_status_failed:{type(exc).__name__}"}
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except Exception:
+        payload = {}
+    logged_in = bool(payload.get("loggedIn")) and proc.returncode == 0
+    return {
+        "ok": proc.returncode == 0,
+        "logged_in": logged_in,
+        "auth_method": str(payload.get("authMethod") or ""),
+        "subscription_type": str(payload.get("subscriptionType") or ""),
+        "reason": "shared_auth_ready" if logged_in else "shared_auth_login_required",
+    }
+
+
+def _respawn_actor_pane_for_shared_auth(actor_id: str, pane: str) -> dict[str, Any]:
+    command = _actor_respawn_commands().get(actor_id, "")
+    if not command:
+        return {"ok": False, "reason": "auth_respawn_command_missing", "actor_id": actor_id, "pane": pane}
+    cwd = _actor_respawn_cwd(actor_id)
+    proc = subprocess.run(
+        ["tmux", "respawn-pane", "-t", pane, "-k", "-c", cwd, command],
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=20,
+    )
+    if proc.returncode != 0:
+        return {
+            "ok": False,
+            "reason": "auth_respawn_failed",
+            "actor_id": actor_id,
+            "pane": pane,
+            "stderr": proc.stderr[-1000:],
+        }
+    return {
+        "ok": True,
+        "reason": "shared_auth_session_respawned",
+        "actor_id": actor_id,
+        "pane": pane,
+        "cwd": cwd,
+    }
 
 
 def _quota_window_for_block(block: dict[str, Any]) -> str:
@@ -876,6 +956,8 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
         }
 
     targets = _actor_mailbox_wake_targets()
+    registry = _load_operator_registry()
+    shared_auth_status: dict[str, Any] | None = None
     rerouted = _reroute_unmapped_inbox(targets, apply=apply)
     dead_lettered = _dead_letter_unmapped_inbox(apply=apply)
     rebalanced = _rebalance_mapped_inbox(targets, apply=apply)
@@ -950,6 +1032,46 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
             )
             continue
         status = str(result.get("status") or "")
+        auth_recovery: dict[str, Any] = {}
+        if status == "auth_expired" and apply:
+            spec = _operator_spec(registry, actor_id)
+            if _is_active_claude_interactive_operator(spec):
+                if shared_auth_status is None:
+                    shared_auth_status = _shared_claude_auth_status()
+                if bool(shared_auth_status.get("logged_in")):
+                    _clear_shared_claude_auth_repair_request()
+                    auth_recovery = _respawn_actor_pane_for_shared_auth(actor_id, pane)
+                    if auth_recovery.get("ok"):
+                        time.sleep(2.0)
+                        auth_recovery["trust_prompt_accepted"] = _accept_claude_trust_prompt(pane)
+                        if auth_recovery["trust_prompt_accepted"]:
+                            time.sleep(1.0)
+                        try:
+                            recovered_result = actor_mailbox_wake.wake_actor(
+                                actor_id,
+                                pane,
+                                dry_run=False,
+                                rewake_processing_after_seconds=0,
+                            )
+                        except Exception as exc:
+                            recovered_result = {
+                                "ok": False,
+                                "status": "auth_expired",
+                                "reason": f"post_respawn_wake_failed:{type(exc).__name__}",
+                            }
+                        recovered_result["auth_recovery"] = auth_recovery
+                        result = recovered_result
+                        status = str(result.get("status") or "")
+                else:
+                    _write_auth_repair_request(
+                        actor_id,
+                        {
+                            "runtime_state": "auth_expired",
+                            "reason": str(result.get("reason") or "pane_tail_auth_blocker"),
+                            "evidence_excerpt": str(result.get("operator_status_path") or ""),
+                        },
+                        spec,
+                    )
         if bool(result.get("ok")):
             if bool(result.get("claimed")):
                 woken += 1
@@ -973,6 +1095,7 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
                 "pane_check": pane_check,
                 "processing_path": str(result.get("processing_path") or ""),
                 "wake_prompt_path": str(result.get("wake_prompt_path") or ""),
+                "auth_recovery": result.get("auth_recovery") or auth_recovery,
             }
         )
         if status == "processing" or bool(result.get("claimed")) or bool(result.get("rewoken")):

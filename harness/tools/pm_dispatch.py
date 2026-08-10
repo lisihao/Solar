@@ -48,6 +48,7 @@ OPERATOR_INBOX_DIR = HARNESS_DIR / "run" / "operator-inbox"
 OPERATOR_RESULTS_DIR = HARNESS_DIR / "run" / "operator-results"
 OPERATOR_STATUS_DIR = HARNESS_DIR / "run" / "operator-status"
 ACTOR_LEASE_DIR = HARNESS_DIR / "run" / "actor-leases"
+ACTORS_DIR = HARNESS_DIR / "actors"
 SPRINTS_DIR = Path(os.environ.get("SOLAR_HARNESS_SPRINTS_DIR", HARNESS_DIR / "sprints"))
 REPO_HARNESS_DIR = Path(__file__).resolve().parents[1]
 HEALTH_CACHE_SCHEMA_VERSION = 2
@@ -1757,7 +1758,7 @@ def _active_role_spillover_count(role: str) -> int:
     return count
 
 
-ACTIVE_PM_OPERATOR_STATUSES = {"submitted", "submitted_fallback", "leased", "running", "pending", "in_progress"}
+ACTIVE_PM_OPERATOR_STATUSES = {"queued", "submitted", "submitted_fallback", "leased", "running", "pending", "in_progress"}
 
 
 def _iter_active_operator_inbox_projections(operator_id: str = "") -> list[dict[str, str]]:
@@ -2829,6 +2830,22 @@ def _active_pm_task_ids() -> set[str]:
                 value = str(lease.get("task_id") or "").strip()
                 if value.startswith("pm-"):
                     active.add(value)
+    try:
+        actor_dirs = [path for path in ACTORS_DIR.iterdir() if path.is_dir()]
+    except OSError:
+        actor_dirs = []
+    for actor_dir in actor_dirs:
+        for queue_name in ("inbox", "processing"):
+            queue_dir = actor_dir / queue_name
+            try:
+                task_paths = queue_dir.glob("task-*.json")
+                for task_path in task_paths:
+                    projection = _pm_inbox_projection_from_path(task_path)
+                    task_id = str(projection.get("task_id") or "").strip()
+                    if task_id.startswith("pm-"):
+                        active.add(task_id)
+            except OSError:
+                continue
     return active
 
 
@@ -4053,7 +4070,8 @@ def cmd_submit(args: argparse.Namespace) -> int:
             return 1
         lease = getattr(submit_result, "lease", None)
         lease_dict = lease.to_dict() if hasattr(lease, "to_dict") else {}
-        record["status"] = "submitted"
+        queued_without_lease = bool(getattr(submit_result, "queued_without_lease", False))
+        record["status"] = "queued" if queued_without_lease else "submitted"
         record["lease_id"] = str(lease_dict.get("lease_id") or "")
         record["actor_lease"] = lease_dict
         record["inbox_path"] = str(getattr(submit_result, "inbox_path", "") or "")
@@ -4063,6 +4081,11 @@ def cmd_submit(args: argparse.Namespace) -> int:
         artifact_refs = getattr(submit_result, "artifact_refs", {}) or {}
         if artifact_refs:
             record["artifact_refs"] = artifact_refs
+        if queued_without_lease:
+            record["queued_without_lease"] = True
+            record["fallback_reason"] = str(
+                getattr(submit_result, "fallback_reason", "") or "actor_lease_active_queued"
+            )
         submit_mode = "actor_runtime.mailbox"
     elif graph_eval_direct_inbox:
         inbox_path = _write_operator_inbox_envelope(operator_id, task_id, envelope)
@@ -6175,6 +6198,11 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                     )
                     write_reconcile_task_record(task_id, record)
                 continue
+            # The failed record is already terminal. Shared node-level result
+            # files may later be overwritten by retries, which changes the
+            # identity mismatch but does not change this task's outcome. Only
+            # complete evidence above may recover it; otherwise never rewrite.
+            continue
         if status == "completed":
             closeout = _pm_closeout_status(record)
             if closeout.get("ok"):
@@ -6267,6 +6295,14 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 write_reconcile_task_record(task_id, record)
             continue
 
+        if terminal_status and terminal_recoverable:
+            terminal_closeout = _pm_closeout_status(record)
+            if not terminal_closeout.get("ok"):
+                # Preserve the original terminal failure. A shared node-level
+                # result file can belong to a later retry; incomplete evidence
+                # is not a reason to rewrite historical failure projections.
+                continue
+
         terminal_result_path_raw = str(record.get("result_path") or "").strip()
         terminal_result_path = Path(terminal_result_path_raw).expanduser() if terminal_result_path_raw else Path()
         terminal_result_exists = bool(terminal_result_path_raw) and terminal_result_path.exists()
@@ -6294,6 +6330,9 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
         if result_exists:
             closeout = _pm_closeout_status(record)
             if not closeout.get("ok"):
+                if task_id in active_task_ids:
+                    actions.append({"task_id": task_id, "action": "keep_active", "age_min": round(_record_age_minutes(record, path), 1)})
+                    continue
                 actions.append({
                     "task_id": task_id,
                     "action": "fail_contract_closeout",

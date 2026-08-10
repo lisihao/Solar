@@ -244,7 +244,7 @@ def _status_phase_count(spec: dict[str, Any]) -> int:
 def backlog_metrics(config: dict[str, Any] | None = None) -> dict[str, int]:
     cfg = config or autoscaling_config()
     metrics = _metrics_config(cfg)
-    result: dict[str, int] = {}
+    compiled: dict[str, tuple[set[str], set[str], set[str]]] = {}
     for name, spec in metrics.items():
         if not isinstance(spec, dict):
             continue
@@ -252,11 +252,41 @@ def backlog_metrics(config: dict[str, Any] | None = None) -> dict[str, int]:
         phases = _as_match_set(spec.get("phases")) or _as_match_set(spec.get("phase"))
         if not statuses and not phases:
             continue
-        result[str(name)] = _status_phase_count(spec)
+        handoffs = _as_match_set(spec.get("handoff_to") or spec.get("handoffs"))
+        compiled[str(name)] = (statuses, phases, handoffs)
+
+    result = {name: 0 for name in compiled}
+    for path in SPRINTS_DIR.glob("*.status.json"):
+        data = _load_status_fields(path)
+        if not isinstance(data, dict):
+            continue
+        status = str(data.get("status") or "").strip().lower()
+        phase = str(data.get("phase") or "").strip().lower()
+        handoff = str(data.get("handoff_to") or "").strip().lower()
+        for name, (statuses, phases, handoffs) in compiled.items():
+            if statuses and status not in statuses:
+                continue
+            if phases and phase not in phases:
+                continue
+            if handoffs and handoff not in handoffs:
+                continue
+            result[name] += 1
     return result
 
 
-def operator_capacity_by_role() -> dict[str, dict[str, int]]:
+def _cached_operator_dynamic_block_state(
+    operator_id: str,
+    spec: dict[str, Any],
+    cache: dict[str, str] | None,
+) -> str:
+    if cache is None:
+        return _operator_dynamic_block_state(operator_id, spec)
+    if operator_id not in cache:
+        cache[operator_id] = _operator_dynamic_block_state(operator_id, spec)
+    return cache[operator_id]
+
+
+def operator_capacity_by_role(dynamic_state_cache: dict[str, str] | None = None) -> dict[str, dict[str, int]]:
     registry = _load_json(PHYSICAL_OPERATORS_PATH, {"operators": {}})
     operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
     result: dict[str, dict[str, int]] = {}
@@ -280,7 +310,7 @@ def operator_capacity_by_role() -> dict[str, dict[str, int]]:
             enabled = True
         state = spec.get("state") if isinstance(spec.get("state"), dict) else {}
         block_state = str(
-            _operator_dynamic_block_state(str(op_id), spec)
+            _cached_operator_dynamic_block_state(str(op_id), spec, dynamic_state_cache)
             or
             spec.get("quota_guard_state")
             or state.get("runtime_state")
@@ -324,7 +354,7 @@ def _infer_builder_group(op: dict[str, Any]) -> str:
     return ""
 
 
-def builder_pool_capacity_by_group() -> dict[str, dict[str, int]]:
+def builder_pool_capacity_by_group(dynamic_state_cache: dict[str, str] | None = None) -> dict[str, dict[str, int]]:
     registry = _load_json(PHYSICAL_OPERATORS_PATH, {"operators": {}})
     operators = registry.get("operators") if isinstance(registry.get("operators"), dict) else {}
     result: dict[str, dict[str, int]] = {}
@@ -342,7 +372,7 @@ def builder_pool_capacity_by_group() -> dict[str, dict[str, int]]:
             bucket["enabled"] += 1
         state = spec.get("state") if isinstance(spec.get("state"), dict) else {}
         block_state = str(
-            _operator_dynamic_block_state(str(op_id), spec)
+            _cached_operator_dynamic_block_state(str(op_id), spec, dynamic_state_cache)
             or
             spec.get("quota_guard_state")
             or state.get("runtime_state")
@@ -561,8 +591,9 @@ def build_snapshot(policy: dict[str, Any] | None = None) -> dict[str, Any]:
     policy = policy or load_policy()
     config = autoscaling_config(policy)
     metrics = backlog_metrics(config)
-    capacities = operator_capacity_by_role()
-    builder_group_capacity = builder_pool_capacity_by_group()
+    dynamic_state_cache: dict[str, str] = {}
+    capacities = operator_capacity_by_role(dynamic_state_cache)
+    builder_group_capacity = builder_pool_capacity_by_group(dynamic_state_cache)
     profile_targets, profile_reasoning = _profile_targets(config, metrics)
     logical_targets, logical_reasoning = _logical_targets(config, metrics)
     pool_targets = _builder_pool_targets(config, metrics, builder_group_capacity)

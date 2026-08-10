@@ -197,12 +197,31 @@ def test_recovery_scanner_writes_auth_repair_request_for_active_claude_interacti
     )
 
     payload = scanner.run_scan(apply=True, refresh_snapshot=False)
-    request_path = tmp_path / "run" / "auth-repair-requests" / "mini-claude-sonnet-builder.json"
+    request_path = tmp_path / "run" / "auth-repair-requests" / "shared-claude-subscription.json"
     request = json.loads(request_path.read_text(encoding="utf-8"))
 
     assert payload["kept"] == 1
     assert request["recovery"]["kind"] == "claude_code_subscription_login"
     assert request["recovery"]["scope"] == "shared_claude_subscription"
+    assert request["affected_operator_ids"] == ["mini-claude-sonnet-builder"]
+
+
+def test_auth_repair_request_aggregates_shared_claude_subscription(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    spec = {
+        "provider": "anthropic",
+        "backend": "claude-cli",
+        "model": "opus",
+    }
+
+    scanner._write_auth_repair_request("claude-planner", {"runtime_state": "auth_expired"}, spec)
+    scanner._write_auth_repair_request("claude-evaluator", {"runtime_state": "auth_expired"}, spec)
+
+    request = json.loads(
+        (tmp_path / "run" / "auth-repair-requests" / "shared-claude-subscription.json").read_text()
+    )
+    assert request["scope_id"] == "shared-claude-subscription"
+    assert request["affected_operator_ids"] == ["claude-evaluator", "claude-planner"]
 
 
 def test_recovery_scanner_wakes_actor_mailbox_when_blocked_status_recovers(tmp_path: Path, monkeypatch):
@@ -274,6 +293,60 @@ def test_recovery_scanner_dry_run_does_not_apply_mailbox_wake(tmp_path: Path, mo
     assert calls == [{"actor_id": "op-auth", "pane": "session:0.3", "dry_run": True}]
     assert payload["mailbox_wake"]["blocked"] == 1
     assert payload["mailbox_wake"]["items"][0]["status"] == "auth_expired"
+
+
+def test_recovery_scanner_respawns_stale_claude_pane_when_shared_auth_is_ready(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    actor_id = "mini-claude-sonnet-builder"
+    _write_registry(
+        tmp_path,
+        {
+            actor_id: {
+                "provider": "anthropic",
+                "backend": "claude-cli",
+                "model": "sonnet",
+                "auth_mode": "subscription",
+                "enabled": True,
+                "available": True,
+                "launch_cmd_kind": "interactive_repl",
+                "surface": {"type": "claude_code_interactive"},
+            }
+        },
+    )
+    monkeypatch.setattr(scanner, "_actor_mailbox_wake_targets", lambda: {actor_id: "session:0.3"})
+    monkeypatch.setattr(scanner, "_runtime_status_state", lambda operator_id: "auth_expired")
+    monkeypatch.setattr(scanner, "_actor_inbox_task_count", lambda operator_id: 1)
+    monkeypatch.setattr(scanner, "_actor_processing_task_count", lambda operator_id: 0)
+    monkeypatch.setattr(scanner, "_ensure_actor_pane_available", lambda actor_id, pane, apply: {"ok": True, "pane_dead": False, "respawned": False})
+    monkeypatch.setattr(scanner, "_shared_claude_auth_status", lambda: {"ok": True, "logged_in": True})
+    monkeypatch.setattr(
+        scanner,
+        "_respawn_actor_pane_for_shared_auth",
+        lambda actor_id, pane: {"ok": True, "reason": "shared_auth_session_respawned", "pane": pane},
+    )
+    monkeypatch.setattr(scanner, "_accept_claude_trust_prompt", lambda pane: False)
+    monkeypatch.setattr(scanner.time, "sleep", lambda seconds: None)
+    repair_request = tmp_path / "run" / "auth-repair-requests" / "shared-claude-subscription.json"
+    repair_request.parent.mkdir(parents=True)
+    repair_request.write_text("{}", encoding="utf-8")
+    calls = []
+
+    def fake_wake(actor_id, pane, *, dry_run=False, **kwargs):
+        calls.append({"actor_id": actor_id, "pane": pane, "dry_run": dry_run, **kwargs})
+        if len(calls) == 1:
+            return {"ok": False, "status": "auth_expired", "reason": "pane_tail_auth_blocker"}
+        return {"ok": True, "status": "processing", "reason": "rewake_processing", "rewoken": True}
+
+    monkeypatch.setitem(sys.modules, "actor_mailbox_wake", types.SimpleNamespace(wake_actor=fake_wake))
+
+    payload = scanner.run_scan(apply=True, refresh_snapshot=False)
+
+    assert len(calls) == 2
+    assert calls[1]["rewake_processing_after_seconds"] == 0
+    item = payload["mailbox_wake"]["items"][0]
+    assert item["status"] == "processing"
+    assert item["auth_recovery"]["reason"] == "shared_auth_session_respawned"
+    assert not repair_request.exists()
 
 
 def test_recovery_scanner_scans_actor_with_processing_backlog(tmp_path: Path, monkeypatch):

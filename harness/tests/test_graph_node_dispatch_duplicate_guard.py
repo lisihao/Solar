@@ -52,6 +52,77 @@ def test_operator_pool_submit_guard_blocks_active_pm_task(tmp_path):
     assert guard["reason"] == "active_pm_task_exists"
 
 
+def test_operator_pool_submit_guard_only_reads_matching_node_records(tmp_path, monkeypatch):
+    mod = _load_dispatcher()
+    mod.HARNESS_DIR = tmp_path
+    inbox = tmp_path / "run" / "pm-inbox"
+    inbox.mkdir(parents=True)
+    for idx in range(250):
+        (inbox / f"pm-unrelated-{idx}-N1-deadbeef.json").write_text("not-json")
+    target = inbox / "pm-sprint-target-S12-active.json"
+    target.write_text(
+        json.dumps(
+            {
+                "task_id": target.stem,
+                "sprint_id": "sprint-target",
+                "node_id": "S12",
+                "status": "queued",
+            }
+        )
+    )
+    original_read = mod._read_json_file_safe
+    reads = []
+
+    def counted_read(path):
+        reads.append(path)
+        return original_read(path)
+
+    monkeypatch.setattr(mod, "_read_json_file_safe", counted_read)
+
+    guard = mod._operator_pool_submit_guard("sprint-target", "S12", "/tmp/graph.json", "dispatch-a")
+
+    assert guard["reason"] == "active_pm_task_exists"
+    assert reads == [target]
+
+
+def test_latest_operator_result_only_parses_matching_node_results(tmp_path, monkeypatch):
+    mod = _load_dispatcher()
+    mod.HARNESS_DIR = tmp_path
+    root = tmp_path / "run" / "operator-results" / "builder-1"
+    root.mkdir(parents=True)
+    for idx in range(100):
+        unrelated = root / f"pm-sprint-unrelated-N1-{idx}" / "result.json"
+        unrelated.parent.mkdir()
+        unrelated.write_text("not-json")
+    target = root / "pm-sprint-target-S12-active" / "result.json"
+    target.parent.mkdir()
+    target.write_text(
+        json.dumps(
+            {
+                "task_id": target.parent.name,
+                "sprint_id": "sprint-target",
+                "node_id": "S12",
+                "operator_id": "builder-1",
+                "status": "completed",
+                "finished_at": "2026-08-10T12:00:00Z",
+            }
+        )
+    )
+    original_read = mod._read_json_file_safe
+    reads = []
+
+    def counted_read(path):
+        reads.append(path)
+        return original_read(path)
+
+    monkeypatch.setattr(mod, "_read_json_file_safe", counted_read)
+
+    result = mod._latest_operator_result_for("sprint-target", "S12")
+
+    assert result and result["status"] == "completed"
+    assert reads == [target]
+
+
 def test_operator_pool_submit_claim_is_atomic(tmp_path):
     mod = _load_dispatcher()
     mod.HARNESS_DIR = tmp_path

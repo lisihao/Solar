@@ -9,6 +9,7 @@ the assigned pane.
 from __future__ import annotations
 
 import argparse
+import bisect
 import datetime
 import fcntl
 import hashlib
@@ -71,6 +72,12 @@ PANE_QUOTA_EXHAUSTED_RE = re.compile(
 )
 PANE_RATE_LIMIT_FALLBACK_SEC = int(os.environ.get("SOLAR_PANE_RATE_LIMIT_FALLBACK_SEC", "900"))
 OPERATOR_CONTRACT_CLOSEOUT_COOLDOWN_SEC = int(os.environ.get("SOLAR_GRAPH_OPERATOR_CONTRACT_CLOSEOUT_COOLDOWN_SEC", "900"))
+_OPERATOR_RESULT_INVENTORY_ROOT = ""
+_OPERATOR_RESULT_INVENTORY_EXPIRES_AT = 0.0
+_OPERATOR_RESULT_INVENTORY: tuple[Path, ...] = ()
+_LEGACY_OPERATOR_RESULT_INDEX: dict[tuple[str, str], tuple[Path, ...]] = {}
+_PM_RECORD_INVENTORY_SIGNATURE: tuple[str, int] = ("", -1)
+_PM_RECORD_INVENTORY_NAMES: tuple[str, ...] = ()
 
 
 def _effective_graph_max_parallel(default: int = 8) -> int:
@@ -1894,6 +1901,65 @@ def _active_multi_task_status_for(sid: str, node_id: str) -> dict[str, Any] | No
     return newest[1] if newest else None
 
 
+def _operator_result_paths_for(sid: str, node_id: str) -> list[Path]:
+    """Find result files for one node without parsing the full result archive."""
+    global _OPERATOR_RESULT_INVENTORY_ROOT
+    global _OPERATOR_RESULT_INVENTORY_EXPIRES_AT
+    global _OPERATOR_RESULT_INVENTORY
+    global _LEGACY_OPERATOR_RESULT_INDEX
+
+    root = HARNESS_DIR / "run" / "operator-results"
+    if not root.exists():
+        return []
+    task_prefix = f"pm-{sid}-{node_id}-"
+    root_key = str(root)
+    now = time.monotonic()
+    if _OPERATOR_RESULT_INVENTORY_ROOT != root_key or now >= _OPERATOR_RESULT_INVENTORY_EXPIRES_AT:
+        root_changed = _OPERATOR_RESULT_INVENTORY_ROOT != root_key
+        _OPERATOR_RESULT_INVENTORY_ROOT = root_key
+        _OPERATOR_RESULT_INVENTORY = tuple(root.glob("*/*/result.json"))
+        _OPERATOR_RESULT_INVENTORY_EXPIRES_AT = now + 2.0
+        if root_changed:
+            legacy_index: dict[tuple[str, str], list[Path]] = {}
+            for path in _OPERATOR_RESULT_INVENTORY:
+                if path.parent.name.startswith("pm-"):
+                    continue
+                data = _read_json_file_safe(path)
+                key = (str(data.get("sprint_id") or ""), str(data.get("node_id") or ""))
+                if all(key):
+                    legacy_index.setdefault(key, []).append(path)
+            _LEGACY_OPERATOR_RESULT_INDEX = {
+                key: tuple(paths) for key, paths in legacy_index.items()
+            }
+    modern = [
+        path
+        for path in _OPERATOR_RESULT_INVENTORY
+        if path.parent.name.startswith(task_prefix)
+    ]
+    return modern + list(_LEGACY_OPERATOR_RESULT_INDEX.get((sid, node_id), ()))
+
+
+def _pm_task_record_paths_for(sid: str, node_id: str) -> list[Path]:
+    """Find PM records for one node using its canonical task-id prefix."""
+    global _PM_RECORD_INVENTORY_SIGNATURE
+    global _PM_RECORD_INVENTORY_NAMES
+
+    root = HARNESS_DIR / "run" / "pm-inbox"
+    if not root.exists():
+        return []
+    try:
+        signature = (str(root), root.stat().st_mtime_ns)
+    except OSError:
+        return []
+    if signature != _PM_RECORD_INVENTORY_SIGNATURE:
+        _PM_RECORD_INVENTORY_SIGNATURE = signature
+        _PM_RECORD_INVENTORY_NAMES = tuple(sorted(path.name for path in root.glob("pm-*.json")))
+    prefix = f"pm-{sid}-{node_id}-"
+    start = bisect.bisect_left(_PM_RECORD_INVENTORY_NAMES, prefix)
+    end = bisect.bisect_left(_PM_RECORD_INVENTORY_NAMES, prefix + "\U0010ffff")
+    return [root / name for name in _PM_RECORD_INVENTORY_NAMES[start:end]]
+
+
 def _latest_operator_result_for(sid: str, node_id: str, operator_id: str = "") -> dict[str, Any] | None:
     """Return the newest terminal PM/operator result for a graph node.
 
@@ -1902,11 +1968,8 @@ def _latest_operator_result_for(sid: str, node_id: str, operator_id: str = "") -
     must therefore inspect the operator result artifact instead of treating the
     submit ack as durable completion proof.
     """
-    root = HARNESS_DIR / "run" / "operator-results"
-    if not root.exists():
-        return None
     newest: tuple[str, dict[str, Any]] | None = None
-    for result_json in root.glob("*/*/result.json"):
+    for result_json in _operator_result_paths_for(sid, node_id):
         data = _read_json_file_safe(result_json)
         if str(data.get("sprint_id") or "") != sid:
             continue
@@ -1952,11 +2015,8 @@ def _latest_pm_task_record_for(
             "reviewer",
             "review",
         }
-    root = HARNESS_DIR / "run" / "pm-inbox"
-    if not root.exists():
-        return None
     newest: tuple[str, dict[str, Any]] | None = None
-    for record_json in root.glob("pm-*.json"):
+    for record_json in _pm_task_record_paths_for(sid, node_id):
         data = _read_json_file_safe(record_json)
         if str(data.get("sprint_id") or "") != sid:
             continue
@@ -2004,7 +2064,7 @@ def _operator_pool_submit_guard(
     """Reject a second PM submit while the same graph node is still active."""
     inbox = HARNESS_DIR / "run" / "pm-inbox"
     if inbox.exists():
-        for record_path in inbox.glob("pm-*.json"):
+        for record_path in _pm_task_record_paths_for(sprint_id, node_id):
             record = _read_json_file_safe(record_path)
             if str(record.get("sprint_id") or "") != sprint_id:
                 continue
@@ -3500,7 +3560,7 @@ def _proof_artifact_presence(sid: str, node: dict[str, Any], eval_json: str | Pa
             presence[artifact_key] = candidate.exists()
     operator_results_root = HARNESS_DIR / "run" / "operator-results"
     if operator_results_root.exists():
-        for result_json in operator_results_root.glob("*/*/result.json"):
+        for result_json in _operator_result_paths_for(sid, node_id):
             data = _read_json_file_safe(result_json)
             if str(data.get("sprint_id") or "") != sid or str(data.get("node_id") or "") != node_id:
                 continue

@@ -15,9 +15,24 @@ if str(TOOLS_DIR) not in sys.path:
 import actor_mailbox_wake as wake  # noqa: E402
 
 
-def test_classify_tail_ignores_stale_auth_error_when_ready_prompt_returns():
+def test_classify_tail_keeps_auth_error_when_only_ready_prompt_returns():
     tail = """
       Please run /login · API Error: 401 Invalid authentication credentials
+    ───────────────────────────────────────
+    ❯
+    ───────────────────────────────────────
+      ⏵⏵ bypass permissions on
+      Claude Max
+    """
+
+    assert wake.classify_tail(tail) == ("auth_expired", "pane_tail_auth_blocker")
+
+
+def test_classify_tail_ignores_auth_error_after_positive_login_recovery():
+    tail = """
+      Please run /login · API Error: 401 Invalid authentication credentials
+      Login successful
+      ▐▛███▜▌   Claude Code v2.1.119
     ───────────────────────────────────────
     ❯
     ───────────────────────────────────────
