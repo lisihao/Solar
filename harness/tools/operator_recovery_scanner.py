@@ -52,6 +52,12 @@ DEFAULT_ACTOR_RESPAWN_CWD = {
 SHARED_CLAUDE_LOGIN_PENDING_TTL_SECONDS = int(
     os.environ.get("SOLAR_SHARED_CLAUDE_LOGIN_PENDING_TTL_SECONDS", "3600") or "3600"
 )
+SHARED_CLAUDE_AUTH_PROBE_MARKER = "SOLAR_CLAUDE_AUTH_OK"
+SHARED_CLAUDE_AUTH_FAILURE_RE = re.compile(
+    r"authentication_failed|authentication_error|failed to authenticate|"
+    r"oauth access token has expired|api error:\s*401",
+    re.I,
+)
 
 
 def _now() -> dt.datetime:
@@ -870,15 +876,73 @@ def _shared_claude_auth_status() -> dict[str, Any]:
         payload = json.loads(proc.stdout or "{}")
     except Exception:
         payload = {}
-    logged_in = bool(payload.get("loggedIn")) and proc.returncode == 0
+    credential_present = bool(payload.get("loggedIn")) and proc.returncode == 0
+    if not credential_present:
+        return {
+            "ok": False,
+            "logged_in": False,
+            "credential_present": False,
+            "verified_usable": False,
+            "auth_method": str(payload.get("authMethod") or ""),
+            "subscription_type": str(payload.get("subscriptionType") or ""),
+            "reason": "shared_auth_login_required",
+        }
+
+    probe_model = str(os.environ.get("SOLAR_SHARED_CLAUDE_AUTH_PROBE_MODEL", "sonnet") or "sonnet").strip()
+    probe_command = [
+        executable,
+        "-p",
+        "--model",
+        probe_model,
+        "--tools",
+        "",
+        "--disable-slash-commands",
+        "--no-session-persistence",
+        "--strict-mcp-config",
+        "--mcp-config",
+        '{"mcpServers":{}}',
+        "--output-format",
+        "json",
+        f"Reply with exactly {SHARED_CLAUDE_AUTH_PROBE_MARKER} and nothing else.",
+    ]
+    try:
+        probe = subprocess.run(
+            probe_command,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=45,
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "logged_in": False,
+            "credential_present": True,
+            "verified_usable": False,
+            "auth_method": str(payload.get("authMethod") or ""),
+            "subscription_type": str(payload.get("subscriptionType") or ""),
+            "probe_model": probe_model,
+            "reason": f"shared_auth_probe_failed:{type(exc).__name__}",
+        }
+    probe_output = f"{probe.stdout or ''}\n{probe.stderr or ''}"
+    auth_failure = bool(SHARED_CLAUDE_AUTH_FAILURE_RE.search(probe_output))
+    verified_usable = (
+        probe.returncode == 0
+        and not auth_failure
+        and SHARED_CLAUDE_AUTH_PROBE_MARKER in (probe.stdout or "")
+    )
     return {
-        "ok": proc.returncode == 0,
-        "logged_in": logged_in,
-        "credential_present": logged_in,
-        "verified_usable": False,
+        "ok": verified_usable,
+        "logged_in": verified_usable,
+        "credential_present": True,
+        "verified_usable": verified_usable,
         "auth_method": str(payload.get("authMethod") or ""),
         "subscription_type": str(payload.get("subscriptionType") or ""),
-        "reason": "shared_credential_present_unverified" if logged_in else "shared_auth_login_required",
+        "probe_model": probe_model,
+        "probe_returncode": probe.returncode,
+        "reason": "shared_auth_live_probe_ok" if verified_usable else (
+            "shared_auth_live_probe_401" if auth_failure else "shared_auth_live_probe_failed"
+        ),
     }
 
 
@@ -934,13 +998,22 @@ def _consume_completed_shared_claude_login(actor_mailbox_wake: Any, *, apply: bo
     )
     if not recovered:
         return {"completed": False, "reason": "shared_login_still_pending", **pending}
+    auth_status = _shared_claude_auth_status()
+    if not bool(auth_status.get("verified_usable")):
+        return {
+            "completed": False,
+            "reason": "shared_login_success_marker_unverified",
+            "auth_status": auth_status,
+            **pending,
+        }
     cleared = _clear_shared_claude_auth_repair_request() if apply else False
     return {
         "completed": True,
-        "reason": "shared_login_success_marker_detected",
+        "reason": "shared_login_live_probe_verified",
         "pane": pane,
         "request_cleared": cleared,
         "applied": apply,
+        "auth_status": auth_status,
     }
 
 
@@ -1075,6 +1148,8 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
     registry = _load_operator_registry()
     shared_auth_status: dict[str, Any] | None = None
     shared_login_completion = _consume_completed_shared_claude_login(actor_mailbox_wake, apply=apply)
+    if isinstance(shared_login_completion.get("auth_status"), dict):
+        shared_auth_status = dict(shared_login_completion["auth_status"])
     rerouted = _reroute_unmapped_inbox(targets, apply=apply)
     dead_lettered = _dead_letter_unmapped_inbox(apply=apply)
     rebalanced = _rebalance_mapped_inbox(targets, apply=apply)
@@ -1179,7 +1254,7 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
                         }
                 if shared_auth_status is None:
                     shared_auth_status = _shared_claude_auth_status()
-                if not pending_login and bool(shared_auth_status.get("logged_in")):
+                if not pending_login and bool(shared_auth_status.get("verified_usable")):
                     auth_recovery = _respawn_actor_pane_for_shared_auth(actor_id, pane)
                     if auth_recovery.get("ok"):
                         time.sleep(2.0)

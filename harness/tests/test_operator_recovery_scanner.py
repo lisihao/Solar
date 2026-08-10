@@ -335,7 +335,11 @@ def test_recovery_scanner_respawns_stale_claude_pane_when_shared_auth_is_ready(t
     monkeypatch.setattr(scanner, "_actor_inbox_task_count", lambda operator_id: 1)
     monkeypatch.setattr(scanner, "_actor_processing_task_count", lambda operator_id: 0)
     monkeypatch.setattr(scanner, "_ensure_actor_pane_available", lambda actor_id, pane, apply: {"ok": True, "pane_dead": False, "respawned": False})
-    monkeypatch.setattr(scanner, "_shared_claude_auth_status", lambda: {"ok": True, "logged_in": True})
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {"ok": True, "logged_in": True, "verified_usable": True},
+    )
     monkeypatch.setattr(
         scanner,
         "_respawn_actor_pane_for_shared_auth",
@@ -383,7 +387,11 @@ def test_recovery_scanner_triggers_shared_login_when_respawn_still_gets_401(tmp_
     monkeypatch.setattr(scanner, "_actor_inbox_task_count", lambda operator_id: 1)
     monkeypatch.setattr(scanner, "_actor_processing_task_count", lambda operator_id: 0)
     monkeypatch.setattr(scanner, "_ensure_actor_pane_available", lambda actor_id, pane, apply: {"ok": True, "pane_dead": False, "respawned": False})
-    monkeypatch.setattr(scanner, "_shared_claude_auth_status", lambda: {"ok": True, "logged_in": True})
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {"ok": True, "logged_in": True, "verified_usable": True},
+    )
     monkeypatch.setattr(
         scanner,
         "_respawn_actor_pane_for_shared_auth",
@@ -476,12 +484,118 @@ def test_completed_shared_claude_login_clears_pending_request(tmp_path: Path, mo
         AUTH_RECOVERY_RE=re.compile(r"Login successful", re.I),
         capture_pane_tail=lambda pane: "Login successful\n❯ ",
     )
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {"ok": True, "logged_in": True, "verified_usable": True},
+    )
 
     result = scanner._consume_completed_shared_claude_login(actor_wake, apply=True)
 
     assert result["completed"] is True
     assert result["request_cleared"] is True
     assert not request_path.exists()
+
+
+def test_completed_shared_claude_login_keeps_request_when_live_probe_fails(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    request_path = tmp_path / "run" / "auth-repair-requests" / "shared-claude-subscription.json"
+    request_path.parent.mkdir(parents=True)
+    request_path.write_text(
+        json.dumps(
+            {
+                "scope_id": "shared-claude-subscription",
+                "login_flow": {
+                    "status": "pending",
+                    "triggered_at": scanner._iso(),
+                    "pane": "session:0.1",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    actor_wake = types.SimpleNamespace(
+        AUTH_RECOVERY_RE=re.compile(r"Login successful", re.I),
+        capture_pane_tail=lambda pane: "Login successful\n❯ ",
+    )
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {
+            "ok": False,
+            "logged_in": False,
+            "credential_present": True,
+            "verified_usable": False,
+            "reason": "shared_auth_live_probe_401",
+        },
+    )
+
+    result = scanner._consume_completed_shared_claude_login(actor_wake, apply=True)
+
+    assert result["completed"] is False
+    assert result["reason"] == "shared_login_success_marker_unverified"
+    assert result["auth_status"]["reason"] == "shared_auth_live_probe_401"
+    assert request_path.exists()
+
+
+def test_shared_claude_auth_status_requires_successful_live_probe(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if command[1:3] == ["auth", "status"]:
+            return types.SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "loggedIn": True,
+                        "authMethod": "claude.ai",
+                        "subscriptionType": "max",
+                    }
+                ),
+                stderr="",
+            )
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"result": scanner.SHARED_CLAUDE_AUTH_PROBE_MARKER}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(scanner.shutil, "which", lambda executable: "/usr/local/bin/claude")
+    monkeypatch.setattr(scanner.subprocess, "run", fake_run)
+
+    status = scanner._shared_claude_auth_status()
+
+    assert status["credential_present"] is True
+    assert status["verified_usable"] is True
+    assert status["logged_in"] is True
+    assert status["reason"] == "shared_auth_live_probe_ok"
+    assert len(calls) == 2
+
+
+def test_shared_claude_auth_status_rejects_stale_credential_401(monkeypatch):
+    def fake_run(command, **kwargs):
+        if command[1:3] == ["auth", "status"]:
+            return types.SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "max"}),
+                stderr="",
+            )
+        return types.SimpleNamespace(
+            returncode=0,
+            stdout='{"is_error":true,"result":"Failed to authenticate. API Error: 401 authentication_error"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(scanner.shutil, "which", lambda executable: "/usr/local/bin/claude")
+    monkeypatch.setattr(scanner.subprocess, "run", fake_run)
+
+    status = scanner._shared_claude_auth_status()
+
+    assert status["credential_present"] is True
+    assert status["verified_usable"] is False
+    assert status["logged_in"] is False
+    assert status["reason"] == "shared_auth_live_probe_401"
 
 
 def test_recovery_scanner_scans_actor_with_processing_backlog(tmp_path: Path, monkeypatch):
