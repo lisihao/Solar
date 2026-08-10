@@ -100,6 +100,60 @@ def test_recent_operator_quota_block_does_not_use_weekly_positive_for_5h_log(mon
     assert recorded == ["spark-1"]
 
 
+def test_recent_model_specific_quota_block_uses_model_key_scope(monkeypatch, tmp_path: Path):
+    root = tmp_path / "operator-results"
+    now = dt.datetime(2026, 8, 10, 12, 0, tzinfo=dt.timezone.utc)
+    _write_recent_limit_log(root, "spark-1", mtime=now - dt.timedelta(minutes=1))
+    monkeypatch.setattr(ofc, "OPERATOR_RESULTS_DIR", root)
+    recorded: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ofc,
+        "_cooldown_db_module",
+        lambda: SimpleNamespace(
+            latest_quota_observation=lambda operator_id, quota_window="": None,
+            record_cooldown_event=lambda *args, **kwargs: recorded.append(dict(kwargs)),
+        ),
+    )
+
+    block = ofc.recent_operator_quota_block("spark-1", model_hint="gpt-5.3-codex-spark", now=now)
+
+    assert block is not None
+    assert recorded[0]["scope"] == "model_key"
+
+
+def test_persist_model_specific_quota_block_uses_model_key_scope(monkeypatch):
+    registry = {
+        "operators": {
+            "spark-1": {
+                "provider": "openai",
+                "model": "gpt-5.3-codex-spark",
+                "enabled": True,
+                "state": {},
+            }
+        }
+    }
+    recorded: list[dict[str, object]] = []
+    monkeypatch.setattr(ofc, "_load_operator_registry", lambda: registry)
+    monkeypatch.setattr(ofc, "_write_operator_registry", lambda payload: None)
+    monkeypatch.setattr(
+        ofc,
+        "_cooldown_db_module",
+        lambda: SimpleNamespace(record_cooldown_event=lambda *args, **kwargs: recorded.append(dict(kwargs))),
+    )
+
+    result = ofc.persist_operator_block(
+        "spark-1",
+        "cooldown",
+        expires_at="2099-01-01T00:00:00Z",
+        reason="rate_limit",
+        source="failure_flow_control",
+        evidence_text="You've hit your usage limit for GPT-5.3-Codex-Spark.",
+    )
+
+    assert result["ok"] is True
+    assert recorded[0]["scope"] == "model_key"
+
+
 def test_record_operator_outcome_breaks_circuit_after_consecutive_failures(monkeypatch, tmp_path: Path):
     status_dir = tmp_path / "operator-status"
     blocks: list[dict[str, object]] = []

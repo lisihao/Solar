@@ -560,6 +560,7 @@ def recent_operator_quota_block(
             "source": "operator_result_log",
             "path": str(path),
         }
+        model_scope = bool(model_l and model_l in text_l)
         cooldown_db = _cooldown_db_module()
         if cooldown_db is not None:
             try:
@@ -568,7 +569,7 @@ def recent_operator_quota_block(
                     "cooldown",
                     reason="result_log_quota_block",
                     source="operator_result_log",
-                    scope="operator_id",
+                    scope="model_key" if model_scope else "operator_id",
                     rule_name="recent_operator_quota_block",
                     triggered_at=mtime,
                     expires_at=reset_at,
@@ -1189,6 +1190,15 @@ def persist_operator_block(
     flow.pop("last_prune_reason", None)
     op["flow_control"] = flow
     _write_operator_registry(registry)
+    cooldown_scope = "operator_id"
+    model = str(op.get("model") or "").strip().lower()
+    if (
+        runtime_state == "cooldown"
+        and has_explicit_quota_evidence(evidence_text)
+        and model
+        and model in evidence_l
+    ):
+        cooldown_scope = "model_key"
     cooldown_db = _cooldown_db_module()
     if cooldown_db is not None:
         try:
@@ -1197,7 +1207,7 @@ def persist_operator_block(
                 runtime_state,
                 reason=reason or runtime_state,
                 source=source or "operator_flow_control",
-                scope="operator_id",
+                scope=cooldown_scope,
                 rule_name=reason or runtime_state,
                 expires_at=expires_iso or None,
                 evidence_ref=f"{operator_id}:{source}:{expires_iso or runtime_state}",

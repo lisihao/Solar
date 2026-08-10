@@ -321,15 +321,32 @@ def _operator_ids_for_model(registry: dict[str, Any], model_key: str, operator_i
     return sorted(result)
 
 
-def _seen_positive_observation_needs_replay(entry: dict[str, Any]) -> bool:
+def _item_observed_at(item: dict[str, Any]) -> str:
+    explicit = operator_cooldown_db.parse_time(item.get("observed_at"))
+    if explicit is not None:
+        return _iso(explicit)
+    try:
+        mtime = dt.datetime.fromtimestamp(Path(item["path"]).stat().st_mtime, tz=dt.timezone.utc)
+    except Exception:
+        return ""
+    return _iso(mtime)
+
+
+def _seen_observation_needs_replay(entry: dict[str, Any]) -> bool:
     try:
         remaining = float(entry.get("remaining_percent"))
     except Exception:
         return False
-    if remaining <= 0:
-        return False
     operator_id = str(entry.get("operator_id") or "")
     block = operator_cooldown_db.current_cooldown_block(operator_id, prune_expired=False)
+    if remaining <= 0:
+        reset = operator_cooldown_db.parse_time(entry.get("reset_at"))
+        if reset is not None and reset <= _now():
+            return False
+        return not (
+            isinstance(block, dict)
+            and str(block.get("runtime_state") or "") in {"cooldown", "quota_exhausted"}
+        )
     if isinstance(block, dict) and str(block.get("runtime_state") or "") in {"quota_exhausted", "auth_expired"}:
         recovery = operator_cooldown_db.quota_recovery_observation(operator_id, block=block)
         if not isinstance(recovery, dict):
@@ -366,9 +383,11 @@ def run_scan(*, apply: bool = False, max_age_seconds: int = 7200) -> dict[str, A
         if not text.strip():
             continue
         scanned += 1
-        observations = parse_quota_observations(text)
+        item_observed_at = _item_observed_at(item)
+        parse_now = operator_cooldown_db.parse_time(item_observed_at) or _now()
+        observations = parse_quota_observations(text, now=parse_now)
         for observation in observations:
-            observed_at = str(observation.get("observed_at") or "").strip()
+            observed_at = str(observation.get("observed_at") or item_observed_at or "").strip()
             if observed_at and max_age_seconds > 0:
                 parsed_observed = operator_cooldown_db.parse_time(observed_at)
                 if parsed_observed is not None and (_now() - parsed_observed).total_seconds() > max_age_seconds:
@@ -405,12 +424,13 @@ def run_scan(*, apply: bool = False, max_age_seconds: int = 7200) -> dict[str, A
                     "quota_window": str(observation.get("quota_window") or ""),
                     "remaining_percent": observation.get("remaining_percent"),
                     "reset_at": str(observation.get("reset_at") or ""),
+                    "observed_at": observed_at,
                     "source": str(item.get("source") or "quota_evidence_scanner"),
                     "evidence_ref": f"quota_evidence_scanner:{digest[:16]}",
                     "evidence_path": source_path,
                     "evidence_excerpt": text[-1200:],
                 }
-                if seen.get(digest) and not _seen_positive_observation_needs_replay(entry):
+                if seen.get(digest) and not _seen_observation_needs_replay(entry):
                     continue
                 extracted.append(entry)
                 if apply:
