@@ -656,7 +656,7 @@ def _tmux_pane_dead(pane: str) -> tuple[bool, str]:
 
 def _capture_pane_excerpt(pane: str) -> str:
     proc = subprocess.run(
-        ["tmux", "capture-pane", "-t", pane, "-p", "-S", "-30"],
+        ["tmux", "capture-pane", "-t", pane, "-p", "-S", "-60"],
         text=True,
         capture_output=True,
         check=False,
@@ -827,12 +827,17 @@ def _trigger_shared_claude_login(
     subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], check=False, timeout=10)
     time.sleep(2.0)
 
-    excerpt = _capture_pane_excerpt(pane)
-    match = re.search(
-        r"https://claude\.com/cai/oauth/authorize\?[\s\S]*?(?=\n\s*\n\s*Paste code here)",
-        excerpt,
-    )
-    oauth_url = re.sub(r"\s+", "", match.group(0)) if match else ""
+    oauth_url = ""
+    for _attempt in range(8):
+        excerpt = _capture_pane_excerpt(pane)
+        match = re.search(
+            r"https://claude\.com/cai/oauth/authorize\?[\s\S]*?(?=\n\s*\n\s*Paste code here)",
+            excerpt,
+        )
+        if match:
+            oauth_url = re.sub(r"\s+", "", match.group(0))
+            break
+        time.sleep(1.0)
     browser_opened = False
     if oauth_url:
         opened = subprocess.run(["open", oauth_url], text=True, capture_output=True, check=False, timeout=10)
@@ -1574,6 +1579,8 @@ def run_scan(*, apply: bool = False, refresh_snapshot: bool = True) -> dict[str,
             "woken": mailbox_wake.get("woken") if isinstance(mailbox_wake, dict) else None,
             "blocked": mailbox_wake.get("blocked") if isinstance(mailbox_wake, dict) else None,
             "status_cleared": mailbox_wake.get("status_cleared") if isinstance(mailbox_wake, dict) else None,
+            "shared_login_completion": mailbox_wake.get("shared_login_completion") if isinstance(mailbox_wake, dict) else {},
+            "shared_auth_gate": mailbox_wake.get("shared_auth_gate") if isinstance(mailbox_wake, dict) else {},
             "rerouted": mailbox_wake.get("rerouted") if isinstance(mailbox_wake, dict) else {},
             "dead_lettered": mailbox_wake.get("dead_lettered") if isinstance(mailbox_wake, dict) else {},
             "rebalanced": mailbox_wake.get("rebalanced") if isinstance(mailbox_wake, dict) else {},

@@ -479,6 +479,36 @@ def test_shared_claude_login_trigger_is_singleton_with_ttl(tmp_path: Path, monke
     assert sum(1 for command in calls if command[:2] == ["open", "https://claude.com/cai/oauth/authorize?code=true&state=test"]) == 1
 
 
+def test_shared_claude_login_waits_for_wrapped_oauth_url(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    calls = []
+    captures = iter(
+        [
+            "Login\nLoading...",
+            "https://claude.com/cai/oauth/authorize?\ncode=true&state=test\n\nPaste code here",
+        ]
+    )
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(scanner.subprocess, "run", fake_run)
+    monkeypatch.setattr(scanner.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(scanner, "_capture_pane_excerpt", lambda pane: next(captures))
+
+    result = scanner._trigger_shared_claude_login(
+        "claude-a",
+        "session:0.1",
+        {"runtime_state": "auth_expired", "reason": "shared_auth_live_probe_401"},
+        {"provider": "anthropic", "backend": "claude-cli", "model": "opus"},
+    )
+
+    assert result["oauth_url_detected"] is True
+    assert result["browser_opened"] is True
+    assert ["open", "https://claude.com/cai/oauth/authorize?code=true&state=test"] in calls
+
+
 def test_completed_shared_claude_login_clears_pending_request(tmp_path: Path, monkeypatch):
     _patch_paths(monkeypatch, tmp_path)
     request_path = tmp_path / "run" / "auth-repair-requests" / "shared-claude-subscription.json"
