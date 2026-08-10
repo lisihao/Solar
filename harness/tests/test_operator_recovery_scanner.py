@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -452,6 +453,35 @@ def test_shared_claude_login_trigger_is_singleton_with_ttl(tmp_path: Path, monke
     assert second["triggered"] is False
     assert second["reason"] == "shared_login_already_pending"
     assert sum(1 for command in calls if command[:2] == ["open", "https://claude.com/cai/oauth/authorize?code=true&state=test"]) == 1
+
+
+def test_completed_shared_claude_login_clears_pending_request(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    request_path = tmp_path / "run" / "auth-repair-requests" / "shared-claude-subscription.json"
+    request_path.parent.mkdir(parents=True)
+    request_path.write_text(
+        json.dumps(
+            {
+                "scope_id": "shared-claude-subscription",
+                "login_flow": {
+                    "status": "pending",
+                    "triggered_at": scanner._iso(),
+                    "pane": "session:0.1",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    actor_wake = types.SimpleNamespace(
+        AUTH_RECOVERY_RE=re.compile(r"Login successful", re.I),
+        capture_pane_tail=lambda pane: "Login successful\n❯ ",
+    )
+
+    result = scanner._consume_completed_shared_claude_login(actor_wake, apply=True)
+
+    assert result["completed"] is True
+    assert result["request_cleared"] is True
+    assert not request_path.exists()
 
 
 def test_recovery_scanner_scans_actor_with_processing_backlog(tmp_path: Path, monkeypatch):

@@ -917,6 +917,33 @@ def _configured_claude_interactive_target(actor_id: str) -> bool:
     return actor_id in _actor_mailbox_wake_targets() and "claude" in command
 
 
+def _consume_completed_shared_claude_login(actor_mailbox_wake: Any, *, apply: bool) -> dict[str, Any]:
+    pending = _shared_claude_login_pending()
+    if not pending:
+        return {"completed": False, "reason": "no_shared_login_pending"}
+    pane = str(pending.get("pane") or "").strip()
+    if not pane:
+        return {"completed": False, "reason": "shared_login_pending_without_pane", **pending}
+    try:
+        tail = actor_mailbox_wake.capture_pane_tail(pane)
+    except Exception as exc:
+        return {"completed": False, "reason": f"shared_login_tail_failed:{type(exc).__name__}", **pending}
+    recovery_re = getattr(actor_mailbox_wake, "AUTH_RECOVERY_RE", None)
+    recovered = bool(recovery_re.search(tail)) if recovery_re is not None else bool(
+        re.search(r"Login successful|Authentication successful|Successfully (?:logged|signed) in", tail, re.I)
+    )
+    if not recovered:
+        return {"completed": False, "reason": "shared_login_still_pending", **pending}
+    cleared = _clear_shared_claude_auth_repair_request() if apply else False
+    return {
+        "completed": True,
+        "reason": "shared_login_success_marker_detected",
+        "pane": pane,
+        "request_cleared": cleared,
+        "applied": apply,
+    }
+
+
 def _quota_window_for_block(block: dict[str, Any]) -> str:
     material = " ".join(
         str(block.get(key) or "").strip().lower()
@@ -1047,6 +1074,7 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
     targets = _actor_mailbox_wake_targets()
     registry = _load_operator_registry()
     shared_auth_status: dict[str, Any] | None = None
+    shared_login_completion = _consume_completed_shared_claude_login(actor_mailbox_wake, apply=apply)
     rerouted = _reroute_unmapped_inbox(targets, apply=apply)
     dead_lettered = _dead_letter_unmapped_inbox(apply=apply)
     rebalanced = _rebalance_mapped_inbox(targets, apply=apply)
@@ -1237,6 +1265,7 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
         "woken": woken,
         "blocked": blocked,
         "status_cleared": cleared,
+        "shared_login_completion": shared_login_completion,
         "rerouted": rerouted,
         "dead_lettered": dead_lettered,
         "rebalanced": rebalanced,
