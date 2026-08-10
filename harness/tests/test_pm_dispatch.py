@@ -3792,6 +3792,16 @@ def test_pm_reconcile_requeues_authoritatively_blocked_actor_inbox_task(monkeypa
     graph = json.loads((sprints / "sprint-one.task_graph.json").read_text(encoding="utf-8"))
     assert graph["nodes"][0]["status"] == "pending"
     assert "pm_task_id" not in graph["nodes"][0]
+    history_count = len(graph["nodes"][0]["dispatch_requeue_history"])
+    duplicate = dict(record, task_id="pm-sprint-one-B4-auth-duplicate")
+    duplicate_release = pm_dispatch._release_graph_node_on_transient_operator_failure(
+        duplicate,
+        require_active_assignment=True,
+    )
+    assert duplicate_release["released"] is False
+    assert duplicate_release["reason"] == "dispatch_mismatch"
+    graph = json.loads((sprints / "sprint-one.task_graph.json").read_text(encoding="utf-8"))
+    assert len(graph["nodes"][0]["dispatch_requeue_history"]) == history_count
 
 
 def test_pm_reconcile_preserves_incomplete_terminal_failure(monkeypatch, tmp_path, capsys):

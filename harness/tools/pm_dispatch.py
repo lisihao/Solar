@@ -4966,7 +4966,11 @@ def _mark_graph_node_pm_dispatched(item: dict[str, Any], submitted: dict[str, An
     }
 
 
-def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) -> dict[str, Any]:
+def _release_graph_node_on_transient_operator_failure(
+    record: dict[str, Any],
+    *,
+    require_active_assignment: bool = False,
+) -> dict[str, Any]:
     reason = _transient_operator_failure_text(record)
     requeue_reason = ""
     if TRANSIENT_OPERATOR_FAILURE_RE.search(reason):
@@ -5034,6 +5038,8 @@ def _release_graph_node_on_transient_operator_failure(record: dict[str, Any]) ->
             str(result_entry.get("assigned_to") or "").strip(),
         }
         graph_dispatch_ids = {item for item in dispatch_ids if item}
+        if require_active_assignment and (not record_operator or record_operator not in graph_operator_ids):
+            return {"ok": False, "released": False, "reason": "dispatch_mismatch", "node_id": node_id}
         dispatchless_pool_claim = (
             not graph_pm_task_ids
             and (
@@ -6418,7 +6424,10 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 record["failed_at"] = now
                 record["failure_reason"] = f"operator_became_unavailable:{runtime_state}"
                 record["blocked_actor_requeue"] = {**blocked_actor_task, "quarantine": quarantine}
-                graph_requeue = _release_graph_node_on_transient_operator_failure(record)
+                graph_requeue = _release_graph_node_on_transient_operator_failure(
+                    record,
+                    require_active_assignment=True,
+                )
                 if graph_requeue.get("released"):
                     record["graph_requeue"] = graph_requeue
                 graph_eval_requeue = _release_graph_eval_on_transient_operator_failure(record)
