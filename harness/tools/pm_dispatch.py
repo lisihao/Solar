@@ -6149,9 +6149,9 @@ def _blocked_actor_inbox_task(record: dict[str, Any], *, age_minutes: float) -> 
     status = str(record.get("status") or "").strip().lower()
     if status not in ACTIVE_PM_OPERATOR_STATUSES:
         return {}
-    operator_id = str(record.get("operator_id") or "").strip()
+    record_operator_id = str(record.get("operator_id") or "").strip()
     inbox_raw = str(record.get("inbox_path") or "").strip()
-    if not operator_id or not inbox_raw:
+    if not inbox_raw:
         return {}
     try:
         min_age = max(0.0, float(os.environ.get("SOLAR_PM_BLOCKED_ACTOR_REQUEUE_MIN_AGE_MINUTES", "2")))
@@ -6161,13 +6161,46 @@ def _blocked_actor_inbox_task(record: dict[str, Any], *, age_minutes: float) -> 
         return {}
 
     inbox_path = Path(inbox_raw).expanduser()
-    expected_parent = (ACTORS_DIR / operator_id / "inbox").resolve()
+    actors_root = ACTORS_DIR.resolve()
     try:
-        inbox_path.resolve().relative_to(expected_parent)
+        recorded_relative_path = inbox_path.resolve().relative_to(actors_root)
     except (OSError, ValueError):
         return {}
-    if not inbox_path.is_file():
+    if len(recorded_relative_path.parts) != 3 or recorded_relative_path.parts[1] not in {"inbox", "processing"}:
         return {}
+    if not inbox_path.is_file():
+        candidates: list[Path] = []
+        try:
+            actor_dirs = [path for path in ACTORS_DIR.iterdir() if path.is_dir()]
+        except OSError:
+            actor_dirs = []
+        for actor_dir in actor_dirs:
+            for candidate_queue in ("inbox", "processing"):
+                candidate = actor_dir / candidate_queue / inbox_path.name
+                if candidate.is_file():
+                    candidates.append(candidate)
+        if len(candidates) != 1:
+            return {}
+        inbox_path = candidates[0]
+    try:
+        relative_path = inbox_path.resolve().relative_to(actors_root)
+    except (OSError, ValueError):
+        return {}
+    if len(relative_path.parts) != 3:
+        return {}
+    operator_id, queue_name, _filename = relative_path.parts
+    if not operator_id or queue_name not in {"inbox", "processing"}:
+        return {}
+    if queue_name == "processing":
+        try:
+            processing_min_age = max(
+                min_age,
+                float(os.environ.get("SOLAR_PM_BLOCKED_ACTOR_PROCESSING_REQUEUE_MIN_AGE_MINUTES", "15")),
+            )
+        except (TypeError, ValueError):
+            processing_min_age = max(min_age, 15.0)
+        if age_minutes < processing_min_age:
+            return {}
 
     status_data = get_operator_status_data(operator_id)
     runtime_state = str(status_data.get("runtime_state") or status_data.get("state") or "").strip().lower()
@@ -6185,6 +6218,8 @@ def _blocked_actor_inbox_task(record: dict[str, Any], *, age_minutes: float) -> 
         "reason": str(status_data.get("reason") or runtime_state),
         "source": source,
         "inbox_path": str(inbox_path),
+        "queue_name": queue_name,
+        "record_operator_id": record_operator_id,
         "age_min": round(age_minutes, 1),
     }
 

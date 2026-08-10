@@ -3804,6 +3804,164 @@ def test_pm_reconcile_requeues_authoritatively_blocked_actor_inbox_task(monkeypa
     assert len(graph["nodes"][0]["dispatch_requeue_history"]) == history_count
 
 
+def test_pm_reconcile_uses_actual_actor_owner_after_queue_reroute(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    actors = tmp_path / "actors"
+    statuses = tmp_path / "operator-status"
+    leases = tmp_path / "actor-leases"
+    for directory in (sprints, inbox, actors, statuses, leases):
+        directory.mkdir(parents=True)
+    record_operator_id = "mini-claude-sonnet-builder"
+    actual_operator_id = "mini-claude-opus-builder"
+    task_id = "pm-sprint-one-B4-rerouted"
+    actor_inbox = actors / actual_operator_id / "inbox"
+    actor_inbox.mkdir(parents=True)
+    actor_task = actor_inbox / f"task-{task_id}-2026-06-13.json"
+    actor_task.write_text(json.dumps({"task_id": task_id}), encoding="utf-8")
+    stale_recorded_path = actors / record_operator_id / "inbox" / actor_task.name
+    (statuses / f"{actual_operator_id}.json").write_text(
+        json.dumps(
+            {
+                "operator_id": actual_operator_id,
+                "runtime_state": "auth_expired",
+                "reason": "pane_tail_auth_blocker",
+                "source": "actor_mailbox_wake",
+                "expires_at": "2099-01-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    record_path = inbox / f"{task_id}.json"
+    record_path.write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "operator_id": record_operator_id,
+                "status": "submitted",
+                "submitted_at": "2026-06-13T22:29:31Z",
+                "inbox_path": str(stale_recorded_path),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "ACTORS_DIR", actors)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_STATUS_DIR", statuses)
+    monkeypatch.setattr(pm_dispatch, "ACTOR_LEASE_DIR", leases)
+    monkeypatch.setattr(pm_dispatch, "_active_pm_task_ids", lambda: {task_id})
+    monkeypatch.setenv("SOLAR_PM_BLOCKED_ACTOR_REQUEUE_MIN_AGE_MINUTES", "0")
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=1, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"requeue_blocked_actor_task": 1}
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    block = record["blocked_actor_requeue"]
+    assert record["operator_id"] == record_operator_id
+    assert block["operator_id"] == actual_operator_id
+    assert block["record_operator_id"] == record_operator_id
+    assert block["queue_name"] == "inbox"
+    assert not actor_task.exists()
+    assert Path(block["quarantine"]["dead_letter_path"]).parent == actors / actual_operator_id / "dead-letter"
+
+
+def test_pm_reconcile_requeues_stale_blocked_actor_processing_task(monkeypatch, tmp_path, capsys):
+    pm_dispatch = _load_pm_dispatch()
+    sprints = tmp_path / "sprints"
+    inbox = tmp_path / "pm-inbox"
+    actors = tmp_path / "actors"
+    statuses = tmp_path / "operator-status"
+    leases = tmp_path / "actor-leases"
+    for directory in (sprints, inbox, actors, statuses, leases):
+        directory.mkdir(parents=True)
+    operator_id = "mini-claude-opus-planner"
+    task_id = "pm-sprint-one-S1-processing"
+    processing = actors / operator_id / "processing"
+    processing.mkdir(parents=True)
+    actor_task = processing / f"task-{task_id}-2026-06-13.json"
+    actor_task.write_text(json.dumps({"task_id": task_id}), encoding="utf-8")
+    (statuses / f"{operator_id}.json").write_text(
+        json.dumps(
+            {
+                "operator_id": operator_id,
+                "runtime_state": "auth_expired",
+                "reason": "pane_tail_auth_blocker",
+                "source": "actor_mailbox_wake",
+                "expires_at": "2099-01-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    record_path = inbox / f"{task_id}.json"
+    record_path.write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "operator_id": operator_id,
+                "status": "running",
+                "submitted_at": "2026-06-13T22:29:31Z",
+                "inbox_path": str(actor_task),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pm_dispatch, "HARNESS_DIR", tmp_path)
+    monkeypatch.setattr(pm_dispatch, "SPRINTS_DIR", sprints)
+    monkeypatch.setattr(pm_dispatch, "PM_INBOX_DIR", inbox)
+    monkeypatch.setattr(pm_dispatch, "ACTORS_DIR", actors)
+    monkeypatch.setattr(pm_dispatch, "OPERATOR_STATUS_DIR", statuses)
+    monkeypatch.setattr(pm_dispatch, "ACTOR_LEASE_DIR", leases)
+    monkeypatch.setattr(pm_dispatch, "_active_pm_task_ids", lambda: {task_id})
+    monkeypatch.setenv("SOLAR_PM_BLOCKED_ACTOR_REQUEUE_MIN_AGE_MINUTES", "0")
+    monkeypatch.setenv("SOLAR_PM_BLOCKED_ACTOR_PROCESSING_REQUEUE_MIN_AGE_MINUTES", "0")
+
+    rc = pm_dispatch.cmd_reconcile(argparse.Namespace(apply=True, max_age_minutes=1, json=True, limit=40))
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert out["summary"] == {"requeue_blocked_actor_task": 1}
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    block = record["blocked_actor_requeue"]
+    assert block["operator_id"] == operator_id
+    assert block["queue_name"] == "processing"
+    assert not actor_task.exists()
+    assert Path(block["quarantine"]["dead_letter_path"]).exists()
+
+
+def test_blocked_actor_processing_task_must_cross_processing_age_gate(monkeypatch, tmp_path):
+    pm_dispatch = _load_pm_dispatch()
+    operator_id = "mini-claude-opus-planner"
+    task_path = tmp_path / "actors" / operator_id / "processing" / "task-pm-one.json"
+    task_path.parent.mkdir(parents=True)
+    task_path.write_text(json.dumps({"task_id": "pm-one"}), encoding="utf-8")
+    monkeypatch.setattr(pm_dispatch, "ACTORS_DIR", tmp_path / "actors")
+    monkeypatch.setattr(
+        pm_dispatch,
+        "get_operator_status_data",
+        lambda _operator_id: {
+            "runtime_state": "auth_expired",
+            "source": "actor_mailbox_wake",
+            "expires_at": "2099-01-01T00:00:00Z",
+        },
+    )
+    monkeypatch.setenv("SOLAR_PM_BLOCKED_ACTOR_REQUEUE_MIN_AGE_MINUTES", "0")
+    monkeypatch.setenv("SOLAR_PM_BLOCKED_ACTOR_PROCESSING_REQUEUE_MIN_AGE_MINUTES", "15")
+    record = {
+        "task_id": "pm-one",
+        "operator_id": operator_id,
+        "status": "running",
+        "inbox_path": str(task_path),
+    }
+
+    assert pm_dispatch._blocked_actor_inbox_task(record, age_minutes=14.9) == {}
+    assert pm_dispatch._blocked_actor_inbox_task(record, age_minutes=15.0)["queue_name"] == "processing"
+
+
 def test_pm_reconcile_preserves_incomplete_terminal_failure(monkeypatch, tmp_path, capsys):
     pm_dispatch = _load_pm_dispatch()
     sprints = tmp_path / "sprints"
