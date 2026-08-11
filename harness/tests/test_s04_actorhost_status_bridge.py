@@ -403,6 +403,12 @@ def test_graph_queue_dispatch_role_uses_operator_pool_pane_hint() -> None:
     assert gnd._graph_queue_dispatch_role({}, {}, {"pane": "operator-pool:builder.0"}) == "builder"
 
 
+def test_graph_queue_dispatch_role_normalizes_verifier_aliases_to_evaluator() -> None:
+    assert gnd._graph_queue_dispatch_role({}, {"target_role": "verifier"}, {"dispatch_role": "verifier"}) == "evaluator"
+    assert gnd._graph_queue_dispatch_role({}, {"role": "Reviewer"}, {}) == "evaluator"
+    assert gnd._graph_queue_dispatch_role({"dispatch_role": "independent-review"}, {}, {}) == "evaluator"
+
+
 def test_operator_pool_dispatch_result_surfaces_selected_actorhost(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(gnd, "HARNESS_DIR", tmp_path)
     monkeypatch.setattr(gnd, "SPRINTS_DIR", tmp_path / "sprints")
