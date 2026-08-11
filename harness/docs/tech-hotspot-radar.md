@@ -2,6 +2,8 @@
 
 Unified YouTube / Social / GitHub tech hotspot scanning pipeline.
 
+> **生命周期边界（2026-08-10）**：本模块继续保留来源采集、去重、基础物化、provenance/freshness 和向 GenesisPod 的数据同步；大咖洞察、跨源洞察分析及洞察报告规划、写作、编辑、评估、渲染和导出已迁移到 GenesisPod，并在 Solar 标记为 `retired`。下文报告命令与产物格式仅作历史兼容和审计参考，不再代表 Solar 的活跃产品能力。详见 [迁移说明](migrations/insight-reporting-to-genesispod.md)。
+
 ## CLI Reference
 
 ```bash
@@ -78,9 +80,9 @@ Or set `schedule.enabled: false` in `config/tech-hotspot-radar.yaml`.
 - **Reasoning (N1B)**: evidence_atoms, hotspot_clusters, reasoning_packets, premium_reasoning_results, insight_verifications, token_ledger
 - **Metadata**: _meta
 
-## Output Artifacts
+## Legacy Output Artifacts
 
-Reports written to `Knowledge/_raw/tech-hotspot-radar/YYYY-MM-DD/`:
+历史 Solar 报告链曾写入 `Knowledge/_raw/tech-hotspot-radar/YYYY-MM-DD/`；这些格式为兼容和审计保留，新的报告产品能力由 GenesisPod 承接：
 
 - `{youtube,social,github}-report.md` — Source-specific Markdown reports
 - `unified-overview.md` — Daily unified overview

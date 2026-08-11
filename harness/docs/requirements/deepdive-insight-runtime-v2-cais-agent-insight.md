@@ -1,5 +1,7 @@
 # DeepDive Insight Runtime v2: CAIS Agent Insight Profile
 
+> **生命周期覆盖声明（2026-08-10）**：本文件保留为历史需求和验收证据。DeepDive 洞察研究、分析与报告写作的产品归属已迁移到 GenesisPod；该产品能力在 Solar 标记为 `retired`，不得依据本历史需求恢复开发或调度。Solar 仅保留数据供给、证据溯源和迁移兼容桥。见 [迁移说明](../migrations/insight-reporting-to-genesispod.md)。
+
 Status: P0 requirement package
 Owner: Solar Harness
 Created: 2026-06-05

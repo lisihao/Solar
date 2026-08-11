@@ -5,6 +5,7 @@
 > 需求窗口：严格新增范围为 `2026-05-21 00:00Z` 至 `2026-06-10 00:35:51Z`
 > 基线范围：另列 2026-05-20 当日 2 条产品基线，避免丢失上下文
 > 运行决策：Mac mini 只承担运行，开发、编译、评审和优化迁往 MacBook
+> 后续生命周期决策：洞察研究、报告写作与分析的产品归属已迁移到 GenesisPod；Solar 仅保留数据供给和迁移兼容，见 [迁移说明](../migrations/insight-reporting-to-genesispod.md)
 
 ## 1. 结论
 
@@ -34,6 +35,7 @@
 6. ThunderOMLX 可作为独立、可替换的知识抽取实验组件，但不能成为 GenesisPod 或系统事实源的硬依赖。
 7. AI Influence 不启用 premium ASR；字幕优先，失败时允许 `metadata-only`，不得伪造完整转录。
 8. SQLite、Evidence Ledger 和 task graph 的事实写入必须单写者、可回放、可审计。
+9. 大咖洞察、AI Influence/DeepDive 洞察及报告规划、写作、分析、编辑、评估和导出的产品归属迁往 GenesisPod；Solar 将这些产品能力标记为 `retired`。
 
 ## 2. 目标拓扑
 
@@ -49,7 +51,7 @@ MacBook（唯一开发面）
 Mac mini（运行面）
   ├─ GenesisPod（按需，AI 不接 ThunderOMLX）
   ├─ GitHub / HF / Social / YouTube 采集
-  ├─ 报告、物化、QMD / Mirage、数据库
+  ├─ 基础物化、证据溯源、同步、QMD / Mirage、数据库
   ├─ 只读健康状态、告警、日志轮转
   └─ no-dispatch 永久门禁
 ```
@@ -59,7 +61,7 @@ Mac mini（运行面）
 - GenesisPod frontend/backend/AI/infra 的按需控制脚本。
 - QMD、Mirage、状态服务、配置服务和必要数据库。
 - GitHub、HF、Social/X、YouTube 的生产采集与物化任务。
-- 报告生成、只读状态、健康检查、日志轮转和必要告警。
+- 向 GenesisPod 的数据同步、只读状态、健康检查、日志轮转和必要告警。
 - Tailscale/SSH 等运维回程链路。
 
 ### 2.2 Mac mini 禁止清单
@@ -218,18 +220,14 @@ RequestEnvelope
 2. Code Source：GitHub Project Intelligence / Code Signal Plane。
 3. Influence Source：Social/X/YouTube Signal Plane。
 
-### 统一输出
+### Solar / GenesisPod 输出边界
 
-- `EvidencePacket`
-- `ThesisBrief`
-- `CrossSourceResonance`
-- `DeepResearchSeed`
-- `ActionQueue`
-- Daily/Weekly Report
+- Solar 数据面：`EvidencePacket`、来源 URL、抓取时间、freshness、provenance、同步 manifest。
+- GenesisPod 产品面：`ThesisBrief`、`CrossSourceResonance`、`DeepResearchSeed`、`ActionQueue`、Daily/Weekly Report 及交互式洞察产品。
 
 ### 功能要求
 
-1. Mac mini 只运行采集、去重、基础物化和报告调度。
+1. Mac mini 的 Solar 侧只运行采集、去重、基础物化、证据溯源和向 GenesisPod 的同步；不再拥有洞察报告产品或报告写作分析调度。
 2. schema、排序、归因、UI、模型策略和算法开发迁往 MacBook。
 3. Provider-neutral；ThunderOMLX 只能作为可替换 extractor，缺失时必须明确降级。
 4. YouTube 字幕优先；禁止 premium ASR；字幕不可得时输出 `metadata-only`。
@@ -389,8 +387,8 @@ RequestEnvelope
 
 | ID | 日期 | 快照 | 原始需求 | 处置 |
 |---|---:|---|---|---|
-| [H-53](/Users/lisihao/Knowledge/_raw/solar-harness/intake/intake-20260531T195110Z.md) | 05-31 | cancelled | YouTube Report IR / Deep Writer / Verifier | 以父 cancelled 为准；未来缺陷并入 P1-01 |
-| [H-54](/Users/lisihao/Knowledge/_raw/solar-harness/intake/intake-20260605T010906Z.md) | 06-05 | passed | DeepDive Insight Runtime v2 / CAIS | 关闭旧 Epic；按需研究并入 P1-01 |
+| [H-53](/Users/lisihao/Knowledge/_raw/solar-harness/intake/intake-20260531T195110Z.md) | 05-31 | cancelled | YouTube Report IR / Deep Writer / Verifier | 以父 cancelled 为准；产品能力迁往 GenesisPod，Solar 归档废除 |
+| [H-54](/Users/lisihao/Knowledge/_raw/solar-harness/intake/intake-20260605T010906Z.md) | 06-05 | passed | DeepDive Insight Runtime v2 / CAIS | 历史成果保留；产品能力迁往 GenesisPod，Solar 归档废除 |
 | [H-55](/Users/lisihao/Knowledge/_raw/solar-harness/intake/intake-20260605T011517Z.md) | 06-05 | passed | Operator Health Watchdog | 旧开发恢复器不在 Mini 恢复；规则并入 P0-03 |
 | [H-56](/Users/lisihao/Knowledge/_raw/solar-harness/intake/intake-20260610T003551Z.md) | 06-10 | N/A | 定时任务复活 + 告警接线 + 派发 requeue | 已 superseded；终止归档，反重派要求并入 P0-03 |
 
@@ -482,3 +480,4 @@ Phase 5  最后启用 MacBook-only 离线 Optimizer
 6. GenesisPod 无 ThunderOMLX/OMLX/8002 运行依赖。
 7. 没有删除、伪造或批量覆盖历史证据。
 8. 所有剩余风险、未验证项和人工审批点均显式列出。
+9. Solar 的洞察报告产品能力均标记为 `retired`，新的报告写作、分析、编辑、评估和导出只在 GenesisPod 实现。

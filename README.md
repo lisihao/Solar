@@ -16,6 +16,8 @@
 
 运行态数据库、个人日志、密钥、WAL/SHM、pane 截图、本机私有轨迹和本地模型缓存不作为公开源码提交；安装器和 Harness 会在本机生成这些运行态资产。
 
+> **功能生命周期决策（2026-08-10）**：大咖洞察、AI Influence 洞察、DeepDive 洞察，以及洞察报告的规划、写作、分析、编辑、质量评估和导出，统一标记为 **已经迁移到 GenesisPod、本仓库废除**；这些产品能力在 Solar 的机器状态为 `retired`，不再新增或演进。Solar 仅保留来源采集、去重、基础物化、证据溯源、单向同步和迁移兼容桥。详见 [洞察报告迁移说明](harness/docs/migrations/insight-reporting-to-genesispod.md) 与 [机器可读生命周期清单](harness/config/feature-lifecycle.json)。
+
 ## 技术架构
 
 ```mermaid
@@ -211,6 +213,7 @@ flowchart TB
 | Ruflo / Claude Flow | ok | sandbox runtime 可用，CLI/MCP smoke 通过，不污染宿主项目 hooks |
 | Benchmark / Proof | ok | capability certification、activation proof、fusion benchmark、heavy proof |
 | 自演化能力 | ok | capability scorecard、runtime-aware ranking、experience memory 和 regression gates |
+| 大咖洞察与洞察报告写作分析 | retired | 产品归属已迁移到 GenesisPod；Solar 不再开发或提供该产品面，仅保留数据供给、历史证据和迁移兼容层 |
 
 ## 快速开始
 
