@@ -868,7 +868,15 @@ def _trigger_shared_claude_login(
 def _shared_claude_auth_status() -> dict[str, Any]:
     executable = shutil.which("claude")
     if not executable:
-        return {"ok": False, "logged_in": False, "reason": "claude_cli_missing"}
+        return {
+            "ok": False,
+            "logged_in": False,
+            "credential_present": False,
+            "verified_usable": False,
+            "auth_failure": False,
+            "probe_state": "indeterminate",
+            "reason": "claude_cli_missing",
+        }
     try:
         proc = subprocess.run(
             [executable, "auth", "status"],
@@ -878,7 +886,15 @@ def _shared_claude_auth_status() -> dict[str, Any]:
             timeout=15,
         )
     except Exception as exc:
-        return {"ok": False, "logged_in": False, "reason": f"claude_auth_status_failed:{type(exc).__name__}"}
+        return {
+            "ok": False,
+            "logged_in": False,
+            "credential_present": False,
+            "verified_usable": False,
+            "auth_failure": False,
+            "probe_state": "indeterminate",
+            "reason": f"claude_auth_status_failed:{type(exc).__name__}",
+        }
     try:
         payload = json.loads(proc.stdout or "{}")
     except Exception:
@@ -890,6 +906,8 @@ def _shared_claude_auth_status() -> dict[str, Any]:
             "logged_in": False,
             "credential_present": False,
             "verified_usable": False,
+            "auth_failure": True,
+            "probe_state": "auth_failed",
             "auth_method": str(payload.get("authMethod") or ""),
             "subscription_type": str(payload.get("subscriptionType") or ""),
             "reason": "shared_auth_login_required",
@@ -923,13 +941,15 @@ def _shared_claude_auth_status() -> dict[str, Any]:
     except Exception as exc:
         return {
             "ok": False,
-            "logged_in": False,
+            "logged_in": True,
             "credential_present": True,
             "verified_usable": False,
+            "auth_failure": False,
+            "probe_state": "indeterminate",
             "auth_method": str(payload.get("authMethod") or ""),
             "subscription_type": str(payload.get("subscriptionType") or ""),
             "probe_model": probe_model,
-            "reason": f"shared_auth_probe_failed:{type(exc).__name__}",
+            "reason": f"shared_auth_probe_indeterminate:{type(exc).__name__}",
         }
     probe_output = f"{probe.stdout or ''}\n{probe.stderr or ''}"
     auth_failure = bool(SHARED_CLAUDE_AUTH_FAILURE_RE.search(probe_output))
@@ -940,16 +960,55 @@ def _shared_claude_auth_status() -> dict[str, Any]:
     )
     return {
         "ok": verified_usable,
-        "logged_in": verified_usable,
+        "logged_in": not auth_failure,
         "credential_present": True,
         "verified_usable": verified_usable,
+        "auth_failure": auth_failure,
+        "probe_state": "verified" if verified_usable else ("auth_failed" if auth_failure else "indeterminate"),
         "auth_method": str(payload.get("authMethod") or ""),
         "subscription_type": str(payload.get("subscriptionType") or ""),
         "probe_model": probe_model,
         "probe_returncode": probe.returncode,
         "reason": "shared_auth_live_probe_ok" if verified_usable else (
-            "shared_auth_live_probe_401" if auth_failure else "shared_auth_live_probe_failed"
+            "shared_auth_live_probe_401" if auth_failure else "shared_auth_live_probe_indeterminate"
         ),
+    }
+
+
+def _shared_claude_auth_failed(auth_status: dict[str, Any] | None) -> bool:
+    status = auth_status or {}
+    reason = str(status.get("reason") or "").lower()
+    return bool(status.get("auth_failure")) or reason in {
+        "shared_auth_login_required",
+        "shared_auth_live_probe_401",
+    }
+
+
+def _shared_claude_pane_auth_evidence(
+    actor_mailbox_wake: Any,
+    claude_targets: dict[str, tuple[str, dict[str, Any]]],
+) -> dict[str, Any]:
+    items: list[dict[str, str]] = []
+    healthy: list[str] = []
+    auth_expired: list[str] = []
+    for actor_id, (pane, _spec) in sorted(claude_targets.items()):
+        try:
+            tail = actor_mailbox_wake.capture_pane_tail(pane)
+            state, reason = actor_mailbox_wake.classify_tail(tail)
+        except Exception as exc:
+            state = "indeterminate"
+            reason = f"pane_auth_evidence_failed:{type(exc).__name__}"
+        items.append({"operator_id": actor_id, "pane": pane, "state": state, "reason": reason})
+        if state == "ok":
+            healthy.append(actor_id)
+        elif state == "auth_expired":
+            auth_expired.append(actor_id)
+    return {
+        "verified_usable": bool(healthy),
+        "reason": "shared_auth_interactive_pane_ok" if healthy else "shared_auth_panes_unverified",
+        "healthy_operators": healthy,
+        "auth_expired_operators": auth_expired,
+        "items": items,
     }
 
 
@@ -1007,11 +1066,21 @@ def _consume_completed_shared_claude_login(actor_mailbox_wake: Any, *, apply: bo
         return {"completed": False, "reason": "shared_login_still_pending", **pending}
     auth_status = _shared_claude_auth_status()
     if not bool(auth_status.get("verified_usable")):
-        return {
-            "completed": False,
-            "reason": "shared_login_success_marker_unverified",
-            "auth_status": auth_status,
-            **pending,
+        if _shared_claude_auth_failed(auth_status):
+            return {
+                "completed": False,
+                "reason": "shared_login_success_marker_unverified",
+                "auth_status": auth_status,
+                **pending,
+            }
+        auth_status = {
+            **auth_status,
+            "ok": True,
+            "logged_in": True,
+            "verified_usable": True,
+            "auth_failure": False,
+            "probe_state": "verified",
+            "reason": "shared_auth_login_marker_ok",
         }
     cleared = _clear_shared_claude_auth_repair_request() if apply else False
     return {
@@ -1170,13 +1239,36 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
     )
     if auth_attention_required and shared_auth_status is None:
         shared_auth_status = _shared_claude_auth_status()
+    pane_auth_evidence: dict[str, Any] = {}
+    if (
+        auth_attention_required
+        and not bool((shared_auth_status or {}).get("verified_usable"))
+        and not _shared_claude_auth_failed(shared_auth_status)
+    ):
+        pane_auth_evidence = _shared_claude_pane_auth_evidence(actor_mailbox_wake, claude_targets)
+        if bool(pane_auth_evidence.get("verified_usable")):
+            shared_auth_status = {
+                **(shared_auth_status or {}),
+                "ok": True,
+                "logged_in": True,
+                "verified_usable": True,
+                "auth_failure": False,
+                "probe_state": "verified",
+                "reason": "shared_auth_interactive_pane_ok",
+                "verification_source": "tmux_interactive_pane",
+            }
     blocked_claude_targets: set[str] = set()
     shared_auth_gate: dict[str, Any] = {
         "checked": auth_attention_required,
         "verified_usable": bool((shared_auth_status or {}).get("verified_usable")),
         "auth_status": shared_auth_status or {},
+        "pane_auth_evidence": pane_auth_evidence,
     }
-    if auth_attention_required and not bool((shared_auth_status or {}).get("verified_usable")):
+    if (
+        auth_attention_required
+        and not bool((shared_auth_status or {}).get("verified_usable"))
+        and _shared_claude_auth_failed(shared_auth_status)
+    ):
         blocked_claude_targets = set(claude_targets)
         block = {
             "runtime_state": "auth_expired",

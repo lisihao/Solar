@@ -92,6 +92,34 @@ def test_load_actor_registry_derives_from_physical_and_applies_override(tmp_path
     assert actor["evidence"]["last_smoke_result"] == "override-smoke"
 
 
+def test_actor_registry_does_not_treat_fallback_profile_as_actor_id(tmp_path):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "actor-hosts.json").write_text(
+        json.dumps({"version": 1, "hosts": {"mini": {"host_id": "mini", "host_type": "mac_mini"}}}),
+        encoding="utf-8",
+    )
+    (config_dir / "physical-operators.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "operators": {
+                    "mini-derived-builder": {
+                        "role": "builder",
+                        "fallback_profile": "builder",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (config_dir / "agent-actors.json").write_text(json.dumps({"version": 1, "actors": {}}), encoding="utf-8")
+
+    actor = ar.load_actor_registry(config_dir / "agent-actors.json")["actors"]["mini-derived-builder"]
+
+    assert actor["fallback_ladder"] == []
+
+
 def test_multi_task_status_load_actors_uses_sibling_physical_registry(tmp_path):
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True)

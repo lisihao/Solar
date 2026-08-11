@@ -208,10 +208,14 @@ def _derive_policy(risk_profile: dict[str, Any]) -> dict[str, Any]:
 
 
 def _derive_fallback_ladder(operator_cfg: dict[str, Any]) -> list[dict[str, str]]:
-    fallback = str(operator_cfg.get("fallback_profile") or "").strip()
+    fallback = str(
+        operator_cfg.get("fallback_actor_id")
+        or operator_cfg.get("fallback_operator_id")
+        or ""
+    ).strip()
     if not fallback:
         return []
-    return [{"actor_id": fallback, "condition": "profile_fallback"}]
+    return [{"actor_id": fallback, "condition": "operator_fallback"}]
 
 
 def derive_actor_from_operator(
@@ -366,6 +370,18 @@ def validate_actor_registry(
             warnings.append(f"{actor_id}: logical advisor has no physical operator binding")
         operator_cfg = physical_ops.get(operator_alias) if isinstance(physical_ops.get(operator_alias), dict) else {}
         if bool(actor.get("deprecated")) or bool(operator_cfg.get("deprecated")):
+            builder_pool = operator_cfg.get("builder_pool") if isinstance(operator_cfg.get("builder_pool"), dict) else {}
+            contradictions = []
+            if operator_cfg.get("enabled") is True:
+                contradictions.append("enabled=true")
+            if operator_cfg.get("available") is True:
+                contradictions.append("available=true")
+            if builder_pool.get("enabled") is True:
+                contradictions.append("builder_pool.enabled=true")
+            if contradictions:
+                errors.append(
+                    f"{actor_id}: deprecated physical operator cannot also set {', '.join(contradictions)}"
+                )
             warnings.append(f"{actor_id}: deprecated actor excluded from active host validation")
             continue
         host_id = str(actor.get("host_id") or "").strip()

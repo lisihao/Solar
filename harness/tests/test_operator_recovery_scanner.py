@@ -584,6 +584,50 @@ def test_completed_shared_claude_login_keeps_request_when_live_probe_fails(tmp_p
     assert request_path.exists()
 
 
+def test_completed_shared_claude_login_accepts_marker_when_probe_is_indeterminate(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    request_path = tmp_path / "run" / "auth-repair-requests" / "shared-claude-subscription.json"
+    request_path.parent.mkdir(parents=True)
+    request_path.write_text(
+        json.dumps(
+            {
+                "scope_id": "shared-claude-subscription",
+                "login_flow": {
+                    "status": "pending",
+                    "triggered_at": scanner._iso(),
+                    "pane": "session:0.1",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    actor_wake = types.SimpleNamespace(
+        AUTH_RECOVERY_RE=re.compile(r"Login successful", re.I),
+        capture_pane_tail=lambda pane: "Login successful\n❯ ",
+    )
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {
+            "ok": False,
+            "logged_in": True,
+            "credential_present": True,
+            "verified_usable": False,
+            "auth_failure": False,
+            "probe_state": "indeterminate",
+            "reason": "shared_auth_probe_indeterminate:TimeoutExpired",
+        },
+    )
+
+    result = scanner._consume_completed_shared_claude_login(actor_wake, apply=True)
+
+    assert result["completed"] is True
+    assert result["request_cleared"] is True
+    assert result["auth_status"]["verified_usable"] is True
+    assert result["auth_status"]["reason"] == "shared_auth_login_marker_ok"
+    assert not request_path.exists()
+
+
 def test_shared_claude_auth_status_requires_successful_live_probe(monkeypatch):
     calls = []
 
@@ -641,7 +685,76 @@ def test_shared_claude_auth_status_rejects_stale_credential_401(monkeypatch):
     assert status["credential_present"] is True
     assert status["verified_usable"] is False
     assert status["logged_in"] is False
+    assert status["auth_failure"] is True
+    assert status["probe_state"] == "auth_failed"
     assert status["reason"] == "shared_auth_live_probe_401"
+
+
+def test_shared_claude_auth_status_treats_probe_timeout_as_indeterminate(monkeypatch):
+    def fake_run(command, **kwargs):
+        if command[1:3] == ["auth", "status"]:
+            return types.SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "max"}),
+                stderr="",
+            )
+        raise scanner.subprocess.TimeoutExpired(command, kwargs.get("timeout", 45))
+
+    monkeypatch.setattr(scanner.shutil, "which", lambda executable: "/usr/local/bin/claude")
+    monkeypatch.setattr(scanner.subprocess, "run", fake_run)
+
+    status = scanner._shared_claude_auth_status()
+
+    assert status["credential_present"] is True
+    assert status["logged_in"] is True
+    assert status["verified_usable"] is False
+    assert status["auth_failure"] is False
+    assert status["probe_state"] == "indeterminate"
+    assert status["reason"] == "shared_auth_probe_indeterminate:TimeoutExpired"
+
+
+def test_shared_claude_indeterminate_probe_uses_healthy_tmux_pane(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    actor_id = "mini-claude-sonnet-builder"
+    monkeypatch.setattr(scanner, "_actor_mailbox_wake_targets", lambda: {actor_id: "session:0.3"})
+    monkeypatch.setattr(scanner, "_configured_claude_interactive_target", lambda operator_id: True)
+    monkeypatch.setattr(scanner, "_runtime_status_state", lambda operator_id: "auth_expired")
+    monkeypatch.setattr(scanner, "_actor_inbox_task_count", lambda operator_id: 1)
+    monkeypatch.setattr(scanner, "_actor_processing_task_count", lambda operator_id: 0)
+    monkeypatch.setattr(scanner, "_ensure_actor_pane_available", lambda *args, **kwargs: {"ok": True})
+    monkeypatch.setattr(
+        scanner,
+        "_shared_claude_auth_status",
+        lambda: {
+            "ok": False,
+            "logged_in": True,
+            "credential_present": True,
+            "verified_usable": False,
+            "auth_failure": False,
+            "probe_state": "indeterminate",
+            "reason": "shared_auth_probe_indeterminate:TimeoutExpired",
+        },
+    )
+    monkeypatch.setattr(scanner, "_shared_claude_login_pending", lambda: None)
+    wake_calls = []
+    actor_wake = types.SimpleNamespace(
+        wake_actor=lambda actor, pane, *, dry_run=False: wake_calls.append((actor, pane)) or {
+            "ok": True,
+            "status": "processing",
+            "reason": "wake_sent",
+            "claimed": True,
+        },
+        capture_pane_tail=lambda pane: "Claude Code v2\n❯ ",
+        classify_tail=lambda tail: ("ok", ""),
+    )
+    monkeypatch.setitem(sys.modules, "actor_mailbox_wake", actor_wake)
+
+    payload = scanner._scan_actor_mailbox_wake(apply=True)
+
+    assert payload["shared_auth_gate"]["verified_usable"] is True
+    assert payload["shared_auth_gate"]["auth_status"]["verification_source"] == "tmux_interactive_pane"
+    assert payload["blocked"] == 0
+    assert wake_calls == [(actor_id, "session:0.3")]
 
 
 def test_recovery_scanner_scans_actor_with_processing_backlog(tmp_path: Path, monkeypatch):

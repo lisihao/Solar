@@ -291,14 +291,28 @@ def validate_physical_operator_registry(
         if bool(operator_cfg.get("deprecated")):
             provider = canonical_provider(str(operator_cfg.get("provider") or "unknown"))
             provider_counts[provider] = provider_counts.get(provider, 0) + 1
+            builder_pool = operator_cfg.get("builder_pool") if isinstance(operator_cfg.get("builder_pool"), dict) else {}
+            contradictions = []
+            if operator_cfg.get("enabled") is True:
+                contradictions.append("enabled=true")
+            if operator_cfg.get("available") is True:
+                contradictions.append("available=true")
+            if builder_pool.get("enabled") is True:
+                contradictions.append("builder_pool.enabled=true")
+            deprecation_errors = (
+                [f"deprecated operator cannot also set {', '.join(contradictions)}"]
+                if contradictions
+                else []
+            )
             by_operator[operator_id] = {
                 "operator_id": operator_id,
                 "provider": provider,
-                "ok": True,
+                "ok": not deprecation_errors,
                 "skipped": "deprecated",
-                "errors": [],
+                "errors": deprecation_errors,
                 "warnings": ["deprecated operator excluded from active adapter validation"],
             }
+            errors.extend(f"{operator_id}: {msg}" for msg in deprecation_errors)
             warnings.append(f"{operator_id}: deprecated operator excluded from active adapter validation")
             continue
         result = validate_operator_spec(operator_id, operator_cfg, registry_path=registry_path)

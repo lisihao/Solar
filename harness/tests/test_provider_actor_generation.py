@@ -28,6 +28,30 @@ def test_physical_operator_registry_passes_provider_adapter_validation():
     assert result["summary"]["operator_count"] >= 1
 
 
+def test_physical_operator_registry_rejects_enabled_deprecated_contradiction():
+    registry = {
+        "operators": {
+            "broken-builder": {
+                "provider": "openai",
+                "backend": "command",
+                "model": "gpt-test",
+                "enabled": True,
+                "available": True,
+                "deprecated": True,
+                "builder_pool": {"enabled": True},
+            }
+        }
+    }
+
+    result = par.validate_physical_operator_registry(registry)
+
+    assert result["ok"] is False
+    assert result["by_operator"]["broken-builder"]["ok"] is False
+    assert "enabled=true" in result["errors"][0]
+    assert "available=true" in result["errors"][0]
+    assert "builder_pool.enabled=true" in result["errors"][0]
+
+
 def test_provider_probe_hints_cover_browser_glm_and_local_command_operators():
     physical = json.loads(PHYSICAL_OPERATORS_FILE.read_text(encoding="utf-8"))["operators"]
     browser = par.probe_hints(
