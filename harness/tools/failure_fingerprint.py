@@ -5,8 +5,16 @@ and FAST_PROTOTYPE task types.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import sys
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional
+
+try:
+    from antigravity_placement_policy import legacy_antigravity_denial_reasons
+except ImportError:  # pragma: no cover - direct tools/ execution fallback
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    from antigravity_placement_policy import legacy_antigravity_denial_reasons  # type: ignore
 
 
 # Fingerprint penalty configs
@@ -61,16 +69,17 @@ def apply_antigravity_denial(
     is_security_gate: bool = False,
     is_core_runtime: bool = False,
 ) -> Dict[str, bool]:
-    """Apply Antigravity final-authority denial before scoring."""
-    denial_reasons = {}
+    """Apply Antigravity final-authority denial before scoring.
 
-    if is_final_architecture:
-        denial_reasons["final_architecture"] = True
-    if is_final_verifier:
-        denial_reasons["final_verifier"] = True
-    if is_security_gate:
-        denial_reasons["security_gate"] = True
-    if is_core_runtime:
-        denial_reasons["core_runtime_approval"] = True
-
-    return denial_reasons
+    The public return shape stays a boolean reason map for compatibility, but
+    each enabled legacy reason is derived from the canonical actor-aware
+    placement gate.
+    """
+    return legacy_antigravity_denial_reasons(
+        task_type=task_type,
+        actor_id=actor_id,
+        is_final_architecture=is_final_architecture,
+        is_final_verifier=is_final_verifier,
+        is_security_gate=is_security_gate,
+        is_core_runtime=is_core_runtime,
+    )

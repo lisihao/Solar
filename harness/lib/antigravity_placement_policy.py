@@ -10,6 +10,13 @@ FAN_OUT_ELIGIBLE = "FAN_OUT_ELIGIBLE"
 NEUTRAL = "NEUTRAL"
 VALID_PLACEMENT_CLASSES = frozenset({FINAL_AUTHORITY, FAN_OUT_ELIGIBLE, NEUTRAL})
 ANTIGRAVITY_PROVIDER_FAMILY = "antigravity"
+ANTIGRAVITY_FINAL_AUTHORITY_REASON = "antigravity_forbidden_in_final_authority"
+ANTIGRAVITY_NEUTRAL_PRIORITY_REASON = "antigravity_priority_too_high_for_neutral"
+LEGACY_FINAL_AUTHORITY_OPERATORS = (
+    ("final_architecture", "DeepArchitect"),
+    ("final_verifier", "Verifier"),
+    ("security_gate", "SecurityGate"),
+)
 
 
 @dataclass(frozen=True)
@@ -88,13 +95,13 @@ def evaluate_antigravity_placement(
         resolved_family == ANTIGRAVITY_PROVIDER_FAMILY
         and normalized_class == FINAL_AUTHORITY
     ):
-        reason = "antigravity_forbidden_in_final_authority"
+        reason = ANTIGRAVITY_FINAL_AUTHORITY_REASON
     elif (
         resolved_family == ANTIGRAVITY_PROVIDER_FAMILY
         and normalized_class == NEUTRAL
         and normalized_priority < 3
     ):
-        reason = "antigravity_priority_too_high_for_neutral"
+        reason = ANTIGRAVITY_NEUTRAL_PRIORITY_REASON
 
     return AntigravityPlacementDecision(
         allowed=reason is None,
@@ -105,3 +112,36 @@ def evaluate_antigravity_placement(
         placement_class=normalized_class,
         provider_priority=normalized_priority,
     )
+
+
+def legacy_antigravity_denial_reasons(
+    *,
+    task_type: str,
+    actor_id: str,
+    is_final_architecture: bool = False,
+    is_final_verifier: bool = False,
+    is_security_gate: bool = False,
+    is_core_runtime: bool = False,
+) -> Dict[str, bool]:
+    """Return the legacy boolean denial map via the canonical placement gate."""
+    checks = [
+        ("final_architecture", is_final_architecture, "DeepArchitect"),
+        ("final_verifier", is_final_verifier, "Verifier"),
+        ("security_gate", is_security_gate, "SecurityGate"),
+        ("core_runtime_approval", is_core_runtime, task_type or "CoreRuntime"),
+    ]
+
+    denial_reasons: Dict[str, bool] = {}
+    for legacy_reason, enabled, logical_operator in checks:
+        if not enabled:
+            continue
+        decision = evaluate_antigravity_placement(
+            actor_id=actor_id,
+            logical_operator=logical_operator,
+            provider_family=None,
+            placement_class=FINAL_AUTHORITY,
+            provider_priority=99,
+        )
+        if not decision.allowed and decision.reason == ANTIGRAVITY_FINAL_AUTHORITY_REASON:
+            denial_reasons[legacy_reason] = True
+    return denial_reasons

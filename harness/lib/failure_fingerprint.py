@@ -7,15 +7,11 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 try:
     from antigravity_placement_policy import (
-        ANTIGRAVITY_PROVIDER_FAMILY,
-        FINAL_AUTHORITY,
-        evaluate_antigravity_placement,
+        legacy_antigravity_denial_reasons,
     )
 except ImportError:  # pragma: no cover - package import fallback
     from .antigravity_placement_policy import (  # type: ignore
-        ANTIGRAVITY_PROVIDER_FAMILY,
-        FINAL_AUTHORITY,
-        evaluate_antigravity_placement,
+        legacy_antigravity_denial_reasons,
     )
 
 
@@ -442,25 +438,11 @@ def apply_antigravity_denial(
     each legacy reason is now derived from the canonical actor-aware placement
     gate rather than a separate boolean-only rule set.
     """
-    denial_reasons = {}
-    checks = (
-        ("final_architecture", is_final_architecture, "DeepArchitect"),
-        ("final_verifier", is_final_verifier, "Verifier"),
-        ("security_gate", is_security_gate, "SecurityGate"),
-        ("core_runtime_approval", is_core_runtime, task_type or "CoreRuntime"),
+    return legacy_antigravity_denial_reasons(
+        task_type=task_type,
+        actor_id=actor_id,
+        is_final_architecture=is_final_architecture,
+        is_final_verifier=is_final_verifier,
+        is_security_gate=is_security_gate,
+        is_core_runtime=is_core_runtime,
     )
-
-    for legacy_reason, enabled, logical_operator in checks:
-        if not enabled:
-            continue
-        decision = evaluate_antigravity_placement(
-            actor_id=actor_id,
-            logical_operator=logical_operator,
-            provider_family=ANTIGRAVITY_PROVIDER_FAMILY,
-            placement_class=FINAL_AUTHORITY,
-            provider_priority=99,
-        )
-        if not decision.allowed and decision.reason == "antigravity_forbidden_in_final_authority":
-            denial_reasons[legacy_reason] = True
-
-    return denial_reasons

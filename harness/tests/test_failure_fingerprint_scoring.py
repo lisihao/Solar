@@ -187,14 +187,20 @@ def test_mapping_and_labels_are_canonical():
     print("PASS: mapping_and_labels_are_canonical")
 
 def test_antigravity_denial():
-    d = apply_antigravity_denial("ARCH_DESIGN", "a1", is_final_architecture=True)
+    actor_id = "mini-antigravity-gemini31-pro"
+    d = apply_antigravity_denial("ARCH_DESIGN", actor_id, is_final_architecture=True)
     assert "final_architecture" in d
-    d2 = apply_antigravity_denial("VERIFY", "a1", is_final_verifier=True)
+    d2 = apply_antigravity_denial("VERIFY", actor_id, is_final_verifier=True)
     assert "final_verifier" in d2
-    d3 = apply_antigravity_denial("SECURITY", "a1", is_security_gate=True)
+    d3 = apply_antigravity_denial("SECURITY", actor_id, is_security_gate=True)
     assert "security_gate" in d3
-    d4 = apply_antigravity_denial("CORE_RUNTIME", "a1", is_core_runtime=True)
+    d4 = apply_antigravity_denial("CORE_RUNTIME", actor_id, is_core_runtime=True)
     assert "core_runtime_approval" in d4
+    assert apply_antigravity_denial(
+        "ARCH_DESIGN",
+        "mini-claude-sonnet-builder",
+        is_final_architecture=True,
+    ) == {}
     print("PASS: antigravity_denial")
 
 if __name__ == "__main__":
