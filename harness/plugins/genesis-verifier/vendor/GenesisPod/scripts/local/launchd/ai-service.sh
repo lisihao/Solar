@@ -10,5 +10,5 @@ if [[ ! -x .venv/bin/uvicorn ]]; then
   exit 127
 fi
 
-log "Starting GenesisPod AI service on :${AI_SERVICE_PORT}"
-exec .venv/bin/uvicorn main:app --host 0.0.0.0 --port "$AI_SERVICE_PORT"
+log "Starting GenesisPod AI service on 127.0.0.1:${AI_SERVICE_PORT}"
+exec .venv/bin/uvicorn main:app --host 127.0.0.1 --port "$AI_SERVICE_PORT"
