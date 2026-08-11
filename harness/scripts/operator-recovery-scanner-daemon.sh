@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 LABEL="${SOLAR_OPERATOR_RECOVERY_SCANNER_LABEL:-com.solar.harness.operator-recovery-scanner}"
-INTERVAL="${SOLAR_OPERATOR_RECOVERY_SCANNER_INTERVAL:-60}"
+INTERVAL="${SOLAR_OPERATOR_RECOVERY_SCANNER_INTERVAL:-600}"
 PLIST_PATH="${HOME}/Library/LaunchAgents/${LABEL}.plist"
 LOG_DIR="${HARNESS_DIR}/logs"
 STDOUT_LOG="${LOG_DIR}/operator-recovery-scanner.out.log"
@@ -71,8 +71,6 @@ write_plist() {
     <string>${HARNESS_DIR}/scripts/operator-recovery-scanner-daemon.sh</string>
     <string>run-once</string>
   </array>
-  <key>RunAtLoad</key>
-  <true/>
   <key>StartInterval</key>
   <integer>${INTERVAL}</integer>
   <key>WorkingDirectory</key>
