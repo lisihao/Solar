@@ -26,6 +26,7 @@ HARNESS_DIR="$HOME/.solar/harness"
 SPRINTS_DIR="$HARNESS_DIR/sprints"
 SESSION_NAME="solar-harness"
 LAB_SESSION_NAME="solar-harness-lab"
+SOLAR_WATCHDOG_ENSURE_LAB_SESSION="${SOLAR_WATCHDOG_ENSURE_LAB_SESSION:-1}"
 WATCHDOG_PID_FILE="$HARNESS_DIR/.watchdog.pid"
 WATCHDOG_STATE="$HARNESS_DIR/.watchdog-state"
 COORD_PID_FILE="$HARNESS_DIR/.coordinator.pid"
@@ -359,7 +360,7 @@ ensure_tmux_sessions() {
     missing=1
   fi
 
-  if ! tmux has-session -t "$LAB_SESSION_NAME" &>/dev/null; then
+  if [[ "$SOLAR_WATCHDOG_ENSURE_LAB_SESSION" == "1" ]] && ! tmux has-session -t "$LAB_SESSION_NAME" &>/dev/null; then
     warn "tmux session missing: ${LAB_SESSION_NAME}; rebuilding Strategy Lab"
     TERM=dumb "$HARNESS_DIR/solar-harness.sh" 扩展 "$HOME" >> "$HARNESS_DIR/.watchdog-launchd.log" 2>&1 || true
     missing=1
@@ -602,6 +603,8 @@ write_launchd_plist() {
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:${HOME}/n/bin:${HOME}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>SOLAR_WATCHDOG_ENSURE_LAB_SESSION</key>
+        <string>0</string>
     </dict>
 </dict>
 </plist>
