@@ -929,6 +929,49 @@ def test_actor_mailbox_wake_targets_load_from_config(tmp_path: Path, monkeypatch
     assert scanner._actor_respawn_cwd("op-configured") == "/tmp/project"
 
 
+def test_recovery_scanner_excludes_disabled_deprecated_claude_print_target(tmp_path: Path, monkeypatch):
+    _patch_paths(monkeypatch, tmp_path)
+    actor_id = "mini-claude-opus-evaluator-print"
+    config_path = tmp_path / "config" / "actor-mailbox-wake-targets.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        json.dumps({"targets": {actor_id: {"pane": "session:0.3", "respawn_command": "claude --print --model opus"}}}),
+        encoding="utf-8",
+    )
+    _write_registry(
+        tmp_path,
+        {
+            actor_id: {
+                "provider": "anthropic",
+                "backend": "claude-cli",
+                "launch_cmd_kind": "print_once",
+                "auth_mode": "subscription",
+                "enabled": False,
+                "available": False,
+                "deprecated": True,
+                "health_status": "deprecated_print_once_api_path",
+            }
+        },
+    )
+    actor_wake = types.SimpleNamespace(
+        wake_actor=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("deprecated target must not wake")),
+    )
+    monkeypatch.setitem(sys.modules, "actor_mailbox_wake", actor_wake)
+
+    payload = scanner._scan_actor_mailbox_wake(apply=True)
+
+    assert payload["scanned"] == 0
+    assert payload["blocked"] == 0
+    assert payload["shared_auth_gate"]["checked"] is False
+    assert payload["skipped"] == [
+        {
+            "operator_id": actor_id,
+            "pane": "session:0.3",
+            "reason": "disabled_deprecated_claude_print_target",
+        }
+    ]
+
+
 def test_recovery_scanner_reports_unmapped_actor_backlog(tmp_path: Path, monkeypatch):
     _patch_paths(monkeypatch, tmp_path)
     config_path = tmp_path / "config" / "actor-mailbox-wake-targets.json"

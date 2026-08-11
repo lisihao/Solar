@@ -1220,8 +1220,22 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
             "items": [],
         }
 
-    targets = _actor_mailbox_wake_targets()
+    configured_targets = _actor_mailbox_wake_targets()
     registry = _load_operator_registry()
+    disabled_target_rows: list[dict[str, str]] = []
+    targets: dict[str, str] = {}
+    for actor_id, pane in configured_targets.items():
+        spec = _operator_spec(registry, actor_id)
+        if _is_disabled_deprecated_claude_print_operator(spec):
+            disabled_target_rows.append(
+                {
+                    "operator_id": actor_id,
+                    "pane": pane,
+                    "reason": "disabled_deprecated_claude_print_target",
+                }
+            )
+            continue
+        targets[actor_id] = pane
     shared_auth_status: dict[str, Any] | None = None
     shared_login_completion = _consume_completed_shared_claude_login(actor_mailbox_wake, apply=apply)
     if isinstance(shared_login_completion.get("auth_status"), dict):
@@ -1339,7 +1353,7 @@ def _scan_actor_mailbox_wake(*, apply: bool) -> dict[str, Any]:
     rebalanced = _rebalance_mapped_inbox(targets, apply=apply)
     unmapped_backlog = _collect_unmapped_actor_backlog(targets)
     items: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = list(disabled_target_rows)
     busy_panes: set[str] = set()
     woken = 0
     blocked = 0
